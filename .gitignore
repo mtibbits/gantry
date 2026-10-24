@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.venv/
+# Generated pages and per-installation config never belong in this repo.
+out/
+*.local.toml
