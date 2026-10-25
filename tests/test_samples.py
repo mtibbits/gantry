@@ -902,3 +902,22 @@ def test_attr_check_names_unpinned_stuck(tmp_path):
     assert unpinned(tree, sample_files(tree, hermetic=True), hermetic=True) == []
     marsh = git(tree, "check-attr", "text", "--", MARSH_PATH, hermetic=True)
     assert _decode(marsh.stdout).strip().endswith("text: unset")
+
+
+# --- samples/README.md --------------------------------------------------------
+
+README = SAMPLES / "README.md"
+CODE_SPAN_RE = re.compile(r"`([^`\n]+)`")
+
+
+def test_readme_hostile_title_span():
+    spans = [s for s in CODE_SPAN_RE.findall(README.read_text(encoding="utf-8")) if "<b>" in s]
+    assert spans == [HOSTILE_TITLE]
+
+
+def test_readme_states_rules():
+    text = README.read_text(encoding="utf-8")
+    wanted = ["fictional", "tests/sample_roles.py", "out/", "eol=lf", "-text", "estimates"]
+    wanted += [BUSY, OWN_UNIT, UNESTIMATED, SMALL, NO_WBS, UNREADABLE]
+    wanted += [f"`{name}`" for name in sorted(RESERVED_FOLDERS)]
+    assert [w for w in wanted if w not in text] == []
