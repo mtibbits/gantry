@@ -1,0 +1,59 @@
+# Every name in this file is fictional: sample sites for gantry's tests and demo.
+# Paths are relative to this file's folder (samples/devagent/).
+
+[defaults]
+checklist_template = "standard"
+
+[project.harbor]
+devdoc_dir = "../harbor"
+default_baseline = "origin/main"
+
+[project.harbor.issue_source]
+backend = "github"
+repo = "sample_owner/harbor"
+dir_prefix = "Issue-"
+
+[project.orchard]
+devdoc_dir = "../orchard"
+default_baseline = "origin/main"
+
+[project.orchard.issue_source]
+backend = "github"
+repo = "sample_owner/orchard"
+dir_prefix = "Issue-"
+
+[project.quarry]
+devdoc_dir = "../quarry"
+default_baseline = "origin/main"
+
+[project.quarry.issue_source]
+backend = "github"
+repo = "sample_owner/quarry"
+dir_prefix = "Issue-"
+
+[project.lighthouse]
+devdoc_dir = "../lighthouse"
+default_baseline = "origin/main"
+
+[project.lighthouse.issue_source]
+backend = "github"
+repo = "sample_owner/lighthouse"
+dir_prefix = "Issue-"
+
+[project.bakery]
+devdoc_dir = "../bakery"
+default_baseline = "origin/main"
+
+[project.bakery.issue_source]
+backend = "github"
+repo = "sample_owner/bakery"
+dir_prefix = "Issue-"
+
+[project.marsh]
+devdoc_dir = "../marsh"
+default_baseline = "origin/main"
+
+[project.marsh.issue_source]
+backend = "github"
+repo = "sample_owner/marsh"
+dir_prefix = "Issue-"
