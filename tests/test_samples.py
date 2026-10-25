@@ -895,8 +895,12 @@ def test_attr_check_names_unpinned_stuck(tmp_path):
 
     attrs = tree / ".gitattributes"
     before = attrs.read_bytes().decode("utf-8")
-    stuck_line = "samples/**/STUCK text eol=lf\n"
-    after = before.replace(MARSH_OVERRIDE + "\n", stuck_line + MARSH_OVERRIDE + "\n", 1)
+    # Line-wise, keeping the line's own ending: an autocrlf checkout makes
+    # .gitattributes CRLF, since no attribute line covers it.
+    lines = before.splitlines(keepends=True)
+    at = next(i for i, line in enumerate(lines) if line.rstrip("\r\n") == MARSH_OVERRIDE)
+    lines.insert(at, "samples/**/STUCK text eol=lf" + lines[at][len(MARSH_OVERRIDE):])
+    after = "".join(lines)
     assert after != before, "the STUCK line was not inserted"
     attrs.write_bytes(after.encode("utf-8"))
     assert unpinned(tree, sample_files(tree, hermetic=True), hermetic=True) == []
