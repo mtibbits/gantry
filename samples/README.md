@@ -63,7 +63,8 @@ outside pytest adds `<repo>/tests` to `sys.path` first.
 - The line-ending rule: `.gitattributes` pins sample `.md`, `.toml` and
   `.json` files to `eol=lf`. A sample file of a type those lines do not
   cover adds its own `eol=lf` line, or `-text` if it is binary, above the
-  marsh override (`samples/marsh/WBS.md -text`), which stays last. The
-  sample check fails otherwise, on every platform.
+  marsh override (`samples/marsh/WBS.md -text`). No line below the
+  override may match `samples/marsh/WBS.md`. The sample check fails
+  otherwise, on every platform.
 - Reserved folder names: no site may be named `devagent`, `out`,
   `history`, `actuals` or `forecast`.

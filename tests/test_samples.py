@@ -864,7 +864,7 @@ def _temp_tree(tmp_path, with_git):
     return tree
 
 
-PLANTED_BYTES = b"\xef\xbb\xbfx\r\n" +("D" + ":" + "\\" + "work").encode("ascii") + b"\n"
+PLANTED_BYTES = b"\xef\xbb\xbfx\r\n" + ("D" + ":" + "\\" + "work").encode("ascii") + b"\n"
 
 
 @pytest.mark.parametrize("mode", [pytest.param("git", marks=needs_git), "nogit"])
