@@ -4,7 +4,7 @@ These are fictional inputs for Gantry's tests and demo. Every name in them
 is made up: the sites, the owner `sample_owner`, the issues and their
 titles. The words devagent and gantry appear only as the names of the two
 public tools (in prose, in the `samples/devagent/` folder name and in
-`gantry.sample.toml`).
+`gantry.sample.toml`, which #7 adds).
 
 ## Layout
 
@@ -30,8 +30,8 @@ the demo shows record text rendered as text:
 
 | Site | Constant(s) | Role | Shapes it carries |
 |---|---|---|---|
-| harbor | `BUSY` | well estimated, with model tiers; the busy site | two epics, each with an `issue:` id; a `depends_on` naming a leaf under the other epic; P1 to P4 each present, and leaves with no priority; 8 open, 5 finished (`x`), one in-progress (`~`) and one skipped (`-`) `issue:` leaf; `est: ?w` on open leaves that have estimates rows; the estimates file, with a row for every open `issue:` leaf, one epic row and one finished row |
-| orchard | `OWN_UNIT` | `est:` values and a unit of its own | `Nd`, `Nw`, `?w` and the non-time `Npt`; no priority at all; three issue-less leaves; a `depends_on` entry that is an outline number (`2.1`) and names no issue |
+| harbor | `BUSY` | well estimated, with model tiers; the busy site | two epics, each with an `issue:` id; a `depends_on` naming a leaf under the other epic; P1 to P4 each present, and leaves with no priority; at least 8 open, 5 finished (`x`), one in-progress (`~`) and one skipped (`-`) `issue:` leaf; `est: ?w` on open leaves that have estimates rows; the estimates file, with a row for every open `issue:` leaf, one epic row and one finished row |
+| orchard | `OWN_UNIT` | `est:` values and a unit of its own | `Nd`, `Nw`, `?w` and the non-time `Npt`; no priority at all; at least three issue-less leaves; a `depends_on` entry that is an outline number (`2.1`) and names no issue |
 | quarry | `UNESTIMATED` | wholly unestimated | no `est:` and no estimates file; priorities on some leaves only; a `depends_on` naming a leaf under another epic; a `depends_on` naming an issue that exists on no site |
 | lighthouse | `SMALL`, `HOSTILE_SITE` | small | one epic and one top-level leaf with no epic; the hostile title on an open leaf |
 | bakery | `NO_WBS` | no `WBS.md` | a folder holding only a short `README.md` |

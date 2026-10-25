@@ -483,8 +483,11 @@ def est_rows():
     rows = {}
     for table in id_tables():
         for row in table.rows:
-            n = ROW_ID_RE.match(row[0]).group(1)
-            rows[f"Issue-{n}"] = dict(zip(table.header, row))
+            m = ROW_ID_RE.match(row[0])
+            assert m, row
+            key = f"Issue-{m.group(1)}"
+            assert key not in rows, f"duplicate estimates row {key}"
+            rows[key] = dict(zip(table.header, row))
     return rows
 
 
@@ -507,7 +510,12 @@ def as_of_violation(sample_toml, est_date):
     if isinstance(as_of, datetime):
         as_of = as_of.date()
     elif isinstance(as_of, str):
-        as_of = date.fromisoformat(as_of)
+        try:
+            as_of = date.fromisoformat(as_of)
+        except ValueError:
+            return f"{Path(sample_toml).name}: as_of {as_of!r} is not an ISO date"
+    if not isinstance(as_of, date):
+        return f"{Path(sample_toml).name}: as_of {as_of!r} is not a date"
     if as_of < est_date:
         return f"{Path(sample_toml).name}: as_of {as_of} is before the estimates date {est_date}"
     return None
@@ -604,6 +612,8 @@ AS_OF_PLANTS = {
     "same": ("as_of = 2026-01-15\n", False),
     "after": ("as_of = 2026-02-01\n", False),
     "missing": ('name = "sample"\n', True),
+    "not_iso": ('as_of = "15/01/2026"\n', True),
+    "not_date": ("as_of = 20260115\n", True),
 }
 
 
@@ -687,6 +697,10 @@ def sample_files(root, hermetic=False):
 
 def cr_offenders(root, files):
     return [f for f in files if b"\r" in (Path(root) / f).read_bytes()]
+
+
+def bom_offenders(root, files):
+    return [f for f in files if (Path(root) / f).read_bytes().startswith(b"\xef\xbb\xbf")]
 
 
 # #44 moves this list to tools/commit_check.py; this test then imports it from
@@ -774,6 +788,10 @@ def test_no_carriage_returns():
     assert cr_offenders(ROOT, sample_files(ROOT)) == []
 
 
+def test_no_bom():
+    assert bom_offenders(ROOT, sample_files(ROOT)) == []
+
+
 def test_no_path_forms_in_samples():
     assert path_form_offenders(ROOT, sample_files(ROOT)) == []
 
@@ -846,7 +864,7 @@ def _temp_tree(tmp_path, with_git):
     return tree
 
 
-PLANTED_BYTES = b"x\r\n" + ("D" + ":" + "\\" + "work").encode("ascii") + b"\n"
+PLANTED_BYTES = b"\xef\xbb\xbfx\r\n" +("D" + ":" + "\\" + "work").encode("ascii") + b"\n"
 
 
 @pytest.mark.parametrize("mode", [pytest.param("git", marks=needs_git), "nogit"])
@@ -861,6 +879,7 @@ def test_out_folder_excluded(tmp_path, mode):
     assert "samples/harbor/out/planted.txt" not in files
     assert "samples/harbor/out.md" in files
     assert cr_offenders(tree, files) == []
+    assert bom_offenders(tree, files) == []
     assert path_form_offenders(tree, files) == []
     if with_git:
         assert unpinned(tree, files, hermetic=True) == []
@@ -870,6 +889,7 @@ def test_out_folder_excluded(tmp_path, mode):
     files = sample_files(tree, hermetic=True)
     assert planted in files
     assert planted in cr_offenders(tree, files)
+    assert planted in bom_offenders(tree, files)
     assert planted in path_form_offenders(tree, files)
     if with_git:
         assert planted in unpinned(tree, files, hermetic=True)
@@ -888,7 +908,8 @@ def test_attr_check_names_unpinned_stuck(tmp_path):
     # .gitattributes CRLF, since no attribute line covers it.
     lines = before.splitlines(keepends=True)
     at = next(i for i, line in enumerate(lines) if line.rstrip("\r\n") == MARSH_OVERRIDE)
-    lines.insert(at, "samples/**/STUCK text eol=lf" + lines[at][len(MARSH_OVERRIDE):])
+    ending = lines[at][len(MARSH_OVERRIDE):] or "\n"
+    lines.insert(at, "samples/**/STUCK text eol=lf" + ending)
     after = "".join(lines)
     assert after != before, "the STUCK line was not inserted"
     attrs.write_bytes(after.encode("utf-8"))
