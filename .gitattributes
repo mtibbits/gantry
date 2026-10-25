@@ -1,0 +1,8 @@
+# Sample files are LF everywhere (#28). A sample type these lines miss gets its
+# own line (eol=lf, or -text if binary) ABOVE the marsh override, which stays last.
+# samples/marsh/WBS.md is deliberately invalid UTF-8: exempt it by exact path from
+# UTF-8 text tools, and never re-save it in an editor.
+samples/**/*.md text eol=lf
+samples/**/*.toml text eol=lf
+samples/**/*.json text eol=lf
+samples/marsh/WBS.md -text
