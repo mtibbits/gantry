@@ -10,6 +10,7 @@ import sys
 if sys.version_info < (3, 11):
     raise RuntimeError("tests/test_samples.py needs Python 3.11+ (tomllib)")
 
+import functools
 import os
 import re
 import shutil
@@ -75,8 +76,12 @@ def _is_path_key(dotted):
     return False
 
 
+def load_config(path=CONFIG):
+    return tomllib.loads(Path(path).read_text(encoding="utf-8"))
+
+
 def config_violations(config_path, samples_root):
-    cfg = tomllib.loads(Path(config_path).read_text(encoding="utf-8"))
+    cfg = load_config(config_path)
     base = Path(config_path).parent
     inside = Path(samples_root).resolve()
     offenders = []
@@ -86,10 +91,6 @@ def config_violations(config_path, samples_root):
         elif _is_path_key(dotted) and not (base / value).resolve().is_relative_to(inside):
             offenders.append(f"{dotted}: resolves outside the samples root")
     return offenders
-
-
-def load_config(path=CONFIG):
-    return tomllib.loads(Path(path).read_text(encoding="utf-8"))
 
 
 def test_config_parses_and_lists_sites():
@@ -117,7 +118,7 @@ def _temp_config(tmp_path):
     samples_root = tmp_path / "samples"
     copy = samples_root / "devagent" / "config.toml"
     copy.parent.mkdir(parents=True)
-    copy.write_bytes(CONFIG.read_bytes())
+    shutil.copyfile(CONFIG, copy)
     return copy, samples_root
 
 
@@ -127,53 +128,36 @@ def test_config_copy_control_passes(tmp_path):
 
 
 def _insert_after(text, anchor, line):
+    if anchor is None:
+        return text + "\n" + line + "\n"
     return text.replace(anchor + "\n", anchor + "\n" + line + "\n", 1)
 
 
-# Each plant: (edit of the config text, dotted key the offender must name).
-# Absolute forms are built at run time so this source holds none.
+# Each plant: (anchor line or None to append, planted line, dotted key the
+# offender must name). Absolute forms are built at run time so this source
+# holds none.
 PLANTS = {
-    "worktree_root": (
-        lambda t: _insert_after(t, "[project.harbor]", 'worktree_root = "../../.."'),
-        "project.harbor.worktree_root",
-    ),
-    "build_dir": (
-        lambda t: _insert_after(t, "[project.harbor]", 'build_dir = "../../.."'),
-        "project.harbor.build_dir",
-    ),
+    "worktree_root": ("[project.harbor]", 'worktree_root = "../../.."', "project.harbor.worktree_root"),
+    "build_dir": ("[project.harbor]", 'build_dir = "../../.."', "project.harbor.build_dir"),
     "paths_entry": (
-        lambda t: t + '\n[project.harbor.paths]\nplanted = "../../outside.md"\n',
+        None,
+        '[project.harbor.paths]\nplanted = "../../outside.md"',
         "project.harbor.paths.planted",
     ),
-    "scratch_dir": (
-        lambda t: _insert_after(t, "[defaults]", 'scratch_dir = "../.."'),
-        "defaults.scratch_dir",
-    ),
-    "absolute_string": (
-        lambda t: _insert_after(t, "[defaults]", "note = '" + "C" + ":" + "/" + "x" + "'"),
-        "defaults.note",
-    ),
-    "tilde_string": (
-        lambda t: _insert_after(t, "[defaults]", "note = '" + "~" + "/" + "x" + "'"),
-        "defaults.note",
-    ),
-    "slash_string": (
-        lambda t: _insert_after(t, "[defaults]", "note = '" + "/" + "x" + "'"),
-        "defaults.note",
-    ),
-    "backslash_string": (
-        lambda t: _insert_after(t, "[defaults]", "note = '" + "\\" + "x" + "'"),
-        "defaults.note",
-    ),
+    "scratch_dir": ("[defaults]", 'scratch_dir = "../.."', "defaults.scratch_dir"),
+    "absolute_string": ("[defaults]", "note = '" + "C" + ":" + "/" + "x" + "'", "defaults.note"),
+    "tilde_string": ("[defaults]", "note = '" + "~" + "/" + "x" + "'", "defaults.note"),
+    "slash_string": ("[defaults]", "note = '" + "/" + "x" + "'", "defaults.note"),
+    "backslash_string": ("[defaults]", "note = '" + "\\" + "x" + "'", "defaults.note"),
 }
 
 
 @pytest.mark.parametrize("plant", sorted(PLANTS))
 def test_config_planted_value_fails(tmp_path, plant):
-    edit, key = PLANTS[plant]
+    anchor, line, key = PLANTS[plant]
     copy, samples_root = _temp_config(tmp_path)
     before = copy.read_text(encoding="utf-8")
-    after = edit(before)
+    after = _insert_after(before, anchor, line)
     assert after != before, "the planted edit did not change the text"
     copy.write_bytes(after.encode("utf-8"))
     offenders = config_violations(copy, samples_root)
@@ -275,12 +259,24 @@ def parse_nodes(text):
     return nodes
 
 
+def wbs_text(site):
+    return (SAMPLES / site / "WBS.md").read_bytes().decode("utf-8")
+
+
 def wbs(site):
-    return parse_nodes((SAMPLES / site / "WBS.md").read_bytes().decode("utf-8"))
+    return parse_nodes(wbs_text(site))
 
 
 def issue_leaves(nodes):
     return [n for n in nodes if n.is_leaf and "issue" in n.meta]
+
+
+def has_cross_epic_dep(nodes):
+    epic_of = {n.meta["issue"]: n.epic for n in issue_leaves(nodes)}
+    return any(
+        dep in epic_of and epic_of[dep] is not n.epic
+        for n in nodes if n.is_leaf for dep in n.deps()
+    )
 
 
 def test_site_dirs_and_wbs_presence():
@@ -296,7 +292,7 @@ def test_site_dirs_and_wbs_presence():
 
 @pytest.mark.parametrize("site", sorted(READABLE))
 def test_readable_wbs_decode_utf8(site):
-    (SAMPLES / site / "WBS.md").read_bytes().decode("utf-8")
+    wbs_text(site)
 
 
 def test_marsh_decode_error_at_offset():
@@ -306,14 +302,14 @@ def test_marsh_decode_error_at_offset():
     assert err.value.start == MARSH_BAD_OFFSET
     assert data[MARSH_BAD_OFFSET] == 0xE9
     text = data.decode("latin-1")
-    assert sum(1 for line in text.splitlines() if NODE_RE.match(line)) >= 3
+    assert len(parse_nodes(text)) >= 3
 
 
 @pytest.mark.parametrize("site", sorted(READABLE))
 def test_wbs_line_patterns_apply(site):
-    lines = (SAMPLES / site / "WBS.md").read_bytes().decode("utf-8").splitlines()
+    lines = wbs_text(site).splitlines()
     assert not [line for line in lines if FENCE_RE.match(line)]
-    node_lines = [NODE_RE.match(line) for line in lines if NODE_RE.match(line)]
+    node_lines = [m for line in lines if (m := NODE_RE.match(line))]
     for m in node_lines:
         indent = m.group("indent")
         assert set(indent) <= {" "} and len(indent) % 2 == 0, m.group(0)
@@ -333,11 +329,7 @@ def test_harbor_shapes():
     assert sum(n.glyph == FINISHED for n in leaves) >= 5
     assert any(n.glyph == "~" for n in leaves)
     assert any(n.is_leaf and n.glyph == SKIPPED for n in nodes)
-    epic_of = {n.meta["issue"]: n.epic for n in leaves}
-    assert any(
-        dep in epic_of and epic_of[dep] is not n.epic
-        for n in nodes if n.is_leaf for dep in n.deps()
-    )
+    assert has_cross_epic_dep(nodes)
 
 
 def test_orchard_shapes():
@@ -345,7 +337,7 @@ def test_orchard_shapes():
     ests = [n.meta["est"] for n in nodes if "est" in n.meta]
     for shape, pattern in EST_SHAPES.items():
         assert any(re.match(pattern, e) for e in ests), shape
-    assert "priority:" not in (SAMPLES / OWN_UNIT / "WBS.md").read_text(encoding="utf-8")
+    assert "priority:" not in wbs_text(OWN_UNIT)
     assert sum(1 for n in nodes if n.is_leaf and "issue" not in n.meta) >= 3
     assert any(
         OUTLINE_RE.match(dep) and not ISSUE_ID_RE.match(dep)
@@ -363,11 +355,7 @@ def test_quarry_shapes():
     leaves = [n for n in nodes if n.is_leaf]
     assert any("priority" in n.meta for n in leaves)
     assert any("priority" not in n.meta for n in leaves)
-    epic_of = {n.meta["issue"]: n.epic for n in issue_leaves(nodes)}
-    assert any(
-        dep in epic_of and epic_of[dep] is not n.epic
-        for n in leaves for dep in n.deps()
-    )
+    assert has_cross_epic_dep(nodes)
     ids = {n.meta["issue"] for n in nodes if "issue" in n.meta}
     assert any(
         ISSUE_ID_RE.match(dep) and dep not in ids
@@ -419,7 +407,7 @@ def test_depends_on_prefixes_not_public_tools():
     for site in sorted(READABLE):
         for n in wbs(site):
             for dep in n.deps():
-                assert not dep.startswith(("devagent:", "gantry:")), (site, dep)
+                assert not dep.startswith(tuple(f"{t}:" for t in PUBLIC_TOOLS)), (site, dep)
 
 
 # --- harbor's estimates -------------------------------------------------------
@@ -512,7 +500,7 @@ def _find_key(node, key):
 
 
 def as_of_violation(sample_toml, est_date):
-    cfg = tomllib.loads(Path(sample_toml).read_text(encoding="utf-8"))
+    cfg = load_config(sample_toml)
     as_of = _find_key(cfg, "as_of")
     if as_of is None:
         return f"{Path(sample_toml).name}: no as_of key"
@@ -651,7 +639,8 @@ ISSUE_FILES = [
     "samples/harbor/estimates-2026-01-15-effort-and-model-tiers.md",
 ]
 
-needs_git = pytest.mark.skipif(shutil.which("git") is None, reason="git not on PATH")
+HAVE_GIT = shutil.which("git") is not None
+needs_git = pytest.mark.skipif(not HAVE_GIT, reason="git not on PATH")
 
 
 def _decode(data):
@@ -668,8 +657,10 @@ def git(root, *args, input=None, hermetic=False):
     )
 
 
+# Cached: a root's git-ness does not change once probed, and each probe spawns git.
+@functools.cache
 def git_work_tree(root):
-    if shutil.which("git") is None:
+    if not HAVE_GIT:
         return False
     result = git(root, "rev-parse", "--show-toplevel")
     if result.returncode != 0:
@@ -858,11 +849,9 @@ def _temp_tree(tmp_path, with_git):
 PLANTED_BYTES = b"x\r\n" + ("D" + ":" + "\\" + "work").encode("ascii") + b"\n"
 
 
-@pytest.mark.parametrize("mode", ["git", "nogit"])
+@pytest.mark.parametrize("mode", [pytest.param("git", marks=needs_git), "nogit"])
 def test_out_folder_excluded(tmp_path, mode):
     with_git = mode == "git"
-    if with_git and shutil.which("git") is None:
-        pytest.skip("git not on PATH")
     tree = _temp_tree(tmp_path, with_git)
     assert git_work_tree(tree) == with_git
     (tree / "samples/harbor/out").mkdir()
