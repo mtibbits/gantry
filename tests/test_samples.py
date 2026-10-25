@@ -10,7 +10,10 @@ import sys
 if sys.version_info < (3, 11):
     raise RuntimeError("tests/test_samples.py needs Python 3.11+ (tomllib)")
 
+import os
 import re
+import shutil
+import subprocess
 import tomllib
 from dataclasses import dataclass, field
 from datetime import date, datetime
@@ -623,3 +626,279 @@ def test_as_of_check_planted(tmp_path, case):
     sample.write_bytes(text.encode("ascii"))
     result = as_of_violation(sample, date(2026, 1, 15))
     assert (result is not None) == violates, result
+
+
+# --- sample file list, bytes, attributes and path forms -----------------------
+
+GITATTRIBUTES = ROOT / ".gitattributes"
+GITIGNORE = ROOT / ".gitignore"
+MARSH_PATH = "samples/marsh/WBS.md"
+MARSH_OVERRIDE = MARSH_PATH + " -text"
+LF_LINES = [
+    "samples/**/*.md text eol=lf",
+    "samples/**/*.toml text eol=lf",
+    "samples/**/*.json text eol=lf",
+]
+ISSUE_FILES = [
+    "samples/README.md",
+    "samples/devagent/config.toml",
+    "samples/harbor/WBS.md",
+    "samples/orchard/WBS.md",
+    "samples/quarry/WBS.md",
+    "samples/lighthouse/WBS.md",
+    "samples/marsh/WBS.md",
+    "samples/bakery/README.md",
+    "samples/harbor/estimates-2026-01-15-effort-and-model-tiers.md",
+]
+
+needs_git = pytest.mark.skipif(shutil.which("git") is None, reason="git not on PATH")
+
+
+def _decode(data):
+    return data.decode("utf-8", "surrogateescape")
+
+
+def git(root, *args, input=None, hermetic=False):
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    if hermetic:
+        env["GIT_CONFIG_GLOBAL"] = os.devnull
+        env["GIT_CONFIG_NOSYSTEM"] = "1"
+    return subprocess.run(
+        ["git", *args], cwd=root, input=input, capture_output=True, env=env
+    )
+
+
+def git_work_tree(root):
+    if shutil.which("git") is None:
+        return False
+    result = git(root, "rev-parse", "--show-toplevel")
+    if result.returncode != 0:
+        return False
+    return os.path.samefile(_decode(result.stdout).strip(), root)
+
+
+def sample_files(root, hermetic=False):
+    root = Path(root)
+    if git_work_tree(root):
+        result = git(
+            root, "ls-files", "-z", "--cached", "--others", "--exclude-standard",
+            "--", "samples/", hermetic=hermetic,
+        )
+        assert result.returncode == 0, _decode(result.stderr)
+        return sorted(p for p in _decode(result.stdout).split("\0") if p)
+    samples = root / "samples"
+    return sorted(
+        p.relative_to(root).as_posix()
+        for p in samples.rglob("*")
+        if p.is_file() and "out" not in p.relative_to(samples).parts[:-1]
+    )
+
+
+def cr_offenders(root, files):
+    return [f for f in files if b"\r" in (Path(root) / f).read_bytes()]
+
+
+# #44 moves this list to tools/commit_check.py; this test then imports it from
+# there. B matches the start of the text or one boundary character. The forms
+# are built so this source holds none of them.
+B = r"""(?<![^\s"'`(=<\[,;|])"""
+PATH_FORMS = {
+    "drive_backslash": r"(?<![A-Za-z0-9])[A-Za-z]:\\",
+    "drive_slash":     r"(?<![A-Za-z0-9])[A-Za-z]:/",
+    "unc":             r"(?<![:A-Za-z0-9])(?:\\\\|//)[A-Za-z0-9._$-]+[\\/]",
+    "posix_home":      B + r"/(?:home|Users|root|mnt)/",
+    "msys_drive":      B + r"/[A-Za-z]/",
+    "tilde":           B + r"~[A-Za-z0-9._-]*/",
+}
+PATH_FORM_RES = {form: re.compile(pattern) for form, pattern in PATH_FORMS.items()}
+
+
+def path_form_hits(text):
+    return [
+        (form, m.group(0))
+        for form, pattern in PATH_FORM_RES.items()
+        for m in pattern.finditer(text)
+    ]
+
+
+def path_form_offenders(root, files):
+    return [
+        f for f in files
+        if path_form_hits((Path(root) / f).read_bytes().decode("latin-1"))
+    ]
+
+
+def unpinned(root, files, hermetic=False):
+    stdin = "".join(f + "\0" for f in files).encode("utf-8", "surrogateescape")
+    result = git(root, "check-attr", "-z", "--stdin", "eol", "text", input=stdin, hermetic=hermetic)
+    assert result.returncode == 0, _decode(result.stderr)
+    fields = _decode(result.stdout).split("\0")
+    if fields and fields[-1] == "":
+        fields.pop()
+    triples = [fields[i:i + 3] for i in range(0, len(fields), 3)]
+    assert len(triples) == 2 * len(files), "check-attr did not report both attributes per file"
+    attrs = {}
+    for path, attr, value in triples:
+        attrs.setdefault(path, {})[attr] = value
+    return [
+        f for f in files
+        if attrs[f].get("eol") != "lf" and attrs[f].get("text") != "unset"
+    ]
+
+
+def _gitglob_re(pattern):
+    out, i = "", 0
+    while i < len(pattern):
+        if pattern.startswith("**/", i):
+            out, i = out + "(?:.*/)?", i + 3
+        elif pattern.startswith("**", i):
+            out, i = out + ".*", i + 2
+        elif pattern[i] == "*":
+            out, i = out + "[^/]*", i + 1
+        elif pattern[i] == "?":
+            out, i = out + "[^/]", i + 1
+        else:
+            out, i = out + re.escape(pattern[i]), i + 1
+    prefix = "" if "/" in pattern.rstrip("/") else "(?:.*/)?"
+    return re.compile(prefix + out + "$")
+
+
+def test_gitattributes_lines():
+    lines = GITATTRIBUTES.read_text(encoding="utf-8").splitlines()
+    for line in LF_LINES:
+        assert line in lines, line
+    assert MARSH_OVERRIDE in lines
+    after = lines[lines.index(MARSH_OVERRIDE) + 1:]
+    patterns = [l.split()[0] for l in after if l.strip() and not l.lstrip().startswith("#")]
+    assert not [p for p in patterns if _gitglob_re(p).match(MARSH_PATH)], patterns
+
+
+def test_sample_file_list_floor():
+    files = sample_files(ROOT)
+    assert set(ISSUE_FILES) <= set(files), sorted(set(ISSUE_FILES) - set(files))
+    assert not [f for f in files if "out" in f.split("/")[:-1]]
+
+
+def test_no_carriage_returns():
+    assert cr_offenders(ROOT, sample_files(ROOT)) == []
+
+
+def test_no_path_forms_in_samples():
+    assert path_form_offenders(ROOT, sample_files(ROOT)) == []
+
+
+PATH_FORM_CONTROLS = [
+    ("drive_backslash", "D" + ":" + "\\" + "work"),
+    ("drive_slash", "D" + ":" + "/" + "work"),
+    ("unc", "\\" * 2 + "server" + "\\" + "share"),
+    ("unc", "/" * 2 + "server" + "/" + "share"),
+    ("posix_home", "/" + "home" + "/x"),
+    ("posix_home", "/" + "Users" + "/x"),
+    ("posix_home", "/" + "root" + "/x"),
+    ("posix_home", "/" + "mnt" + "/x"),
+    ("msys_drive", "/" + "c" + "/x"),
+    ("tilde", "~" + "/x"),
+    ("tilde", "~" + "someone" + "/x"),
+]
+
+
+def test_path_form_controls_cover_every_form():
+    assert {form for form, _ in PATH_FORM_CONTROLS} == set(PATH_FORMS)
+    assert len(PATH_FORMS) == 6
+
+
+@pytest.mark.parametrize("shape", ["alone", "quoted"])
+@pytest.mark.parametrize("form,sample", PATH_FORM_CONTROLS)
+def test_path_form_positive_controls(form, sample, shape):
+    text = sample if shape == "alone" else 'path = "' + sample + '"'
+    assert form in {f for f, _ in path_form_hits(text)}, (text, path_form_hits(text))
+
+
+@pytest.mark.parametrize("text", [
+    "https://github.com/sample_owner/harbor",
+    "../harbor",
+    "samples/devagent/out/",
+    "samples/c/x",
+    "origin/main",
+    "and/or",
+    "- [~] Erect crane one {issue: Issue-6}",
+    "est: ?w",
+    "6-12",
+    "2026-01-15",
+    "P1:",
+])
+def test_path_form_negative_controls(text):
+    assert path_form_hits(text) == []
+
+
+def test_test_sources_hold_no_path_form():
+    for name in ("test_samples.py", "sample_roles.py"):
+        text = (ROOT / "tests" / name).read_bytes().decode("utf-8")
+        assert path_form_hits(text) == [], name
+
+
+@needs_git
+def test_attrs_pin_every_sample_file():
+    if not git_work_tree(ROOT):
+        pytest.skip("the gantry root is not a git work tree")
+    assert unpinned(ROOT, sample_files(ROOT)) == []
+
+
+def _temp_tree(tmp_path, with_git):
+    tree = tmp_path / "tree"
+    shutil.copytree(SAMPLES, tree / "samples", ignore=shutil.ignore_patterns("out"))
+    shutil.copyfile(GITIGNORE, tree / ".gitignore")
+    shutil.copyfile(GITATTRIBUTES, tree / ".gitattributes")
+    if with_git:
+        result = git(tree, "init", "-q", hermetic=True)
+        assert result.returncode == 0, _decode(result.stderr)
+    return tree
+
+
+PLANTED_BYTES = b"x\r\n" + ("D" + ":" + "\\" + "work").encode("ascii") + b"\n"
+
+
+@pytest.mark.parametrize("mode", ["git", "nogit"])
+def test_out_folder_excluded(tmp_path, mode):
+    with_git = mode == "git"
+    if with_git and shutil.which("git") is None:
+        pytest.skip("git not on PATH")
+    tree = _temp_tree(tmp_path, with_git)
+    assert git_work_tree(tree) == with_git
+    (tree / "samples/harbor/out").mkdir()
+    (tree / "samples/harbor/out/planted.txt").write_bytes(PLANTED_BYTES)
+    (tree / "samples/harbor/out.md").write_bytes(b"# Clean\n")
+    files = sample_files(tree, hermetic=True)
+    assert "samples/harbor/out/planted.txt" not in files
+    assert "samples/harbor/out.md" in files
+    assert cr_offenders(tree, files) == []
+    assert path_form_offenders(tree, files) == []
+    if with_git:
+        assert unpinned(tree, files, hermetic=True) == []
+
+    planted = "samples/harbor/planted.txt"
+    (tree / planted).write_bytes(PLANTED_BYTES)
+    files = sample_files(tree, hermetic=True)
+    assert planted in files
+    assert planted in cr_offenders(tree, files)
+    assert planted in path_form_offenders(tree, files)
+    if with_git:
+        assert planted in unpinned(tree, files, hermetic=True)
+
+
+@needs_git
+def test_attr_check_names_unpinned_stuck(tmp_path):
+    tree = _temp_tree(tmp_path, with_git=True)
+    (tree / "samples/harbor/STUCK").write_bytes(b"x\n")
+    files = sample_files(tree, hermetic=True)
+    assert unpinned(tree, files, hermetic=True) == ["samples/harbor/STUCK"]
+
+    attrs = tree / ".gitattributes"
+    before = attrs.read_bytes().decode("utf-8")
+    stuck_line = "samples/**/STUCK text eol=lf\n"
+    after = before.replace(MARSH_OVERRIDE + "\n", stuck_line + MARSH_OVERRIDE + "\n", 1)
+    assert after != before, "the STUCK line was not inserted"
+    attrs.write_bytes(after.encode("utf-8"))
+    assert unpinned(tree, sample_files(tree, hermetic=True), hermetic=True) == []
+    marsh = git(tree, "check-attr", "text", "--", MARSH_PATH, hermetic=True)
+    assert _decode(marsh.stdout).strip().endswith("text: unset")
