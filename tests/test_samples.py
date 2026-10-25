@@ -13,6 +13,7 @@ if sys.version_info < (3, 11):
 import re
 import tomllib
 from dataclasses import dataclass, field
+from datetime import date, datetime
 from pathlib import Path
 
 import pytest
@@ -416,3 +417,209 @@ def test_depends_on_prefixes_not_public_tools():
         for n in wbs(site):
             for dep in n.deps():
                 assert not dep.startswith(("devagent:", "gantry:")), (site, dep)
+
+
+# --- harbor's estimates -------------------------------------------------------
+
+ESTIMATES_RE = re.compile(r"^estimates-(\d{4}-\d{2}-\d{2}).*\.md$")
+ORDER_EPIC = ["#", "P", "title", "effort", "hours", "LOC", "thinking", "checking", "tier", "flags", "note"]
+ORDER_ADDENDUM = ["#", "title", "type", "effort", "hours", "LOC", "thinking", "checking", "tier", "flags", "note"]
+TIERS = {"sonnet", "opus", "fable"}
+BUCKETS = {"XS", "S", "M", "L", "XL"}
+HOURS_RE = re.compile(r"^(\d+)-(\d+)$")
+ROW_ID_RE = re.compile(r"^#(\d+)$")
+HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
+SEPARATOR_CELL_RE = re.compile(r"^:?-+:?$")
+GANTRY_SAMPLE = SAMPLES / "gantry.sample.toml"
+
+
+@dataclass
+class Table:
+    heading: str
+    level: int
+    header: list
+    rows: list
+    start_line: int
+
+
+def _cells(line):
+    return [c.strip() for c in line.strip().strip("|").split("|")]
+
+
+def md_tables(text):
+    tables, heading, level, run = [], "", 0, []
+
+    def close():
+        if run:
+            rows = [_cells(line) for _, line in run]
+            body = [r for r in rows[1:] if not all(SEPARATOR_CELL_RE.match(c) for c in r)]
+            tables.append(Table(heading, level, rows[0], body, run[0][0]))
+            run.clear()
+
+    for number, line in enumerate(text.splitlines(), 1):
+        if line.startswith("|"):
+            run.append((number, line))
+            continue
+        close()
+        m = HEADING_RE.match(line)
+        if m:
+            heading, level = m.group(2), len(m.group(1))
+    close()
+    return tables
+
+
+def estimates_files(site_dir):
+    found = [p for p in Path(site_dir).iterdir() if p.is_file() and ESTIMATES_RE.match(p.name)]
+    return sorted(found, key=lambda p: ESTIMATES_RE.match(p.name).group(1))
+
+
+def estimates_file(site_dir):
+    found = estimates_files(site_dir)
+    assert len(found) >= 1, f"no estimates-YYYY-MM-DD*.md in {Path(site_dir).name}"
+    return found[-1]
+
+
+def estimates_date(path):
+    return date.fromisoformat(ESTIMATES_RE.match(Path(path).name).group(1))
+
+
+def id_tables():
+    text = estimates_file(SAMPLES / BUSY).read_text(encoding="utf-8")
+    return [t for t in md_tables(text) if t.header and t.header[0] == "#"]
+
+
+def est_rows():
+    rows = {}
+    for table in id_tables():
+        for row in table.rows:
+            n = ROW_ID_RE.match(row[0]).group(1)
+            rows[f"Issue-{n}"] = dict(zip(table.header, row))
+    return rows
+
+
+def _find_key(node, key):
+    if isinstance(node, dict):
+        if key in node:
+            return node[key]
+        for value in node.values():
+            found = _find_key(value, key)
+            if found is not None:
+                return found
+    return None
+
+
+def as_of_violation(sample_toml, est_date):
+    cfg = tomllib.loads(Path(sample_toml).read_text(encoding="utf-8"))
+    as_of = _find_key(cfg, "as_of")
+    if as_of is None:
+        return f"{Path(sample_toml).name}: no as_of key"
+    if isinstance(as_of, datetime):
+        as_of = as_of.date()
+    elif isinstance(as_of, str):
+        as_of = date.fromisoformat(as_of)
+    if as_of < est_date:
+        return f"{Path(sample_toml).name}: as_of {as_of} is before the estimates date {est_date}"
+    return None
+
+
+def harbor_issue_nodes():
+    return {n.meta["issue"]: n for n in wbs(BUSY) if "issue" in n.meta}
+
+
+def test_estimates_file_name_and_date():
+    found = estimates_files(SAMPLES / BUSY)
+    assert found
+    for path in found:
+        estimates_date(path)
+
+
+def test_estimates_table_structure():
+    tables = md_tables(estimates_file(SAMPLES / BUSY).read_text(encoding="utf-8"))
+    headed = [t for t in tables if t.header[0] == "#"]
+    assert len(headed) >= 2
+    other = [t for t in tables if t.header[0] != "#"]
+    assert other and other[0].start_line < headed[0].start_line
+    assert all(t.header in (ORDER_EPIC, ORDER_ADDENDUM) for t in headed)
+    assert any(t.header == ORDER_EPIC for t in headed)
+    assert any(t.header == ORDER_ADDENDUM for t in headed)
+    for t in headed:
+        assert t.level == 3, t.heading
+        if t.header == ORDER_ADDENDUM:
+            assert "addendum" in t.heading.lower(), t.heading
+        for row in t.rows:
+            assert len(row) == len(t.header), row
+            assert ROW_ID_RE.match(row[0]), row
+
+
+def test_estimates_rows_name_harbor_nodes():
+    nodes = harbor_issue_nodes()
+    assert set(est_rows()) <= set(nodes)
+
+
+def test_every_open_harbor_issue_leaf_has_row():
+    open_leaves = {n.meta["issue"] for n in issue_leaves(wbs(BUSY)) if n.is_open}
+    assert open_leaves
+    assert open_leaves <= set(est_rows())
+
+
+def test_estimates_epic_and_finished_rows():
+    nodes = harbor_issue_nodes()
+    rows = est_rows()
+    assert any(nodes[i].is_epic for i in rows)
+    assert any(nodes[i].is_leaf and nodes[i].glyph == FINISHED for i in rows)
+
+
+def test_estimates_cells():
+    rows = est_rows()
+    used = set()
+    for issue, row in sorted(rows.items()):
+        assert row["effort"] in BUCKETS, issue
+        m = HOURS_RE.match(row["hours"])
+        assert m and int(m.group(1)) <= int(m.group(2)), issue
+        assert row["thinking"] in TIERS and row["checking"] in TIERS, issue
+        used |= {row["thinking"], row["checking"]}
+    assert {"sonnet", "fable"} <= used
+
+
+def test_estimates_flag_rows():
+    nodes = harbor_issue_nodes()
+    rows = est_rows()
+    flags = {issue: set(row["flags"].split()) for issue, row in rows.items()}
+    for wanted in ({"research"}, {"spike"}):
+        matches = [i for i, f in flags.items() if f == wanted]
+        assert matches, wanted
+        for issue in matches:
+            assert rows[issue]["checking"] == "fable", issue
+            node = nodes[issue]
+            assert node.is_leaf and not node.is_epic and node.is_open, issue
+    assert any(f == {"research", "spike"} for f in flags.values())
+
+
+def test_harbor_qw_leaves_have_rows():
+    rows = est_rows()
+    qw = [n for n in wbs(BUSY) if n.is_leaf and n.is_open and n.meta.get("est") == "?w"]
+    assert sum(n.meta.get("issue") in rows for n in qw) >= 2
+
+
+def test_as_of_not_before_estimates():
+    if not GANTRY_SAMPLE.exists():
+        pytest.skip("samples/gantry.sample.toml is #7's; absent")
+    est_date = estimates_date(estimates_file(SAMPLES / BUSY))
+    assert as_of_violation(GANTRY_SAMPLE, est_date) is None
+
+
+AS_OF_PLANTS = {
+    "before": ("as_of = 2026-01-14\n", True),
+    "same": ("as_of = 2026-01-15\n", False),
+    "after": ("as_of = 2026-02-01\n", False),
+    "missing": ('name = "sample"\n', True),
+}
+
+
+@pytest.mark.parametrize("case", sorted(AS_OF_PLANTS))
+def test_as_of_check_planted(tmp_path, case):
+    text, violates = AS_OF_PLANTS[case]
+    sample = tmp_path / "gantry.sample.toml"
+    sample.write_bytes(text.encode("ascii"))
+    result = as_of_violation(sample, date(2026, 1, 15))
+    assert (result is not None) == violates, result
