@@ -12,6 +12,7 @@ if sys.version_info < (3, 11):
 
 import re
 import tomllib
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,7 @@ import pytest
 import sample_roles
 from sample_roles import (
     BUSY,
+    HOSTILE_SITE,
     HOSTILE_TITLE,
     NO_WBS,
     NOT_BUILT,
@@ -198,3 +200,219 @@ def test_roles_name_config_projects():
     assert len(READABLE) == 4
     assert READABLE.isdisjoint(NOT_BUILT)
     assert not set(cfg["project"]) & RESERVED_FOLDERS
+
+
+# --- WBS sites ----------------------------------------------------------------
+
+# The first two patterns copy devagent's _BULLET_RE and _META_BLOCK_RE
+# (scripts/lib/wbs-parser.py:103-108); the rest is this check's own grammar.
+NODE_RE = re.compile(r"^(?P<indent>\s*)- \[(?P<glyph>[ x\-!~?P])\]\s+(?P<rest>.+)$")
+META_RE = re.compile(r"\s*\{(?P<body>[^{}]*)\}\s*$")
+META_ITEM_RE = re.compile(r"(?P<key>[a-z_]+):\s*(?P<val>\[[^\]]*\]|[^,]*)")
+ISSUE_ID_RE = re.compile(r"^Issue-[1-9][0-9]*$")
+EST_SHAPES = {"Nd": r"^\d+d$", "Nw": r"^\d+w$", "?w": r"^\?w$", "Npt": r"^\d+pt$"}
+OUTLINE_RE = re.compile(r"^\d+(\.\d+)+$")
+FINISHED, SKIPPED = "x", "-"   # open = glyph not in {"x", "-"}
+FENCE_RE = re.compile(r"^\s*(?:```|~~~)")
+MARSH_BAD_OFFSET = 88
+
+
+@dataclass
+class Node:
+    line: int
+    glyph: str
+    depth: int
+    title: str
+    meta: dict = field(default_factory=dict)
+    is_leaf: bool = False
+    is_epic: bool = False
+    epic: "Node | None" = None
+
+    @property
+    def is_open(self):
+        return self.glyph not in (FINISHED, SKIPPED)
+
+    def deps(self):
+        value = self.meta.get("depends_on", [])
+        return value if isinstance(value, list) else [value]
+
+
+def _parse_meta(body):
+    meta = {}
+    for m in META_ITEM_RE.finditer(body):
+        val = m.group("val").strip()
+        if val.startswith("["):
+            meta[m.group("key")] = [v.strip() for v in val[1:-1].split(",") if v.strip()]
+        else:
+            meta[m.group("key")] = val
+    return meta
+
+
+def parse_nodes(text):
+    nodes = []
+    for number, line in enumerate(text.splitlines(), 1):
+        m = NODE_RE.match(line)
+        if not m:
+            continue
+        rest = m.group("rest")
+        meta_m = META_RE.search(rest)
+        meta = _parse_meta(meta_m.group("body")) if meta_m else {}
+        title = (rest[: meta_m.start()] if meta_m else rest).strip()
+        depth = len(m.group("indent").expandtabs(2)) // 2
+        nodes.append(Node(number, m.group("glyph"), depth, title, meta))
+    epic = None
+    for i, node in enumerate(nodes):
+        deeper_next = i + 1 < len(nodes) and nodes[i + 1].depth > node.depth
+        node.is_leaf = not deeper_next
+        node.is_epic = node.depth == 0 and deeper_next
+        if node.depth == 0:
+            epic = node
+        node.epic = epic
+    return nodes
+
+
+def wbs(site):
+    return parse_nodes((SAMPLES / site / "WBS.md").read_bytes().decode("utf-8"))
+
+
+def issue_leaves(nodes):
+    return [n for n in nodes if n.is_leaf and "issue" in n.meta]
+
+
+def test_site_dirs_and_wbs_presence():
+    for name in sorted(load_config()["project"]):
+        folder = SAMPLES / name
+        assert folder.is_dir(), name
+        if name == NO_WBS:
+            assert (folder / "README.md").is_file()
+            assert not (folder / "WBS.md").exists()
+        else:
+            assert (folder / "WBS.md").is_file(), name
+
+
+@pytest.mark.parametrize("site", sorted(READABLE))
+def test_readable_wbs_decode_utf8(site):
+    (SAMPLES / site / "WBS.md").read_bytes().decode("utf-8")
+
+
+def test_marsh_decode_error_at_offset():
+    data = (SAMPLES / UNREADABLE / "WBS.md").read_bytes()
+    with pytest.raises(UnicodeDecodeError) as err:
+        data.decode("utf-8")
+    assert err.value.start == MARSH_BAD_OFFSET
+    assert data[MARSH_BAD_OFFSET] == 0xE9
+    text = data.decode("latin-1")
+    assert sum(1 for line in text.splitlines() if NODE_RE.match(line)) >= 3
+
+
+@pytest.mark.parametrize("site", sorted(READABLE))
+def test_wbs_line_patterns_apply(site):
+    lines = (SAMPLES / site / "WBS.md").read_bytes().decode("utf-8").splitlines()
+    assert not [line for line in lines if FENCE_RE.match(line)]
+    node_lines = [NODE_RE.match(line) for line in lines if NODE_RE.match(line)]
+    for m in node_lines:
+        indent = m.group("indent")
+        assert set(indent) <= {" "} and len(indent) % 2 == 0, m.group(0)
+    assert len(node_lines) >= 5
+
+
+def test_harbor_shapes():
+    nodes = wbs(BUSY)
+    epics = [n for n in nodes if n.is_epic]
+    assert len(epics) >= 2
+    assert all("issue" in e.meta for e in epics)
+    priorities = {n.meta.get("priority") for n in nodes}
+    assert {"P1", "P2", "P3", "P4"} <= priorities
+    assert any(n.is_leaf and "priority" not in n.meta for n in nodes)
+    leaves = issue_leaves(nodes)
+    assert sum(n.is_open for n in leaves) >= 8
+    assert sum(n.glyph == FINISHED for n in leaves) >= 5
+    assert any(n.glyph == "~" for n in leaves)
+    assert any(n.is_leaf and n.glyph == SKIPPED for n in nodes)
+    epic_of = {n.meta["issue"]: n.epic for n in leaves}
+    assert any(
+        dep in epic_of and epic_of[dep] is not n.epic
+        for n in nodes if n.is_leaf for dep in n.deps()
+    )
+
+
+def test_orchard_shapes():
+    nodes = wbs(OWN_UNIT)
+    ests = [n.meta["est"] for n in nodes if "est" in n.meta]
+    for shape, pattern in EST_SHAPES.items():
+        assert any(re.match(pattern, e) for e in ests), shape
+    assert "priority:" not in (SAMPLES / OWN_UNIT / "WBS.md").read_text(encoding="utf-8")
+    assert sum(1 for n in nodes if n.is_leaf and "issue" not in n.meta) >= 3
+    assert any(
+        OUTLINE_RE.match(dep) and not ISSUE_ID_RE.match(dep)
+        for n in nodes for dep in n.deps()
+    )
+    leaves = issue_leaves(nodes)
+    assert any(n.is_open for n in leaves)
+    assert sum(n.glyph == FINISHED for n in leaves) >= 3
+
+
+def test_quarry_shapes():
+    nodes = wbs(UNESTIMATED)
+    assert not any("est" in n.meta for n in nodes)
+    assert not list((SAMPLES / UNESTIMATED).glob("estimates-*.md"))
+    leaves = [n for n in nodes if n.is_leaf]
+    assert any("priority" in n.meta for n in leaves)
+    assert any("priority" not in n.meta for n in leaves)
+    epic_of = {n.meta["issue"]: n.epic for n in issue_leaves(nodes)}
+    assert any(
+        dep in epic_of and epic_of[dep] is not n.epic
+        for n in leaves for dep in n.deps()
+    )
+    ids = {n.meta["issue"] for n in nodes if "issue" in n.meta}
+    assert any(
+        ISSUE_ID_RE.match(dep) and dep not in ids
+        for n in nodes for dep in n.deps()
+    )
+
+
+def test_lighthouse_shapes():
+    assert HOSTILE_SITE == SMALL
+    nodes = wbs(HOSTILE_SITE)
+    assert any(n.is_epic for n in nodes)
+    assert any(n.depth == 0 and n.is_leaf for n in nodes)
+    assert any(n.is_leaf and n.is_open and n.title == HOSTILE_TITLE for n in nodes)
+
+
+@pytest.mark.parametrize("site", sorted(READABLE))
+def test_every_readable_site_has_open_and_finished_issue_leaves(site):
+    leaves = issue_leaves(wbs(site))
+    assert any(n.is_open for n in leaves)
+    assert sum(n.glyph == FINISHED for n in leaves) >= 3
+
+
+@pytest.mark.parametrize("site", sorted(READABLE))
+def test_ids_well_formed_and_unique_per_site(site):
+    ids = [n.meta["issue"] for n in wbs(site) if "issue" in n.meta]
+    assert ids
+    assert all(ISSUE_ID_RE.match(i) for i in ids), ids
+    assert len(ids) == len(set(ids)), ids
+
+
+def test_shared_open_id_across_sites():
+    open_ids = {
+        site: {n.meta["issue"] for n in issue_leaves(wbs(site)) if n.is_open}
+        for site in sorted(READABLE)
+    }
+    sites = sorted(open_ids)
+    assert any(
+        open_ids[a] & open_ids[b]
+        for i, a in enumerate(sites) for b in sites[i + 1:]
+    )
+
+
+@pytest.mark.parametrize("site", sorted(READABLE))
+def test_no_stuck_blocked_parked_glyphs(site):
+    assert not [n.title for n in wbs(site) if n.glyph in "!?P"]
+
+
+def test_depends_on_prefixes_not_public_tools():
+    for site in sorted(READABLE):
+        for n in wbs(site):
+            for dep in n.deps():
+                assert not dep.startswith(("devagent:", "gantry:")), (site, dep)
