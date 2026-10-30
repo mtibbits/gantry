@@ -276,3 +276,97 @@ def test_sample_config_not_ignored():
         pytest.skip("the gantry root is not a git work tree")
     result = git(ROOT, "check-ignore", "-q", "--no-index", "samples/gantry.sample.toml")
     assert result.returncode == 1
+
+
+# --- the devagent config: refusals and its own path base ------------------------
+
+
+def _devagent_missing(folder):
+    return write_config(folder, devagent_config='"nope.toml"'), folder / "nope.toml"
+
+
+def _devagent_dir(folder):
+    (folder / "dvdir").mkdir(parents=True)
+    return write_config(folder, devagent_config='"dvdir"'), folder / "dvdir"
+
+
+def _devagent_text(text):
+    def make(folder):
+        p = write_config(folder, devagent_config='"bad.toml"')
+        (folder / "bad.toml").write_bytes(text)
+        return p, folder / "bad.toml"
+    return make
+
+
+DEVAGENT_ERRORS = {
+    "missing": (_devagent_missing, []),
+    "directory": (_devagent_dir, []),
+    "invalid-toml": (_devagent_text(b"[project\n"), []),
+    "no-project-table": (_devagent_text(b"[defaults]\nx = 1\n"), ["[project]"]),
+    "project-not-table": (_devagent_text(b"project = 3\n"), ["[project]"]),
+    "empty-project": (_devagent_text(b"[project]\n"), ["[project]"]),
+}
+
+
+@pytest.mark.parametrize("case", sorted(DEVAGENT_ERRORS))
+def test_devagent_config_errors_exit_1(tmp_path, capsys, case):
+    make, fragments = DEVAGENT_ERRORS[case]
+    p, dfile = make(tmp_path)
+    assert main(["build", "--config", str(p)]) == 1
+    err = capsys.readouterr().err
+    assert str(dfile) in err, err
+    assert [f for f in fragments if f not in err] == [], err
+
+
+def _devagent_site(tmp_path, devdoc_literal):
+    """A gantry config in g/, a devagent config in d/, one project p."""
+    d = tmp_path / "d"
+    d.mkdir(parents=True)
+    (d / "config.toml").write_bytes(("[project.p]\ndevdoc_dir = " + devdoc_literal + "\n").encode("utf-8"))
+    p = write_config(tmp_path / "g", devagent_config='"../d/config.toml"')
+    return p, d
+
+
+def test_relative_devdoc_resolves_against_devagent_dir(tmp_path, monkeypatch):
+    from gantry.sites import load_sites
+
+    p, d = _devagent_site(tmp_path, '"plans"')
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    monkeypatch.chdir(cwd)
+    sites, _ = load_sites(cfg.load_config(os.path.relpath(p, cwd)))
+    assert norm(sites[0].planning_dir) == norm(d / "plans")
+    assert not under(sites[0].planning_dir, p.parent)
+    assert not under(sites[0].planning_dir, cwd)
+
+
+def test_tilde_expands_in_devdoc_dir(tmp_path, monkeypatch):
+    from gantry.sites import load_sites
+
+    home = tmp_path / "home"
+    set_home(monkeypatch, home)
+    p, _ = _devagent_site(tmp_path, '"' + "~" + "/plans" + '"')
+    sites, _ = load_sites(cfg.load_config(p))
+    assert norm(sites[0].planning_dir) == norm(home / "plans")
+
+
+@pytest.mark.skipif(os.name == "nt", reason="a drive-letter path is absolute on Windows")
+def test_drive_devdoc_is_site_problem_on_linux(tmp_path, capsys):
+    from gantry.sites import load_sites
+
+    p, _ = _devagent_site(tmp_path, '"' + DRIVE + "/" + "plans" + '"')
+    sites, _ = load_sites(cfg.load_config(p))
+    assert sites[0].problem.startswith("devdoc_dir is rooted but not absolute")
+    assert sites[0].planning_dir is None
+    assert main(["build", "--config", str(p)]) == 0
+
+
+@pytest.mark.skipif(os.name != "nt", reason="a /-rooted path is absolute on Linux")
+def test_rooted_devdoc_is_site_problem_on_windows(tmp_path, capsys):
+    from gantry.sites import load_sites
+
+    p, _ = _devagent_site(tmp_path, '"' + "/" + "srv" + "/plans" + '"')
+    sites, _ = load_sites(cfg.load_config(p))
+    assert sites[0].problem.startswith("devdoc_dir is rooted but not absolute")
+    assert sites[0].planning_dir is None
+    assert main(["build", "--config", str(p)]) == 0

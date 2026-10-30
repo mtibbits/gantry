@@ -9,6 +9,7 @@ import argparse
 import sys
 
 from gantry.config import ConfigError, load_config
+from gantry.sites import load_sites
 
 
 def _parser():
@@ -42,10 +43,18 @@ def _utf8_streams():
 def _build(args):
     _utf8_streams()
     try:
-        load_config(args.config)
+        config = load_config(args.config)
+        sites, warnings = load_sites(config)
     except ConfigError as e:
         print(f"gantry: error: {e}", file=sys.stderr)
         return 1
+    for warning in warnings:
+        print(f"gantry: warning: {warning.message}", file=sys.stderr)
+    # One tab-separated line per site; nothing is written to disk yet.
+    for site in sites:
+        where = str(site.planning_dir) if site.planning_dir is not None else "-"
+        status = "WBS.md found" if site.problem is None else f"cannot read: {site.problem}"
+        print(f"{site.name}\t{where}\t{status}")
     return 0
 
 
