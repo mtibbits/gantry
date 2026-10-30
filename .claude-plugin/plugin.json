@@ -1,0 +1,7 @@
+{
+  "name": "gantry",
+  "version": "0.0.0",
+  "description": "Planning pages for many projects, built from devagent WBS files",
+  "repository": "https://github.com/mtibbits/gantry",
+  "license": "MIT"
+}
