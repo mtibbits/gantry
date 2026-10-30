@@ -6,6 +6,7 @@ by concatenation, so this source holds none of those forms.
 
 import os
 import shutil
+import tomllib
 from datetime import date
 from pathlib import Path
 
@@ -13,6 +14,7 @@ import pytest
 
 from gantry import config as cfg
 from gantry.cli import main
+from test_samples import GANTRY_SAMPLE, SAMPLES, git, git_work_tree, needs_git
 
 ROOT = Path(__file__).resolve().parents[1]
 SAMPLE_DEVAGENT = ROOT / "samples" / "devagent" / "config.toml"
@@ -247,3 +249,30 @@ def test_reserved_keys_load_and_resolve(tmp_path):
         assert path.is_absolute(), key
         assert under(path, folder), key
         assert not path.exists(), key
+
+
+# --- the sample installation config (#7) ---------------------------------------
+
+
+def test_sample_config_loads_inside_samples():
+    assert GANTRY_SAMPLE.is_file()
+    c = cfg.load_config(GANTRY_SAMPLE)
+    samples = os.path.normcase(str(SAMPLES.resolve()))
+    paths = [c.devagent_config, c.output_dir, c.portfolio_file, c.fires_list]
+    for site in c.sites.values():
+        paths += [site.requirements, site.estimates]
+    paths = [p for p in paths if isinstance(p, Path)]
+    assert len(paths) >= 2
+    for p in paths:
+        assert Path(os.path.normcase(str(p))).is_relative_to(samples), p
+    assert "out" in c.output_dir.parts
+    raw = tomllib.loads(GANTRY_SAMPLE.read_bytes().decode("utf-8"))
+    assert type(raw["as_of"]) is date
+
+
+@needs_git
+def test_sample_config_not_ignored():
+    if not git_work_tree(ROOT):
+        pytest.skip("the gantry root is not a git work tree")
+    result = git(ROOT, "check-ignore", "-q", "--no-index", "samples/gantry.sample.toml")
+    assert result.returncode == 1

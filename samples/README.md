@@ -13,6 +13,8 @@ public tools (in prose, in the `samples/devagent/` folder name and in
   an `issue_source` subtable. Every path in it is relative to the file's
   own folder, so `devdoc_dir = "../harbor"` means `samples/harbor/`, and
   no path leads outside `samples/`.
+- `gantry.sample.toml`: the sample installation config (#7); its paths are
+  relative to `samples/` and its pages go to the ignored `samples/out/`.
 - `<site>/`: one planning folder per site, holding its `WBS.md`.
 - `harbor/estimates-2026-01-15-effort-and-model-tiers.md`: harbor's
   estimates file, giving each open harbor leaf an effort bucket, an hour
