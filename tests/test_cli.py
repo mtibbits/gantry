@@ -10,9 +10,9 @@ import tomllib
 import pytest
 
 from gantry.cli import main
+from helpers_config import append_bytes, copy_samples, sample_projects
 from sample_roles import BUSY, NO_WBS, READABLE, UNREADABLE
 from test_samples import ROOT
-from test_sites import append_bytes, copy_samples, sample_projects
 
 
 def run_module(*args, cwd=ROOT):

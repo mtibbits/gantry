@@ -6,7 +6,6 @@ by concatenation, so this source holds none of those forms.
 
 import dataclasses
 import os
-import shutil
 import tomllib
 from datetime import date
 from pathlib import Path
@@ -16,35 +15,11 @@ import pytest
 from gantry import config as cfg
 from gantry.cli import main
 from gantry.sites import load_sites
-from test_samples import CONFIG, GANTRY_SAMPLE, ROOT, SAMPLES, git, git_work_tree, md_tables, needs_git
+from helpers_config import write_config
+from test_samples import GANTRY_SAMPLE, ROOT, SAMPLES, git, git_work_tree, md_tables, needs_git
 
 BS = "\\"
 DRIVE = "C" + ":"
-
-BASE = {
-    "config_version": "1",
-    "devagent_config": '"devagent.toml"',
-    "output_dir": '"out"',
-}
-
-
-def write_config(folder, tail="", name="gantry.toml", **raw):
-    """Write a valid installation config from raw TOML literals.
-
-    `None` drops a key; `tail` is appended after the top-level keys (for
-    tables). devagent_config points at a copy of the sample devagent config
-    beside the file.
-    """
-    folder = Path(folder)
-    folder.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(CONFIG, folder / "devagent.toml")
-    values = {**BASE, **raw}
-    lines = [f"{key} = {value}" for key, value in values.items() if value is not None]
-    text = "\n".join(lines) + "\n" + tail
-    path = folder / name
-    path.write_bytes(text.encode("utf-8"))
-    return path
-
 
 def norm(p):
     return os.path.normcase(os.path.normpath(str(p)))

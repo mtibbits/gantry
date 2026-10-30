@@ -68,10 +68,11 @@ def _stat_problem(planning_dir):
 
 
 def _site(name, table, dfile):
-    if not isinstance(table, dict):
-        return SiteEntry(name, None, f"[project.{name}] is not a table")
+    # The name is checked first: only a valid name is quoted in a problem.
     if not ID_TOKEN_RE.fullmatch(name):
         return SiteEntry(name, None, f"name does not match {ID_TOKEN_RE.pattern}")
+    if not isinstance(table, dict):
+        return SiteEntry(name, None, f"[project.{name}] is not a table")
     if "devdoc_dir" not in table:
         return SiteEntry(name, None, "no devdoc_dir")
     raw = table["devdoc_dir"]

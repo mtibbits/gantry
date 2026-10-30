@@ -9,7 +9,7 @@ import argparse
 import sys
 
 from gantry.config import ConfigError, load_config
-from gantry.sites import load_sites
+from gantry.sites import ID_TOKEN_RE, load_sites
 
 
 def _parser():
@@ -52,9 +52,12 @@ def _build(args):
         print(f"gantry: warning: {warning.message}", file=sys.stderr)
     # One tab-separated line per site; nothing is written to disk yet.
     for site in sites:
+        # An invalid name may hold a tab, newline or ESC: escape it so the
+        # line stays one line of three fields.
+        name = site.name if ID_TOKEN_RE.fullmatch(site.name) else ascii(site.name)[1:-1]
         where = str(site.planning_dir) if site.planning_dir is not None else "-"
         status = "WBS.md found" if site.problem is None else f"cannot read: {site.problem}"
-        print(f"{site.name}\t{where}\t{status}")
+        print(f"{name}\t{where}\t{status}")
     return 0
 
 

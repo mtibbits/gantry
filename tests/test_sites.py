@@ -5,7 +5,6 @@ never as literals. Fixture-only names are the local constants below.
 """
 
 import os
-import shutil
 from pathlib import Path
 
 import pytest
@@ -13,29 +12,12 @@ import pytest
 from gantry import config as cfg
 from gantry import sites as st
 from gantry.cli import main
+from helpers_config import append_bytes, copy_samples, sample_projects, write_config
 from sample_roles import NO_WBS, READABLE, UNREADABLE
-from test_config import write_config
-from test_samples import GANTRY_SAMPLE, SAMPLES, load_config as load_sample_config
+from test_samples import GANTRY_SAMPLE, SAMPLES
 
 ZETA, ALPHA, FERRY, NODIR = "zeta", "alpha", "ferry", "nodir"
 BAD_NAME = "bad name"
-
-
-def sample_projects():
-    return list(load_sample_config()["project"])
-
-
-def copy_samples(tmp_path):
-    copy = tmp_path / "samples"
-    shutil.copytree(SAMPLES, copy, ignore=shutil.ignore_patterns("out"))
-    return copy
-
-
-def append_bytes(path, text):
-    before = path.read_bytes()
-    after = before + text.encode("utf-8")
-    assert after != before
-    path.write_bytes(after)
 
 
 def fixture_config(tmp_path, devagent_text, gantry_tail=""):
@@ -105,6 +87,34 @@ def test_problem_sites_listed_run_exits_0(tmp_path, capsys):
     assert fields[NODIR][2].startswith("cannot read: ")
     assert fields[BAD_NAME][2].startswith("cannot read: ")
     assert len(lines) == len(sample_projects()) + 2
+
+
+def test_control_character_names_print_escaped(tmp_path, capsys):
+    copy = copy_samples(tmp_path)
+    gantry_config = copy / GANTRY_SAMPLE.name
+    # TOML escapes inside quoted keys: a tab, a newline, an ESC, and (under
+    # [project]) a non-table site whose problem message would name it.
+    append_bytes(
+        copy / "devagent" / "config.toml",
+        '\n[project."a\\tb"]\nx = 1\n'
+        '[project."c\\nd"]\nx = 1\n'
+        '[project."e\\u001bf"]\nx = 1\n'
+        '[project]\n"g\\u001bh" = 1\n',
+    )
+    sites, _ = site_list(gantry_config)
+    assert [s.name for s in sites][-4:] == ["a\tb", "c\nd", "e\x1bf", "g\x1bh"]
+    capsys.readouterr()
+    assert main(["build", "--config", str(gantry_config)]) == 0
+    out = capsys.readouterr().out
+    assert "\x1b" not in out
+    lines = out.split("\n")
+    assert lines.pop() == ""
+    assert len(lines) == len(sites)
+    fields = [line.split("\t") for line in lines]
+    assert all(len(f) == 3 for f in fields), fields
+    assert [f[0] for f in fields] == sample_projects() + ["a\\tb", "c\\nd", "e\\x1bf", "g\\x1bh"]
+    for name, _, status in fields[-4:]:
+        assert status == "cannot read: name does not match [A-Za-z0-9][A-Za-z0-9_.-]*", (name, status)
 
 
 def test_unmatched_site_table_warns(tmp_path, capsys):

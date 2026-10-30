@@ -90,9 +90,11 @@ typo in a private file fails loudly instead of being ignored.
 These rules hold in every config Gantry reads: this file and devagent's
 `config.toml`.
 
-- **A bare `~` expands** to the home folder: `~` alone, or `~` followed by a
-  separator. `~` followed by a user name is refused on every operating system
-  (only a bare `~` is expanded), so a config behaves the same everywhere.
+- **A bare `~` expands** to the home folder: `~` alone, or `~` followed by
+  `/`, on every operating system. A backslash after `~` counts as a separator
+  only on Windows; on Linux such a value is refused as a user-name form.
+  `~` followed by a user name is refused on every operating system (only a
+  bare `~` is expanded).
 - **A relative path resolves against the folder of the file that holds it**,
   never against the working directory. In the installation config that is the
   config's own folder; for a `devdoc_dir` it is the folder of devagent's
@@ -135,8 +137,9 @@ a wrong path.
 
 `gantry build` prints one tab-separated line per site: the name, the planning
 directory (`-` when it cannot be resolved), and `WBS.md found` or
-`cannot read: <reason>`. It writes nothing yet; the page writers join in
-later issues.
+`cannot read: <reason>`. A name that fails the pattern above is printed
+escaped (a tab as `\t`, an ESC as `\x1b`), so each site stays one line of
+three fields. It writes nothing yet; the page writers join in later issues.
 
 ## Exit codes
 
