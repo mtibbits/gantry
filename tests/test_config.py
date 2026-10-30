@@ -298,9 +298,9 @@ def _devagent_text(text):
 
 
 DEVAGENT_ERRORS = {
-    "missing": (_devagent_missing, []),
-    "directory": (_devagent_dir, []),
-    "invalid-toml": (_devagent_text(b"[project\n"), []),
+    "missing": (_devagent_missing, ["cannot read the devagent config"]),
+    "directory": (_devagent_dir, ["cannot read the devagent config"]),
+    "invalid-toml": (_devagent_text(b"[project\n"), ["not valid TOML"]),
     "no-project-table": (_devagent_text(b"[defaults]\nx = 1\n"), ["[project]"]),
     "project-not-table": (_devagent_text(b"project = 3\n"), ["[project]"]),
     "empty-project": (_devagent_text(b"[project]\n"), ["[project]"]),

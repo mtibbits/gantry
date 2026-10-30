@@ -260,6 +260,9 @@ def test_launcher_no_arg_is_usage_error(tmp_path):
     result, _ = run_launcher(copy, ["a.toml", "b.toml"], shims, copy, tmp_path)
     assert result.returncode == 2
     assert b"usage:" in result.stderr
+    result, _ = run_launcher(copy, [""], shims, copy, tmp_path)
+    assert result.returncode == 2
+    assert b"--config" in result.stderr
 
 
 @needs_posix_bash

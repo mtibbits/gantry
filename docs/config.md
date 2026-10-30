@@ -2,9 +2,9 @@
 
 A Gantry **installation** is one private copy of Gantry with its own data. Its
 **installation config** is one TOML file that tells a Gantry run where that
-installation's data lives. It is kept outside this repository: the
-`.gitignore` rule `*.local.toml` is there so a config kept in a clone is
-never committed.
+installation's data lives. Keep it outside this repository. If you do keep
+one in a clone, name it `*.local.toml`: the `.gitignore` rule for that name
+keeps it out of commits, and no other name is covered.
 
 Every run names its config explicitly:
 
@@ -171,10 +171,13 @@ claude --plugin-dir <clone>
 working directory off `sys.path`, so a `gantry` folder there cannot shadow
 the plugin's package. The argument is passed as one quoted argument, never
 through shell expansion of its contents, and a relative path resolves
-against the session's working directory.
+against the session's working directory. Because the argument is taken
+literally, `~` in it is not expanded: write the path in full, or relative
+to the working directory.
 
 The launcher's grammar is `gantry-build.sh [<config>]`: with no argument it
-runs `gantry build`, which reports the missing `--config` (exit 2); with one,
+runs `gantry build`, which reports the missing `--config` (exit 2), and an
+empty argument counts as none; with one,
 it passes it as `--config`; with more, it is a usage error (exit 2). With
 neither `python` nor `python3` on `PATH` it exits 127.
 

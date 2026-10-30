@@ -34,6 +34,11 @@ ISSUE_ROOTS = ("gantry", "commands", "tools", ".claude-plugin")
 PLANT_ROOTS = tuple(dict.fromkeys(ISSUE_ROOTS + CODE_ROOTS))
 ALLOW = {}  # {(relpath, matched text): reason}; this change adds none
 
+
+def test_issue_roots_are_code_roots():
+    # Deduplicating ISSUE_ROOTS into CODE_ROOTS would disarm the planted controls.
+    assert set(ISSUE_ROOTS) <= set(CODE_ROOTS)
+
 FLOOR = {
     "gantry/__init__.py",
     "gantry/__main__.py",

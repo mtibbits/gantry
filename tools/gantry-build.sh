@@ -13,6 +13,8 @@
 # external command, so the tests can run it with a PATH of stand-in pythons.
 set -euo pipefail
 
+# An empty argument is no argument, so gantry names the missing --config.
+if [ $# -eq 1 ] && [ -z "$1" ]; then set --; fi
 case $# in
   0) ;;
   1) set -- "--config=$1" ;;  # one word, so a value starting with - stays a value
