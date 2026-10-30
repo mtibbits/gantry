@@ -19,6 +19,7 @@ import pytest
 from test_samples import (
     PATH_FORM_CONTROLS,
     PATH_FORMS,
+    ROOT,
     _decode,
     git,
     git_work_tree,
@@ -26,7 +27,6 @@ from test_samples import (
     path_form_hits,
 )
 
-ROOT = Path(__file__).resolve().parents[1]
 CODE_ROOTS = ("gantry", "commands", "tools", ".claude-plugin")  # a new code root is added here
 # The issue names these four; a root dropped from CODE_ROOTS keeps its planted
 # controls (below), which then go red.
@@ -108,22 +108,43 @@ def bare_tree(tmp_path):
     return tree
 
 
+# One tree for all the plant cases: git_work_tree is cached per root, so a
+# fresh tree per case would spawn git each time.
+@pytest.fixture(scope="module")
+def shared_tree(tmp_path_factory):
+    return bare_tree(tmp_path_factory.mktemp("plants"))
+
+
+@pytest.fixture
+def plant(shared_tree):
+    """Write planted.txt under one code root of the shared tree; remove it after."""
+    planted = []
+
+    def write(code_root, text):
+        path = shared_tree / code_root / "planted.txt"
+        path.write_bytes(text.encode("utf-8") + b"\n")
+        planted.append(path)
+        return shared_tree
+
+    yield write
+    for path in planted:
+        path.unlink()
+
+
 @pytest.mark.parametrize("shape", ["alone", "quoted"])
 @pytest.mark.parametrize("code_root", PLANT_ROOTS)
 @pytest.mark.parametrize("form,sample", CONTROLS)
-def test_planted_form_flagged(tmp_path, form, sample, code_root, shape):
-    tree = bare_tree(tmp_path)
+def test_planted_form_flagged(plant, form, sample, code_root, shape):
     text = sample if shape == "alone" else 'path = "' + sample + '"'
-    (tree / code_root / "planted.txt").write_bytes(text.encode("utf-8") + b"\n")
+    tree = plant(code_root, text)
     hits = scan(tree)
     assert (code_root + "/planted.txt", form) in {(rel, f) for rel, f, _ in hits}, hits
 
 
 @pytest.mark.parametrize("code_root", PLANT_ROOTS)
 @pytest.mark.parametrize("text", ["https://x", "a:b", "/gantry:build"])
-def test_negative_controls_pass(tmp_path, text, code_root):
-    tree = bare_tree(tmp_path)
-    (tree / code_root / "planted.txt").write_bytes(text.encode("utf-8") + b"\n")
+def test_negative_controls_pass(plant, text, code_root):
+    tree = plant(code_root, text)
     assert code_root + "/planted.txt" in code_files(tree)
     assert scan(tree) == []
 

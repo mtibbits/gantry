@@ -6,14 +6,13 @@ import shutil
 import subprocess
 import sys
 import tomllib
-from pathlib import Path
 
 import pytest
 
 from gantry.cli import main
 from sample_roles import BUSY, NO_WBS, READABLE, UNREADABLE
-
-ROOT = Path(__file__).resolve().parents[1]
+from test_samples import ROOT
+from test_sites import append_bytes, copy_samples, sample_projects
 
 
 def run_module(*args, cwd=ROOT):
@@ -61,10 +60,6 @@ def test_versions_agree():
 SAMPLE_CONFIG = "samples/gantry.sample.toml"
 
 
-def sample_projects():
-    return list(tomllib.loads((ROOT / "samples/devagent/config.toml").read_text(encoding="utf-8"))["project"])
-
-
 def expected_status(name):
     if name in READABLE | {UNREADABLE}:
         return "WBS.md found"
@@ -98,7 +93,6 @@ def test_console_script_lists_sample_sites():
         [shutil.which("gantry"), "build", "--config", SAMPLE_CONFIG],
         cwd=ROOT,
         capture_output=True,
-        env={**os.environ},
     )
     assert result.returncode == 0, result.stderr
     check_sample_lines(result.stdout)
@@ -108,12 +102,6 @@ def test_main_in_process_lists_sample_sites(capsys, monkeypatch):
     monkeypatch.chdir(ROOT)
     assert main(["build", "--config", SAMPLE_CONFIG]) == 0
     check_sample_lines(capsys.readouterr().out.encode("utf-8"))
-
-
-def copy_samples(tmp_path):
-    copy = tmp_path / "samples"
-    shutil.copytree(ROOT / "samples", copy, ignore=shutil.ignore_patterns("out"))
-    return copy
 
 
 def snapshot(root):
@@ -137,13 +125,11 @@ def test_reserved_keys_have_no_effect_on_build(tmp_path, capsys):
     config = copy / "gantry.sample.toml"
     assert main(["build", "--config", str(config)]) == 0
     plain = capsys.readouterr().out
-    before = config.read_bytes()
-    after = before + (
+    append_bytes(
+        config,
         'portfolio_file = "portfolio.toml"\nfires_list = "fires.md"\n'
-        f'[site.{BUSY}]\nrequirements = "req.md"\nestimates = "est.md"\n'
-    ).encode("utf-8")
-    assert after != before
-    config.write_bytes(after)
+        f'[site.{BUSY}]\nrequirements = "req.md"\nestimates = "est.md"\n',
+    )
     assert main(["build", "--config", str(config)]) == 0
     captured = capsys.readouterr()
     assert captured.out == plain

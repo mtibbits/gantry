@@ -190,9 +190,12 @@ A later issue that needs a key adds it, in its own change, to:
 1. the key registry in `gantry/config.py` (`KEYS`, or `SITE_KEYS` for a
    per-site key), with its type, whether it is required, its default and its
    owning issue;
-2. a row in the tables above, whose Owner cell is the registry's owner
+2. a field of the same name on `Config` (or `SiteOverride` for a per-site
+   key) that `load_config` fills; a path key is resolved there like the
+   others (a test checks every registry key has its field);
+3. a row in the tables above, whose Owner cell is the registry's owner
    exactly (a test checks every registry key has its row);
-3. `samples/gantry.sample.toml`, when the key names a file the samples
+4. `samples/gantry.sample.toml`, when the key names a file the samples
    provide.
 
 A new optional key needs no version bump; anything else follows the version

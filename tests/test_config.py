@@ -4,6 +4,7 @@ Every drive-letter, UNC and home-folder fixture below is built at run time
 by concatenation, so this source holds none of those forms.
 """
 
+import dataclasses
 import os
 import shutil
 import tomllib
@@ -14,10 +15,8 @@ import pytest
 
 from gantry import config as cfg
 from gantry.cli import main
-from test_samples import GANTRY_SAMPLE, SAMPLES, git, git_work_tree, needs_git
-
-ROOT = Path(__file__).resolve().parents[1]
-SAMPLE_DEVAGENT = ROOT / "samples" / "devagent" / "config.toml"
+from gantry.sites import load_sites
+from test_samples import CONFIG, GANTRY_SAMPLE, ROOT, SAMPLES, git, git_work_tree, md_tables, needs_git
 
 BS = "\\"
 DRIVE = "C" + ":"
@@ -38,7 +37,7 @@ def write_config(folder, tail="", name="gantry.toml", **raw):
     """
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(SAMPLE_DEVAGENT, folder / "devagent.toml")
+    shutil.copyfile(CONFIG, folder / "devagent.toml")
     values = {**BASE, **raw}
     lines = [f"{key} = {value}" for key, value in values.items() if value is not None]
     text = "\n".join(lines) + "\n" + tail
@@ -52,8 +51,7 @@ def norm(p):
 
 
 def under(child, parent):
-    child, parent = norm(child), norm(parent)
-    return child == parent or child.startswith(parent.rstrip(os.sep) + os.sep)
+    return Path(norm(child)).is_relative_to(norm(parent))
 
 
 # --- refusals: each exits 1 naming the file and the key or version ------------
@@ -345,8 +343,6 @@ def _devagent_site(tmp_path, devdoc_literal):
 
 
 def test_relative_devdoc_resolves_against_devagent_dir(tmp_path, monkeypatch):
-    from gantry.sites import load_sites
-
     p, d = _devagent_site(tmp_path, '"plans"')
     cwd = tmp_path / "cwd"
     cwd.mkdir()
@@ -358,8 +354,6 @@ def test_relative_devdoc_resolves_against_devagent_dir(tmp_path, monkeypatch):
 
 
 def test_tilde_expands_in_devdoc_dir(tmp_path, monkeypatch):
-    from gantry.sites import load_sites
-
     home = tmp_path / "home"
     set_home(monkeypatch, home)
     p, _ = _devagent_site(tmp_path, '"' + "~" + "/plans" + '"')
@@ -369,8 +363,6 @@ def test_tilde_expands_in_devdoc_dir(tmp_path, monkeypatch):
 
 @pytest.mark.skipif(os.name == "nt", reason="a drive-letter path is absolute on Windows")
 def test_drive_devdoc_is_site_problem_on_linux(tmp_path, capsys):
-    from gantry.sites import load_sites
-
     p, _ = _devagent_site(tmp_path, '"' + DRIVE + "/" + "plans" + '"')
     sites, _ = load_sites(cfg.load_config(p))
     assert sites[0].problem.startswith("devdoc_dir is rooted but not absolute")
@@ -380,8 +372,6 @@ def test_drive_devdoc_is_site_problem_on_linux(tmp_path, capsys):
 
 @pytest.mark.skipif(os.name != "nt", reason="a /-rooted path is absolute on Linux")
 def test_rooted_devdoc_is_site_problem_on_windows(tmp_path, capsys):
-    from gantry.sites import load_sites
-
     p, _ = _devagent_site(tmp_path, '"' + "/" + "srv" + "/plans" + '"')
     sites, _ = load_sites(cfg.load_config(p))
     assert sites[0].problem.startswith("devdoc_dir is rooted but not absolute")
@@ -392,20 +382,23 @@ def test_rooted_devdoc_is_site_problem_on_windows(tmp_path, capsys):
 # --- docs/config.md lists every registry key ---------------------------------------
 
 
-def docs_table_rows():
-    text = (ROOT / "docs" / "config.md").read_text(encoding="utf-8")
-    return [
-        [cell.strip() for cell in line.strip().strip("|").split("|")]
-        for line in text.splitlines()
-        if line.lstrip().startswith("|")
-    ]
-
-
 def test_docs_list_every_key():
-    rows = docs_table_rows()
+    text = (ROOT / "docs" / "config.md").read_text(encoding="utf-8")
+    rows = [row for table in md_tables(text) for row in table.rows]
     missing = [
         key.name
         for key in cfg.KEYS + cfg.SITE_KEYS
         if not any(row[0] == key.doc_name and key.owner in row for row in rows)
     ]
+    assert missing == []
+
+
+# --- every registry key has a field that load_config fills -------------------------
+
+
+def test_every_key_has_a_field():
+    fields = {f.name for f in dataclasses.fields(cfg.Config)}
+    site_fields = {f.name for f in dataclasses.fields(cfg.SiteOverride)}
+    missing = [key.name for key in cfg.KEYS if {"site": "sites"}.get(key.name, key.name) not in fields]
+    missing += [key.name for key in cfg.SITE_KEYS if key.name not in site_fields]
     assert missing == []

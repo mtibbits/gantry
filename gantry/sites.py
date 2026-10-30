@@ -41,23 +41,27 @@ def _read_devagent(dfile):
     return projects
 
 
-def _stat_problem(planning_dir):
-    """The first problem with a planning directory and its WBS.md, or None."""
+def _stat(path, missing, label):
+    """(stat result, None), or (None, `missing` or "cannot check `label`: ...")."""
     try:
-        st = os.stat(planning_dir)
+        return os.stat(path), None
     except FileNotFoundError:
-        return "planning directory does not exist"
+        return None, missing
     except (OSError, ValueError) as e:
         # ValueError: an embedded NUL, or a path too long for Windows.
-        return f"cannot check the planning directory: {error_reason(e)}"
+        return None, f"cannot check {label}: {error_reason(e)}"
+
+
+def _stat_problem(planning_dir):
+    """The first problem with a planning directory and its WBS.md, or None."""
+    st, problem = _stat(planning_dir, "planning directory does not exist", "the planning directory")
+    if problem:
+        return problem
     if not stat.S_ISDIR(st.st_mode):
         return "planning directory is not a directory"
-    try:
-        wbs = os.stat(planning_dir / "WBS.md")
-    except FileNotFoundError:
-        return "no WBS.md in the planning directory"
-    except (OSError, ValueError) as e:
-        return f"cannot check WBS.md: {error_reason(e)}"
+    wbs, problem = _stat(planning_dir / "WBS.md", "no WBS.md in the planning directory", "WBS.md")
+    if problem:
+        return problem
     if not stat.S_ISREG(wbs.st_mode):
         return "WBS.md is not a file"
     return None
@@ -85,7 +89,7 @@ def _site(name, table, dfile):
 
 def load_sites(config):
     """Return (sites, warnings) for a loaded installation config."""
-    dfile = Path(config.devagent_config)
+    dfile = config.devagent_config
     projects = _read_devagent(dfile)
     sites = [_site(name, table, dfile) for name, table in projects.items()]
     warnings = [

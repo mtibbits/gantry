@@ -2,7 +2,8 @@
 data lives (#7). docs/config.md is its reference.
 
 Every key is a row of KEYS or SITE_KEYS. A later issue adds a key by adding a
-row here, a row in docs/config.md (a test enforces it) and a sample entry.
+row here, a field that load_config fills, a row in docs/config.md (tests
+enforce both) and a sample entry.
 """
 
 import math
@@ -42,7 +43,7 @@ KEYS = (
     Key("default_unit_hours", "positive_number", False, 6, "#9", "`default_unit_hours`"),
     Key("portfolio_file", "path", False, None, "#22", "`portfolio_file`"),
     Key("fires_list", "path", False, None, "#30", "`fires_list`"),
-    Key("site", "site_tables", False, None, "#7", "`[site.<name>]`"),
+    Key("site", "table", False, None, "#7", "`[site.<name>]`"),
 )
 
 SITE_KEYS = (
@@ -51,7 +52,6 @@ SITE_KEYS = (
 )
 
 _KEYS_BY_NAME = {key.name: key for key in KEYS}
-_SITE_KEYS_BY_NAME = {key.name: key for key in SITE_KEYS}
 
 
 @dataclass(frozen=True)
@@ -136,7 +136,6 @@ _KIND_TEXT = {
     "date": "a TOML date (YYYY-MM-DD)",
     "positive_number": "a positive number",
     "path_or_false": "a path string or false",
-    "site_tables": "a table",
     "table": "a table",
 }
 
@@ -178,13 +177,36 @@ def _kind_ok(kind: str, value) -> bool:
         )
     if kind == "path_or_false":
         return value is False or (isinstance(value, str) and value != "")
-    if kind in ("site_tables", "table"):
+    if kind == "table":
         return isinstance(value, dict)
     raise ValueError(f"unknown key kind {kind!r}")
 
 
-def _quoted(names) -> str:
-    return ", ".join(f"'{name}'" for name in names)
+def _key_phrase(names) -> str:
+    """The names quoted after "key" or "keys", as in: keys 'a', 'b'."""
+    noun = "key" if len(names) == 1 else "keys"
+    return noun + " " + ", ".join(f"'{name}'" for name in names)
+
+
+def _table_problem(table, registry, prefix) -> str | None:
+    """The first problem with a table's keys, or None: unknown keys, then
+    missing required keys, then the first value of the wrong kind. `prefix`
+    ("" or "site.<name>.") makes each key name dotted.
+    """
+    names = {key.name for key in registry}
+    unknown = [prefix + name for name in table if name not in names]
+    if unknown:
+        return f"unknown {_key_phrase(unknown)}"
+    missing = [prefix + key.name for key in registry if key.required and key.name not in table]
+    if missing:
+        return f"missing required {_key_phrase(missing)}"
+    for key in registry:
+        if key.name in table and not _kind_ok(key.kind, table[key.name]):
+            return (
+                f"{_key_phrase([prefix + key.name])} must be {_KIND_TEXT[key.kind]}, "
+                f"not {_describe(table[key.name])}"
+            )
+    return None
 
 
 # --- the loader ------------------------------------------------------------------
@@ -245,40 +267,21 @@ def load_config(path) -> Config:
             "the version this Gantry reads; docs/config.md lists what changed"
         )
 
-    unknown = [name for name in raw if name not in _KEYS_BY_NAME]
-    if unknown:
-        noun = "key" if len(unknown) == 1 else "keys"
-        raise fail(f"unknown {noun} {_quoted(unknown)}")
-
-    missing = [key.name for key in KEYS if key.required and key.name not in raw]
-    if missing:
-        noun = "key" if len(missing) == 1 else "keys"
-        raise fail(f"missing required {noun} {_quoted(missing)}")
-
-    for key in KEYS:
-        if key.name in raw and not _kind_ok(key.kind, raw[key.name]):
-            raise fail(
-                f"key '{key.name}' must be {_KIND_TEXT[key.kind]}, "
-                f"not {_describe(raw[key.name])}"
-            )
+    problem = _table_problem(raw, KEYS, "")
+    if problem:
+        raise fail(problem)
 
     site_tables = raw.get("site", {})
     for name, table in site_tables.items():
         dotted = f"site.{name}"
         if not _kind_ok("table", table):
             raise fail(f"key '{dotted}' must be a table, not {_describe(table)}")
-        unknown = [f"{dotted}.{k}" for k in table if k not in _SITE_KEYS_BY_NAME]
-        if unknown:
-            noun = "key" if len(unknown) == 1 else "keys"
-            raise fail(f"unknown {noun} {_quoted(unknown)}")
-        for key in SITE_KEYS:
-            if key.name in table and not _kind_ok(key.kind, table[key.name]):
-                raise fail(
-                    f"key '{dotted}.{key.name}' must be {_KIND_TEXT[key.kind]}, "
-                    f"not {_describe(table[key.name])}"
-                )
+        problem = _table_problem(table, SITE_KEYS, dotted + ".")
+        if problem:
+            raise fail(problem)
 
-    base = Path(os.path.abspath(path)).parent
+    config_path = Path(os.path.abspath(path))
+    base = config_path.parent
 
     def resolved(dotted, value):
         if value is None or value is False:
@@ -304,7 +307,7 @@ def load_config(path) -> Config:
     if as_of is None:
         as_of = date.today()  # at load time, never a def-time default
     return Config(
-        path=Path(os.path.abspath(path)),
+        path=config_path,
         config_version=version,
         devagent_config=devagent_config,
         output_dir=output_dir,

@@ -6,7 +6,6 @@ never as literals. Fixture-only names are the local constants below.
 
 import os
 import shutil
-import tomllib
 from pathlib import Path
 
 import pytest
@@ -15,14 +14,15 @@ from gantry import config as cfg
 from gantry import sites as st
 from gantry.cli import main
 from sample_roles import NO_WBS, READABLE, UNREADABLE
-from test_samples import GANTRY_SAMPLE, SAMPLES
+from test_config import write_config
+from test_samples import GANTRY_SAMPLE, SAMPLES, load_config as load_sample_config
 
 ZETA, ALPHA, FERRY, NODIR = "zeta", "alpha", "ferry", "nodir"
 BAD_NAME = "bad name"
 
 
 def sample_projects():
-    return list(tomllib.loads(SAMPLES.joinpath("devagent", "config.toml").read_text(encoding="utf-8"))["project"])
+    return list(load_sample_config()["project"])
 
 
 def copy_samples(tmp_path):
@@ -40,11 +40,8 @@ def append_bytes(path, text):
 
 def fixture_config(tmp_path, devagent_text, gantry_tail=""):
     """A gantry config beside a devagent config holding `devagent_text`."""
-    tmp_path.mkdir(parents=True, exist_ok=True)
+    p = write_config(tmp_path, tail=gantry_tail)
     (tmp_path / "devagent.toml").write_bytes(devagent_text.encode("utf-8"))
-    p = tmp_path / "gantry.toml"
-    text = 'config_version = 1\ndevagent_config = "devagent.toml"\noutput_dir = "out"\n' + gantry_tail
-    p.write_bytes(text.encode("utf-8"))
     return p
 
 
