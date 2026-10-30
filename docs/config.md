@@ -73,6 +73,12 @@ refused, naming both numbers.
 |---|---|
 | 1 | Initial format (#7). |
 
+## Encoding
+
+Both files are read as UTF-8. A file that starts with a byte-order mark (which
+some Windows editors and PowerShell 5.1 write) is refused with a message
+saying so: save it without one.
+
 ## Unknown keys
 
 An unknown key is refused, naming it, at the top level and inside a
@@ -119,7 +125,7 @@ others, when:
   references);
 - it has no `devdoc_dir`, or one that is not a usable path;
 - its planning directory does not exist or is not a directory;
-- there is no `WBS.md` in it.
+- there is no `WBS.md` file in it, or Gantry cannot tell.
 
 A `[site.<name>]` table naming no devagent project is a **warning**: it is
 printed on stderr and also returned as data with the sites, for later pages

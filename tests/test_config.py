@@ -89,6 +89,7 @@ ERROR_CASES = {
     "invalid-toml": (_bytes(b"config_version = \n"), ["not valid TOML"]),
     "invalid-utf8": (_bytes(b"config_version = 1\nx = \"\xff\"\n"), ["not valid TOML"]),
     "huge-int": (_bytes(b"config_version = " + b"9" * 5000 + b"\n"), ["not valid TOML"]),
+    "bom": (_bytes(b"\xef\xbb\xbfconfig_version = 1\n"), ["byte-order mark"]),
     "no-version": (_raw(config_version=None), ["config_version", "config_version 1"]),
     "newer": (_raw(config_version="2"), ["config_version 2", "config_version 1"]),
     "older": (_raw(config_version="0"), ["config_version 0", "config_version 1"]),
@@ -305,7 +306,23 @@ DEVAGENT_ERRORS = {
     "no-project-table": (_devagent_text(b"[defaults]\nx = 1\n"), ["[project]"]),
     "project-not-table": (_devagent_text(b"project = 3\n"), ["[project]"]),
     "empty-project": (_devagent_text(b"[project]\n"), ["[project]"]),
+    "bom": (_devagent_text(b"\xef\xbb\xbf[project.p]\ndevdoc_dir = \"p\"\n"), ["byte-order mark"]),
 }
+
+
+def test_nul_config_path_cannot_be_read(capsys):
+    assert main(["build", "--config", "a\0b.toml"]) == 1
+    err = capsys.readouterr().err
+    assert "cannot read the config" in err
+    assert "not valid TOML" not in err
+
+
+def test_nul_devagent_config_cannot_be_read(tmp_path, capsys):
+    p = write_config(tmp_path, devagent_config='"a\\u0000b.toml"')
+    assert main(["build", "--config", str(p)]) == 1
+    err = capsys.readouterr().err
+    assert "cannot read the devagent config" in err
+    assert "not valid TOML" not in err
 
 
 @pytest.mark.parametrize("case", sorted(DEVAGENT_ERRORS))

@@ -274,3 +274,14 @@ def test_launcher_no_arg_is_usage_error(tmp_path):
     result, _ = run_launcher(copy, ["a.toml", "b.toml"], shims, copy, tmp_path)
     assert result.returncode == 2
     assert b"usage:" in result.stderr
+
+
+@needs_posix_bash
+def test_launcher_dash_leading_config_is_a_value(tmp_path):
+    copy = launcher_copy(tmp_path)
+    samples = copy / "samples"
+    (samples / "gantry.sample.toml").rename(samples / "-dash.toml")
+    shims = shim_dir(tmp_path, ["python"])
+    result, _ = run_launcher(copy, ["-dash.toml"], shims, samples, tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert sample_line_count(result) == 6

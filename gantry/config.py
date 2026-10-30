@@ -189,6 +189,35 @@ def _quoted(names) -> str:
 
 # --- the loader ------------------------------------------------------------------
 
+_BOM = b"\xef\xbb\xbf"
+
+
+def error_reason(e: Exception) -> str:
+    """An OSError's own text, or any other error's message."""
+    return getattr(e, "strerror", None) or str(e)
+
+
+def read_toml(path, name: str, subject: str) -> dict:
+    """Read a TOML file; raise ConfigError naming the file on any failure.
+
+    `name` is what "cannot read ..." calls the file; `subject` prefixes the
+    other messages ("" or "the devagent config ").
+    """
+    file = str(path)
+    try:
+        with open(path, "rb") as handle:
+            data = handle.read()
+    except (OSError, ValueError) as e:
+        # ValueError: an embedded NUL, or a path too long for Windows.
+        raise ConfigError(f"{file}: cannot read {name}: {error_reason(e)}") from None
+    if data.startswith(_BOM):
+        raise ConfigError(f"{file}: {subject}starts with a UTF-8 byte-order mark; save it without one")
+    try:
+        return tomllib.loads(data.decode("utf-8"))
+    except ValueError as e:
+        # TOMLDecodeError, UnicodeDecodeError and the integer-digit limit.
+        raise ConfigError(f"{file}: {subject}is not valid TOML: {e}") from None
+
 
 def load_config(path) -> Config:
     """Load and check an installation config; raise ConfigError if refused."""
@@ -197,14 +226,7 @@ def load_config(path) -> Config:
     def fail(message):
         return ConfigError(f"{file}: {message}")
 
-    try:
-        with open(path, "rb") as handle:
-            raw = tomllib.load(handle)
-    except OSError as e:
-        raise fail(f"cannot read the config: {e.strerror or e}") from None
-    except ValueError as e:
-        # TOMLDecodeError, UnicodeDecodeError and the integer-digit limit.
-        raise fail(f"is not valid TOML: {e}") from None
+    raw = read_toml(path, "the config", "")
 
     # The version first, so a newer file reports its version, not its new keys.
     if "config_version" not in raw:

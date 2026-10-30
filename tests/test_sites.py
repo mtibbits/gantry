@@ -9,6 +9,8 @@ import shutil
 import tomllib
 from pathlib import Path
 
+import pytest
+
 from gantry import config as cfg
 from gantry import sites as st
 from gantry.cli import main
@@ -155,3 +157,48 @@ def test_problem_checks_order_and_stat(tmp_path):
     assert by_name["gone"].planning_dir == Path(os.path.normpath(tmp_path / "missing-folder"))
     assert by_name["stringy"].planning_dir is None
     assert by_name["numdir"].planning_dir is None
+
+
+def test_wbs_folder_is_not_found(tmp_path):
+    (tmp_path / "plans" / "WBS.md").mkdir(parents=True)
+    sites, _ = site_list(fixture_config(tmp_path, '[project.p]\ndevdoc_dir = "plans"\n'))
+    assert sites[0].problem == "WBS.md is not a file"
+
+
+def test_nul_devdoc_dir_is_a_site_problem_not_a_crash(tmp_path, capsys):
+    devagent = (
+        '[project.nul]\ndevdoc_dir = "a\\u0000b"\n'
+        f'[project.{ALPHA}]\ndevdoc_dir = "plans"\n'
+    )
+    (tmp_path / "plans").mkdir()
+    (tmp_path / "plans" / "WBS.md").write_bytes(b"x\n")
+    p = fixture_config(tmp_path, devagent)
+    sites, _ = site_list(p)
+    assert sites[0].problem.startswith("cannot check the planning directory: ")
+    assert sites[1].problem is None
+    capsys.readouterr()
+    assert main(["build", "--config", str(p)]) == 0
+    assert len(capsys.readouterr().out.splitlines()) == 2
+
+
+@pytest.mark.parametrize("target,error,expected", [
+    ("plans", PermissionError(13, "Permission denied"), "cannot check the planning directory: Permission denied"),
+    ("plans", ValueError("path too long"), "cannot check the planning directory: path too long"),
+    ("WBS.md", PermissionError(13, "Permission denied"), "cannot check WBS.md: Permission denied"),
+    ("WBS.md", ValueError("path too long"), "cannot check WBS.md: path too long"),
+])
+def test_cannot_check_is_not_absent(tmp_path, monkeypatch, target, error, expected):
+    (tmp_path / "plans").mkdir()
+    (tmp_path / "plans" / "WBS.md").write_bytes(b"x\n")
+    p = fixture_config(tmp_path, '[project.p]\ndevdoc_dir = "plans"\n')
+    config = cfg.load_config(p)
+    real_stat = os.stat
+
+    def fake_stat(path, *args, **kwargs):
+        if Path(path).name == target:
+            raise error
+        return real_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(st.os, "stat", fake_stat)
+    sites, _ = st.load_sites(config)
+    assert sites[0].problem == expected

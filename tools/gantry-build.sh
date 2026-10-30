@@ -15,7 +15,7 @@ set -euo pipefail
 
 case $# in
   0) ;;
-  1) set -- --config "$1" ;;
+  1) set -- "--config=$1" ;;  # one word, so a value starting with - stays a value
   *) printf 'usage: gantry-build.sh [<config>]\n' >&2; exit 2 ;;
 esac
 
