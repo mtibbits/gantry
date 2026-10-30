@@ -1,6 +1,8 @@
 __pycache__/
 *.pyc
 .venv/
+# pip install -e writes build metadata beside the package.
+*.egg-info/
 # Generated pages and per-installation config never belong in this repo.
 out/
 *.local.toml

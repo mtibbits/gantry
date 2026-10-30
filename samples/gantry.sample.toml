@@ -1,0 +1,6 @@
+# Every name here is fictional: gantry's sample installation (#7).
+# Paths are relative to this file's folder (samples/).
+config_version = 1
+devagent_config = "devagent/config.toml"
+output_dir = "out"
+as_of = 2026-01-20
