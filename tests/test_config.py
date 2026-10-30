@@ -370,3 +370,25 @@ def test_rooted_devdoc_is_site_problem_on_windows(tmp_path, capsys):
     assert sites[0].problem.startswith("devdoc_dir is rooted but not absolute")
     assert sites[0].planning_dir is None
     assert main(["build", "--config", str(p)]) == 0
+
+
+# --- docs/config.md lists every registry key ---------------------------------------
+
+
+def docs_table_rows():
+    text = (ROOT / "docs" / "config.md").read_text(encoding="utf-8")
+    return [
+        [cell.strip() for cell in line.strip().strip("|").split("|")]
+        for line in text.splitlines()
+        if line.lstrip().startswith("|")
+    ]
+
+
+def test_docs_list_every_key():
+    rows = docs_table_rows()
+    missing = [
+        key.name
+        for key in cfg.KEYS + cfg.SITE_KEYS
+        if not any(row[0] == key.doc_name and key.owner in row for row in rows)
+    ]
+    assert missing == []

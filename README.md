@@ -23,6 +23,8 @@ data. Every installation reads its own project data from paths in its own
 configuration, which never lives in this repository. Pages built from real
 data are meant for a private network, never for a public site.
 
+Installation config reference: [docs/config.md](docs/config.md).
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
