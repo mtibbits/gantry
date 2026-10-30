@@ -149,3 +149,128 @@ def test_reserved_keys_have_no_effect_on_build(tmp_path, capsys):
     assert captured.out == plain
     assert captured.err == ""
     assert len(plain.splitlines()) == 6
+
+
+# --- the plugin launcher (tools/gantry-build.sh) -----------------------------
+# POSIX bash only: Windows is checked by hand (Task 10). The launcher uses
+# bash builtins only, so PATH can hold nothing but stand-in pythons ("shims").
+
+BASH = shutil.which("bash")
+needs_posix_bash = pytest.mark.skipif(
+    os.name == "nt" or not BASH, reason="Windows is checked by hand (Task 10)"
+)
+
+
+def launcher_copy(tmp_path):
+    copy = tmp_path / "repo"
+    skip = shutil.ignore_patterns("out", "__pycache__")
+    for part in ("gantry", "tools", "samples"):
+        shutil.copytree(ROOT / part, copy / part, ignore=skip)
+    return copy
+
+
+def shim_dir(tmp_path, names, body=None):
+    """A folder of builtins-only stand-ins that log their name and run this Python."""
+    folder = tmp_path / "shims"
+    folder.mkdir(exist_ok=True)
+    assert "'" not in sys.executable
+    if body is None:
+        body = "exec '" + sys.executable + "' \"$@\"\n"
+    for name in names:
+        shim = folder / name
+        shim.write_bytes(("#!/bin/sh\nprintf '%s\\n' \"${0##*/}\" >> \"$MARK\"\n" + body).encode("utf-8"))
+        shim.chmod(0o755)
+    return folder
+
+
+def run_launcher(copy, args, shims, cwd, tmp_path):
+    mark = tmp_path / "mark"
+    result = subprocess.run(
+        [BASH, str(copy / "tools" / "gantry-build.sh"), *args],
+        cwd=cwd,
+        capture_output=True,
+        env={**os.environ, "PATH": str(shims), "MARK": str(mark)},
+    )
+    names = set(mark.read_text().split()) if mark.exists() else set()
+    return result, names
+
+
+def sample_line_count(result):
+    return len(result.stdout.decode("utf-8").splitlines())
+
+
+@needs_posix_bash
+def test_launcher_prefers_python(tmp_path):
+    copy = launcher_copy(tmp_path)
+    shims = shim_dir(tmp_path, ["python", "python3"])
+    result, names = run_launcher(copy, [SAMPLE_CONFIG], shims, copy, tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert sample_line_count(result) == 6
+    assert names == {"python"}
+
+
+@needs_posix_bash
+def test_launcher_falls_back_to_python3(tmp_path):
+    copy = launcher_copy(tmp_path)
+    shims = shim_dir(tmp_path, ["python3"])
+    result, names = run_launcher(copy, [SAMPLE_CONFIG], shims, copy, tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert sample_line_count(result) == 6
+    assert names == {"python3"}
+
+
+@needs_posix_bash
+def test_launcher_no_python(tmp_path):
+    copy = launcher_copy(tmp_path)
+    shims = shim_dir(tmp_path, [])
+    result, _ = run_launcher(copy, [SAMPLE_CONFIG], shims, copy, tmp_path)
+    assert result.returncode == 127
+    assert b"python3" in result.stderr
+
+
+@needs_posix_bash
+def test_launcher_reports_failed_version_probe(tmp_path):
+    copy = launcher_copy(tmp_path)
+    shims = shim_dir(tmp_path, ["python"], body="echo 'not really python'\nexit 9\n")
+    result, _ = run_launcher(copy, [SAMPLE_CONFIG], shims, copy, tmp_path)
+    assert result.returncode == 1
+    assert b"3.11 or later" in result.stderr
+    assert b"not really python" in result.stderr
+
+
+@needs_posix_bash
+def test_launcher_one_literal_argument(tmp_path):
+    copy = launcher_copy(tmp_path)
+    name = "gantry sample $(touch pwned) 'q'.toml"
+    (copy / "samples" / "gantry.sample.toml").rename(copy / "samples" / name)
+    shims = shim_dir(tmp_path, ["python"])
+    result, _ = run_launcher(copy, ["samples/" + name], shims, copy, tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert sample_line_count(result) == 6
+    assert list(tmp_path.rglob("pwned")) == []
+
+
+@needs_posix_bash
+def test_launcher_P_ignores_cwd_package(tmp_path):
+    copy = launcher_copy(tmp_path)
+    elsewhere = tmp_path / "elsewhere"
+    (elsewhere / "gantry").mkdir(parents=True)
+    (elsewhere / "gantry" / "__init__.py").write_bytes(b'raise SystemExit("decoy gantry imported")\n')
+    shims = shim_dir(tmp_path, ["python"])
+    config = copy / "samples" / "gantry.sample.toml"
+    result, _ = run_launcher(copy, [str(config)], shims, elsewhere, tmp_path)
+    assert b"decoy" not in result.stderr
+    assert result.returncode == 0, result.stderr
+    assert sample_line_count(result) == 6
+
+
+@needs_posix_bash
+def test_launcher_no_arg_is_usage_error(tmp_path):
+    copy = launcher_copy(tmp_path)
+    shims = shim_dir(tmp_path, ["python", "python3"])
+    result, _ = run_launcher(copy, [], shims, copy, tmp_path)
+    assert result.returncode == 2
+    assert b"--config" in result.stderr
+    result, _ = run_launcher(copy, ["a.toml", "b.toml"], shims, copy, tmp_path)
+    assert result.returncode == 2
+    assert b"usage:" in result.stderr

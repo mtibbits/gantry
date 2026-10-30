@@ -10,4 +10,5 @@ tests/** text eol=lf
 samples/**/*.md text eol=lf
 samples/**/*.toml text eol=lf
 samples/**/*.json text eol=lf
+tools/*.sh text eol=lf
 samples/marsh/WBS.md -text
