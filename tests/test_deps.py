@@ -4,6 +4,7 @@ import pytest
 
 from gantry.deps import classify, find_cycles
 from gantry.model import DepRef
+from gantry.priority import effective
 from gantry.wbs_stopgap import parse_wbs
 from test_samples import ROOT
 
@@ -125,3 +126,29 @@ def test_find_cycles_iterative():
     links = [(keys[i], keys[i + 1]) for i in range(2999)] + [(keys[-1], keys[0])]
     assert [sorted(c) for c in find_cycles(keys, links)] == [sorted(keys)]
     assert find_cycles(keys, links[:-1]) == []
+
+
+
+def effective_map(data):
+    return effective([leaf for leaf in data.leaves if leaf.open and leaf.key not in data.held_out], data.links)
+
+
+def test_cycle_leaves_others_unaffected():
+    text = fixture_text("cycle")
+    lines = text.splitlines(keepends=True)
+    cut = parse_wbs("".join(lines[:1] + lines[4:]), "alpha")
+    data = parse("cycle")
+    kept = tuple(link for link in data.links if not set(link) & set(data.held_out))
+    assert kept == cut.links == (("Issue-5", "Issue-4"),)
+    expected = {"Issue-4": 1, "Issue-5": 1, "Issue-6": 3, "Issue-9": 3}
+    assert effective_map(data) == effective_map(cut) == expected
+
+
+def test_long_chain_no_recursion():
+    lines = [f"- [ ] L{i} {{issue: Issue-{i}, depends_on: [Issue-{i - 1}]}}" for i in range(1, 3000)]
+    lines.insert(0, "- [ ] L0 {issue: Issue-0}")
+    lines[-1] = lines[-1][:-1] + ", priority: P1}"
+    data = parse_wbs("".join(line + "\n" for line in lines), "alpha")
+    assert len(data.leaves) == 3000
+    assert data.held_out == ()
+    assert effective_map(data)["Issue-0"] == 1
