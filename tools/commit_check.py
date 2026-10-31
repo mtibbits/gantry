@@ -17,6 +17,7 @@ own rule 3.
 """
 
 import re
+from dataclasses import dataclass
 
 SEP = "/"
 BACK = "\\"
@@ -51,3 +52,63 @@ def line_hits(text):
         for form, pattern in PATH_FORM_RES.items():
             hits += [(lineno, form, m.start(), m.end()) for m in pattern.finditer(line)]
     return hits
+
+
+# --- the exemption list ----------------------------------------------------------
+
+EXEMPT_PATH = "tools/commit_check_exempt.txt"
+# Rules 1 and 2 have no exemption by design, and rule 4 is repo-level.
+EXEMPTIBLE_RULES = {"absolute-path"}
+FIELD_SEP = " | "
+
+
+@dataclass(frozen=True)
+class Exemption:
+    path: str
+    rule: str
+    text: str
+    reason: str
+    lineno: int
+
+
+def parse_exemptions(text):
+    """(entries, errors) for the exemption list; errors are (line number, why)."""
+    entries, errors = [], []
+    for lineno, line in enumerate(text.split("\n"), 1):
+        line = line.rstrip("\r")
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        fields = [f.strip() for f in line.split(FIELD_SEP, 3)]
+        if len(fields) != 4 or not all(fields):
+            errors.append((lineno, "needs four fields: path | rule | text | reason"))
+        elif fields[1] not in EXEMPTIBLE_RULES:
+            errors.append((lineno, "only absolute-path can be exempted"))
+        elif fields[0] == EXEMPT_PATH:
+            errors.append((lineno, "the exemption list cannot exempt itself"))
+        else:
+            entries.append(Exemption(*fields, lineno))
+    return entries, errors
+
+
+def is_exempt(path, line, start, end, entries):
+    """True when an entry for path has an occurrence of its text spanning the hit."""
+    for entry in entries:
+        if entry.path != path:
+            continue
+        at = line.find(entry.text)
+        while at != -1:
+            if at <= start and end <= at + len(entry.text):
+                return True
+            at = line.find(entry.text, at + 1)
+    return False
+
+
+def entry_is_live(entry, file_text):
+    """True when some line holds the entry's text with a rule-3 hit inside it."""
+    for line in file_text.split("\n"):
+        if entry.text not in line:
+            continue
+        for _, _, start, end in line_hits(line):
+            if is_exempt(entry.path, line, start, end, [entry]):
+                return True
+    return False

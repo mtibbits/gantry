@@ -78,3 +78,59 @@ def test_line_hits_counts_newlines_only():
     assert [(lineno, form) for lineno, form, _, _ in hits] == [(2, "tilde")]
     _, _, start, end = hits[0]
     assert text.split("\n")[1][start:end] == "~" + "/"
+
+
+# --- the exemption list (Task 2) --------------------------------------------------
+
+HOME = "/" + "home" + "/" + "someone" + "/"
+TILDE = "~" + "/"
+
+
+def test_exempt_parse_good_and_comments():
+    text = (
+        "# a comment\r\n"
+        "\n"
+        "   \n"
+        "docs/x.md | absolute-path | see " + HOME + "notes | the example the page explains\r\n"
+    )
+    entries, errors = commit_check.parse_exemptions(text)
+    assert errors == []
+    assert entries == [commit_check.Exemption(
+        "docs/x.md", "absolute-path", "see " + HOME + "notes",
+        "the example the page explains", 4,
+    )]
+
+
+@pytest.mark.parametrize("line", [
+    "docs/x.md | absolute-path | " + HOME,
+    "docs/x.md | absolute-path | " + HOME + " | ",
+    "docs/x.md | absolute-path |  | a reason",
+    "docs/x.md | generated-output | " + HOME + " | a reason",
+    "docs/x.md | no-such-rule | " + HOME + " | a reason",
+    commit_check.EXEMPT_PATH + " | absolute-path | " + HOME + " | a reason",
+])
+def test_exempt_parse_rejects(line):
+    entries, errors = commit_check.parse_exemptions("# header\n" + line + "\n")
+    assert entries == []
+    assert [lineno for lineno, _ in errors] == [2]
+
+
+def test_exempt_is_span_level():
+    text = "see " + HOME + "notes"
+    entry = commit_check.Exemption("docs/x.md", "absolute-path", text, "why", 1)
+    line = "a " + text + " and " + TILDE + "x"
+    hits = commit_check.line_hits(line)
+    by_form = {form: (start, end) for _, form, start, end in hits}
+    assert set(by_form) == {"posix_home", "tilde"}
+    assert commit_check.is_exempt("docs/x.md", line, *by_form["posix_home"], [entry])
+    assert not commit_check.is_exempt("docs/x.md", line, *by_form["tilde"], [entry])
+    assert not commit_check.is_exempt("docs/y.md", line, *by_form["posix_home"], [entry])
+
+
+def test_entry_liveness():
+    entry = commit_check.Exemption("docs/x.md", "absolute-path", "see " + HOME, "why", 1)
+    assert commit_check.entry_is_live(entry, "one\nwe see " + HOME + "x\n")
+    assert not commit_check.entry_is_live(entry, "one\nnothing here\n")
+    # The text is present but no longer holds a form: the path moved out of it.
+    moved = commit_check.Exemption("docs/x.md", "absolute-path", "see", "why", 1)
+    assert not commit_check.entry_is_live(moved, "we see it, and " + HOME + "\n")
