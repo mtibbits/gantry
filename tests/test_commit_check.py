@@ -18,7 +18,7 @@ from test_samples import (
     PATH_FORM_CONTROLS,
     PATH_FORM_NEGATIVES,
     ROOT,
-    _decode,
+    decode_bytes,
     git,
     git_env,
     git_work_tree,
@@ -42,8 +42,8 @@ TEMPLATE_FILES = (
 
 def run_git(repo, *args, input=None):
     result = git(repo, *IDENTITY, *args, input=input, hermetic=True)
-    assert result.returncode == 0, (args, _decode(result.stderr))
-    return _decode(result.stdout)
+    assert result.returncode == 0, (args, decode_bytes(result.stderr))
+    return decode_bytes(result.stdout)
 
 
 def stage(repo, rel, data):
@@ -960,7 +960,7 @@ def hooks_dir(repo):
 
 def gantry_config(repo):
     result = git(repo, "config", "--get-regexp", "^gantry\\.", hermetic=True)
-    return _decode(result.stdout).strip()
+    return decode_bytes(result.stdout).strip()
 
 
 def git_commit(repo, *args):
@@ -969,7 +969,7 @@ def git_commit(repo, *args):
         ["git", *IDENTITY, "commit", "-q", *args],
         cwd=repo, env=HERMETIC_ENV, capture_output=True,
     )
-    return result.returncode, _decode(result.stdout) + _decode(result.stderr)
+    return result.returncode, decode_bytes(result.stdout) + decode_bytes(result.stderr)
 
 
 @pytest.fixture

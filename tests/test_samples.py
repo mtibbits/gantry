@@ -24,7 +24,7 @@ import pytest
 
 import sample_roles
 # One form list for the samples check, the source scan and the commit check (#44).
-from commit_check import ABSOLUTE_START_RE, PATH_FORMS, _decode, _walk_strings, path_form_hits
+from commit_check import ABSOLUTE_START_RE, PATH_FORMS, decode_bytes, walk_strings, path_form_hits
 from sample_roles import (
     BUSY,
     HOSTILE_SITE,
@@ -74,7 +74,7 @@ def config_violations(config_path, samples_root):
     base = Path(config_path).parent
     inside = Path(samples_root).resolve()
     offenders = []
-    for dotted, value in _walk_strings(cfg, ""):
+    for dotted, value in walk_strings(cfg, ""):
         if ABSOLUTE_START_RE.match(value):
             offenders.append(f"{dotted}: absolute or ~ string")
         elif _is_path_key(dotted) and not (base / value).resolve().is_relative_to(inside):
@@ -665,7 +665,7 @@ def git_work_tree(root):
     result = git(root, "rev-parse", "--show-toplevel")
     if result.returncode != 0:
         return False
-    return os.path.samefile(_decode(result.stdout).strip(), root)
+    return os.path.samefile(decode_bytes(result.stdout).strip(), root)
 
 
 def sample_files(root, hermetic=False):
@@ -675,8 +675,8 @@ def sample_files(root, hermetic=False):
             root, "ls-files", "-z", "--cached", "--others", "--exclude-standard",
             "--", "samples/", hermetic=hermetic,
         )
-        assert result.returncode == 0, _decode(result.stderr)
-        return sorted(p for p in _decode(result.stdout).split("\0") if p)
+        assert result.returncode == 0, decode_bytes(result.stderr)
+        return sorted(p for p in decode_bytes(result.stdout).split("\0") if p)
     samples = root / "samples"
     return sorted(
         p.relative_to(root).as_posix()
@@ -703,8 +703,8 @@ def path_form_offenders(root, files):
 def unpinned(root, files, hermetic=False):
     stdin = "".join(f + "\0" for f in files).encode("utf-8", "surrogateescape")
     result = git(root, "check-attr", "-z", "--stdin", "eol", "text", input=stdin, hermetic=hermetic)
-    assert result.returncode == 0, _decode(result.stderr)
-    fields = _decode(result.stdout).split("\0")
+    assert result.returncode == 0, decode_bytes(result.stderr)
+    fields = decode_bytes(result.stdout).split("\0")
     if fields and fields[-1] == "":
         fields.pop()
     triples = [fields[i:i + 3] for i in range(0, len(fields), 3)]
@@ -778,6 +778,7 @@ PATH_FORM_CONTROLS = [
     ("tilde", "~" + "/x"),
     ("tilde", "~" + "someone" + "/x"),
     ("file_url", "file:" + "/" * 3 + "srv" + "/x"),
+    ("file_url", "file:" + "/" * 2 + "srv" + "/share" + "/x"),
 ]
 
 
@@ -834,7 +835,7 @@ def _temp_tree(tmp_path, with_git):
     shutil.copyfile(GITATTRIBUTES, tree / ".gitattributes")
     if with_git:
         result = git(tree, "init", "-q", hermetic=True)
-        assert result.returncode == 0, _decode(result.stderr)
+        assert result.returncode == 0, decode_bytes(result.stderr)
     return tree
 
 
@@ -889,7 +890,7 @@ def test_attr_check_names_unpinned_stuck(tmp_path):
     attrs.write_bytes(after.encode("utf-8"))
     assert unpinned(tree, sample_files(tree, hermetic=True), hermetic=True) == []
     marsh = git(tree, "check-attr", "text", "--", MARSH_PATH, hermetic=True)
-    assert _decode(marsh.stdout).strip().endswith("text: unset")
+    assert decode_bytes(marsh.stdout).strip().endswith("text: unset")
 
 
 # --- samples/README.md --------------------------------------------------------

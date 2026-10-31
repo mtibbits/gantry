@@ -13,7 +13,8 @@ CI has no private data:
 
 The tool uses the standard library only. It reads content from git objects
 (the index, a commit or `HEAD`), never from the work tree, so line endings and
-unstaged edits cannot change a verdict.
+unstaged edits cannot change a verdict for rules 1-3. Rule 4 reads the
+work-tree `.gitignore` in `staged`; CI judges the committed one again.
 
 ## Rules
 
@@ -33,9 +34,9 @@ Rules 1 to 4 need no private data. CI and the hook both run them.
    a drive-letter path (`<drive>:\…` or with a forward slash), a UNC path
    (`\\<server>\<share>`), a rooted path under a home, Users, root or mnt
    folder (`<home>/...`), an MSYS drive root (`/<letter>/`), a tilde
-   followed by a slash or by `~<name>` and a slash, and a `file:` URL with an
-   empty host (the scheme followed by three slashes, as a browser shows a
-   page opened from disk). Why: a local path names a
+   followed by a slash or by `~<name>` and a slash, and a `file:` URL, with an
+   empty host or a server name (as a browser shows a page opened from disk or
+   from a share). Why: a local path names a
    machine, a user and often a private project. A drive letter must not follow
    a letter or digit; every other form must start a line or follow a character
    that is not a letter, digit, `_`, `.`, `-`, a slash, a tilde or a colon. So
@@ -187,7 +188,9 @@ or `--message`). Without a recorded denylist the hooks run only the CI rules
 and say so. The hooks live in the shared hooks folder, so they arm every
 worktree of the clone, including a checkout from before this tool existed;
 there the hook stops the commit, says the tool is missing, and names
-`--no-verify`.
+`--no-verify`. To uninstall, delete the `pre-commit` and `commit-msg` hooks
+from the hooks folder and `git config --unset` `gantry.denylist` and
+`gantry.python`.
 
 `names` matches each entry case-insensitively as a whole word, where a whole
 word means not next to a letter: `_`, digits and `-` are boundaries. It

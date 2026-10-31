@@ -28,7 +28,7 @@ from commit_check import (
 from test_samples import (
     PATH_FORM_CONTROLS,
     ROOT,
-    _decode,
+    decode_bytes,
     git,
     git_work_tree,
     needs_git,
@@ -73,8 +73,8 @@ def code_files(root, hermetic=False):
             root, "ls-files", "-z", "--cached", "--others", "--exclude-standard",
             "--", *[r + "/" for r in roots], hermetic=hermetic,
         )
-        assert result.returncode == 0, _decode(result.stderr)
-        return sorted(p for p in _decode(result.stdout).split("\0") if p)
+        assert result.returncode == 0, decode_bytes(result.stderr)
+        return sorted(p for p in decode_bytes(result.stdout).split("\0") if p)
     return sorted(
         p.relative_to(root).as_posix()
         for r in roots
@@ -196,7 +196,7 @@ def test_git_enumeration_scans_untracked_skips_ignored(tmp_path):
     (tree / "gantry" / "__pycache__").mkdir(parents=True)
     shutil.copyfile(ROOT / ".gitignore", tree / ".gitignore")
     result = git(tree, "init", "-q", hermetic=True)
-    assert result.returncode == 0, _decode(result.stderr)
+    assert result.returncode == 0, decode_bytes(result.stderr)
     assert git_work_tree(tree)
     (tree / "gantry" / "new.py").write_bytes(PLANT)
     (tree / "gantry" / "__pycache__" / "x.pyc").write_bytes(PLANT)

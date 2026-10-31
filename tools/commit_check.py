@@ -41,8 +41,8 @@ PATH_FORMS = {
     "posix_home": BOUND + SEP + "(?:" + "|".join(HOME_ROOTS) + ")" + SEP,
     "msys_drive": BOUND + SEP + "[A-Za-z]" + SEP,
     "tilde": BOUND + "~(?:[A-Za-z][A-Za-z0-9._-]*)?" + SEP,
-    # A file URL with an empty host is local on every OS; a drive after it is drive_slash's.
-    "file_url": r"(?i)file:" + SEP * 3 + r"(?![A-Za-z]:)",
+    # A file URL is local (empty host) or a share (host); a drive after it is drive_slash's.
+    "file_url": r"(?i)file:" + SEP * 2 + r"[A-Za-z0-9._$-]*" + SEP + r"(?![A-Za-z]:)",
 }
 PATH_FORM_RES = {form: re.compile(pattern) for form, pattern in PATH_FORMS.items()}
 
@@ -132,7 +132,7 @@ class SetupError(Exception):
     """A usage, setup or install error: exit 2."""
 
 
-def _decode(data):
+def decode_bytes(data):
     return data.decode("utf-8", "surrogateescape")
 
 
@@ -141,7 +141,7 @@ def _encode(text):
 
 
 def _nul_fields(data):
-    fields = _decode(data).split("\0")
+    fields = decode_bytes(data).split("\0")
     if fields and fields[-1] == "":
         fields.pop()
     return fields
@@ -166,23 +166,23 @@ class Repo:
         )
         if result.returncode != 0:
             raise SetupError("not inside a git work tree")
-        return cls(_decode(result.stdout).rstrip("\n"), env)
+        return cls(decode_bytes(result.stdout).rstrip("\n"), env)
 
     def run(self, *args, input=None, check=True):
         result = subprocess.run(
             ["git", *args], cwd=self.top, env=self.env, input=input, capture_output=True,
         )
         if check and result.returncode != 0:
-            raise SetupError(f"git {args[0]} failed: {_decode(result.stderr).strip()}")
+            raise SetupError(f"git {args[0]} failed: {decode_bytes(result.stderr).strip()}")
         return result
 
     def out(self, *args, input=None):
-        return _decode(self.run(*args, input=input).stdout)
+        return decode_bytes(self.run(*args, input=input).stdout)
 
     def config(self, key):
         """A git config value (newline stripped), or None when unset."""
         result = self.run("config", "--get", key, check=False)
-        return _decode(result.stdout).rstrip("\n") if result.returncode == 0 else None
+        return decode_bytes(result.stdout).rstrip("\n") if result.returncode == 0 else None
 
     def read_objects(self, names):
         """Bytes for each object name (None when missing), through one cat-file --batch."""
@@ -267,7 +267,7 @@ def check_ignored(repo, paths):
         input=_encode("".join(p + "\0" for p in paths)), check=False,
     )
     if result.returncode not in (0, 1):
-        raise SetupError(f"git check-ignore failed: {_decode(result.stderr).strip()}")
+        raise SetupError(f"git check-ignore failed: {decode_bytes(result.stderr).strip()}")
     gitignores = {p for p in repo.tracked if posixpath.basename(p) == ".gitignore"}
     fields = _nul_fields(result.stdout)
     ignored = dict.fromkeys(paths, False)
@@ -323,14 +323,14 @@ def generated_output(path):
     return None
 
 
-def _walk_strings(node, dotted=""):
+def walk_strings(node, dotted=""):
     """(dotted key, string) for every string leaf, in every table and array."""
     if isinstance(node, dict):
         for key, value in node.items():
-            yield from _walk_strings(value, f"{dotted}.{key}" if dotted else key)
+            yield from walk_strings(value, f"{dotted}.{key}" if dotted else key)
     elif isinstance(node, list):
         for i, value in enumerate(node):
-            yield from _walk_strings(value, f"{dotted}[{i}]")
+            yield from walk_strings(value, f"{dotted}[{i}]")
     elif isinstance(node, str):
         yield dotted, node
 
@@ -364,7 +364,7 @@ def installation_config(path, data):
     if not path.startswith(FIXTURE_ROOT):
         return "outside samples/"
     folder = posixpath.dirname(path)
-    for dotted, value in _walk_strings(doc):
+    for dotted, value in walk_strings(doc):
         if not _resolves_inside(folder, value):
             return f"fixture value not self-contained: {dotted}"
     return None
@@ -515,7 +515,7 @@ def clean_message(text, comment, mode="default"):
 
 def parse_commit(data):
     """(parents, message) from a raw commit object."""
-    header, _, message = _decode(data).partition("\n\n")
+    header, _, message = decode_bytes(data).partition("\n\n")
     parents = [l.split(" ", 1)[1] for l in header.split("\n") if l.startswith("parent ")]
     return parents, message
 
@@ -546,7 +546,7 @@ def verify_commit(repo, rev):
     result = repo.run("rev-parse", "--verify", "-q", rev + "^{commit}", check=False)
     if result.returncode != 0:
         raise SetupError(f"not a commit: {rev}")
-    return _decode(result.stdout).strip()
+    return decode_bytes(result.stdout).strip()
 
 
 def rev_list(repo, *args):
@@ -757,7 +757,7 @@ def match_re(entries):
 def identity_res(repo):
     """Patterns for this clone's own public identity, from origin; [] when not GitHub."""
     result = repo.run("remote", "get-url", "origin", check=False)
-    m = ORIGIN_RE.match(_decode(result.stdout).strip()) if result.returncode == 0 else None
+    m = ORIGIN_RE.match(decode_bytes(result.stdout).strip()) if result.returncode == 0 else None
     if not m:
         print("names: no GitHub origin, so no identity was removed", file=sys.stderr)
         return []
@@ -771,7 +771,7 @@ def identity_res(repo):
 def _field_leaves(node, parts):
     """Every string leaf under the dotted field path (a `[]` part walks a list)."""
     if not parts:
-        yield from (s for _, s in _walk_strings(node))
+        yield from (s for _, s in walk_strings(node))
         return
     key, many = parts[0].removesuffix("[]"), parts[0].endswith("[]")
     value = node.get(key) if isinstance(node, dict) else None
