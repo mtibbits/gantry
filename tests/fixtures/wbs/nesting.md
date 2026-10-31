@@ -1,0 +1,11 @@
+# Nesting
+- [ ] Foundations {issue: Issue-1}
+  - [ ] Pour {issue: Issue-2}
+    - [x] Mix {issue: Issue-3}
+    - [ ] Cure {priority: P2}
+	- [ ] Formwork {issue: Issue-4}
+   - [ ] Odd indent {issue: Issue-5}
+- [ ] Frame
+      - [ ] Deep jump {issue: Issue-6}
+  - [ ] Brace {in} title {issue: Issue-7, satisfies: a:X, a:Y}
+- [ ] Lone top-level leaf
