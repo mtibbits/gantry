@@ -240,6 +240,18 @@ def test_fences():
     assert entries(data, "skipped_line") == []
 
 
+def test_fence_run_longer_than_the_file():
+    data = parse_wbs("~~~~\n- [ ] fenced {issue: Issue-1}\n~~~~\n", "alpha")
+    assert data.leaves == ()
+
+
+def test_fence_after_a_failed_opener():
+    longer_fails = "`````\n```\n- [ ] in {issue: Issue-1}\n```\n- [ ] out {issue: Issue-2}\n"
+    assert [leaf.key for leaf in parse_wbs(longer_fails, "alpha").leaves] == ["Issue-2"]
+    shorter_fails = "```\n- [ ] a {issue: Issue-1}\n````` info\n- [ ] b {issue: Issue-2}\n"
+    assert [leaf.key for leaf in parse_wbs(shorter_fails, "alpha").leaves] == ["Issue-1", "Issue-2"]
+
+
 def test_issue_less_leaf_named_by_outline():
     data = parse("ids")
     leaf = by_line(data)[6]

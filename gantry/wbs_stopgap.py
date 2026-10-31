@@ -60,7 +60,7 @@ def _fenced(bodies):
     i = 0
     while i < n:
         f = fences[i]
-        if not f or (f[0] == "`" and "`" in f[2]) or f[1] >= failed.get(f[0], n + 1):
+        if not f or (f[0] == "`" and "`" in f[2]) or f[1] >= failed.get(f[0], float("inf")):
             i += 1
             continue
         char, run, _ = f

@@ -23,7 +23,7 @@ opened or read (`WBS.md cannot be read: <reason>`) or is not valid UTF-8
 mark is kept as text, so a first line that starts with one is not a node.
 CRLF reads exactly like LF. Lines are numbered as Python's `str.splitlines`
 counts them, which is devagent's convention; an editor may count differently
-on a U+2028, form-feed or U+0085 character.
+on a vertical tab, form feed, `\x1c`–`\x1e`, U+0085, U+2028 or U+2029.
 
 ### Node lines
 
@@ -38,7 +38,10 @@ A line that starts like a node and is not one is reported `skipped_line`:
 an unknown glyph (`- [X] text`), an empty `- [] text`, or a valid glyph with
 no whitespace and text after it (`- [ ]`, `- [ ] ` with one space,
 `- [x]text`). Lines that are not shaped like a node at all are prose and are
-not reported: `- [xx] text`, `-[x] text`, `* [ ] text`, `- [text](url)`.
+not reported: `- [xx] text`, `-[x] text`, `* [ ] text`, and a link item
+`- [text](url)` whose text is two or more characters. A link item with
+one character of text or none (`- [1](url)`, `- [x](url)`, `- [](url)`) is
+node-shaped and reported.
 
 `x` and `-` mark a finished node; every other glyph is open.
 
@@ -50,9 +53,10 @@ the first later line of the same character with a run at least as long and
 nothing but whitespace after it. A backtick opener whose info text holds a
 backtick (an inline span such as ```` ``` a`b ````) opens nothing. An opener
 with no closer is plain text, and the lines after it are read as usual.
-Pairing is devagent's: each unclosed opener scans to the end of the file, so
-a file of many unclosed openers reads in quadratic time. `WBS.md` files are
-written by their operators, so Gantry accepts that cost.
+Pairing is devagent's. An unclosed opener scans to the end of the file;
+Gantry remembers, per fence character, the shortest run that found no closer
+and skips any later opener at least as long, so those scans number at most
+one per distinct failing run length.
 
 ### Nesting and outline
 
@@ -169,7 +173,7 @@ in this table's order.
 | `bad_priority` | a node's `priority:` is not `P1`–`P4` | treats it as P3 and lists the value |
 | `cycle` | open leaves depend on each other in a loop | lists the members |
 | `waits_on_cycle` | an open leaf is in, or waits on, a cycle | shows the leaf as held out, with no effective priority |
-| `skipped_line` | `- [X] text`, `- [] text`, `- [ ]`, `- [ ] ` or `- [x]text`: a node-shaped line that is not a node (`- [xx] text`, `-[x] text` and `* [ ] text` are not reported) | lists the line |
+| `skipped_line` | `- [X] text`, `- [] text`, `- [ ]`, `- [ ] ` or `- [x]text`: a node-shaped line that is not a node (`- [xx] text`, `-[x] text`, `* [ ] text` and a link item with two or more characters of text are not reported; `- [1](url)` is) | lists the line |
 | `no_nodes` | the file has no node lines | shows an empty site |
 | `site_unreadable` | `WBS.md` cannot be opened, read or decoded as UTF-8 | shows the site as unreadable, with the reason |
 

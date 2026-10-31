@@ -144,7 +144,7 @@ def resolve(site, leaves, rows, by_issue):
                 if isinstance(source, Row) and _inside(target, source):
                     continue
                 if isinstance(target, Row):
-                    links.update((t, leaf.key) for t in open_under[key] if t != leaf.key)
+                    links.update((t, leaf.key) for t in open_under[key])
                 elif target.open:
                     links.add((key, leaf.key))
     links = tuple(sorted(links, key=lambda link: (by_key[link[1]].line, by_key[link[0]].line)))
