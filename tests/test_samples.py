@@ -23,6 +23,8 @@ from pathlib import Path
 import pytest
 
 import sample_roles
+# One form list for the samples check, the source scan and the commit check (#44).
+from commit_check import PATH_FORMS, path_form_hits
 from sample_roles import (
     BUSY,
     HOSTILE_SITE,
@@ -703,29 +705,6 @@ def bom_offenders(root, files):
     return [f for f in files if (Path(root) / f).read_bytes().startswith(b"\xef\xbb\xbf")]
 
 
-# #44 moves this list to tools/commit_check.py; this test then imports it from
-# there. B matches the start of the text or one boundary character. The forms
-# are built so this source holds none of them.
-B = r"""(?<![^\s"'`(=<\[,;|])"""
-PATH_FORMS = {
-    "drive_backslash": r"(?<![A-Za-z0-9])[A-Za-z]:\\",
-    "drive_slash":     r"(?<![A-Za-z0-9])[A-Za-z]:/",
-    "unc":             r"(?<![:A-Za-z0-9])(?:\\\\|//)[A-Za-z0-9._$-]+[\\/]",
-    "posix_home":      B + r"/(?:home|Users|root|mnt)/",
-    "msys_drive":      B + r"/[A-Za-z]/",
-    "tilde":           B + r"~[A-Za-z0-9._-]*/",
-}
-PATH_FORM_RES = {form: re.compile(pattern) for form, pattern in PATH_FORMS.items()}
-
-
-def path_form_hits(text):
-    return [
-        (form, m.group(0))
-        for form, pattern in PATH_FORM_RES.items()
-        for m in pattern.finditer(text)
-    ]
-
-
 def path_form_offenders(root, files):
     return [
         f for f in files
@@ -796,6 +775,8 @@ def test_no_path_forms_in_samples():
     assert path_form_offenders(ROOT, sample_files(ROOT)) == []
 
 
+# One positive control per form, built so this source holds none of them;
+# tests/test_source_scan.py and tests/test_commit_check.py reuse the list.
 PATH_FORM_CONTROLS = [
     ("drive_backslash", "D" + ":" + "\\" + "work"),
     ("drive_slash", "D" + ":" + "/" + "work"),

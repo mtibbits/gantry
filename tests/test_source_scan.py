@@ -15,16 +15,15 @@ from pathlib import Path
 
 import pytest
 
-# One predicate with #42's sample check; #44 moves PATH_FORMS to tools/commit_check.py.
+# One predicate with #42's sample check and the commit check (#44).
+from commit_check import PATH_FORMS, path_form_hits
 from test_samples import (
     PATH_FORM_CONTROLS,
-    PATH_FORMS,
     ROOT,
     _decode,
     git,
     git_work_tree,
     needs_git,
-    path_form_hits,
 )
 
 CODE_ROOTS = ("gantry", "commands", "tools", ".claude-plugin")  # a new code root is added here
