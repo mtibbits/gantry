@@ -18,6 +18,7 @@ from gantry.model import (
 )
 from gantry.priority import rank
 from gantry.wbs_stopgap import MESSAGES, parse_wbs, split_meta, split_title_meta
+from sample_roles import BUSY, HOSTILE_TITLE, OWN_UNIT, SMALL, UNESTIMATED
 from test_samples import ROOT, decode_bytes, git, git_work_tree, needs_git
 
 FIXTURES = ROOT / "tests" / "fixtures" / "wbs"
@@ -303,3 +304,38 @@ def test_no_nodes():
 def test_crlf_parses_like_lf(name):
     text = fixture_text(name)
     assert parse_wbs(text.replace("\n", "\r\n"), "alpha") == parse_wbs(text, "alpha")
+
+
+
+# --- resolution over the fixtures and the samples ----------------------------
+
+
+def test_ids_links_and_unresolved():
+    data = parse("ids")
+    assert data.links == (("Issue-Fork-2", "Issue-3"), ("Issue-3", "Issue-4"))
+    found = entries(data, "unresolved_ref")
+    assert [e.line for e in found] == [9, 9]
+    assert "'1.4'" in found[0].message and "'Issue-99'" in found[1].message
+
+
+def sample(site):
+    return parse_wbs((ROOT / "samples" / site / "WBS.md").read_bytes().decode("utf-8"), site)
+
+
+def test_sample_sites_parse():
+    busy = sample(BUSY)
+    assert busy.report == ()
+    assert len(busy.leaves) == 14
+    assert ("Issue-6", "Issue-7") in busy.links
+
+    own = sample(OWN_UNIT)
+    assert [leaf.key for leaf in own.leaves if leaf.issue is None] == ["1.5", "2.3", "3"]
+    found = entries(own, "unresolved_ref")
+    assert len(found) == 1 and "'2.1'" in found[0].message
+
+    found = entries(sample(UNESTIMATED), "unresolved_ref")
+    assert len(found) == 1 and "'Issue-99'" in found[0].message
+
+    small = sample(SMALL)
+    assert HOSTILE_TITLE in [leaf.title for leaf in small.leaves]
+    assert next(leaf for leaf in small.leaves if leaf.key == "Issue-5").epic is None

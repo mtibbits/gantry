@@ -8,7 +8,7 @@ dependency resolution to gantry.deps. docs/worksite-page.md states the rules.
 
 import re
 
-from gantry.deps import classify
+from gantry.deps import classify, resolve
 from gantry.model import (
     FINISHED_GLYPHS,
     REPORT_KINDS,
@@ -260,5 +260,7 @@ def parse_wbs(text: str, site: str) -> SiteData:
     leaves, rows = _build(nodes, site, report)
     if not nodes:
         report.append(ReportEntry(site, None, "no_nodes", MESSAGES["no_nodes"]))
+    links, held_out, resolved = resolve(site, leaves, rows, by_issue)
+    report += resolved
     report.sort(key=lambda e: (e.line is not None, e.line or 0, REPORT_KINDS.index(e.kind)))
-    return SiteData(tuple(leaves), tuple(rows), (), (), tuple(report))
+    return SiteData(tuple(leaves), tuple(rows), links, held_out, tuple(report))
