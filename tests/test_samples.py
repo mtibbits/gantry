@@ -777,12 +777,13 @@ PATH_FORM_CONTROLS = [
     ("msys_drive", "/" + "c" + "/x"),
     ("tilde", "~" + "/x"),
     ("tilde", "~" + "someone" + "/x"),
+    ("file_url", "file:" + "/" * 3 + "srv" + "/x"),
 ]
 
 
 def test_path_form_controls_cover_every_form():
     assert {form for form, _ in PATH_FORM_CONTROLS} == set(PATH_FORMS)
-    assert len(PATH_FORMS) == 6
+    assert len(PATH_FORMS) == 7
 
 
 @pytest.mark.parametrize("shape", ["alone", "quoted"])

@@ -32,8 +32,10 @@ Rules 1 to 4 need no private data. CI and the hook both run them.
 3. **Absolute local paths**, in every tracked text file and in commit messages:
    a drive-letter path (`<drive>:\…` or with a forward slash), a UNC path
    (`\\<server>\<share>`), a rooted path under a home, Users, root or mnt
-   folder (`<home>/...`), an MSYS drive root (`/<letter>/`), and a tilde
-   followed by a slash or by `~<name>` and a slash. Why: a local path names a
+   folder (`<home>/...`), an MSYS drive root (`/<letter>/`), a tilde
+   followed by a slash or by `~<name>` and a slash, and a `file:` URL with an
+   empty host (the scheme followed by three slashes, as a browser shows a
+   page opened from disk). Why: a local path names a
    machine, a user and often a private project. A drive letter must not follow
    a letter or digit; every other form must start a line or follow a character
    that is not a letter, digit, `_`, `.`, `-`, a slash, a tilde or a colon. So
@@ -81,8 +83,10 @@ everything from the scissors line and every line that starts with the comment
 character (`#` unless `core.commentString` or `core.commentChar` says
 otherwise), and so does the check. `git commit -m` and `-F` keep comment
 lines, so a `#`-led subject is checked. `commit.cleanup` is honoured
-(`strip`, `scissors`, `whitespace`, `verbatim`). A comment block in another
-language reads as no editor, so every line is checked.
+(`strip`, `scissors`, `whitespace`, `verbatim`); the `--cleanup` option of
+`git commit` is not visible to the hook, and CI checks the committed message
+again. A comment block in another language reads as no editor, so every line
+is checked.
 
 Exit codes: `0` clean, `1` a finding, `2` a usage, setup or install error.
 Findings go to standard output, one per line, and the last line is

@@ -41,6 +41,8 @@ PATH_FORMS = {
     "posix_home": BOUND + SEP + "(?:" + "|".join(HOME_ROOTS) + ")" + SEP,
     "msys_drive": BOUND + SEP + "[A-Za-z]" + SEP,
     "tilde": BOUND + "~(?:[A-Za-z][A-Za-z0-9._-]*)?" + SEP,
+    # A file URL with an empty host is local on every OS; a drive after it is drive_slash's.
+    "file_url": r"(?i)file:" + SEP * 3 + r"(?![A-Za-z]:)",
 }
 PATH_FORM_RES = {form: re.compile(pattern) for form, pattern in PATH_FORMS.items()}
 
@@ -391,7 +393,10 @@ def read_exemptions(repo, rev):
     data = repo.read_file(rev, EXEMPT_PATH)
     if data is None:
         return [], []
-    entries, errors = parse_exemptions(decode_blob(data) or "")
+    text = decode_blob(data)
+    if text is None:
+        return [], [f"{EXEMPT_PATH}:1: exemption (malformed entry)"]
+    entries, errors = parse_exemptions(text)
     return entries, [f"{EXEMPT_PATH}:{n}: exemption (malformed entry)" for n, _ in errors]
 
 

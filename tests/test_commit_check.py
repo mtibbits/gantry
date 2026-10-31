@@ -132,8 +132,13 @@ def test_forms_pass_negative_controls(text):
 
 def test_form_names_unchanged():
     assert set(commit_check.PATH_FORMS) == {
-        "drive_backslash", "drive_slash", "unc", "posix_home", "msys_drive", "tilde",
+        "drive_backslash", "drive_slash", "unc", "posix_home", "msys_drive", "tilde", "file_url",
     }
+
+
+def test_file_url_with_a_drive_is_one_hit():
+    text = "file:" + "/" * 3 + "C" + ":" + "/x"
+    assert [form for form, _ in commit_check.path_form_hits(text)] == ["drive_slash"]
 
 
 def test_tool_source_holds_no_form():
@@ -523,6 +528,14 @@ def test_malformed_entry_fails_tree(repo):
     assert finding_lines(out) == [f"{commit_check.EXEMPT_PATH}:2: exemption (malformed entry)"]
 
 
+@needs_git
+def test_binary_exemption_list_fails_tree(repo):
+    stage(repo, commit_check.EXEMPT_PATH, b"docs/x.md\0 | absolute-path | x | why\n")
+    commit(repo)
+    rc, out, err = tool(repo, "tree")
+    assert (rc, finding_lines(out)) == (1, [f"{commit_check.EXEMPT_PATH}:1: exemption (malformed entry)"]), (out, err)
+
+
 # --- range and message (Task 7) ----------------------------------------------------
 
 def head(repo):
@@ -770,7 +783,7 @@ def test_workflow_shape():
     lines = [l.strip() for l in (ROOT / ".github" / "workflows" / "commit-check.yml")
              .read_text(encoding="utf-8").splitlines()]
     for line in ("push:", "pull_request:", "contents: read", "fetch-depth: 0",
-                 "- run: python tools/commit_check.py ci"):
+                 "persist-credentials: false", "- run: python tools/commit_check.py ci"):
         assert line in lines, line
     assert not [l for l in lines if "pull_request_target" in l]
 
