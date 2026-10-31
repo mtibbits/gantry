@@ -4,6 +4,7 @@ Every path form is assembled at run time ("~" + "/", "/" + "home" + "/"), so
 this file holds none of them and passes the check it tests.
 """
 
+import json
 import os
 import shutil
 import subprocess
@@ -58,7 +59,7 @@ def tool(repo, *args, env=None):
 
 
 def finding_lines(out):
-    return [l for l in out.splitlines() if l and not l.startswith(("commit-check:", "ci:"))]
+    return [l for l in out.splitlines() if l and not l.startswith(("commit-check:", "ci:", "::"))]
 
 
 @pytest.fixture(scope="module")
@@ -599,3 +600,131 @@ def test_message_ignores_comment_and_scissors(repo, tmp_path):
     rc, out, err = tool(repo, "message", str(path))
     assert rc == 1, (out, err)
     assert finding_lines(out) == ["message:4: absolute-path (tilde)"]
+
+
+# --- ci and the workflow (Task 8) --------------------------------------------------
+
+ZEROS = "0" * 40
+WARNING = (
+    "::warning title=Commit check changed::This range changes {}; "
+    "changes to the check need explicit review (docs/commit-check.md)"
+)
+
+
+def ci(repo, tmp_path, event, payload):
+    path = tmp_path / "event.json"
+    payload = dict(payload, repository={"default_branch": "main"})
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    env = dict(HERMETIC_ENV, GITHUB_EVENT_NAME=event, GITHUB_EVENT_PATH=str(path))
+    return tool(repo, "ci", env=env)
+
+
+@pytest.fixture
+def ci_repo(repo):
+    """before: a commit whose message is flagged; inside: a later flagged commit.
+
+    Only `range` scans messages (`tree` does not), so a named sha shows which
+    commits the range held. origin/main points at `before`.
+    """
+    before = commit(repo, f"before\n\n{HOME}a\n")
+    inside = commit(repo, f"inside\n\n{HOME}b\n")
+    run_git(repo, "update-ref", "refs/remotes/origin/main", before)
+    return repo, before, inside
+
+
+def named(out, sha):
+    return f"{sha[:12]} message:3: absolute-path (posix_home)" in out.splitlines()
+
+
+@needs_git
+def test_ci_pull_request_base_to_head(ci_repo, tmp_path):
+    repo, before, inside = ci_repo
+    rc, out, err = ci(repo, tmp_path, "pull_request",
+                      {"pull_request": {"base": {"sha": before}, "head": {"sha": inside}}})
+    assert rc == 1, (out, err)
+    assert out.splitlines()[0] == f"ci: range {before[:12]}..{inside[:12]}"
+    assert named(out, inside) and not named(out, before)
+
+
+@needs_git
+def test_ci_push_before_after(ci_repo, tmp_path):
+    repo, before, inside = ci_repo
+    rc, out, err = ci(repo, tmp_path, "push",
+                      {"ref": "refs/heads/feature", "before": before, "after": inside})
+    assert rc == 1, (out, err)
+    assert out.splitlines()[0] == f"ci: range {before[:12]}..{inside[:12]}"
+    assert named(out, inside) and not named(out, before)
+
+
+@needs_git
+@pytest.mark.parametrize("before", [ZEROS, "0123456789abcdef" * 2 + "01234567"])
+def test_ci_push_new_branch_or_unknown_before(ci_repo, tmp_path, before):
+    repo, on_main, inside = ci_repo
+    rc, out, err = ci(repo, tmp_path, "push",
+                      {"ref": "refs/heads/feature", "before": before, "after": inside})
+    assert rc == 1, (out, err)
+    assert out.splitlines()[0] == f"ci: range {inside[:12]} --not origin/main"
+    assert named(out, inside) and not named(out, on_main)
+
+
+@needs_git
+def test_ci_push_default_branch_zero_before(ci_repo, tmp_path):
+    repo, before, inside = ci_repo
+    rc, out, err = ci(repo, tmp_path, "push",
+                      {"ref": "refs/heads/main", "before": ZEROS, "after": inside})
+    assert rc == 1, (out, err)
+    assert out.splitlines()[0] == f"ci: range {inside[:12]} (whole history)"
+    assert named(out, inside) and named(out, before)
+
+
+@needs_git
+def test_ci_push_branch_deletion_is_empty(ci_repo, tmp_path):
+    repo, before, _ = ci_repo
+    rc, out, err = ci(repo, tmp_path, "push",
+                      {"ref": "refs/heads/feature", "before": before, "after": ZEROS})
+    assert out.splitlines()[0] == "ci: range empty"
+    assert (rc, finding_lines(out)) == (0, []), (out, err)
+
+
+@needs_git
+def test_ci_warns_on_self_change(repo, tmp_path):
+    before = head(repo)
+    run_git(repo, "update-ref", "refs/remotes/origin/main", before)
+    stage(repo, commit_check.EXEMPT_PATH, "# an edited list\n")
+    after = commit(repo, "edit the list")
+    rc, out, err = ci(repo, tmp_path, "push",
+                      {"ref": "refs/heads/feature", "before": before, "after": after})
+    assert (rc, finding_lines(out)) == (0, []), (out, err)
+    assert WARNING.format(commit_check.EXEMPT_PATH) in out.splitlines()
+
+
+@needs_git
+def test_ci_no_warning_for_main_side_self_change(repo, tmp_path):
+    base = head(repo)
+    stage(repo, commit_check.EXEMPT_PATH, "# main edits the list\n")
+    on_main = commit(repo, "main edits the list")
+    run_git(repo, "update-ref", "refs/remotes/origin/main", on_main)
+    run_git(repo, "checkout", "-q", "-b", "feature", base)
+    stage(repo, "notes/a.md", "feature work\n")
+    before = commit(repo, "feature work")
+    run_git(repo, "merge", "-q", "--no-ff", "-m", "merge main forward", "main")
+    after = head(repo)
+    rc, out, err = ci(repo, tmp_path, "push",
+                      {"ref": "refs/heads/feature", "before": before, "after": after})
+    assert (rc, finding_lines(out)) == (0, []), (out, err)
+    assert not [l for l in out.splitlines() if l.startswith("::warning")], out
+
+
+@needs_git
+def test_ci_unknown_event_exits_2(repo, tmp_path):
+    rc, out, err = ci(repo, tmp_path, "workflow_dispatch", {})
+    assert rc == 2, (out, err)
+
+
+def test_workflow_shape():
+    lines = [l.strip() for l in (ROOT / ".github" / "workflows" / "commit-check.yml")
+             .read_text(encoding="utf-8").splitlines()]
+    for line in ("push:", "pull_request:", "contents: read", "fetch-depth: 0",
+                 "- run: python tools/commit_check.py ci"):
+        assert line in lines, line
+    assert not [l for l in lines if "pull_request_target" in l]

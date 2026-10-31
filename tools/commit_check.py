@@ -17,6 +17,7 @@ own rule 3.
 """
 
 import argparse
+import json
 import os
 import posixpath
 import re
@@ -578,7 +579,111 @@ def cmd_message(repo, args):
     return report(check_message(text))
 
 
-COMMANDS = {"tree": cmd_tree, "staged": cmd_staged, "range": cmd_range, "message": cmd_message}
+# --- ci ------------------------------------------------------------------------
+
+ZERO_SHA = re.compile("^0+$")
+WATCHED = (
+    "tools/commit_check.py",
+    EXEMPT_PATH,
+    ".github/workflows/commit-check.yml",
+)
+
+
+def load_event():
+    """(event name, payload) from the GitHub Actions environment."""
+    name, path = os.environ.get("GITHUB_EVENT_NAME"), os.environ.get("GITHUB_EVENT_PATH")
+    if not name or not path:
+        raise SetupError("ci needs GITHUB_EVENT_NAME and GITHUB_EVENT_PATH")
+    try:
+        with open(path, encoding="utf-8") as f:
+            return name, json.load(f)
+    except (OSError, ValueError) as e:
+        raise SetupError(f"cannot read the event payload at GITHUB_EVENT_PATH ({e})")
+
+
+def _is_commit(repo, sha):
+    return bool(sha) and repo.run("cat-file", "-e", sha + "^{commit}", check=False).returncode == 0
+
+
+def ci_range(repo, event, payload):
+    """(commits, description) the event asks the check to scan.
+
+    pull_request: base..head. push: before..after; with before all zeros
+    (a new branch) or not in the clone (a force-push), every commit not on
+    origin/<default>, or the whole history for the default branch itself.
+    """
+    default = payload["repository"]["default_branch"]
+    if event == "pull_request":
+        base, head = payload["pull_request"]["base"]["sha"], payload["pull_request"]["head"]["sha"]
+        if not (_is_commit(repo, base) and _is_commit(repo, head)):
+            raise SetupError("the pull request's base or head commit is not in the clone")
+        return rev_list(repo, f"{base}..{head}"), f"{base[:12]}..{head[:12]}"
+    if event == "push":
+        before, after = payload["before"], payload["after"]
+        if ZERO_SHA.match(after):
+            return [], "empty"
+        if ZERO_SHA.match(before) or not _is_commit(repo, before):
+            if payload["ref"] == f"refs/heads/{default}":
+                return rev_list(repo, after), f"{after[:12]} (whole history)"
+            return rev_list(repo, after, "--not", f"origin/{default}"), f"{after[:12]} --not origin/{default}"
+        return rev_list(repo, f"{before}..{after}"), f"{before[:12]}..{after[:12]}"
+    raise SetupError(f"ci does not know the event {event!r}")
+
+
+def changed_paths(repo, left, commit):
+    return set(_nul_fields(repo.run(
+        "diff-tree", "-r", "-z", "--no-renames", "--name-only", left, commit,
+    ).stdout))
+
+
+def self_changes(repo, commits, default):
+    """WATCHED paths the range's own commits (those not on origin/<default>) change.
+
+    A merge counts a path only when it differs from every parent, so merging
+    main forward does not count main's own changes.
+    """
+    ref = f"refs/remotes/origin/{default}"
+    if repo.run("rev-parse", "--verify", "-q", ref, check=False).returncode == 0:
+        stdin = _encode("".join(c + "\n" for c in commits) + f"^{ref}\n")
+        own = set(repo.out("rev-list", "--stdin", input=stdin).split()) if commits else set()
+    else:
+        own = set(commits)
+    touched, empty = set(), None
+    for sha, data in zip(commits, repo.read_objects(commits)):
+        if sha not in own:
+            continue
+        parents, _ = parse_commit(data)
+        if not parents:
+            empty = empty or empty_tree(repo)
+            parents = [empty]
+        touched |= set.intersection(*(changed_paths(repo, p, sha) for p in parents))
+    return [p for p in WATCHED if p in touched]
+
+
+def cmd_ci(repo, args):
+    event, payload = load_event()
+    try:
+        commits, description = ci_range(repo, event, payload)
+        default = payload["repository"]["default_branch"]
+    except (KeyError, TypeError) as e:
+        raise SetupError(f"the {event} payload lacks a field the range needs ({e})")
+    print(f"ci: range {description}")
+    findings = tree_findings(repo)  # also reports a malformed exemption list
+    exemptions, _ = read_exemptions(repo, "HEAD")
+    findings += scan_commits(repo, commits, exemptions)
+    changed = self_changes(repo, commits, default)
+    if changed:
+        print(
+            f"::warning title=Commit check changed::This range changes {', '.join(changed)}; "
+            "changes to the check need explicit review (docs/commit-check.md)"
+        )
+    return report(findings)
+
+
+COMMANDS = {
+    "tree": cmd_tree, "staged": cmd_staged, "range": cmd_range, "message": cmd_message,
+    "ci": cmd_ci,
+}
 
 
 def build_parser():
@@ -591,6 +696,7 @@ def build_parser():
     p.add_argument("head")
     p = sub.add_parser("message", help="rule 3 on a commit message file (commit-msg)")
     p.add_argument("file")
+    sub.add_parser("ci", help="tree plus the range the GitHub event names")
     return parser
 
 
