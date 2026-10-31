@@ -9,43 +9,44 @@ leaves a page schedules:
 """
 
 import re
+from graphlib import CycleError, TopologicalSorter
 
-from gantry.model import meta_value
+from gantry.model import meta_scalar
 
 PRIORITY_RE = re.compile(r"P[1-4]")
 DEFAULT_RANK = 3
 
 
+def _valid(raw):
+    """The P1-P4 value text, or None."""
+    value = meta_scalar(raw)
+    return value if value is not None and PRIORITY_RE.fullmatch(value) else None
+
+
 def is_valid(raw: str | None) -> bool:
-    if raw is None:
-        return False
-    value = meta_value(raw)
-    return isinstance(value, str) and PRIORITY_RE.fullmatch(value) is not None
+    return _valid(raw) is not None
 
 
 def rank(raw: str | None) -> int:
     # fullmatch first: int() is never called on unbounded text.
-    return int(meta_value(raw)[1]) if is_valid(raw) else DEFAULT_RANK
+    value = _valid(raw)
+    return int(value[1]) if value is not None else DEFAULT_RANK
 
 
 def effective(leaves, links) -> dict[str, int]:
     """{key: effective rank} over `leaves`; links with an end outside them are
-    ignored. Kahn order, last dependent first: no recursion."""
+    ignored. Topological order, last dependent first: no recursion."""
     eff = {leaf.key: rank(leaf.priority) for leaf in leaves}
     dependents = {key: [] for key in eff}
-    waiting = dict.fromkeys(eff, 0)
+    sorter = TopologicalSorter(dict.fromkeys(eff, ()))
     for a, b in links:
         if a in eff and b in eff:
             dependents[a].append(b)
-            waiting[b] += 1
-    order = [key for key in eff if waiting[key] == 0]
-    for key in order:
-        for d in dependents[key]:
-            waiting[d] -= 1
-            if waiting[d] == 0:
-                order.append(d)
-    if len(order) < len(eff):
-        raise ValueError("effective needs acyclic links; leave held-out leaves out")
+            sorter.add(b, a)
+    try:
+        order = list(sorter.static_order())
+    except CycleError:
+        raise ValueError("effective needs acyclic links; leave held-out leaves out") from None
     for key in reversed(order):
         for d in dependents[key]:
             eff[key] = min(eff[key], eff[d])

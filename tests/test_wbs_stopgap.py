@@ -21,7 +21,7 @@ from gantry.priority import rank
 from gantry.wbs_stopgap import MESSAGES, parse_wbs, read_wbs, split_meta, split_title_meta
 from commit_check import path_form_hits
 from sample_roles import BUSY, HOSTILE_TITLE, OWN_UNIT, SMALL, UNESTIMATED, UNREADABLE
-from test_samples import MARSH_BAD_OFFSET, ROOT, decode_bytes, git, git_work_tree, needs_git
+from test_samples import MARSH_BAD_OFFSET, ROOT, decode_bytes, git, git_work_tree, needs_git, wbs_text
 
 FIXTURES = ROOT / "tests" / "fixtures" / "wbs"
 NOT_UTF8 = FIXTURES / "not_utf8.md"
@@ -339,7 +339,7 @@ def test_ids_links_and_unresolved():
 
 
 def sample(site):
-    return parse_wbs((ROOT / "samples" / site / "WBS.md").read_bytes().decode("utf-8"), site)
+    return parse_wbs(wbs_text(site), site)
 
 
 def test_sample_sites_parse():

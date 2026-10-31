@@ -9,7 +9,7 @@ dependency resolution to gantry.deps. docs/worksite-page.md states the rules.
 import re
 
 from gantry.config import error_reason
-from gantry.deps import classify, resolve
+from gantry.deps import refs, resolve
 from gantry.model import (
     FINISHED_GLYPHS,
     REPORT_KINDS,
@@ -18,8 +18,7 @@ from gantry.model import (
     ReportEntry,
     Row,
     SiteData,
-    meta_value,
-    meta_values,
+    meta_scalar,
 )
 from gantry.priority import is_valid
 
@@ -31,7 +30,7 @@ SKIP_RE = re.compile(r"^\s*- \[(?P<glyph>[^\]]?)\]")
 
 MESSAGES = {
     "skipped_line": "WBS.md line {line}: not a node: {why}",
-    "why_glyph": "glyph {glyph!r} is not one of ' ', 'x', '-', '!', '~', '?', 'P'",
+    "why_glyph": "glyph {glyph!r} is not one of " + ", ".join(map(repr, STATE_GLYPHS)),
     "why_text": "the glyph needs whitespace and text after it",
     "no_nodes": "WBS.md has no node lines",
     "no_issue": "WBS.md line {line}: leaf has no issue: id; it is named {key!r}",
@@ -43,12 +42,6 @@ MESSAGES = {
 }
 
 
-def _body(line):
-    """A line without its terminator (`splitlines` decides what ends a line)."""
-    parts = line.splitlines()
-    return parts[0] if parts else ""
-
-
 def _fenced(bodies):
     """Which lines belong to a fence (opener, inside or closer).
 
@@ -57,22 +50,28 @@ def _fenced(bodies):
     closer is plain text.
     """
     n = len(bodies)
+    fences = []  # (char, run length, info) or None, per line
+    for body in bodies:
+        m = FENCE_RE.match(body)
+        fences.append((m.group("run")[0], len(m.group("run")), m.group("info")) if m else None)
+    # Per char, the shortest run that found no closer: no run as long can.
+    failed = {}
     fenced = [False] * n
     i = 0
     while i < n:
-        m = FENCE_RE.match(bodies[i])
-        if not m or (m.group("run")[0] == "`" and "`" in m.group("info")):
+        f = fences[i]
+        if not f or (f[0] == "`" and "`" in f[2]) or f[1] >= failed.get(f[0], n + 1):
             i += 1
             continue
-        run = m.group("run")
+        char, run, _ = f
         close = None
         for j in range(i + 1, n):
-            c = FENCE_RE.match(bodies[j])
-            if c and c.group("run")[0] == run[0] and len(c.group("run")) >= len(run) \
-                    and not c.group("info").strip():
+            c = fences[j]
+            if c and c[0] == char and c[1] >= run and not c[2].strip():
                 close = j
                 break
         if close is None:
+            failed[char] = run
             i += 1
             continue
         for j in range(i, close + 1):
@@ -144,11 +143,11 @@ def split_meta(body: str) -> dict[str, str]:
 
 def _issue(meta):
     """A node's issue: id: a non-empty scalar, else None."""
-    raw = meta.get("issue")
-    if raw is None:
-        return None
-    value = meta_value(raw)
-    return value if isinstance(value, str) and value else None
+    return meta_scalar(meta.get("issue")) or None
+
+
+def _report(report, site, line, kind, **fields):
+    report.append(ReportEntry(site, line, kind, MESSAGES[kind].format(line=line, **fields)))
 
 
 class _Node:
@@ -179,8 +178,7 @@ def _scan(bodies, site, report):
                 glyph = s.group("glyph")
                 why = (MESSAGES["why_text"] if glyph and glyph in STATE_GLYPHS
                        else MESSAGES["why_glyph"].format(glyph=glyph))
-                report.append(ReportEntry(site, line, "skipped_line",
-                                          MESSAGES["skipped_line"].format(line=line, why=why)))
+                _report(report, site, line, "skipped_line", why=why)
             continue
         depth = len(m.group("indent").expandtabs(2)) // 2 + 1
         while stack and stack[-1][0] >= depth:
@@ -192,7 +190,7 @@ def _scan(bodies, site, report):
         else:
             parent.children += 1
             outline = f"{parent.outline}.{parent.children}"
-        title, body_meta = split_title_meta(m.group("rest").rstrip())
+        title, body_meta = split_title_meta(m.group("rest"))
         meta = split_meta(body_meta) if body_meta is not None else {}
         node = _Node(line, m.group("glyph"), title, meta, parent, outline)
         nodes.append(node)
@@ -215,12 +213,12 @@ def _name(nodes, site, report):
             other = first[key].line
             while key in first:
                 key += f"~{node.line}"
-            report.append(ReportEntry(site, node.line, "key_collision", MESSAGES["key_collision"].format(
-                line=node.line, outline=node.outline, other=other, key=key)))
+            _report(report, site, node.line, "key_collision", outline=node.outline, other=other,
+                    key=key)
         node.key = key
         if node.issue is not None:
-            report.append(ReportEntry(site, node.line, "duplicate_issue", MESSAGES["duplicate_issue"].format(
-                line=node.line, issue=node.issue, first=first[node.issue].line, key=key)))
+            _report(report, site, node.line, "duplicate_issue", issue=node.issue,
+                    first=first[node.issue].line, key=key)
     return {issue: node.key for issue, node in first.items()}
 
 
@@ -236,17 +234,15 @@ def _build(nodes, site, report):
         state = STATE_GLYPHS[node.glyph]
         priority = node.meta.get("priority")
         if priority is not None and not is_valid(priority):
-            report.append(ReportEntry(site, node.line, "bad_priority", MESSAGES["bad_priority"].format(
-                line=node.line, raw=priority)))
+            _report(report, site, node.line, "bad_priority", raw=priority)
         parent = node.parent.key if node.parent is not None else None
         if node.children:
             rows.append(Row(node.key, node.issue, node.outline, node.title, node.glyph, state,
                             node.line, parent, node.meta))
             continue
         if node.issue is None:
-            report.append(ReportEntry(site, node.line, "no_issue", MESSAGES["no_issue"].format(
-                line=node.line, key=node.key)))
-        deps = tuple(classify(e, site) for e in meta_values(node.meta.get("depends_on")))
+            _report(report, site, node.line, "no_issue", key=node.key)
+        deps = refs(node.meta, site)
         epic = _top(node).key if node.parent is not None else None
         leaves.append(Leaf(node.key, node.issue, node.outline, node.title, node.glyph, state,
                            node.glyph not in FINISHED_GLYPHS, priority, deps, node.meta, epic,
@@ -256,7 +252,7 @@ def _build(nodes, site, report):
 
 def parse_wbs(text: str, site: str) -> SiteData:
     """A WBS.md text's nodes and report, for the site named `site`."""
-    bodies = [_body(line) for line in text.splitlines(keepends=True)]
+    bodies = text.splitlines()
     report = []
     nodes = _scan(bodies, site, report)
     by_issue = _name(nodes, site, report)

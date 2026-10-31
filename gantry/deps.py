@@ -20,6 +20,11 @@ def classify(entry: str, site: str) -> DepRef:
     return DepRef(entry, "malformed", None, None)
 
 
+def refs(meta, site) -> tuple[DepRef, ...]:
+    """A node's depends_on entries, classified."""
+    return tuple(classify(e, site) for e in meta_values(meta.get("depends_on")))
+
+
 MESSAGES = {
     "unresolved_ref": "WBS.md line {line}: depends_on entry {entry!r} names no issue: id in this file",
     "malformed_ref": "WBS.md line {line}: depends_on entry {entry!r} is not an id or <site>:<id>",
@@ -32,19 +37,21 @@ def _inside(node, row):
     return node.outline.startswith(row.outline + ".")
 
 
-def _targets(site, node, refs, by_issue, report):
+def _report(report, site, line, kind, **fields):
+    report.append(ReportEntry(site, line, kind, MESSAGES[kind].format(line=line, **fields)))
+
+
+def _targets(site, node, by_issue, report):
     """Report a source's bad entries; return the keys its local entries name."""
     out = []
-    for ref in refs:
+    for ref in refs(node.meta, site):
         if ref.kind == "malformed":
-            report.append(ReportEntry(site, node.line, "malformed_ref", MESSAGES["malformed_ref"].format(
-                line=node.line, entry=ref.raw)))
+            _report(report, site, node.line, "malformed_ref", entry=ref.raw)
         elif ref.kind == "local":
             if ref.issue in by_issue:
                 out.append(by_issue[ref.issue])
             else:
-                report.append(ReportEntry(site, node.line, "unresolved_ref", MESSAGES["unresolved_ref"].format(
-                    line=node.line, entry=ref.raw)))
+                _report(report, site, node.line, "unresolved_ref", entry=ref.raw)
     return out
 
 
@@ -111,28 +118,22 @@ def resolve(site, leaves, rows, by_issue):
     nodes = sorted([*leaves, *rows], key=lambda node: node.line)
     by_key = {node.key: node for node in nodes}
     row_at = {row.outline: row for row in rows}
-    pos = {node.key: node.line for node in nodes}
-    named = {}
-    for node in nodes:
-        if isinstance(node, Row):
-            refs = [classify(e, site) for e in meta_values(node.meta.get("depends_on"))]
-        else:
-            refs = node.deps
-        named[node.key] = _targets(site, node, refs, by_issue, report)
+    named = {node.key: _targets(site, node, by_issue, report) for node in nodes}
 
     def ancestors(leaf):
         parts = leaf.outline.split(".")
         return [row_at[".".join(parts[:i])] for i in range(1, len(parts))]
 
     open_leaves = [leaf for leaf in leaves if leaf.open]
+    lineages = {leaf.key: ancestors(leaf) for leaf in open_leaves}
     open_under = {row.key: [] for row in rows}
     for leaf in open_leaves:
-        for row in ancestors(leaf):
+        for row in lineages[leaf.key]:
             open_under[row.key].append(leaf.key)
 
     links = set()
     for leaf in open_leaves:
-        lineage = ancestors(leaf)
+        lineage = lineages[leaf.key]
         above = {row.key for row in lineage}
         sources = [leaf] + [row for row in lineage if row.glyph not in FINISHED_GLYPHS]
         for source in sources:
@@ -140,22 +141,21 @@ def resolve(site, leaves, rows, by_issue):
                 target = by_key[key]
                 if key == leaf.key or key in above:
                     continue
-                if isinstance(source, Row) and (key == source.key or _inside(target, source)):
+                if isinstance(source, Row) and _inside(target, source):
                     continue
                 if isinstance(target, Row):
                     links.update((t, leaf.key) for t in open_under[key] if t != leaf.key)
                 elif target.open:
                     links.add((key, leaf.key))
-    links = tuple(sorted(links, key=lambda link: (pos[link[1]], pos[link[0]])))
+    links = tuple(sorted(links, key=lambda link: (by_key[link[1]].line, by_key[link[0]].line)))
 
     keys = [leaf.key for leaf in open_leaves]
     cycles = find_cycles(keys, links)
     dependents = {}
     for a, b in links:
         dependents.setdefault(a, []).append(b)
-    held = set()
     queue = [k for cycle in cycles for k in cycle]
-    held.update(queue)
+    held = set(queue)
     while queue:
         for d in dependents.get(queue.pop(), ()):
             if d not in held:
@@ -163,10 +163,7 @@ def resolve(site, leaves, rows, by_issue):
                 queue.append(d)
     held_out = tuple(k for k in keys if k in held)
     for cycle in cycles:
-        line = pos[cycle[0]]
-        report.append(ReportEntry(site, line, "cycle", MESSAGES["cycle"].format(
-            line=line, keys=", ".join(repr(k) for k in cycle))))
+        _report(report, site, by_key[cycle[0]].line, "cycle", keys=", ".join(repr(k) for k in cycle))
     for key in held_out:
-        report.append(ReportEntry(site, pos[key], "waits_on_cycle", MESSAGES["waits_on_cycle"].format(
-            line=pos[key], key=key)))
+        _report(report, site, by_key[key].line, "waits_on_cycle", key=key)
     return links, held_out, report

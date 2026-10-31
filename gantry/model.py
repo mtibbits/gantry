@@ -103,6 +103,14 @@ def meta_value(raw: str) -> str | list[str]:
     return raw.strip()
 
 
+def meta_scalar(raw: str | None) -> str | None:
+    """A raw text's string value; None when missing or a list."""
+    if raw is None:
+        return None
+    value = meta_value(raw)
+    return value if isinstance(value, str) else None
+
+
 def meta_values(raw: str | None) -> list[str]:
     """A raw text as a list of entries: a scalar is one entry, empty is none."""
     if raw is None:
