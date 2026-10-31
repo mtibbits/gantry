@@ -6,6 +6,7 @@ this file holds none of them and passes the check it tests.
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -728,3 +729,171 @@ def test_workflow_shape():
                  "- run: python tools/commit_check.py ci"):
         assert line in lines, line
     assert not [l for l in lines if "pull_request_target" in l]
+
+
+# --- names (Task 9) -------------------------------------------------------------------
+
+ENTRY = "zor" + "batel"  # fictional; built here so no source holds it whole
+COUNT_RE = re.compile(r"^names: (\d+) match(?:es)?$")
+
+
+@pytest.fixture
+def denylist(tmp_path):
+    path = tmp_path / "deny" / "list.txt"
+    path.parent.mkdir()
+    path.write_bytes(f"# a private list\n\n  {ENTRY}  \n".encode("utf-8"))
+    return path
+
+
+def names(repo, denylist, *args, env=None):
+    rc, out, err = tool(repo, "names", "--denylist", str(denylist), *args, env=env)
+    counts = [int(m.group(1)) for l in out.splitlines() if (m := COUNT_RE.match(l))]
+    assert len(counts) == 1, (rc, out, err)
+    assert rc == (1 if counts[0] else 0), (rc, out, err)
+    return counts[0], out, err
+
+
+@needs_git
+def test_names_staged_case_insensitive_count_only(repo, denylist):
+    stage(repo, "notes/a.md", f"one\nmet {ENTRY.upper()} today\n")
+    count, out, err = names(repo, denylist, "--staged")
+    assert count == 1
+    assert out.splitlines()[-1] == "names: 1 match"
+    assert ENTRY.casefold() not in (out + err).casefold()
+
+
+@needs_git
+@pytest.mark.parametrize("text", [
+    f"notes/{ENTRY}/todo.md",
+    f"{ENTRY}/share",
+    f"{ENTRY}_notes",
+    f"{ENTRY}2",
+    f"x_{ENTRY}",
+])
+def test_names_word_boundaries(repo, denylist, text):
+    stage(repo, "notes/a.md", text + "\n")
+    assert names(repo, denylist, "--staged")[0] == 1
+
+
+@needs_git
+def test_names_not_inside_a_longer_word(repo, denylist):
+    stage(repo, "notes/a.md", f"un{ENTRY}ed and {ENTRY}s\n")
+    assert names(repo, denylist, "--staged")[0] == 0
+
+
+@needs_git
+def test_names_counts_staged_path(repo, denylist):
+    stage(repo, f"notes/{ENTRY}/x.md", "clean\n")
+    assert names(repo, denylist, "--staged")[0] == 1
+
+
+@needs_git
+@pytest.mark.parametrize("text", [
+    f"see https://github.com/{ENTRY}/repo",
+    f"github.com/owner/gantry/blob/main/notes/{ENTRY}/x",
+    f"fixed in {ENTRY}/repo#7",
+    f"Co-Authored-By: {ENTRY} <x@example.invalid>",
+    f"Signed-off-by: {ENTRY} <x@example.invalid>",
+])
+def test_names_removals_count_zero(repo, denylist, text):
+    stage(repo, "notes/a.md", "subject\n" + text + "\n")
+    assert names(repo, denylist, "--staged")[0] == 0
+
+
+@needs_git
+def test_names_authorship_fields_count_zero(repo, denylist):
+    stage_all(repo, {
+        "LICENSE": f"MIT License\n\nCopyright (c) 2026 {ENTRY}\n",
+        ".claude-plugin/plugin.json": json.dumps({"name": "gantry", "author": {"name": ENTRY}}),
+        ".claude-plugin/marketplace.json": json.dumps({
+            "owner": {"name": ENTRY},
+            "plugins": [{"name": "gantry", "author": {"name": ENTRY}}],
+        }),
+        "pyproject.toml": f'[project]\nname = "gantry"\nauthors = [{{ name = "{ENTRY}" }}]\n',
+    })
+    commit(repo)
+    assert names(repo, denylist, "--all")[0] == 0
+
+    stage(repo, ".claude-plugin/plugin.json",
+          json.dumps({"author": {"name": "Someone Else"}, "description": f"for {ENTRY}"}))
+    commit(repo)
+    assert names(repo, denylist, "--all")[0] == 1
+
+
+@needs_git
+def test_names_clone_identity(repo, denylist):
+    stage(repo, "notes/a.md", f"{ENTRY}/gantry\n")
+    count, _, err = names(repo, denylist, "--staged")
+    assert count == 1
+    assert "no identity was removed" in err
+
+    run_git(repo, "remote", "add", "origin", f"https://github.com/{ENTRY}/gantry.git")
+    stage(repo, "notes/a.md", f"add {ENTRY}/gantry\nsee {ENTRY}.github.io/gantry\n")
+    assert names(repo, denylist, "--staged")[0] == 0
+    stage(repo, "notes/a.md", f"and {ENTRY}/other\n")
+    assert names(repo, denylist, "--staged")[0] == 1
+
+
+@needs_git
+def test_names_ignores_exemptions(repo, denylist):
+    line = f"{ENTRY} keeps notes in {HOME}x"
+    stage_exemptions(repo, f"notes/a.md | absolute-path | {line} | an exempted line")
+    commit(repo)
+    stage(repo, "notes/a.md", line + "\n")
+    assert names(repo, denylist, "--staged")[0] == 1
+
+
+@needs_git
+def test_names_message_and_text(repo, denylist, tmp_path):
+    msg = tmp_path / "COMMIT_EDITMSG"
+    msg.write_bytes(f"subject\n\nfor {ENTRY}\n# status naming {ENTRY}\n".encode("utf-8"))
+    assert names(repo, denylist, "--message", str(msg))[0] == 1
+    body = tmp_path / "body.md"
+    body.write_bytes(f"a pull request body for {ENTRY}\n".encode("utf-8"))
+    assert names(repo, denylist, "--text", str(body))[0] == 1
+
+
+@needs_git
+def test_names_where_prints_location_not_text(repo, denylist):
+    stage_all(repo, {
+        "f.md": f"one\ntwo {ENTRY}\n",
+        f"notes/{ENTRY}/x.md": "clean\n",
+    })
+    count, out, err = names(repo, denylist, "--staged", "--where")
+    assert count == 2
+    lines = out.splitlines()
+    assert "names: f.md:2" in lines
+    assert "names: notes/<match>/x.md (path)" in lines
+    assert ENTRY.casefold() not in (out + err).casefold()
+
+
+@needs_git
+@pytest.mark.parametrize("source", ["config", "flag"])
+def test_names_unreadable_denylist_exits_2_naming_key(repo, tmp_path, source):
+    missing = tmp_path / "gone.txt"
+    if source == "config":
+        run_git(repo, "config", "gantry.denylist", str(missing))
+        rc, out, err = tool(repo, "names", "--staged")
+        assert "names: cannot read the denylist that git config gantry.denylist names (" in err
+    else:
+        rc, out, err = tool(repo, "names", "--denylist", str(missing), "--staged")
+        assert "names: cannot read the denylist that --denylist names (" in err
+    assert rc == 2, (out, err)
+
+
+@needs_git
+def test_names_empty_or_absent_denylist_exits_2(repo, tmp_path):
+    empty = tmp_path / "empty.txt"
+    empty.write_bytes(b"# nothing\n\n")
+    assert tool(repo, "names", "--denylist", str(empty), "--staged")[0] == 2
+    assert tool(repo, "names", "--staged")[0] == 2
+
+
+def test_authorship_fields_constant():
+    assert commit_check.AUTHORSHIP_FIELDS == (
+        ("LICENSE", None),
+        (".claude-plugin/plugin.json", "author"),
+        (".claude-plugin/marketplace.json", "owner"),
+        (".claude-plugin/marketplace.json", "plugins[].author"),
+        ("pyproject.toml", "project.authors"),
+    )

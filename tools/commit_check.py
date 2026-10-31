@@ -680,9 +680,148 @@ def cmd_ci(repo, args):
     return report(findings)
 
 
+# --- names: the private denylist ------------------------------------------------
+
+# Fields that must carry the author's name; their values are public in that file
+# already, so names skips them. A later issue that adds such a field extends this.
+AUTHORSHIP_FIELDS = (
+    ("LICENSE", None),                                   # the whole file
+    (".claude-plugin/plugin.json", "author"),
+    (".claude-plugin/marketplace.json", "owner"),
+    (".claude-plugin/marketplace.json", "plugins[].author"),
+    ("pyproject.toml", "project.authors"),
+)
+# What #16's name search removes before matching. Removals become one space and
+# never join lines.
+TRAILER_RE = re.compile(r"(?im)^[ \t]*(?:signed-off-by|co-authored-by):.*$")
+GITHUB_URL_RE = re.compile(r"(?i)(?:https?:" + SEP * 2 + r")?(?:www\.)?github\.com" + SEP + r"[^\s<>()\[\]\"'`]*")
+REPO_REF_RE = re.compile(r"(?<![\w.-])[A-Za-z0-9][A-Za-z0-9-]*" + SEP + r"[A-Za-z0-9._-]+#\d+")
+ORIGIN_RE = re.compile(
+    r"^(?:https?:" + SEP * 2 + r"(?:[^@" + SEP + r"]+@)?github\.com" + SEP
+    + r"|ssh:" + SEP * 2 + r"git@github\.com" + SEP + r"|git@github\.com:)"
+    r"(?P<o>[A-Za-z0-9-]+)" + SEP + r"(?P<r>[A-Za-z0-9._-]+?)(?:\.git)?" + SEP + "?$"
+)
+
+
+def read_denylist(path, source):
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+    except OSError as e:
+        raise SetupError(f"cannot read the denylist that {source} names ({e.strerror})")
+    entries = [l.strip() for l in (decode_blob(data) or "").split("\n")]
+    entries = [e for e in entries if e and not e.startswith("#")]
+    if not entries:
+        raise SetupError(f"the denylist that {source} names has no entries")
+    return entries
+
+
+def denylist_entries(repo, flag):
+    if flag:
+        return read_denylist(flag, "--denylist")
+    result = repo.run("config", "--get", "gantry.denylist", check=False)
+    path = _decode(result.stdout).rstrip("\n")
+    if result.returncode != 0 or not path:
+        raise SetupError("no denylist: pass --denylist or record git config gantry.denylist")
+    return read_denylist(path, "git config gantry.denylist")
+
+
+def match_re(entries):
+    """Each entry, case-insensitively, not adjacent to a letter."""
+    alternatives = "|".join(re.escape(e) for e in sorted(set(entries), key=len, reverse=True))
+    return re.compile(r"(?i)(?<![^\W\d_])(?:" + alternatives + r")(?![^\W\d_])")
+
+
+def identity_res(repo):
+    """Patterns for this clone's own public identity, from origin; [] when not GitHub."""
+    result = repo.run("remote", "get-url", "origin", check=False)
+    m = ORIGIN_RE.match(_decode(result.stdout).strip()) if result.returncode == 0 else None
+    if not m:
+        print("names: no GitHub origin, so no identity was removed", file=sys.stderr)
+        return []
+    o, r = re.escape(m["o"]), re.escape(m["r"])
+    return [
+        re.compile(r"(?i)(?<![\w.-])" + o + r"\.github\.io" + SEP + r + r"(?![\w.-])"),
+        re.compile(r"(?i)(?<![\w.-])" + o + SEP + r + r"(?:\.git)?(?![\w.-])"),
+    ]
+
+
+def _field_leaves(node, parts):
+    """Every string leaf under the dotted field path (a `[]` part walks a list)."""
+    if not parts:
+        yield from (s for _, s in _walk_strings(node))
+        return
+    key, many = parts[0].removesuffix("[]"), parts[0].endswith("[]")
+    value = node.get(key) if isinstance(node, dict) else None
+    for item in (value if many and isinstance(value, list) else [value] if not many else []):
+        yield from _field_leaves(item, parts[1:])
+
+
+def authorship_values(path, text):
+    """None to skip the whole file, else the authorship strings to blank in it."""
+    fields = [f for p, f in AUTHORSHIP_FIELDS if p == path]
+    if not fields:
+        return []
+    if None in fields:
+        return None
+    try:
+        doc = tomllib.loads(text) if path.endswith(".toml") else json.loads(text)
+    except ValueError:
+        return []  # nothing to skip: fail closed
+    values = set()
+    for field in fields:
+        values.update(v for v in _field_leaves(doc, field.split(".")) if v)
+    return sorted(values | {json.dumps(v)[1:-1] for v in values}, key=len, reverse=True)
+
+
+def names_text(text, identity, blank=()):
+    """The text after the removals, one space per removal."""
+    for value in blank:
+        text = text.replace(value, " ")
+    for pattern in (TRAILER_RE, GITHUB_URL_RE, REPO_REF_RE, *identity):
+        text = pattern.sub(" ", text)
+    return text
+
+
+def names_lines(text, identity, matcher, blank=()):
+    """The line number of each match, one entry per match."""
+    hits = []
+    for lineno, line in enumerate(names_text(text, identity, blank).split("\n"), 1):
+        hits += [lineno] * len(matcher.findall(line))
+    return hits
+
+
+def cmd_names(repo, args):
+    matcher = match_re(denylist_entries(repo, args.denylist))
+    identity = identity_res(repo)
+    mask = lambda s: matcher.sub("<match>", s)
+    where = []
+    if args.staged or args.all:
+        files = staged_files(repo) if args.staged else tree_files(repo, "HEAD")
+        for (_, _, path), data in zip(files, repo.read_objects([oid for _, oid, _ in files])):
+            shown = mask(path)
+            where += [f"names: {shown} (path)"] * len(matcher.findall(names_text(path, identity)))
+            text = decode_blob(data) if data is not None else None
+            blank = authorship_values(path, text) if text is not None else None
+            if blank is not None:
+                where += [f"names: {shown}:{i}" for i in names_lines(text, identity, matcher, blank)]
+    else:
+        text = read_text_file(args.message or args.text)
+        label = "message" if args.message else "text"
+        if args.message:
+            text = clean_message(text, comment_string(repo))
+        where += [f"names: {label}:{i}" for i in names_lines(text, identity, matcher)]
+    if args.where:
+        for line in where:
+            print(line)
+    n = len(where)
+    print(f"names: {n} match" + ("" if n == 1 else "es"))
+    return 1 if n else 0
+
+
 COMMANDS = {
     "tree": cmd_tree, "staged": cmd_staged, "range": cmd_range, "message": cmd_message,
-    "ci": cmd_ci,
+    "ci": cmd_ci, "names": cmd_names,
 }
 
 
@@ -697,6 +836,14 @@ def build_parser():
     p = sub.add_parser("message", help="rule 3 on a commit message file (commit-msg)")
     p.add_argument("file")
     sub.add_parser("ci", help="tree plus the range the GitHub event names")
+    p = sub.add_parser("names", help="count denylist names and hostnames (never prints them)")
+    p.add_argument("--denylist", help="the denylist file (default: git config gantry.denylist)")
+    p.add_argument("--where", action="store_true", help="print each match's file and line")
+    scope = p.add_mutually_exclusive_group(required=True)
+    scope.add_argument("--staged", action="store_true", help="what the commit adds or changes")
+    scope.add_argument("--all", action="store_true", help="every tracked file at HEAD")
+    scope.add_argument("--message", metavar="FILE", help="a commit message file (cleaned)")
+    scope.add_argument("--text", metavar="FILE", help="any text, such as a pull-request body")
     return parser
 
 
@@ -707,7 +854,7 @@ def main(argv=None):
     try:
         return COMMANDS[args.command](Repo.find(), args)
     except SetupError as e:
-        print(f"commit-check: {e}", file=sys.stderr)
+        print(f"{'names' if args.command == 'names' else 'commit-check'}: {e}", file=sys.stderr)
         return 2
 
 
