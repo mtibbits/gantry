@@ -136,7 +136,9 @@ def split_meta(body: str) -> dict[str, str]:
             start = i
             while i < n and body[i] != ",":
                 i += 1
-            out[key] = body[start:i].strip()
+            # Not .strip(): a plain value that starts with other whitespace
+            # and then a bracket or quote must still read as plain.
+            out[key] = body[start:i].rstrip()
     return out
 
 

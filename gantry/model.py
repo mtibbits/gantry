@@ -5,6 +5,10 @@ Leaf or Row is unhashable. Key collections by `.key`, never by the node.
 
 `SiteData.links` is complete: it keeps the links whose ends are held out by a
 cycle. A consumer that wants the schedulable graph filters by `held_out`.
+
+A Leaf's `deps` holds only its own entries. A Row has no `deps`: its entries,
+foreign ones included, are only in `meta["depends_on"]`, and a cross-site
+reader applies them to the row's open leaves itself (docs/worksite-page.md).
 """
 
 from dataclasses import dataclass
@@ -96,7 +100,7 @@ def meta_value(raw: str) -> str | list[str]:
     if raw[:1] in ("\"", "'"):
         close = raw.find(raw[0], 1)
         return raw[1:] if close == -1 else raw[1:close]
-    return raw
+    return raw.strip()
 
 
 def meta_values(raw: str | None) -> list[str]:

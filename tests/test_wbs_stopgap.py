@@ -14,6 +14,7 @@ from gantry.model import (
     ReportEntry,
     Row,
     SiteData,
+    meta_value,
     meta_values,
 )
 from gantry.priority import rank
@@ -177,6 +178,24 @@ def test_brace_title_and_unbracketed_list():
 )
 def test_split_meta_table(body, meta):
     assert split_meta(body) == meta
+
+
+# devagent skips only spaces and tabs after the colon: other whitespace before
+# a bracket or quote makes a plain value, which .strip() then trims.
+NBSP, IDEOGRAPHIC_SPACE = "\N{NO-BREAK SPACE}", "\N{IDEOGRAPHIC SPACE}"
+
+
+@pytest.mark.parametrize(
+    ("body", "key", "value"),
+    [
+        ("depends_on:" + NBSP + "[Issue-1, x]", "depends_on", "[Issue-1"),
+        ("issue:" + IDEOGRAPHIC_SPACE + "'Issue-1", "issue", "'Issue-1"),
+        ("x:" + NBSP + '"', "x", '"'),
+        ("p:" + NBSP + "P1 ", "p", "P1"),
+    ],
+)
+def test_other_whitespace_before_bracket_or_quote_is_plain(body, key, value):
+    assert meta_value(split_meta(body)[key]) == value
 
 
 # devagent's _META_BLOCK_RE (scripts/lib/wbs-parser.py:108), kept here only as
