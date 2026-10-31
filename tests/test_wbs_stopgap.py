@@ -338,7 +338,6 @@ def test_crlf_parses_like_lf(name):
     assert parse_wbs(text.replace("\n", "\r\n"), "alpha") == parse_wbs(text, "alpha")
 
 
-
 # --- resolution over the fixtures and the samples ----------------------------
 
 

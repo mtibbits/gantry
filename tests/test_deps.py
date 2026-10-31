@@ -128,7 +128,6 @@ def test_find_cycles_iterative():
     assert find_cycles(keys, links[:-1]) == []
 
 
-
 def effective_map(data):
     return effective([leaf for leaf in data.leaves if leaf.open and leaf.key not in data.held_out], data.links)
 

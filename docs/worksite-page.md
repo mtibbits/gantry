@@ -140,11 +140,12 @@ when it comes from a row and names that row or a node inside it.
 ### Priority
 
 `priority:` is `P1` (most urgent) to `P4`. Anything else, `P0` included, is
-reported `bad_priority` and counts as P3, as does a missing priority. A row's
-priority is checked but given to no leaf. A leaf's effective priority is the
-most urgent of its own and that of every open leaf that waits on it,
-directly or through other open leaves; it does not pass through a finished
-leaf or a foreign entry. Compute it over the leaves a page schedules:
+reported `bad_priority` and counts as P3. A missing priority counts as P3
+and is not reported. A row's priority is checked but given to no leaf. A
+leaf's effective priority is the most urgent of its own and that of every
+open leaf that waits on it, directly or through other open leaves; it does
+not pass through a finished leaf or a foreign entry. Compute it over the
+leaves a page schedules:
 `effective([l for l in s.leaves if l.open and l.key not in s.held_out], s.links)`.
 
 ### Cycles
