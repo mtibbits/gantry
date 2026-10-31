@@ -102,8 +102,11 @@ collections by `.key`, never by the node.
 - **local** when it has no `:`, or is `<site>:<id>` where `<site>` is exactly
   this site's name and both halves are id tokens (`[A-Za-z0-9][A-Za-z0-9_.-]*`);
 - **foreign** when it is `<site>:<id>` with both halves id tokens and another
-  site's name (a different case is another name); it stays on the leaf,
-  unresolved and unreported, for a later cross-site view;
+  site's name (a different case is another name); it stays unresolved and
+  unreported, for a later cross-site view: a leaf's in its `deps`, a row's
+  only as raw text in `meta["depends_on"]`. A cross-site reader classifies
+  a row's entries itself and applies them to the open leaves under the row
+  by the rule in [Rows in `depends_on`](#rows-in-depends_on);
 - **malformed** otherwise (`beta: Issue-1`, `https://x`, `a:b:c`,
   `:Issue-1`), reported `malformed_ref` once and otherwise ignored.
 
