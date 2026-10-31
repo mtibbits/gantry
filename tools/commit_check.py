@@ -440,6 +440,102 @@ def check_blobs(repo, files, exemptions):
     return findings
 
 
+# --- commits and messages ------------------------------------------------------
+
+
+def check_message(text):
+    """Rule 3 over a commit message: finding lines `message:<line>: …`."""
+    return [f"message:{lineno}: absolute-path ({form})" for lineno, form, _, _ in line_hits(text)]
+
+
+def comment_string(repo):
+    for key in ("core.commentString", "core.commentChar"):
+        result = repo.run("config", "--get", key, check=False)
+        value = _decode(result.stdout).rstrip("\n")
+        if result.returncode == 0 and value:
+            return "#" if value == "auto" else value
+    return "#"
+
+
+def clean_message(text, comment):
+    """git's default cleanup: cut at the scissors line, blank comment lines.
+
+    Blanked, not dropped, so line numbers still point into the file.
+    """
+    scissors = re.compile("^" + re.escape(comment) + " -+ >8 -+$")
+    kept = []
+    for line in text.split("\n"):
+        if scissors.match(line.rstrip("\r")):
+            break
+        kept.append("" if line.startswith(comment) else line)
+    return "\n".join(kept)
+
+
+def parse_commit(data):
+    """(parents, message) from a raw commit object."""
+    header, _, message = _decode(data).partition("\n\n")
+    parents = [l.split(" ", 1)[1] for l in header.split("\n") if l.startswith("parent ")]
+    return parents, message
+
+
+def changed_files(repo, left, commit):
+    """[(mode, blob id, path)] added or changed from left to commit (two-tree form)."""
+    fields = _nul_fields(repo.run(
+        "diff-tree", "-r", "-z", "--no-renames", "--diff-filter=d", left, commit,
+    ).stdout)
+    files = []
+    for i in range(0, len(fields) - 1, 2):
+        _, mode, _, oid, _ = fields[i].lstrip(":").split(" ")
+        if mode != GITLINK:
+            files.append((mode, oid, fields[i + 1]))
+    return files
+
+
+def empty_tree(repo):
+    return repo.out("hash-object", "-t", "tree", "--stdin", input=b"").strip()
+
+
+def scan_commits(repo, commits, exemptions):
+    """Rules 1-3 over each commit's own changes (vs its first parent) and its message.
+
+    Never a combined diff, so a merge's own resolution is scanned; a root
+    commit is diffed against the empty tree.
+    """
+    findings, empty = [], None
+    for sha, data in zip(commits, repo.read_objects(commits)):
+        parents, message = parse_commit(data)
+        if parents:
+            left = parents[0]
+        else:
+            empty = empty or empty_tree(repo)
+            left = empty
+        prefix = sha[:12] + " "
+        files = changed_files(repo, left, sha)
+        findings += [prefix + f for f in check_blobs(repo, files, exemptions)]
+        findings += [prefix + f for f in check_message(message)]
+    return findings
+
+
+def verify_commit(repo, rev):
+    result = repo.run("rev-parse", "--verify", "-q", rev + "^{commit}", check=False)
+    if result.returncode != 0:
+        raise SetupError(f"not a commit: {rev}")
+    return _decode(result.stdout).strip()
+
+
+def rev_list(repo, *args):
+    return repo.out("rev-list", "--reverse", "--topo-order", *args).split()
+
+
+def read_text_file(path):
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+    except OSError as e:
+        raise SetupError(f"cannot read {path} ({e.strerror})")
+    return decode_blob(data) or ""
+
+
 # --- modes ---------------------------------------------------------------------
 
 
@@ -471,7 +567,18 @@ def cmd_staged(repo, args):
     return report(findings + ignore_rule(repo, ""))
 
 
-COMMANDS = {"tree": cmd_tree, "staged": cmd_staged}
+def cmd_range(repo, args):
+    base, head = verify_commit(repo, args.base), verify_commit(repo, args.head)
+    exemptions, findings = read_exemptions(repo, head)
+    return report(findings + scan_commits(repo, rev_list(repo, f"{base}..{head}"), exemptions))
+
+
+def cmd_message(repo, args):
+    text = clean_message(read_text_file(args.file), comment_string(repo))
+    return report(check_message(text))
+
+
+COMMANDS = {"tree": cmd_tree, "staged": cmd_staged, "range": cmd_range, "message": cmd_message}
 
 
 def build_parser():
@@ -479,6 +586,11 @@ def build_parser():
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("tree", help="every tracked file at HEAD, rule 4 and the exemption list")
     sub.add_parser("staged", help="what the commit adds or changes, read from the index (pre-commit)")
+    p = sub.add_parser("range", help="each commit's own changes and message in base..head")
+    p.add_argument("base")
+    p.add_argument("head")
+    p = sub.add_parser("message", help="rule 3 on a commit message file (commit-msg)")
+    p.add_argument("file")
     return parser
 
 

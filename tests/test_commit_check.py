@@ -510,3 +510,92 @@ def test_malformed_entry_fails_tree(repo):
     rc, out, err = tool(repo, "tree")
     assert rc == 1, (out, err)
     assert finding_lines(out) == [f"{commit_check.EXEMPT_PATH}:2: exemption (malformed entry)"]
+
+
+# --- range and message (Task 7) ----------------------------------------------------
+
+def head(repo):
+    return run_git(repo, "rev-parse", "HEAD").strip()
+
+
+@needs_git
+def test_range_names_commit_that_added_then_deleted_page(repo):
+    base = head(repo)
+    stage(repo, "site/index.html", "<p>page</p>\n")
+    c1 = commit(repo, "add a page")
+    run_git(repo, "rm", "-q", "site/index.html")
+    c2 = commit(repo, "remove it")
+    rc, out, err = tool(repo, "range", base, c2)
+    assert rc == 1, (out, err)
+    assert f"{c1[:12]} site/index.html: generated-output (html page)" in out.splitlines()
+    assert c2[:12] not in out
+    rc, out, err = tool(repo, "tree")
+    assert (rc, finding_lines(out)) == (0, []), (out, err)
+
+
+@needs_git
+def test_range_and_message_flag_home_path_in_message(repo, tmp_path):
+    base = head(repo)
+    msg = f"subject\n\nthe notes live in {HOME}notes\n"
+    c1 = commit(repo, msg)
+    rc, out, err = tool(repo, "range", base, c1)
+    assert rc == 1, (out, err)
+    assert finding_lines(out) == [f"{c1[:12]} message:3: absolute-path (posix_home)"]
+    assert HOME not in out
+    path = tmp_path / "msg.txt"
+    path.write_bytes(msg.encode("utf-8"))
+    rc, out, err = tool(repo, "message", str(path))
+    assert rc == 1, (out, err)
+    assert finding_lines(out) == ["message:3: absolute-path (posix_home)"]
+
+
+@needs_git
+def test_range_scans_merge_resolution(repo):
+    base = head(repo)
+    run_git(repo, "checkout", "-q", "-b", "side")
+    stage(repo, "a.txt", "side\n")
+    commit(repo, "side")
+    run_git(repo, "checkout", "-q", "main")
+    stage(repo, "b.txt", "main\n")
+    commit(repo, "main")
+    run_git(repo, "merge", "-q", "--no-ff", "--no-commit", "side")
+    stage(repo, "b.txt", f"main\nresolved with {HOME}x\n")
+    merge = commit(repo, "merge side")
+    rc, out, err = tool(repo, "range", base, merge)
+    assert rc == 1, (out, err)
+    assert finding_lines(out) == [f"{merge[:12]} b.txt:2: absolute-path (posix_home)"]
+
+
+@needs_git
+def test_range_root_commit(tmp_path):
+    run_git(tmp_path, "init", "-q", "-b", "main")
+    stage(tmp_path, "notes/a.md", f"see {HOME}\n")
+    root = commit(tmp_path, "root")
+    repo = commit_check.Repo(tmp_path, HERMETIC_ENV)
+    findings = commit_check.scan_commits(repo, [root], [])
+    assert findings == [f"{root[:12]} notes/a.md:1: absolute-path (posix_home)"]
+
+
+@needs_git
+def test_range_needs_two_commits(repo):
+    rc, out, err = tool(repo, "range", "HEAD", "no-such-rev")
+    assert rc == 2, (out, err)
+
+
+@needs_git
+def test_message_ignores_comment_and_scissors(repo, tmp_path):
+    path = tmp_path / "COMMIT_EDITMSG"
+    path.write_bytes((
+        "subject\n\nbody\n"
+        f"# a status line naming {HOME}\n"
+        "# ------------------------ >8 ------------------------\n"
+        f"diff with {TILDE}x\n"
+    ).encode("utf-8"))
+    rc, out, err = tool(repo, "message", str(path))
+    assert (rc, finding_lines(out)) == (0, []), (out, err)
+
+    run_git(repo, "config", "core.commentChar", ";")
+    path.write_bytes(f"subject\n\n; ignored {HOME}\n# checked {TILDE}x\n".encode("utf-8"))
+    rc, out, err = tool(repo, "message", str(path))
+    assert rc == 1, (out, err)
+    assert finding_lines(out) == ["message:4: absolute-path (tilde)"]
