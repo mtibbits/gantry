@@ -1,5 +1,8 @@
 """Gantry's own WBS.md reader (#8): fixtures, grammar, identity and read_wbs."""
 
+import random
+import re
+import time
 from dataclasses import fields
 
 import pytest
@@ -13,6 +16,8 @@ from gantry.model import (
     SiteData,
     meta_values,
 )
+from gantry.priority import rank
+from gantry.wbs_stopgap import MESSAGES, parse_wbs, split_meta, split_title_meta
 from test_samples import ROOT, decode_bytes, git, git_work_tree, needs_git
 
 FIXTURES = ROOT / "tests" / "fixtures" / "wbs"
@@ -94,3 +99,207 @@ def test_nodes_are_unhashable():
 )
 def test_meta_values_table(raw, values):
     assert meta_values(raw) == values
+
+
+# --- grammar, identity and the parse-time report -----------------------------
+
+
+def fixture_text(name):
+    return (FIXTURES / f"{name}.md").read_bytes().decode("utf-8")
+
+
+def parse(name):
+    return parse_wbs(fixture_text(name), "alpha")
+
+
+def by_line(data):
+    return {n.line: n for n in (*data.leaves, *data.rows)}
+
+
+def entries(data, kind):
+    return [e for e in data.report if e.kind == kind]
+
+
+def test_nesting_outline_kind_epic_parent():
+    nodes = by_line(parse("nesting"))
+    rows = {  # line: (key, outline, parent)
+        2: ("Issue-1", "1", None),
+        3: ("Issue-2", "1.1", "Issue-1"),
+        8: ("2", "2", None),
+    }
+    leaves = {  # line: (key, outline, epic)
+        4: ("Issue-3", "1.1.1", "Issue-1"),
+        5: ("1.1.2", "1.1.2", "Issue-1"),
+        6: ("Issue-4", "1.2", "Issue-1"),
+        7: ("Issue-5", "1.3", "Issue-1"),
+        9: ("Issue-6", "2.1", "2"),
+        10: ("Issue-7", "2.2", "2"),
+        11: ("3", "3", None),
+    }
+    assert sorted(nodes) == sorted([*rows, *leaves])
+    for line, (key, outline, parent) in rows.items():
+        node = nodes[line]
+        assert isinstance(node, Row), line
+        assert (node.key, node.outline, node.parent) == (key, outline, parent), line
+    for line, (key, outline, epic) in leaves.items():
+        node = nodes[line]
+        assert isinstance(node, Leaf), line
+        assert (node.key, node.outline, node.epic) == (key, outline, epic), line
+
+
+def test_rows_listed():
+    rows = parse("nesting").rows
+    assert [(r.key, r.issue, r.title) for r in rows] == [
+        ("Issue-1", "Issue-1", "Foundations"),
+        ("Issue-2", "Issue-2", "Pour"),
+        ("2", None, "Frame"),
+    ]
+
+
+def test_brace_title_and_unbracketed_list():
+    leaf = by_line(parse("nesting"))[10]
+    assert leaf.title == "Brace {in} title"
+    assert leaf.meta == {"issue": "Issue-7", "satisfies": "a:X", "a": "Y"}
+
+
+@pytest.mark.parametrize(
+    ("body", "meta"),
+    [
+        ('depends_on: "x, y"', {"depends_on": '"x, y"'}),
+        ("depends_on: [a, b], priority: P1", {"depends_on": "[a, b]", "priority": "P1"}),
+        ("a: 1, a: 2", {"a": "2"}),
+        ("no colon", {}),
+        (": x", {}),
+        ("k: [open", {"k": "[open"}),
+    ],
+)
+def test_split_meta_table(body, meta):
+    assert split_meta(body) == meta
+
+
+# devagent's _META_BLOCK_RE (scripts/lib/wbs-parser.py:108), kept here only as
+# the oracle for split_title_meta.
+DEVAGENT_META_RE = re.compile(r"\s*\{(?P<body>[^{}]*)\}\s*$")
+
+
+def devagent_split(rest):
+    m = DEVAGENT_META_RE.search(rest)
+    if not m:
+        return rest.strip(), None
+    return rest[: m.start()].rstrip(), m.group("body")
+
+
+META_SPLIT_CASES = [
+    "", " ", "a", "a {b: c}", "a {b: c} ", "a{}", "{}", " {} ", "a {b} {c}", "a {b}}",
+    "a {{b}", "a {b} c", "a }{", "a {b\t}\t", "{a {b}", "a { }", "a {b: [c, d]}",
+]
+
+
+def test_meta_split_matches_devagent_regex():
+    rng = random.Random(8)
+    cases = META_SPLIT_CASES + [
+        "".join(rng.choice(" \t{}a:") for _ in range(rng.randrange(13))) for _ in range(2000)
+    ]
+    for rest in cases:
+        assert split_title_meta(rest) == devagent_split(rest), repr(rest)
+
+
+def test_long_whitespace_line_is_linear():
+    text = "- [ ] A" + " " * 30000 + "b {issue: Issue-1}\n"
+    start = time.perf_counter()
+    data = parse_wbs(text, "alpha")
+    assert time.perf_counter() - start < 1
+    assert [leaf.key for leaf in data.leaves] == ["Issue-1"]
+
+
+def test_fences():
+    data = parse("fences")
+    assert [leaf.key for leaf in data.leaves] == ["Issue-1", "Issue-2", "Issue-3"]
+    assert data.rows == ()
+    assert entries(data, "skipped_line") == []
+
+
+def test_issue_less_leaf_named_by_outline():
+    data = parse("ids")
+    leaf = by_line(data)[6]
+    assert (leaf.key, leaf.issue) == ("1.4", None)
+    assert [e.line for e in entries(data, "no_issue")] == [5, 6]
+
+
+def test_fork_ids_kept():
+    nodes = by_line(parse("ids"))
+    assert isinstance(nodes[2], Row) and nodes[2].key == "Issue-Fork-1"
+    assert isinstance(nodes[3], Leaf) and nodes[3].key == "Issue-Fork-2"
+
+
+def test_duplicate_issue():
+    data = parse("ids")
+    found = entries(data, "duplicate_issue")
+    assert [e.line for e in found] == [4]
+    assert "line 3" in found[0].message
+    leaf = by_line(data)[4]
+    assert (leaf.key, leaf.issue) == ("1.2", "Issue-Fork-2")
+
+
+def test_key_collision():
+    data = parse("ids")
+    assert [e.message for e in entries(data, "key_collision")] == [
+        "WBS.md line 5: outline position '1.3' is the issue: id on line 7; "
+        "this node is named '1.3~5'"
+    ]
+    nodes = by_line(data)
+    assert nodes[7].key == "1.3"
+    assert nodes[5].key == "1.3~5"
+
+
+def test_tilde_key_never_duplicates_an_issue():
+    data = parse_wbs("- [ ] A\n- [ ] B {issue: 1}\n- [ ] C {issue: 1~1}\n", "alpha")
+    assert [leaf.key for leaf in data.leaves] == ["1~1~1", "1", "1~1"]
+    assert [e.message for e in entries(data, "key_collision")] == [
+        "WBS.md line 1: outline position '1' is the issue: id on line 2; "
+        "this node is named '1~1~1'"
+    ]
+
+
+def test_skipped_lines():
+    data = parse("ids")
+    found = entries(data, "skipped_line")
+    assert [e.line for e in found] == [10, 11]
+    assert found[0].message.endswith(MESSAGES["why_glyph"].format(glyph="X"))
+    assert found[1].message.endswith(MESSAGES["why_text"])
+    assert {10, 11}.isdisjoint(by_line(data))
+
+    data = parse_wbs("- [ ]   \n", "alpha")
+    assert [(leaf.key, leaf.title) for leaf in data.leaves] == [("1", "")]
+    assert [e.kind for e in data.report] == ["no_issue"]
+
+    data = parse_wbs("- [ ] \n", "alpha")
+    assert data.leaves == ()
+    assert [e.kind for e in data.report] == ["no_nodes", "skipped_line"]  # whole-file first
+
+
+def test_bad_priority_and_p0():
+    data = parse("ids")
+    found = entries(data, "bad_priority")
+    assert [e.line for e in found] == [3, 4]
+    assert "'P0'" in found[0].message and "'P9'" in found[1].message
+    nodes = by_line(data)
+    assert rank(nodes[3].priority) == rank(nodes[4].priority) == 3
+
+
+def test_quoted_scalar_and_list_depends_on():
+    nodes = by_line(parse("ids"))
+    assert nodes[8].deps == (DepRef("Issue-Fork-2", "local", "alpha", "Issue-Fork-2"),)
+    assert [d.issue for d in nodes[9].deps] == ["Issue-3", "1.4", "Issue-99"]
+
+
+def test_no_nodes():
+    data = parse("empty")
+    assert data.leaves == () and data.rows == ()
+    assert [(e.kind, e.line) for e in data.report] == [("no_nodes", None)]
+
+
+@pytest.mark.parametrize("name", UTF8_FIXTURES)
+def test_crlf_parses_like_lf(name):
+    text = fixture_text(name)
+    assert parse_wbs(text.replace("\n", "\r\n"), "alpha") == parse_wbs(text, "alpha")
