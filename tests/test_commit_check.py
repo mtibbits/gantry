@@ -113,6 +113,11 @@ NEGATIVE_CONTROLS = [
     "~" + "5/day",
     "https://host/" + "r/x",
     "https://host/" + "~" + "user/x",
+    # each character the boundary excludes, before a form
+    "x_" + "~" + "/y",
+    "x." + "~" + "/y",
+    "x-" + "~" + "/y",
+    "x:" + "~" + "/y",
 ]
 
 
