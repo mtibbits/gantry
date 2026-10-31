@@ -5,7 +5,6 @@ this file holds none of them and passes the check it tests.
 """
 
 import json
-import os
 import re
 import shutil
 import subprocess
@@ -15,14 +14,23 @@ from pathlib import Path
 import pytest
 
 import commit_check
-from test_samples import PATH_FORM_CONTROLS, ROOT, _decode, git, needs_git
+from test_samples import (
+    PATH_FORM_CONTROLS,
+    PATH_FORM_NEGATIVES,
+    ROOT,
+    _decode,
+    git,
+    git_env,
+    git_work_tree,
+    needs_git,
+)
+from test_source_scan import CONTROLS as FORM_CASES
 
 TOOL = ROOT / "tools" / "commit_check.py"
 
 # The tool's own environment in a temp repo: no GIT_* leaks in, and no global
-# or system config (test_samples.git(..., hermetic=True) does the same).
-HERMETIC_ENV = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
-HERMETIC_ENV.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+# or system config.
+HERMETIC_ENV = git_env(hermetic=True)
 IDENTITY = ("-c", "user.name=Test", "-c", "user.email=test@example.invalid")
 TEMPLATE_FILES = (
     ".gitignore",
@@ -92,20 +100,8 @@ SHAPES = {
     "eq_spaced": "a = {}",
 }
 
-NEGATIVE_CONTROLS = [
-    # test_samples' negatives (#42)
-    "https://github.com/sample_owner/harbor",
-    "../harbor",
-    "samples/devagent/out/",
-    "samples/c/x",
-    "origin/main",
-    "and/or",
-    "- [~] Erect crane one {issue: Issue-6}",
-    "est: ?w",
-    "6-12",
-    "2026-01-15",
-    "P1:",
-    # the issue's pass cases
+# test_samples' negatives (#42), then the issue's pass cases.
+NEGATIVE_CONTROLS = PATH_FORM_NEGATIVES + [
     "https://x",
     "a:b",
     "/gantry:build",
@@ -248,7 +244,7 @@ def test_ignore_rule_passes_on_repo_gitignore(repo):
     rc, out, err = tool(repo, "tree")
     assert (rc, finding_lines(out)) == (0, []), (out, err)
     assert out.splitlines()[-1] == "commit-check: clean"
-    probes = commit_check.ignore_probes(repo, env=HERMETIC_ENV)
+    probes = commit_check.ignore_probes(commit_check.Repo(repo, HERMETIC_ENV))
     assert {p: probes[p] for p in PROBES} == dict.fromkeys(PROBES, True)
 
 
@@ -368,13 +364,6 @@ def test_rule2_fixture_dotdot_fails(repo):
 
 
 # --- staged: rule 3 and the index (Task 5) ----------------------------------------
-
-# The AC names a user's home folder under both roots, on top of the controls.
-FORM_CASES = PATH_FORM_CONTROLS + [
-    ("posix_home", "/" + "home" + "/" + "someone" + "/"),
-    ("posix_home", "/" + "Users" + "/" + "someone" + "/"),
-]
-
 
 @needs_git
 def test_staged_flags_every_form_in_every_shape(repo):
@@ -1141,8 +1130,7 @@ def test_bomless_utf16_is_skipped_as_documented():
 
 @needs_git
 def test_repo_tree_is_clean():
-    result = git(ROOT, "rev-parse", "--show-toplevel")
-    if result.returncode != 0 or not os.path.samefile(_decode(result.stdout).strip(), ROOT):
+    if not git_work_tree(ROOT):
         pytest.skip("the gantry root is not a git work tree")
     rc, out, err = tool(ROOT, "tree")
     assert (rc, finding_lines(out)) == (0, []), (out, err)

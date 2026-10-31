@@ -24,7 +24,7 @@ import pytest
 
 import sample_roles
 # One form list for the samples check, the source scan and the commit check (#44).
-from commit_check import PATH_FORMS, path_form_hits
+from commit_check import ABSOLUTE_START_RE, PATH_FORMS, _decode, _walk_strings, path_form_hits
 from sample_roles import (
     BUSY,
     HOSTILE_SITE,
@@ -50,19 +50,6 @@ PUBLIC_TOOLS = {"devagent", "gantry"}
 
 # devagent's path fields (scripts/lib/config.sh:38-39), plus any key ending _dir.
 PROJECT_PATH_KEYS = {"source_dir", "devdoc_dir", "worktree_root", "build_dir"}
-ABSOLUTE_START_RE = re.compile(r"^(?:[/\\~]|[A-Za-z]:)")
-
-
-def _walk_strings(node, dotted):
-    """Yield (dotted key, string) for every string anywhere under node."""
-    if isinstance(node, dict):
-        for key, value in node.items():
-            yield from _walk_strings(value, f"{dotted}.{key}" if dotted else key)
-    elif isinstance(node, list):
-        for i, value in enumerate(node):
-            yield from _walk_strings(value, f"{dotted}[{i}]")
-    elif isinstance(node, str):
-        yield dotted, node
 
 
 def _is_path_key(dotted):
@@ -655,17 +642,18 @@ HAVE_GIT = shutil.which("git") is not None
 needs_git = pytest.mark.skipif(not HAVE_GIT, reason="git not on PATH")
 
 
-def _decode(data):
-    return data.decode("utf-8", "surrogateescape")
-
-
-def git(root, *args, input=None, hermetic=False):
+def git_env(hermetic=False):
+    """The environment without GIT_*; hermetic also drops global and system config."""
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     if hermetic:
         env["GIT_CONFIG_GLOBAL"] = os.devnull
         env["GIT_CONFIG_NOSYSTEM"] = "1"
+    return env
+
+
+def git(root, *args, input=None, hermetic=False):
     return subprocess.run(
-        ["git", *args], cwd=root, input=input, capture_output=True, env=env
+        ["git", *args], cwd=root, input=input, capture_output=True, env=git_env(hermetic)
     )
 
 
@@ -804,7 +792,8 @@ def test_path_form_positive_controls(form, sample, shape):
     assert form in {f for f, _ in path_form_hits(text)}, (text, path_form_hits(text))
 
 
-@pytest.mark.parametrize("text", [
+# tests/test_commit_check.py reuses the list.
+PATH_FORM_NEGATIVES = [
     "https://github.com/sample_owner/harbor",
     "../harbor",
     "samples/devagent/out/",
@@ -816,7 +805,10 @@ def test_path_form_positive_controls(form, sample, shape):
     "6-12",
     "2026-01-15",
     "P1:",
-])
+]
+
+
+@pytest.mark.parametrize("text", PATH_FORM_NEGATIVES)
 def test_path_form_negative_controls(text):
     assert path_form_hits(text) == []
 

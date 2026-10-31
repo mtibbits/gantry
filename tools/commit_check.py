@@ -17,6 +17,7 @@ own rule 3.
 """
 
 import argparse
+import functools
 import json
 import os
 import posixpath
@@ -176,6 +177,11 @@ class Repo:
     def out(self, *args, input=None):
         return _decode(self.run(*args, input=input).stdout)
 
+    def config(self, key):
+        """A git config value (newline stripped), or None when unset."""
+        result = self.run("config", "--get", key, check=False)
+        return _decode(result.stdout).rstrip("\n") if result.returncode == 0 else None
+
     def read_objects(self, names):
         """Bytes for each object name (None when missing), through one cat-file --batch."""
         if not names:
@@ -198,10 +204,13 @@ class Repo:
         """A file's bytes at rev ("" for the index), or None when absent."""
         return self.read_objects([f"{rev}:{path}"])[0]
 
+    @functools.cached_property
     def tracked(self):
-        if not hasattr(self, "_tracked"):
-            self._tracked = set(_nul_fields(self.run("ls-files", "-z").stdout))
-        return self._tracked
+        return set(_nul_fields(self.run("ls-files", "-z").stdout))
+
+    @functools.cached_property
+    def empty_tree(self):
+        return self.out("hash-object", "-t", "tree", "--stdin", input=b"").strip()
 
 
 # --- blobs ---------------------------------------------------------------------
@@ -241,10 +250,8 @@ def sample_output_dir(repo, rev):
         value = tomllib.loads(text).get("output_dir")
     except tomllib.TOMLDecodeError:
         return None
-    if not isinstance(value, str) or ABSOLUTE_START_RE.match(value):
-        return None
-    p = posixpath.normpath(posixpath.join(SAMPLE_ROOT, value.replace(BACK, SEP)))
-    return None if p in (".", "..") or p.startswith(".." + SEP) else p
+    p = _lexical_join(SAMPLE_ROOT, value) if isinstance(value, str) else None
+    return None if p is None or p in (".", "..") or p.startswith(".." + SEP) else p
 
 
 def check_ignored(repo, paths):
@@ -259,7 +266,7 @@ def check_ignored(repo, paths):
     )
     if result.returncode not in (0, 1):
         raise SetupError(f"git check-ignore failed: {_decode(result.stderr).strip()}")
-    gitignores = {p for p in repo.tracked() if posixpath.basename(p) == ".gitignore"}
+    gitignores = {p for p in repo.tracked if posixpath.basename(p) == ".gitignore"}
     fields = _nul_fields(result.stdout)
     ignored = dict.fromkeys(paths, False)
     for i in range(0, len(fields) - 3, 4):
@@ -274,9 +281,8 @@ def _probe_paths(out_dir):
     return [d + SEP + PROBE_NAME for d in dict.fromkeys(dirs)]
 
 
-def ignore_probes(top, rev="HEAD", env=None):
+def ignore_probes(repo, rev="HEAD"):
     """{probe path: ignored} for every folder the ignore rules must cover."""
-    repo = top if isinstance(top, Repo) else Repo(top, env)
     return check_ignored(repo, _probe_paths(sample_output_dir(repo, rev)))
 
 
@@ -327,12 +333,17 @@ def _walk_strings(node, dotted=""):
         yield dotted, node
 
 
+def _lexical_join(folder, value):
+    """value joined to folder and normalised, or None when value is absolute."""
+    if ABSOLUTE_START_RE.match(value):
+        return None
+    return posixpath.normpath(posixpath.join(folder, value.replace(BACK, SEP)))
+
+
 def _resolves_inside(folder, value):
     """True when value is relative and resolves lexically inside folder."""
-    if ABSOLUTE_START_RE.match(value):
-        return False
-    p = posixpath.normpath(posixpath.join(folder, value.replace(BACK, SEP)))
-    return p == folder or p.startswith(folder + SEP)
+    p = _lexical_join(folder, value)
+    return p is not None and (p == folder or p.startswith(folder + SEP))
 
 
 def installation_config(path, data):
@@ -389,23 +400,23 @@ def read_exemptions(repo, rev):
 GITLINK = "160000"
 
 
+def _raw_diff(repo, command, *revs):
+    """[(mode, blob id, path)] added or changed in a raw diff (gitlinks skipped)."""
+    fields = _nul_fields(repo.run(
+        *command, "-r", "-z", "--no-renames", "--diff-filter=d", *revs,
+    ).stdout)
+    files = []
+    for i in range(0, len(fields) - 1, 2):
+        _, mode, _, oid, _ = fields[i].lstrip(":").split(" ")
+        if mode != GITLINK:
+            files.append((mode, oid, fields[i + 1]))
+    return files
+
+
 def staged_files(repo):
     """[(mode, blob id, path)] the commit adds or changes: the index against HEAD."""
-    if repo.run("rev-parse", "--verify", "-q", "HEAD^{commit}", check=False).returncode != 0:
-        files = []
-        for record in _nul_fields(repo.run("ls-files", "-s", "-z").stdout):
-            info, path = record.split("\t", 1)
-            mode, oid, _ = info.split(" ")
-            files.append((mode, oid, path))
-    else:
-        fields = _nul_fields(repo.run(
-            "diff-index", "--cached", "-r", "-z", "--no-renames", "--diff-filter=d", "HEAD",
-        ).stdout)
-        files = []
-        for i in range(0, len(fields) - 1, 2):
-            _, mode, _, oid, _ = fields[i].lstrip(":").split(" ")
-            files.append((mode, oid, fields[i + 1]))
-    return [f for f in files if f[0] != GITLINK]
+    born = repo.run("rev-parse", "--verify", "-q", "HEAD^{commit}", check=False).returncode == 0
+    return _raw_diff(repo, ("diff-index", "--cached"), "HEAD" if born else repo.empty_tree)
 
 
 def tree_files(repo, rev):
@@ -461,17 +472,14 @@ def check_message(text):
 
 def comment_string(repo):
     for key in ("core.commentString", "core.commentChar"):
-        result = repo.run("config", "--get", key, check=False)
-        value = _decode(result.stdout).rstrip("\n")
-        if result.returncode == 0 and value:
+        value = repo.config(key)
+        if value:
             return "#" if value == "auto" else value
     return "#"
 
 
 def cleanup_mode(repo):
-    result = repo.run("config", "--get", "commit.cleanup", check=False)
-    value = _decode(result.stdout).strip() if result.returncode == 0 else ""
-    return value or "default"
+    return (repo.config("commit.cleanup") or "").strip() or "default"
 
 
 def clean_message(text, comment, mode="default"):
@@ -509,19 +517,7 @@ def parse_commit(data):
 
 def changed_files(repo, left, commit):
     """[(mode, blob id, path)] added or changed from left to commit (two-tree form)."""
-    fields = _nul_fields(repo.run(
-        "diff-tree", "-r", "-z", "--no-renames", "--diff-filter=d", left, commit,
-    ).stdout)
-    files = []
-    for i in range(0, len(fields) - 1, 2):
-        _, mode, _, oid, _ = fields[i].lstrip(":").split(" ")
-        if mode != GITLINK:
-            files.append((mode, oid, fields[i + 1]))
-    return files
-
-
-def empty_tree(repo):
-    return repo.out("hash-object", "-t", "tree", "--stdin", input=b"").strip()
+    return _raw_diff(repo, ("diff-tree",), left, commit)
 
 
 def scan_commits(repo, commits, exemptions):
@@ -530,14 +526,10 @@ def scan_commits(repo, commits, exemptions):
     Never a combined diff, so a merge's own resolution is scanned; a root
     commit is diffed against the empty tree.
     """
-    findings, empty = [], None
+    findings = []
     for sha, data in zip(commits, repo.read_objects(commits)):
         parents, message = parse_commit(data)
-        if parents:
-            left = parents[0]
-        else:
-            empty = empty or empty_tree(repo)
-            left = empty
+        left = parents[0] if parents else repo.empty_tree
         prefix = sha[:12] + " "
         files = changed_files(repo, left, sha)
         findings += [prefix + f for f in check_blobs(repo, files, exemptions)]
@@ -556,12 +548,12 @@ def rev_list(repo, *args):
     return repo.out("rev-list", "--reverse", "--topo-order", *args).split()
 
 
-def read_text_file(path):
+def read_text_file(path, what=None):
     try:
         with open(path, "rb") as f:
             data = f.read()
     except OSError as e:
-        raise SetupError(f"cannot read {path} ({e.strerror})")
+        raise SetupError(f"cannot read {what or path} ({e.strerror})")
     return decode_blob(data) or ""
 
 
@@ -578,16 +570,16 @@ def report(findings):
 
 
 def tree_findings(repo):
-    """Every tracked file at HEAD, rule 4, and the exemption list's own checks."""
+    """(findings, exemptions): every file at HEAD, rule 4 and the exemption list's checks."""
     exemptions, findings = read_exemptions(repo, "HEAD")
     files = tree_files(repo, "HEAD")
     findings += check_blobs(repo, files, exemptions)
     findings += ignore_rule(repo, "HEAD")
-    return findings + stale_exemptions(repo, exemptions, files)
+    return findings + stale_exemptions(repo, exemptions, files), exemptions
 
 
 def cmd_tree(repo, args):
-    return report(tree_findings(repo))
+    return report(tree_findings(repo)[0])
 
 
 def cmd_staged(repo, args):
@@ -634,27 +626,35 @@ def _is_commit(repo, sha):
 
 
 def ci_range(repo, event, payload):
-    """(commits, description) the event asks the check to scan.
+    """(commits, description, default ref) the event asks the check to scan.
 
     pull_request: base..head. push: before..after; with before all zeros
     (a new branch) or not in the clone (a force-push), every commit not on
     origin/<default>, or the whole history for the default branch itself.
+    The default ref is what self_changes subtracts: None for a push to the
+    default branch, whose checkout has already moved origin/<default> to the
+    pushed commit, so every commit in the range is the push's own.
     """
     default = payload["repository"]["default_branch"]
+    ref = f"refs/remotes/origin/{default}"
     if event == "pull_request":
         base, head = payload["pull_request"]["base"]["sha"], payload["pull_request"]["head"]["sha"]
         if not (_is_commit(repo, base) and _is_commit(repo, head)):
             raise SetupError("the pull request's base or head commit is not in the clone")
-        return rev_list(repo, f"{base}..{head}"), f"{base[:12]}..{head[:12]}"
+        return rev_list(repo, f"{base}..{head}"), f"{base[:12]}..{head[:12]}", ref
     if event == "push":
         before, after = payload["before"], payload["after"]
+        to_default = payload["ref"] == f"refs/heads/{default}"
+        if to_default:
+            ref = None
         if ZERO_SHA.match(after):
-            return [], "empty"
+            return [], "empty", ref
         if ZERO_SHA.match(before) or not _is_commit(repo, before):
-            if payload["ref"] == f"refs/heads/{default}":
-                return rev_list(repo, after), f"{after[:12]} (whole history)"
-            return rev_list(repo, after, "--not", f"origin/{default}"), f"{after[:12]} --not origin/{default}"
-        return rev_list(repo, f"{before}..{after}"), f"{before[:12]}..{after[:12]}"
+            if to_default:
+                return rev_list(repo, after), f"{after[:12]} (whole history)", ref
+            return (rev_list(repo, after, "--not", f"origin/{default}"),
+                    f"{after[:12]} --not origin/{default}", ref)
+        return rev_list(repo, f"{before}..{after}"), f"{before[:12]}..{after[:12]}", ref
     raise SetupError(f"ci does not know the event {event!r}")
 
 
@@ -664,28 +664,22 @@ def changed_paths(repo, left, commit):
     ).stdout))
 
 
-def self_changes(repo, commits, default, subtract_default=True):
-    """WATCHED paths the range's own commits (those not on origin/<default>) change.
+def self_changes(repo, commits, ref):
+    """WATCHED paths the range's own commits (those not on ref, when given) change.
 
     A merge counts a path only when it differs from every parent, so merging
-    main forward does not count main's own changes. A push to the default
-    branch subtracts nothing: checkout has already moved origin/<default> to
-    the pushed commit, so every commit in the range is the push's own.
+    main forward does not count main's own changes.
     """
-    ref = f"refs/remotes/origin/{default}"
-    if subtract_default and repo.run("rev-parse", "--verify", "-q", ref, check=False).returncode == 0:
+    if ref and repo.run("rev-parse", "--verify", "-q", ref, check=False).returncode == 0:
         stdin = _encode("".join(c + "\n" for c in commits) + f"^{ref}\n")
         own = set(repo.out("rev-list", "--stdin", input=stdin).split()) if commits else set()
     else:
         own = set(commits)
-    touched, empty = set(), None
+    touched = set()
     for sha, data in zip(commits, repo.read_objects(commits)):
         if sha not in own:
             continue
-        parents, _ = parse_commit(data)
-        if not parents:
-            empty = empty or empty_tree(repo)
-            parents = [empty]
+        parents = parse_commit(data)[0] or [repo.empty_tree]
         touched |= set.intersection(*(changed_paths(repo, p, sha) for p in parents))
     return [p for p in WATCHED if p in touched]
 
@@ -693,16 +687,13 @@ def self_changes(repo, commits, default, subtract_default=True):
 def cmd_ci(repo, args):
     event, payload = load_event()
     try:
-        commits, description = ci_range(repo, event, payload)
-        default = payload["repository"]["default_branch"]
+        commits, description, ref = ci_range(repo, event, payload)
     except (KeyError, TypeError) as e:
         raise SetupError(f"the {event} payload lacks a field the range needs ({e})")
     print(f"ci: range {description}")
-    findings = tree_findings(repo)  # also reports a malformed exemption list
-    exemptions, _ = read_exemptions(repo, "HEAD")
+    findings, exemptions = tree_findings(repo)
     findings += scan_commits(repo, commits, exemptions)
-    to_default = event == "push" and payload.get("ref") == f"refs/heads/{default}"
-    changed = self_changes(repo, commits, default, subtract_default=not to_default)
+    changed = self_changes(repo, commits, ref)
     if changed:
         print(
             f"::warning title=Commit check changed::This range changes {', '.join(changed)}; "
@@ -735,12 +726,8 @@ ORIGIN_RE = re.compile(
 
 
 def read_denylist(path, source):
-    try:
-        with open(path, "rb") as f:
-            data = f.read()
-    except OSError as e:
-        raise SetupError(f"cannot read the denylist that {source} names ({e.strerror})")
-    entries = [l.strip() for l in (decode_blob(data) or "").split("\n")]
+    text = read_text_file(path, f"the denylist that {source} names")
+    entries = [l.strip() for l in text.split("\n")]
     entries = [e for e in entries if e and not e.startswith("#")]
     if not entries:
         raise SetupError(f"the denylist that {source} names has no entries")
@@ -750,9 +737,8 @@ def read_denylist(path, source):
 def denylist_entries(repo, flag):
     if flag:
         return read_denylist(flag, "--denylist")
-    result = repo.run("config", "--get", "gantry.denylist", check=False)
-    path = _decode(result.stdout).rstrip("\n")
-    if result.returncode != 0 or not path:
+    path = repo.config("gantry.denylist")
+    if not path:
         raise SetupError("no denylist: pass --denylist or record git config gantry.denylist")
     return read_denylist(path, "git config gantry.denylist")
 
@@ -890,7 +876,7 @@ def cmd_install_hook(repo, args):
     read_denylist(args.denylist, "--denylist")
     if _inside_any_worktree(repo, args.denylist):
         raise SetupError("the denylist is inside a work tree of this repo; keep it outside, so it cannot be committed")
-    if repo.run("config", "--get", "core.hooksPath", check=False).returncode == 0:
+    if repo.config("core.hooksPath") is not None:
         raise SetupError("core.hooksPath is set, so git would never run hooks written to the hooks folder")
     hooks = Path(repo.top) / repo.out("rev-parse", "--git-path", "hooks").rstrip("\n")
     for name in HOOK_TEXTS:
