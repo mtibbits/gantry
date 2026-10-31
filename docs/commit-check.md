@@ -74,10 +74,15 @@ empty tree), never with a combined diff, so a file added and deleted in one
 push is still found, and so is a merge commit's own content, conflict
 resolutions included. It reads the exemption list at `<head>`.
 
-`message` and `names --message` clean a message file as git's default cleanup
-does: they drop everything from the scissors line that `commit -v` writes, and
-every line that starts with git's comment character (`#` unless
-`core.commentString` or `core.commentChar` says otherwise).
+`message` and `names --message` check what git will keep of a message file.
+When git opened an editor (its "Please enter" comment block or the scissors
+line that `commit -v` writes is present), git's default cleanup drops
+everything from the scissors line and every line that starts with the comment
+character (`#` unless `core.commentString` or `core.commentChar` says
+otherwise), and so does the check. `git commit -m` and `-F` keep comment
+lines, so a `#`-led subject is checked. `commit.cleanup` is honoured
+(`strip`, `scissors`, `whitespace`, `verbatim`). A comment block in another
+language reads as no editor, so every line is checked.
 
 Exit codes: `0` clean, `1` a finding, `2` a usage, setup or install error.
 Findings go to standard output, one per line, and the last line is
@@ -129,8 +134,10 @@ to `names`.
 **Review rule.** Changes to `tools/commit_check.py`, its exemption list or the
 workflow need explicit review. CI and the hook run the checked-out copy of the
 tool and its list, so a change that edits the check could pass its own leak.
-When a range's own commits (those not already on the default branch) change
-any of the three, `ci` prints a GitHub `::warning` annotation naming them.
+When a range's own commits change any of the three, `ci` prints a GitHub
+`::warning` annotation naming them. For a push to the default branch every
+commit in the range is its own; elsewhere, commits already on the default
+branch are not (merging it forward does not warn).
 
 ## Placeholders in docs and tests
 

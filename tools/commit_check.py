@@ -434,11 +434,20 @@ def stale_exemptions(repo, entries, files):
     return findings
 
 
+def read_listed_blobs(repo, files):
+    """The bytes of each listed blob; a blob git cannot read is an error, never empty."""
+    blobs = repo.read_objects([oid for _, oid, _ in files])
+    for (_, oid, _), data in zip(files, blobs):
+        if data is None:
+            raise SetupError(f"git cannot read blob {oid}, which the listing names")
+    return blobs
+
+
 def check_blobs(repo, files, exemptions):
     """check_file over [(mode, blob id, path)], read through one cat-file --batch."""
     findings = []
-    for (_, _, path), data in zip(files, repo.read_objects([oid for _, oid, _ in files])):
-        findings += check_file(path, data if data is not None else b"", exemptions)
+    for (_, _, path), data in zip(files, read_listed_blobs(repo, files)):
+        findings += check_file(path, data, exemptions)
     return findings
 
 
@@ -459,18 +468,36 @@ def comment_string(repo):
     return "#"
 
 
-def clean_message(text, comment):
-    """git's default cleanup: cut at the scissors line, blank comment lines.
+def cleanup_mode(repo):
+    result = repo.run("config", "--get", "commit.cleanup", check=False)
+    value = _decode(result.stdout).strip() if result.returncode == 0 else ""
+    return value or "default"
 
-    Blanked, not dropped, so line numbers still point into the file.
+
+def clean_message(text, comment, mode="default"):
+    """Cut and blank what git's cleanup will remove, so only what git keeps is checked.
+
+    `strip` cuts at the scissors line and drops comment lines; `scissors` only
+    cuts; `whitespace` and `verbatim` keep every line. `default` is `strip` when
+    git opened an editor and `whitespace` otherwise (`-m`, `-F`). An editor
+    session is recognised by git's "Please enter" comment block or a scissors
+    line; a block in another language reads as no editor, so every line is
+    checked (fail closed). Lines are blanked, not dropped, so line numbers
+    still point into the file.
     """
+    lines = text.split("\n")
+    if mode in ("whitespace", "verbatim"):
+        return text
     scissors = re.compile("^" + re.escape(comment) + " -+ >8 -+$")
-    kept = []
-    for line in text.split("\n"):
-        if scissors.match(line.rstrip("\r")):
-            break
-        kept.append("" if line.startswith(comment) else line)
-    return "\n".join(kept)
+    cut = next((i for i, l in enumerate(lines) if scissors.match(l.rstrip("\r"))), None)
+    if mode == "default":
+        editor = cut is not None or any(l.startswith(comment + " Please enter ") for l in lines)
+        mode = "strip" if editor else "whitespace"
+    if cut is not None and mode in ("strip", "scissors"):
+        lines = lines[:cut]
+    if mode == "strip":
+        lines = ["" if l.startswith(comment) else l for l in lines]
+    return "\n".join(lines)
 
 
 def parse_commit(data):
@@ -576,7 +603,7 @@ def cmd_range(repo, args):
 
 
 def cmd_message(repo, args):
-    text = clean_message(read_text_file(args.file), comment_string(repo))
+    text = clean_message(read_text_file(args.file), comment_string(repo), cleanup_mode(repo))
     return report(check_message(text))
 
 
@@ -637,14 +664,16 @@ def changed_paths(repo, left, commit):
     ).stdout))
 
 
-def self_changes(repo, commits, default):
+def self_changes(repo, commits, default, subtract_default=True):
     """WATCHED paths the range's own commits (those not on origin/<default>) change.
 
     A merge counts a path only when it differs from every parent, so merging
-    main forward does not count main's own changes.
+    main forward does not count main's own changes. A push to the default
+    branch subtracts nothing: checkout has already moved origin/<default> to
+    the pushed commit, so every commit in the range is the push's own.
     """
     ref = f"refs/remotes/origin/{default}"
-    if repo.run("rev-parse", "--verify", "-q", ref, check=False).returncode == 0:
+    if subtract_default and repo.run("rev-parse", "--verify", "-q", ref, check=False).returncode == 0:
         stdin = _encode("".join(c + "\n" for c in commits) + f"^{ref}\n")
         own = set(repo.out("rev-list", "--stdin", input=stdin).split()) if commits else set()
     else:
@@ -672,7 +701,8 @@ def cmd_ci(repo, args):
     findings = tree_findings(repo)  # also reports a malformed exemption list
     exemptions, _ = read_exemptions(repo, "HEAD")
     findings += scan_commits(repo, commits, exemptions)
-    changed = self_changes(repo, commits, default)
+    to_default = event == "push" and payload.get("ref") == f"refs/heads/{default}"
+    changed = self_changes(repo, commits, default, subtract_default=not to_default)
     if changed:
         print(
             f"::warning title=Commit check changed::This range changes {', '.join(changed)}; "
@@ -799,10 +829,10 @@ def cmd_names(repo, args):
     where = []
     if args.staged or args.all:
         files = staged_files(repo) if args.staged else tree_files(repo, "HEAD")
-        for (_, _, path), data in zip(files, repo.read_objects([oid for _, oid, _ in files])):
+        for (_, _, path), data in zip(files, read_listed_blobs(repo, files)):
             shown = mask(path)
             where += [f"names: {shown} (path)"] * len(matcher.findall(names_text(path, identity)))
-            text = decode_blob(data) if data is not None else None
+            text = decode_blob(data)
             blank = authorship_values(path, text) if text is not None else None
             if blank is not None:
                 where += [f"names: {shown}:{i}" for i in names_lines(text, identity, matcher, blank)]
@@ -810,7 +840,7 @@ def cmd_names(repo, args):
         text = read_text_file(args.message or args.text)
         label = "message" if args.message else "text"
         if args.message:
-            text = clean_message(text, comment_string(repo))
+            text = clean_message(text, comment_string(repo), cleanup_mode(repo))
         where += [f"names: {label}:{i}" for i in names_lines(text, identity, matcher)]
     if args.where:
         for line in where:

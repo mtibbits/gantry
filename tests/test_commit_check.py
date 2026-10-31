@@ -458,6 +458,21 @@ def test_staged_uses_index_exemptions(repo):
 
 
 @needs_git
+@pytest.mark.parametrize("mode", [("staged",), ("names", "--staged")])
+def test_missing_blob_exits_2(repo, denylist, mode):
+    # A blob the listing names but git cannot read must not be checked as empty.
+    stage(repo, "notes/a.md", f"{ENTRY} keeps notes in {HOME}x\n")
+    oid = run_git(repo, "rev-parse", ":notes/a.md").strip()
+    loose = repo / ".git" / "objects" / oid[:2] / oid[2:]
+    loose.chmod(0o644)  # git writes loose objects read-only
+    loose.unlink()
+    args = mode + (("--denylist", str(denylist)) if mode[0] == "names" else ())
+    rc, out, err = tool(repo, *args)
+    assert rc == 2, (out, err)
+    assert ENTRY not in out + err
+
+
+@needs_git
 def test_staged_on_unborn_head(tmp_path):
     run_git(tmp_path, "init", "-q", "-b", "main")
     stage(tmp_path, "site/index.html", "<p>page</p>\n")
@@ -589,12 +604,17 @@ def test_range_needs_two_commits(repo):
     assert rc == 2, (out, err)
 
 
+EDITOR_BLOCK = "{c} Please enter the commit message for your changes. Lines starting\n"
+
+
 @needs_git
 def test_message_ignores_comment_and_scissors(repo, tmp_path):
+    # An editor session: git wrote its comment block, so cleanup strips comments.
     path = tmp_path / "COMMIT_EDITMSG"
     path.write_bytes((
         "subject\n\nbody\n"
-        f"# a status line naming {HOME}\n"
+        + EDITOR_BLOCK.format(c="#")
+        + f"# a status line naming {HOME}\n"
         "# ------------------------ >8 ------------------------\n"
         f"diff with {TILDE}x\n"
     ).encode("utf-8"))
@@ -602,10 +622,27 @@ def test_message_ignores_comment_and_scissors(repo, tmp_path):
     assert (rc, finding_lines(out)) == (0, []), (out, err)
 
     run_git(repo, "config", "core.commentChar", ";")
-    path.write_bytes(f"subject\n\n; ignored {HOME}\n# checked {TILDE}x\n".encode("utf-8"))
+    path.write_bytes((
+        f"subject\n\n; ignored {HOME}\n# checked {TILDE}x\n" + EDITOR_BLOCK.format(c=";")
+    ).encode("utf-8"))
     rc, out, err = tool(repo, "message", str(path))
     assert rc == 1, (out, err)
     assert finding_lines(out) == ["message:4: absolute-path (tilde)"]
+
+
+@needs_git
+@pytest.mark.parametrize("case", ["no_editor_block", "cleanup_whitespace"])
+def test_message_keeps_comment_lines_git_keeps(repo, tmp_path, case):
+    # git commit -m / -F keeps '#' lines (cleanup "whitespace"), and so must the check.
+    text = f"#44 subject from {HOME}x\n"
+    if case == "cleanup_whitespace":
+        run_git(repo, "config", "commit.cleanup", "whitespace")
+        text += EDITOR_BLOCK.format(c="#")
+    path = tmp_path / "COMMIT_EDITMSG"
+    path.write_bytes(text.encode("utf-8"))
+    rc, out, err = tool(repo, "message", str(path))
+    assert rc == 1, (out, err)
+    assert finding_lines(out) == ["message:1: absolute-path (posix_home)"]
 
 
 # --- ci and the workflow (Task 8) --------------------------------------------------
@@ -700,6 +737,19 @@ def test_ci_warns_on_self_change(repo, tmp_path):
     after = commit(repo, "edit the list")
     rc, out, err = ci(repo, tmp_path, "push",
                       {"ref": "refs/heads/feature", "before": before, "after": after})
+    assert (rc, finding_lines(out)) == (0, []), (out, err)
+    assert WARNING.format(commit_check.EXEMPT_PATH) in out.splitlines()
+
+
+@needs_git
+def test_ci_warns_on_default_branch_push_self_change(repo, tmp_path):
+    # The real Actions shape: checkout fetches every branch, so origin/main is `after`.
+    before = head(repo)
+    stage(repo, commit_check.EXEMPT_PATH, "# an edited list\n")
+    after = commit(repo, "edit the list")
+    run_git(repo, "update-ref", "refs/remotes/origin/main", after)
+    rc, out, err = ci(repo, tmp_path, "push",
+                      {"ref": "refs/heads/main", "before": before, "after": after})
     assert (rc, finding_lines(out)) == (0, []), (out, err)
     assert WARNING.format(commit_check.EXEMPT_PATH) in out.splitlines()
 
@@ -851,7 +901,9 @@ def test_names_ignores_exemptions(repo, denylist):
 @needs_git
 def test_names_message_and_text(repo, denylist, tmp_path):
     msg = tmp_path / "COMMIT_EDITMSG"
-    msg.write_bytes(f"subject\n\nfor {ENTRY}\n# status naming {ENTRY}\n".encode("utf-8"))
+    msg.write_bytes((
+        f"subject\n\nfor {ENTRY}\n" + EDITOR_BLOCK.format(c="#") + f"# status naming {ENTRY}\n"
+    ).encode("utf-8"))
     assert names(repo, denylist, "--message", str(msg))[0] == 1
     body = tmp_path / "body.md"
     body.write_bytes(f"a pull request body for {ENTRY}\n".encode("utf-8"))
@@ -1022,6 +1074,17 @@ def test_commit_msg_hook_stops_home_path_message(hooked):
     rc, out = git_commit(hooked, "-m", f"notes\n\nfrom {HOME}x")
     assert rc != 0, out
     assert "message:3: absolute-path (posix_home)" in out.splitlines()
+    assert head(hooked) == start
+
+
+@needs_git
+def test_commit_msg_hook_checks_hash_led_message(hooked):
+    # git commit -m keeps a '#'-led subject, so the names check must see it.
+    start = head(hooked)
+    stage(hooked, "notes/a.md", "clean\n")
+    rc, out = git_commit(hooked, "-m", f"#44 notes from {ENTRY}")
+    assert rc != 0, out
+    assert "names: 1 match" in out.splitlines()
     assert head(hooked) == start
 
 
