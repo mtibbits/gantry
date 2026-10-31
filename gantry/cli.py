@@ -9,7 +9,9 @@ import argparse
 import sys
 
 from gantry.config import ConfigError, load_config
+from gantry.model import REPORT_KINDS, SiteData
 from gantry.sites import ID_TOKEN_RE, load_sites
+from gantry.wbs_stopgap import read_wbs
 
 
 def _parser():
@@ -40,6 +42,20 @@ def _utf8_streams():
             stream.reconfigure(encoding="utf-8", errors="backslashreplace", newline="\n")
 
 
+def status_text(data: SiteData) -> str:
+    """A read site's third field: leaf counts, then each reported kind's count."""
+    unreadable = [e for e in data.report if e.kind == "site_unreadable"]
+    if unreadable:
+        return f"cannot read: {unreadable[0].message}"
+    n_open = sum(leaf.open for leaf in data.leaves)
+    text = f"open {n_open}, finished {len(data.leaves) - n_open}"
+    counts = {kind: 0 for kind in REPORT_KINDS}
+    for entry in data.report:
+        counts[entry.kind] += 1
+    found = [f"{kind} {count}" for kind, count in counts.items() if count]
+    return f"{text}; {', '.join(found)}" if found else text
+
+
 def _build(args):
     _utf8_streams()
     try:
@@ -56,7 +72,10 @@ def _build(args):
         # line stays one line of three fields.
         name = site.name if ID_TOKEN_RE.fullmatch(site.name) else ascii(site.name)[1:-1]
         where = str(site.planning_dir) if site.planning_dir is not None else "-"
-        status = "WBS.md found" if site.problem is None else f"cannot read: {site.problem}"
+        if site.problem is None:
+            status = status_text(read_wbs(site.planning_dir / "WBS.md", site.name))
+        else:
+            status = f"cannot read: {site.problem}"
         print(f"{name}\t{where}\t{status}")
     return 0
 
