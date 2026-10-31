@@ -294,6 +294,111 @@ def ignore_rule(repo, rev):
     return findings
 
 
+# --- rules 1 and 2: generated output and installation configs ---------------------
+
+GENERATED_NAMES = {"week-plan.json", "build.json", "update.json"}
+HTML_HOMES = ("gantry/templates/", "tests/page_script/known_bad/")
+FIXTURE_ROOT = "tests/fixtures/"
+
+
+def generated_output(path):
+    """Rule 1: why path is generated output, or None."""
+    parts = path.split(SEP)
+    if path.lower().endswith(".html") and not path.startswith(HTML_HOMES):
+        return "html page"
+    if parts[-1].casefold() in GENERATED_NAMES:
+        return "generated file name"
+    if "out" in parts[:-1]:
+        return "under an out/ folder"
+    return None
+
+
+def _walk_strings(node, dotted=""):
+    """(dotted key, string) for every string leaf, in every table and array."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            yield from _walk_strings(value, f"{dotted}.{key}" if dotted else key)
+    elif isinstance(node, list):
+        for i, value in enumerate(node):
+            yield from _walk_strings(value, f"{dotted}[{i}]")
+    elif isinstance(node, str):
+        yield dotted, node
+
+
+def _resolves_inside(folder, value):
+    """True when value is relative and resolves lexically inside folder."""
+    if ABSOLUTE_START_RE.match(value):
+        return False
+    p = posixpath.normpath(posixpath.join(folder, value.replace(BACK, SEP)))
+    return p == folder or p.startswith(folder + SEP)
+
+
+def installation_config(path, data):
+    """Rule 2: why path is a refused installation config, or None."""
+    if posixpath.basename(path).lower().endswith(".local.toml"):
+        return "*.local.toml"
+    if not path.lower().endswith(".toml") or path.startswith(SAMPLE_ROOT + SEP):
+        return None
+    text = decode_blob(data)
+    try:
+        doc = tomllib.loads(text) if text is not None else {}
+    except tomllib.TOMLDecodeError:
+        return None
+    if "config_version" not in doc or not ("devagent_config" in doc or "output_dir" in doc):
+        return None
+    if not path.startswith(FIXTURE_ROOT):
+        return "outside samples/"
+    folder = posixpath.dirname(path)
+    for dotted, value in _walk_strings(doc):
+        if not _resolves_inside(folder, value):
+            return f"fixture value not self-contained: {dotted}"
+    return None
+
+
+def check_file(path, data, exemptions):
+    """Rules 1-3 for one file version: finding lines without a commit prefix."""
+    findings = []
+    why = generated_output(path)
+    if why:
+        findings.append(f"{path}: generated-output ({why})")
+    why = installation_config(path, data)
+    if why:
+        findings.append(f"{path}: installation-config ({why})")
+    return findings
+
+
+# --- listings ------------------------------------------------------------------
+
+GITLINK = "160000"
+
+
+def staged_files(repo):
+    """[(mode, blob id, path)] the commit adds or changes: the index against HEAD."""
+    if repo.run("rev-parse", "--verify", "-q", "HEAD^{commit}", check=False).returncode != 0:
+        files = []
+        for record in _nul_fields(repo.run("ls-files", "-s", "-z").stdout):
+            info, path = record.split("\t", 1)
+            mode, oid, _ = info.split(" ")
+            files.append((mode, oid, path))
+    else:
+        fields = _nul_fields(repo.run(
+            "diff-index", "--cached", "-r", "-z", "--no-renames", "--diff-filter=d", "HEAD",
+        ).stdout)
+        files = []
+        for i in range(0, len(fields) - 1, 2):
+            _, mode, _, oid, _ = fields[i].lstrip(":").split(" ")
+            files.append((mode, oid, fields[i + 1]))
+    return [f for f in files if f[0] != GITLINK]
+
+
+def check_blobs(repo, files, exemptions):
+    """check_file over [(mode, blob id, path)], read through one cat-file --batch."""
+    findings = []
+    for (_, _, path), data in zip(files, repo.read_objects([oid for _, oid, _ in files])):
+        findings += check_file(path, data if data is not None else b"", exemptions)
+    return findings
+
+
 # --- modes ---------------------------------------------------------------------
 
 
@@ -310,13 +415,19 @@ def cmd_tree(repo, args):
     return report(ignore_rule(repo, "HEAD"))
 
 
-COMMANDS = {"tree": cmd_tree}
+def cmd_staged(repo, args):
+    findings = check_blobs(repo, staged_files(repo), [])
+    return report(findings + ignore_rule(repo, ""))
+
+
+COMMANDS = {"tree": cmd_tree, "staged": cmd_staged}
 
 
 def build_parser():
     parser = argparse.ArgumentParser(prog="commit_check.py", description="Commit check against private data.")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("tree", help="every tracked file at HEAD, rule 4 and the exemption list")
+    sub.add_parser("staged", help="what the commit adds or changes, read from the index (pre-commit)")
     return parser
 
 

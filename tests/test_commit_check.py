@@ -286,3 +286,80 @@ def test_ignore_rule_ignores_info_exclude(repo, direction):
 def test_outside_a_repo_exits_2(tmp_path):
     rc, out, err = tool(tmp_path, "tree")
     assert rc == 2, (out, err)
+
+
+# --- staged: rules 1 and 2 (Task 4) -----------------------------------------------
+
+CONFIG_SHAPE = 'config_version = 1\noutput_dir = "out"\n'
+
+
+def stage_all(repo, cases):
+    for rel, data in cases.items():
+        stage(repo, rel, data)
+
+
+@needs_git
+def test_staged_flags_generated_and_config(repo):
+    expected = {
+        "site/index.html": "generated-output (html page)",
+        "week-plan.json": "generated-output (generated file name)",
+        "build.json": "generated-output (generated file name)",
+        "tests/fixtures/x/update.json": "generated-output (generated file name)",
+        "samples/harbor/out/page.txt": "generated-output (under an out/ folder)",
+        "conf/gantry.toml": "installation-config (outside samples/)",
+        "tests/fixtures/leak/gantry.toml":
+            "installation-config (fixture value not self-contained: output_dir)",
+        "samples/x.local.toml": "installation-config (*.local.toml)",
+    }
+    stage_all(repo, {
+        "site/index.html": "<p>page</p>\n",
+        "week-plan.json": "{}\n",
+        "build.json": "{}\n",
+        "tests/fixtures/x/update.json": "{}\n",
+        "samples/harbor/out/page.txt": "page\n",
+        "conf/gantry.toml": CONFIG_SHAPE,
+        "tests/fixtures/leak/gantry.toml": 'config_version = 1\noutput_dir = "../out"\n',
+        "samples/x.local.toml": "a = 1\n",
+    })
+    rc, out, err = tool(repo, "staged")
+    assert rc == 1, (out, err)
+    lines = out.splitlines()
+    for path, finding in expected.items():
+        assert f"{path}: {finding}" in lines, (path, out)
+
+
+@needs_git
+def test_staged_passes_clean_cases(repo):
+    stage_all(repo, {
+        "gantry/templates/page.html": "<p>template</p>\n",
+        "tests/page_script/known_bad/bad.html": "<p>bad</p>\n",
+        "samples/other.toml": CONFIG_SHAPE + 'devagent_config = "devagent/config.toml"\n',
+        "tests/fixtures/ok/gantry.toml": (
+            'config_version = 1\ndevagent_config = "devagent.toml"\noutput_dir = "out"\n'
+            '[project.harbor.issue_source]\nbackend = "github"\n'
+        ),
+        "samples/harbor/out.md": "a file named out, not a folder\n",
+        "tests/fixtures/edge/gantry.toml": (
+            'config_version = 1\noutput_dir = ""\nhere = "."\nurl = "https://example.invalid/x"\n'
+        ),
+    })
+    rc, out, err = tool(repo, "staged")
+    assert (rc, finding_lines(out)) == (0, []), (out, err)
+
+
+@needs_git
+def test_rule2_fixture_dotdot_fails(repo):
+    stage(repo, "tests/fixtures/dd/gantry.toml", 'config_version = 1\noutput_dir = "out"\n[a]\nb = ["../x"]\n')
+    rc, out, err = tool(repo, "staged")
+    assert rc == 1, (out, err)
+    assert ("tests/fixtures/dd/gantry.toml: installation-config "
+            "(fixture value not self-contained: a.b[0])") in out.splitlines()
+
+
+@needs_git
+def test_staged_on_unborn_head(tmp_path):
+    run_git(tmp_path, "init", "-q", "-b", "main")
+    stage(tmp_path, "site/index.html", "<p>page</p>\n")
+    rc, out, err = tool(tmp_path, "staged")
+    assert rc == 1, (out, err)
+    assert "site/index.html: generated-output (html page)" in out.splitlines()
