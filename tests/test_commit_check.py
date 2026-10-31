@@ -1052,6 +1052,43 @@ def test_hook_dead_interpreter_names_key(hooked, tmp_path):
     assert head(hooked) == start
 
 
+# --- repo-level guards (Task 11) ------------------------------------------------------
+
+DOCS = ROOT / "docs" / "commit-check.md"
+LIMITS_HEADING = "## CI passing does not mean no private content"
+
+
+def docs_section(heading):
+    text = DOCS.read_text(encoding="utf-8")
+    assert heading in text.splitlines(), heading
+    return text.split(heading, 1)[1].split("\n## ", 1)[0]
+
+
+def test_bomless_utf16_is_skipped_as_documented():
+    data = ("x = " + HOME + "\n").encode("utf-16-le")
+    assert commit_check.check_file("notes/ps.txt", data, []) == []
+    section = docs_section(LIMITS_HEADING)
+    assert "UTF-16" in section and "byte-order mark" in section
+
+
+@needs_git
+def test_repo_tree_is_clean():
+    result = git(ROOT, "rev-parse", "--show-toplevel")
+    if result.returncode != 0 or not os.path.samefile(_decode(result.stdout).strip(), ROOT):
+        pytest.skip("the gantry root is not a git work tree")
+    rc, out, err = tool(ROOT, "tree")
+    assert (rc, finding_lines(out)) == (0, []), (out, err)
+
+
+def test_docs_cover_contract():
+    text = DOCS.read_text(encoding="utf-8")
+    for token in ("`tree`", "`range", "`staged`", "`message", "`ci`", "`names`", "`install-hook",
+                  "--staged", "--message", "--all", "--text", "--where", "--denylist",
+                  "gantry.denylist", "gantry.python", "commit_check_exempt.txt",
+                  "fetch-depth", "--no-verify", "AUTHORSHIP_FIELDS", "::warning"):
+        assert token in text, token
+
+
 def test_authorship_fields_constant():
     assert commit_check.AUTHORSHIP_FIELDS == (
         ("LICENSE", None),

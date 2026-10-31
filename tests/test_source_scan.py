@@ -56,6 +56,8 @@ FLOOR = {
     "gantry/sites.py",
     "commands/build.md",
     "tools/gantry-build.sh",
+    "tools/commit_check.py",
+    "tools/commit_check_exempt.txt",
     ".claude-plugin/plugin.json",
 }
 
@@ -262,6 +264,12 @@ def test_gantry_imports_stdlib_only(tmp_path):
         b"from gantry.config import Key\n"
     )
     assert non_stdlib_imports(planted) == [("x.py", "yaml"), ("x.py", "requests")]
+
+
+def test_tools_import_stdlib_only():
+    # tools/commit_check.py runs in CI and in hooks with no install step (#44).
+    assert (ROOT / "tools" / "commit_check.py").is_file()
+    assert non_stdlib_imports(ROOT / "tools") == []
 
 
 # --- test-source hygiene ------------------------------------------------------------
