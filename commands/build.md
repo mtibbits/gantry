@@ -1,5 +1,5 @@
 ---
-description: List the worksites a Gantry installation config names (pages come in later releases)
+description: List the worksites a Gantry installation config names, with each WBS.md's leaf and report counts (pages come in later releases)
 argument-hint: "<installation config>"
 allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/tools/gantry-build.sh"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/tools/gantry-build.sh" *)
 ---
@@ -9,8 +9,9 @@ allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/tools/gantry-build.sh"), Bash(ba
 **Usage:** `/gantry:build <installation config>`
 
 Loads the installation config, checks it, and prints one line per site that
-devagent's config names: the site, its planning directory, and whether a
-`WBS.md` is there or why the site cannot be read. It writes nothing yet.
+devagent's config names: the site, its planning directory, and either its
+`WBS.md`'s open and finished leaf counts with the count of each reported
+problem, or why the site cannot be read. It writes nothing yet.
 
 The argument the user gave, verbatim, is between the two marker lines:
 

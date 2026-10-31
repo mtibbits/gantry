@@ -378,3 +378,12 @@ def test_read_wbs_reads_utf8_not_locale(tmp_path):
     path = tmp_path / "WBS.md"
     path.write_bytes("- [ ] Café {issue: Issue-1}\n".encode("utf-8"))
     assert [leaf.title for leaf in read_wbs(path, "alpha").leaves] == ["Café"]
+
+
+# --- docs --------------------------------------------------------------------
+
+
+def test_worksite_doc_names_every_report_kind():
+    doc = (ROOT / "docs" / "worksite-page.md").read_text(encoding="utf-8")
+    assert "## Reading `WBS.md`" in doc
+    assert [kind for kind in REPORT_KINDS if f"`{kind}`" not in doc] == []

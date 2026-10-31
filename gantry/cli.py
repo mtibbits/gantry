@@ -22,8 +22,9 @@ def _parser():
     commands = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
     build = commands.add_parser(
         "build",
-        help="list the sites an installation config names",
-        description="List the sites an installation config names.",
+        help="list the sites an installation config names, with WBS.md counts",
+        description="List the sites an installation config names, with each WBS.md's "
+        "leaf and report counts.",
     )
     build.add_argument(
         "--config",

@@ -127,7 +127,9 @@ others, when:
   references);
 - it has no `devdoc_dir`, or one that is not a usable path;
 - its planning directory does not exist or is not a directory;
-- there is no `WBS.md` file in it, or Gantry cannot tell.
+- there is no `WBS.md` file in it, or Gantry cannot tell;
+- its `WBS.md` cannot be opened or read (`WBS.md cannot be read: <reason>`),
+  or is not valid UTF-8 (`WBS.md is not valid UTF-8 at byte N`).
 
 A `[site.<name>]` table naming no devagent project is a **warning**: it is
 printed on stderr and also returned as data with the sites, for later pages
@@ -136,8 +138,12 @@ table or an empty one, is an error: a build with no sites almost always means
 a wrong path.
 
 `gantry build` prints one tab-separated line per site: the name, the planning
-directory (`-` when it cannot be resolved), and `WBS.md found` or
-`cannot read: <reason>`. A name that fails the pattern above is printed
+directory (`-` when it cannot be resolved), and either `cannot read: <reason>`
+or the counts from its `WBS.md`: `open N, finished M` (leaf counts), then
+`; ` and `<kind> <count>` for each reported kind with a count, joined by `, `
+(for example `open 6, finished 3; no_issue 3, unresolved_ref 1`; with nothing
+reported, just `open 8, finished 6`). The kinds and the reading rules are in
+[worksite-page.md](worksite-page.md#reading-wbsmd). A name that fails the pattern above is printed
 escaped (a tab as `\t`, an ESC as `\x1b`), so each site stays one line of
 three fields. It writes nothing yet; the page writers join in later issues.
 
