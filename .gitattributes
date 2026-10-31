@@ -3,10 +3,12 @@
 # the override may match samples/marsh/WBS.md.
 # samples/marsh/WBS.md is deliberately invalid UTF-8: exempt it by exact path from
 # UTF-8 text tools, and never re-save it in an editor.
+# tests/fixtures/wbs/not_utf8.md is invalid UTF-8 on purpose too: never re-save it.
 # This file and the tests that copy and edit it are LF too, so a
 # core.autocrlf=true checkout cannot turn a byte-wise test edit into a no-op.
 .gitattributes text eol=lf
 tests/** text eol=lf
+tests/fixtures/wbs/not_utf8.md -text
 samples/**/*.md text eol=lf
 samples/**/*.toml text eol=lf
 samples/**/*.json text eol=lf

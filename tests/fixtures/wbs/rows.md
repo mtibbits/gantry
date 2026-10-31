@@ -1,0 +1,15 @@
+# Rows
+- [ ] Survey {issue: Issue-1, priority: P1}
+  - [ ] Measure {issue: Issue-2, priority: P3}
+  - [x] Mark {issue: Issue-3}
+- [ ] Build {issue: Issue-10, priority: high, depends_on: [Issue-1]}
+  - [ ] Walls {issue: Issue-11, depends_on: [Issue-10]}
+  - [ ] Roof {issue: Issue-12}
+- [ ] Finish {issue: Issue-20, depends_on: [Issue-21]}
+  - [ ] Paint {issue: Issue-21}
+  - [ ] Clean {issue: Issue-22, depends_on: [Issue-30]}
+- [ ] Done row {issue: Issue-30}
+  - [x] Swept {issue: Issue-31}
+- [x] Shut {issue: Issue-40, depends_on: [Issue-12]}
+  - [ ] Leftover {issue: Issue-41}
+- [ ] Trim {issue: Issue-50, depends_on: [Issue-40]}

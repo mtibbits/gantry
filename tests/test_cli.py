@@ -9,9 +9,10 @@ import tomllib
 
 import pytest
 
-from gantry.cli import main
+from gantry.cli import main, status_text
+from gantry.wbs_stopgap import parse_wbs
 from helpers_config import append_bytes, copy_samples, sample_projects
-from sample_roles import BUSY, NO_WBS, READABLE, UNREADABLE
+from sample_roles import BUSY, NO_WBS, OWN_UNIT, SMALL, UNESTIMATED, UNREADABLE
 from test_samples import ROOT
 
 
@@ -60,12 +61,21 @@ def test_versions_agree():
 SAMPLE_CONFIG = "samples/gantry.sample.toml"
 
 
+# Hand-counted from samples/*/WBS.md: leaf counts, then each reported kind.
+EXPECTED_STATUS = {
+    BUSY: "open 8, finished 6",
+    OWN_UNIT: "open 6, finished 3; no_issue 3, unresolved_ref 1",
+    UNESTIMATED: "open 3, finished 3; unresolved_ref 1",
+    SMALL: "open 2, finished 3",
+    UNREADABLE: "cannot read: WBS.md is not valid UTF-8 at byte 88",
+    NO_WBS: "cannot read: no WBS.md in the planning directory",
+}
+
+
 def expected_status(name):
-    if name in READABLE | {UNREADABLE}:
-        return "WBS.md found"
-    if name == NO_WBS:
-        return "cannot read: no WBS.md in the planning directory"
-    raise AssertionError(f"no role for sample site {name!r}")
+    if name not in EXPECTED_STATUS:
+        raise AssertionError(f"no role for sample site {name!r}")
+    return EXPECTED_STATUS[name]
 
 
 def check_sample_lines(stdout_bytes):
@@ -102,6 +112,15 @@ def test_main_in_process_lists_sample_sites(capsys, monkeypatch):
     monkeypatch.chdir(ROOT)
     assert main(["build", "--config", SAMPLE_CONFIG]) == 0
     check_sample_lines(capsys.readouterr().out.encode("utf-8"))
+
+
+def test_status_text_forms():
+    ids = (ROOT / "tests" / "fixtures" / "wbs" / "ids.md").read_bytes().decode("utf-8")
+    assert status_text(parse_wbs(ids, "alpha")) == (
+        "open 7, finished 0; no_issue 2, duplicate_issue 1, key_collision 1, "
+        "unresolved_ref 2, bad_priority 2, skipped_line 2"
+    )
+    assert status_text(parse_wbs("- [ ] One {issue: Issue-1}\n", "alpha")) == "open 1, finished 0"
 
 
 def snapshot(root):
