@@ -4,14 +4,79 @@ Every path form is assembled at run time ("~" + "/", "/" + "home" + "/"), so
 this file holds none of them and passes the check it tests.
 """
 
+import os
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 import commit_check
-from test_samples import PATH_FORM_CONTROLS, ROOT
+from test_samples import PATH_FORM_CONTROLS, ROOT, _decode, git, needs_git
 
 TOOL = ROOT / "tools" / "commit_check.py"
+
+# The tool's own environment in a temp repo: no GIT_* leaks in, and no global
+# or system config (test_samples.git(..., hermetic=True) does the same).
+HERMETIC_ENV = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+HERMETIC_ENV.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+IDENTITY = ("-c", "user.name=Test", "-c", "user.email=test@example.invalid")
+TEMPLATE_FILES = (
+    ".gitignore",
+    "samples/gantry.sample.toml",
+    "samples/devagent/config.toml",
+    "tools/commit_check.py",
+)
+
+
+def run_git(repo, *args, input=None):
+    result = git(repo, *IDENTITY, *args, input=input, hermetic=True)
+    assert result.returncode == 0, (args, _decode(result.stderr))
+    return _decode(result.stdout)
+
+
+def stage(repo, rel, data):
+    """Write bytes at rel (LF untouched) and force-add them."""
+    path = Path(repo) / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data if isinstance(data, bytes) else data.encode("utf-8"))
+    run_git(repo, "add", "-f", "--", rel)
+
+
+def commit(repo, msg="change"):
+    run_git(repo, "commit", "-q", "--allow-empty", "-m", msg)
+    return run_git(repo, "rev-parse", "HEAD").strip()
+
+
+def tool(repo, *args, env=None):
+    result = subprocess.run(
+        [sys.executable, str(TOOL), *args],
+        cwd=repo, env=env or HERMETIC_ENV, capture_output=True,
+    )
+    return result.returncode, result.stdout.decode("utf-8"), result.stderr.decode("utf-8")
+
+
+def finding_lines(out):
+    return [l for l in out.splitlines() if l and not l.startswith(("commit-check:", "ci:"))]
+
+
+@pytest.fixture(scope="module")
+def template_repo(tmp_path_factory):
+    repo = tmp_path_factory.mktemp("template") / "repo"
+    repo.mkdir()
+    run_git(repo, "init", "-q", "-b", "main")
+    for rel in TEMPLATE_FILES:
+        stage(repo, rel, (ROOT / rel).read_bytes().replace(b"\r\n", b"\n"))
+    commit(repo, "initial")
+    return repo
+
+
+@pytest.fixture
+def repo(template_repo, tmp_path):
+    copy = tmp_path / "repo"
+    shutil.copytree(template_repo, copy)
+    return copy
 
 
 # --- the path forms (Task 1) ----------------------------------------------------
@@ -134,3 +199,90 @@ def test_entry_liveness():
     # The text is present but no longer holds a form: the path moved out of it.
     moved = commit_check.Exemption("docs/x.md", "absolute-path", "see", "why", 1)
     assert not commit_check.entry_is_live(moved, "we see it, and " + HOME + "\n")
+
+
+# --- rule 4, the ignore rules (Task 3) --------------------------------------------
+
+PROBES = (
+    "samples/out/commit-check-probe",
+    "samples/history/out/commit-check-probe",
+    "samples/devagent/out/commit-check-probe",
+)
+
+
+def gitignore_without(repo, line):
+    lines = (repo / ".gitignore").read_text(encoding="utf-8").split("\n")
+    assert line in lines
+    return "\n".join(l for l in lines if l != line)
+
+
+@needs_git
+def test_ignore_rule_fails_without_out(repo):
+    stage(repo, ".gitignore", gitignore_without(repo, "out/"))
+    commit(repo)
+    rc, out, err = tool(repo, "tree")
+    assert rc == 1, (out, err)
+    for probe in PROBES:
+        assert f".gitignore: ignore-rules ({probe} is not ignored)" in out.splitlines()
+
+
+@needs_git
+def test_ignore_rule_fails_when_sample_ignored(repo):
+    stage(repo, ".gitignore", (repo / ".gitignore").read_text(encoding="utf-8") + "samples/gantry.sample.toml\n")
+    commit(repo)
+    rc, out, err = tool(repo, "tree")
+    assert rc == 1, (out, err)
+    lines = out.splitlines()
+    assert ".gitignore: ignore-rules (samples/gantry.sample.toml is ignored but must not be)" in lines
+
+
+@needs_git
+def test_ignore_rule_passes_on_repo_gitignore(repo):
+    rc, out, err = tool(repo, "tree")
+    assert (rc, finding_lines(out)) == (0, []), (out, err)
+    assert out.splitlines()[-1] == "commit-check: clean"
+    probes = commit_check.ignore_probes(repo, env=HERMETIC_ENV)
+    assert {p: probes[p] for p in PROBES} == dict.fromkeys(PROBES, True)
+
+
+@needs_git
+def test_ignore_rule_negation_record_reads_as_not_ignored(repo):
+    # A '!' pattern matching the probe itself: check-ignore reports a '!' record.
+    stage(repo, ".gitignore", gitignore_without(repo, "out/") + "\n*probe\n!commit-check-probe\n")
+    commit(repo)
+    rc, out, err = tool(repo, "tree")
+    assert rc == 1, (out, err)
+    assert f".gitignore: ignore-rules ({PROBES[0]} is not ignored)" in out.splitlines()
+
+
+@needs_git
+def test_ignore_rule_directory_negation_empty_record(repo):
+    # A directory negation leaves the probe with an empty record: not ignored.
+    stage(repo, ".gitignore", (repo / ".gitignore").read_text(encoding="utf-8") + "!samples/history/out/\n")
+    commit(repo)
+    rc, out, err = tool(repo, "tree")
+    assert rc == 1, (out, err)
+    assert f".gitignore: ignore-rules ({PROBES[1]} is not ignored)" in out.splitlines()
+
+
+@needs_git
+@pytest.mark.parametrize("direction", ["hides_missing_out", "falsely_ignores_sample"])
+def test_ignore_rule_ignores_info_exclude(repo, direction):
+    exclude = repo / ".git" / "info" / "exclude"
+    exclude.parent.mkdir(parents=True, exist_ok=True)
+    if direction == "hides_missing_out":
+        stage(repo, ".gitignore", gitignore_without(repo, "out/"))
+        commit(repo)
+        exclude.write_bytes(b"out/\n")
+        expected = 1
+    else:
+        exclude.write_bytes(b"*.toml\n")
+        expected = 0
+    rc, out, err = tool(repo, "tree")
+    assert rc == expected, (out, err)
+
+
+@needs_git
+def test_outside_a_repo_exits_2(tmp_path):
+    rc, out, err = tool(tmp_path, "tree")
+    assert rc == 2, (out, err)
