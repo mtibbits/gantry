@@ -364,7 +364,22 @@ def check_file(path, data, exemptions):
     why = installation_config(path, data)
     if why:
         findings.append(f"{path}: installation-config ({why})")
+    text = decode_blob(data) if path != EXEMPT_PATH else None
+    if text is not None:
+        lines = text.split("\n")
+        for lineno, form, start, end in line_hits(text):
+            if not is_exempt(path, lines[lineno - 1], start, end, exemptions):
+                findings.append(f"{path}:{lineno}: absolute-path ({form})")
     return findings
+
+
+def read_exemptions(repo, rev):
+    """(entries, finding lines) for the exemption list at rev ("" for the index)."""
+    data = repo.read_file(rev, EXEMPT_PATH)
+    if data is None:
+        return [], []
+    entries, errors = parse_exemptions(decode_blob(data) or "")
+    return entries, [f"{EXEMPT_PATH}:{n}: exemption (malformed entry)" for n, _ in errors]
 
 
 # --- listings ------------------------------------------------------------------
@@ -416,7 +431,8 @@ def cmd_tree(repo, args):
 
 
 def cmd_staged(repo, args):
-    findings = check_blobs(repo, staged_files(repo), [])
+    exemptions, findings = read_exemptions(repo, "")
+    findings += check_blobs(repo, staged_files(repo), exemptions)
     return report(findings + ignore_rule(repo, ""))
 
 

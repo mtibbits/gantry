@@ -294,8 +294,12 @@ CONFIG_SHAPE = 'config_version = 1\noutput_dir = "out"\n'
 
 
 def stage_all(repo, cases):
+    """stage() for many files with one git add (each git call is slow on Windows)."""
     for rel, data in cases.items():
-        stage(repo, rel, data)
+        path = Path(repo) / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data if isinstance(data, bytes) else data.encode("utf-8"))
+    run_git(repo, "add", "-f", "--", *cases)
 
 
 @needs_git
@@ -354,6 +358,96 @@ def test_rule2_fixture_dotdot_fails(repo):
     assert rc == 1, (out, err)
     assert ("tests/fixtures/dd/gantry.toml: installation-config "
             "(fixture value not self-contained: a.b[0])") in out.splitlines()
+
+
+# --- staged: rule 3 and the index (Task 5) ----------------------------------------
+
+# The AC names a user's home folder under both roots, on top of the controls.
+FORM_CASES = PATH_FORM_CONTROLS + [
+    ("posix_home", "/" + "home" + "/" + "someone" + "/"),
+    ("posix_home", "/" + "Users" + "/" + "someone" + "/"),
+]
+
+
+@needs_git
+def test_staged_flags_every_form_in_every_shape(repo):
+    files = {}
+    for i, (form, sample) in enumerate(FORM_CASES):
+        for shape in sorted(SHAPES):
+            files[f"forms/{form}-{i}-{shape}.txt"] = (form, sample, SHAPES[shape].format(sample))
+    stage_all(repo, {rel: text + "\n" for rel, (_, _, text) in files.items()})
+    rc, out, err = tool(repo, "staged")
+    assert rc == 1, (out, err)
+    lines = out.splitlines()
+    for rel, (form, sample, _) in files.items():
+        assert f"{rel}:1: absolute-path ({form})" in lines, rel
+        assert sample not in out, sample
+
+
+@needs_git
+def test_staged_utf16_bom_file_flagged(repo):
+    stage(repo, "notes/ps.txt", b"\xff\xfe" + ("x = " + HOME + "\r\n").encode("utf-16-le"))
+    rc, out, err = tool(repo, "staged")
+    assert rc == 1, (out, err)
+    assert "notes/ps.txt:1: absolute-path (posix_home)" in out.splitlines()
+
+
+@needs_git
+def test_staged_nul_file_skipped(repo):
+    stage(repo, "notes/blob.bin", b"\x00\x01" + HOME.encode("ascii"))
+    rc, out, err = tool(repo, "staged")
+    assert (rc, finding_lines(out)) == (0, []), (out, err)
+
+
+@needs_git
+def test_staged_passes_negative_controls(repo):
+    stage_all(repo, {f"neg/{i}.txt": text + "\n" for i, text in enumerate(NEGATIVE_CONTROLS)})
+    rc, out, err = tool(repo, "staged")
+    assert (rc, finding_lines(out)) == (0, []), (out, err)
+
+
+@needs_git
+def test_staged_reads_index_not_worktree(repo):
+    stage(repo, "notes/a.md", "see " + HOME + "\n")
+    (repo / "notes" / "a.md").write_bytes(b"clean now\n")
+    rc, out, err = tool(repo, "staged")
+    assert rc == 1, (out, err)
+    assert "notes/a.md:1: absolute-path (posix_home)" in out.splitlines()
+
+    stage(repo, "notes/a.md", "clean\n")
+    (repo / "notes" / "a.md").write_bytes(("see " + HOME + "\n").encode("ascii"))
+    rc, out, err = tool(repo, "staged")
+    assert (rc, finding_lines(out)) == (0, []), (out, err)
+
+
+@needs_git
+def test_staged_honours_temp_index(repo, tmp_path):
+    # git commit -a and git commit <path> hand the hook a temporary index.
+    env = dict(HERMETIC_ENV, GIT_INDEX_FILE=str(tmp_path / "second-index"))
+    for args in (("read-tree", "HEAD"),):
+        assert subprocess.run(["git", *args], cwd=repo, env=env).returncode == 0
+    (repo / "notes").mkdir()
+    (repo / "notes" / "a.md").write_bytes(("see " + HOME + "\n").encode("ascii"))
+    assert subprocess.run(["git", "add", "notes/a.md"], cwd=repo, env=env).returncode == 0
+    rc, out, err = tool(repo, "staged")
+    assert (rc, finding_lines(out)) == (0, []), (out, err)
+    rc, out, err = tool(repo, "staged", env=env)
+    assert rc == 1, (out, err)
+    assert "notes/a.md:1: absolute-path (posix_home)" in out.splitlines()
+
+
+@needs_git
+def test_staged_uses_index_exemptions(repo):
+    entry = f"notes/a.md | absolute-path | see {HOME} | the note explains the form\n"
+    stage(repo, "notes/a.md", "see " + HOME + "\n")
+    exempt = repo / commit_check.EXEMPT_PATH
+    exempt.parent.mkdir(parents=True, exist_ok=True)
+    exempt.write_bytes(entry.encode("utf-8"))
+    rc, out, err = tool(repo, "staged")
+    assert rc == 1, ("work-tree entry must not count", out, err)
+    run_git(repo, "add", "--", commit_check.EXEMPT_PATH)
+    rc, out, err = tool(repo, "staged")
+    assert (rc, finding_lines(out)) == (0, []), (out, err)
 
 
 @needs_git
