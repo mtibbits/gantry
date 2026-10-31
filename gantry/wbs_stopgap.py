@@ -8,6 +8,7 @@ dependency resolution to gantry.deps. docs/worksite-page.md states the rules.
 
 import re
 
+from gantry.config import error_reason
 from gantry.deps import classify, resolve
 from gantry.model import (
     FINISHED_GLYPHS,
@@ -264,3 +265,25 @@ def parse_wbs(text: str, site: str) -> SiteData:
     report += resolved
     report.sort(key=lambda e: (e.line is not None, e.line or 0, REPORT_KINDS.index(e.kind)))
     return SiteData(tuple(leaves), tuple(rows), links, held_out, tuple(report))
+
+
+def read_wbs(path, site: str) -> SiteData:
+    """parse_wbs over a WBS.md file, read as bytes and decoded as strict UTF-8.
+
+    Never raises: a file that cannot be read or decoded gives no nodes and one
+    site_unreadable entry, whose message never names the path.
+    """
+    try:
+        with open(path, "rb") as handle:
+            data = handle.read()
+    except (OSError, ValueError) as e:
+        return _unreadable(site, f"WBS.md cannot be read: {error_reason(e)}")
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError as e:
+        return _unreadable(site, f"WBS.md is not valid UTF-8 at byte {e.start}")
+    return parse_wbs(text, site)
+
+
+def _unreadable(site, message):
+    return SiteData((), (), (), (), (ReportEntry(site, None, "site_unreadable", message),))

@@ -17,9 +17,10 @@ from gantry.model import (
     meta_values,
 )
 from gantry.priority import rank
-from gantry.wbs_stopgap import MESSAGES, parse_wbs, split_meta, split_title_meta
-from sample_roles import BUSY, HOSTILE_TITLE, OWN_UNIT, SMALL, UNESTIMATED
-from test_samples import ROOT, decode_bytes, git, git_work_tree, needs_git
+from gantry.wbs_stopgap import MESSAGES, parse_wbs, read_wbs, split_meta, split_title_meta
+from commit_check import path_form_hits
+from sample_roles import BUSY, HOSTILE_TITLE, OWN_UNIT, SMALL, UNESTIMATED, UNREADABLE
+from test_samples import MARSH_BAD_OFFSET, ROOT, decode_bytes, git, git_work_tree, needs_git
 
 FIXTURES = ROOT / "tests" / "fixtures" / "wbs"
 NOT_UTF8 = FIXTURES / "not_utf8.md"
@@ -339,3 +340,41 @@ def test_sample_sites_parse():
     small = sample(SMALL)
     assert HOSTILE_TITLE in [leaf.title for leaf in small.leaves]
     assert next(leaf for leaf in small.leaves if leaf.key == "Issue-5").epic is None
+
+
+# --- read_wbs ----------------------------------------------------------------
+
+
+def only_unreadable(data):
+    assert (data.leaves, data.rows, data.links, data.held_out) == ((), (), (), ())
+    assert [(e.kind, e.line) for e in data.report] == [("site_unreadable", None)]
+    return data.report[0].message
+
+
+def test_read_wbs_not_utf8():
+    offset = NOT_UTF8.read_bytes().index(b"\xe9")
+    message = only_unreadable(read_wbs(NOT_UTF8, "alpha"))
+    assert message == f"WBS.md is not valid UTF-8 at byte {offset}"
+    assert path_form_hits(message) == []
+
+
+def test_read_wbs_unreadable_sample():
+    message = only_unreadable(read_wbs(ROOT / "samples" / UNREADABLE / "WBS.md", UNREADABLE))
+    assert message == f"WBS.md is not valid UTF-8 at byte {MARSH_BAD_OFFSET}"
+
+
+@pytest.mark.parametrize("make", ["missing", "directory"])
+def test_read_wbs_cannot_open(tmp_path, make):
+    path = tmp_path / "WBS.md"
+    if make == "directory":
+        path.mkdir()
+    message = only_unreadable(read_wbs(path, "alpha"))
+    assert message.startswith("WBS.md cannot be read: ")
+    assert str(tmp_path) not in message
+    assert path_form_hits(message) == []
+
+
+def test_read_wbs_reads_utf8_not_locale(tmp_path):
+    path = tmp_path / "WBS.md"
+    path.write_bytes("- [ ] Café {issue: Issue-1}\n".encode("utf-8"))
+    assert [leaf.title for leaf in read_wbs(path, "alpha").leaves] == ["Café"]
