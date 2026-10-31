@@ -25,6 +25,9 @@ data are meant for a private network, never for a public site.
 
 Installation config reference: [docs/config.md](docs/config.md).
 
+A commit check keeps real pages, configs, local paths and private names out of
+this repository: [docs/commit-check.md](docs/commit-check.md).
+
 ## License
 
 MIT. See [LICENSE](LICENSE).

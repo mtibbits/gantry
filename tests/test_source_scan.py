@@ -15,16 +15,23 @@ from pathlib import Path
 
 import pytest
 
-# One predicate with #42's sample check; #44 moves PATH_FORMS to tools/commit_check.py.
+# One predicate with #42's sample check and the commit check (#44).
+from commit_check import (
+    EXEMPT_PATH,
+    PATH_FORMS,
+    entry_is_live,
+    is_exempt,
+    line_hits,
+    parse_exemptions,
+    path_form_hits,
+)
 from test_samples import (
     PATH_FORM_CONTROLS,
-    PATH_FORMS,
     ROOT,
-    _decode,
+    decode_bytes,
     git,
     git_work_tree,
     needs_git,
-    path_form_hits,
 )
 
 CODE_ROOTS = ("gantry", "commands", "tools", ".claude-plugin")  # a new code root is added here
@@ -32,7 +39,9 @@ CODE_ROOTS = ("gantry", "commands", "tools", ".claude-plugin")  # a new code roo
 # controls (below), which then go red.
 ISSUE_ROOTS = ("gantry", "commands", "tools", ".claude-plugin")
 PLANT_ROOTS = tuple(dict.fromkeys(ISSUE_ROOTS + CODE_ROOTS))
-ALLOW = {}  # {(relpath, matched text): reason}; this change adds none
+# The allow-list is the commit check's exemption list (#44), read from the work tree.
+ALLOW_PARSED = parse_exemptions((ROOT / EXEMPT_PATH).read_bytes().decode("utf-8"))
+ALLOW = ALLOW_PARSED[0]
 
 
 def test_issue_roots_are_code_roots():
@@ -47,6 +56,8 @@ FLOOR = {
     "gantry/sites.py",
     "commands/build.md",
     "tools/gantry-build.sh",
+    "tools/commit_check.py",
+    "tools/commit_check_exempt.txt",
     ".claude-plugin/plugin.json",
 }
 
@@ -62,8 +73,8 @@ def code_files(root, hermetic=False):
             root, "ls-files", "-z", "--cached", "--others", "--exclude-standard",
             "--", *[r + "/" for r in roots], hermetic=hermetic,
         )
-        assert result.returncode == 0, _decode(result.stderr)
-        return sorted(p for p in _decode(result.stdout).split("\0") if p)
+        assert result.returncode == 0, decode_bytes(result.stderr)
+        return sorted(p for p in decode_bytes(result.stdout).split("\0") if p)
     return sorted(
         p.relative_to(root).as_posix()
         for r in roots
@@ -72,16 +83,27 @@ def code_files(root, hermetic=False):
     )
 
 
-def raw_scan(root, hermetic=False):
-    hits = []
+def _line_scan(root, hermetic):
+    """(relpath, form, line, start, end) per hit; the exemption list is read, not scanned."""
     for rel in code_files(root, hermetic=hermetic):
+        if rel == EXEMPT_PATH:
+            continue
         text = (Path(root) / rel).read_bytes().decode("latin-1")
-        hits += [(rel, form, matched) for form, matched in path_form_hits(text)]
-    return hits
+        lines = text.split("\n")
+        for lineno, form, start, end in line_hits(text):
+            yield rel, form, lines[lineno - 1], start, end
+
+
+def raw_scan(root, hermetic=False):
+    return [(rel, form, line[start:end]) for rel, form, line, start, end in _line_scan(root, hermetic)]
 
 
 def scan(root, hermetic=False):
-    return [hit for hit in raw_scan(root, hermetic) if (hit[0], hit[2]) not in ALLOW]
+    return [
+        (rel, form, line[start:end])
+        for rel, form, line, start, end in _line_scan(root, hermetic)
+        if not is_exempt(rel, line, start, end, ALLOW)
+    ]
 
 
 # --- the tree ------------------------------------------------------------------
@@ -174,7 +196,7 @@ def test_git_enumeration_scans_untracked_skips_ignored(tmp_path):
     (tree / "gantry" / "__pycache__").mkdir(parents=True)
     shutil.copyfile(ROOT / ".gitignore", tree / ".gitignore")
     result = git(tree, "init", "-q", hermetic=True)
-    assert result.returncode == 0, _decode(result.stderr)
+    assert result.returncode == 0, decode_bytes(result.stderr)
     assert git_work_tree(tree)
     (tree / "gantry" / "new.py").write_bytes(PLANT)
     (tree / "gantry" / "__pycache__" / "x.pyc").write_bytes(PLANT)
@@ -184,10 +206,24 @@ def test_git_enumeration_scans_untracked_skips_ignored(tmp_path):
 
 
 def test_allow_list_entries_are_live():
-    hits = {(rel, matched) for rel, _, matched in raw_scan(ROOT)}
-    for entry, reason in ALLOW.items():
-        assert reason.strip(), entry
-        assert entry in hits, f"allow-list entry matches nothing: {entry}"
+    entries, errors = ALLOW_PARSED
+    assert errors == []
+    for entry in entries:
+        if entry.path.split("/")[0] not in CODE_ROOTS:
+            continue
+        text = (ROOT / entry.path).read_bytes().decode("latin-1")
+        assert entry_is_live(entry, text), f"exemption entry matches nothing: {entry}"
+
+
+def test_exempt_file_not_scanned(shared_tree):
+    # The tool reads the exemption list and does not scan it (rule 3), and so does this scan.
+    path = shared_tree / EXEMPT_PATH
+    path.write_bytes(("x | absolute-path | " + "~" + "/x | why\n").encode("utf-8"))
+    try:
+        assert EXEMPT_PATH in code_files(shared_tree)
+        assert raw_scan(shared_tree) == []
+    finally:
+        path.unlink()
 
 
 # --- stdlib-only imports ----------------------------------------------------------
@@ -228,6 +264,12 @@ def test_gantry_imports_stdlib_only(tmp_path):
         b"from gantry.config import Key\n"
     )
     assert non_stdlib_imports(planted) == [("x.py", "yaml"), ("x.py", "requests")]
+
+
+def test_tools_import_stdlib_only():
+    # tools/commit_check.py runs in CI and in hooks with no install step (#44).
+    assert (ROOT / "tools" / "commit_check.py").is_file()
+    assert non_stdlib_imports(ROOT / "tools") == []
 
 
 # --- test-source hygiene ------------------------------------------------------------

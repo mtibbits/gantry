@@ -1,0 +1,10 @@
+# Exemption list for tools/commit_check.py (#44); docs/commit-check.md explains it.
+# One entry per line, four fields separated by " | ":
+#
+#   <path> | absolute-path | <text> | <reason>
+#
+# <path> is relative to the repo top, with forward slashes. <text> is a literal
+# the exempted line holds; only a rule-3 hit inside an occurrence of it in that
+# file is exempt. Only absolute-path can be exempted. An entry whose file is
+# gone, or whose text no longer holds a flagged form, fails `tree`.
+# Changes to this file need explicit review. It is empty on purpose.

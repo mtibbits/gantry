@@ -1,0 +1,24 @@
+name: commit-check
+
+# The commit check against private data (#44; docs/commit-check.md). It runs
+# the checked-out revision's own tool and exemption list, so a range that
+# changes either prints a warning, and such changes need explicit review.
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  commit-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python tools/commit_check.py ci

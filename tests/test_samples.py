@@ -23,6 +23,8 @@ from pathlib import Path
 import pytest
 
 import sample_roles
+# One form list for the samples check, the source scan and the commit check (#44).
+from commit_check import ABSOLUTE_START_RE, PATH_FORMS, decode_bytes, walk_strings, path_form_hits
 from sample_roles import (
     BUSY,
     HOSTILE_SITE,
@@ -48,19 +50,6 @@ PUBLIC_TOOLS = {"devagent", "gantry"}
 
 # devagent's path fields (scripts/lib/config.sh:38-39), plus any key ending _dir.
 PROJECT_PATH_KEYS = {"source_dir", "devdoc_dir", "worktree_root", "build_dir"}
-ABSOLUTE_START_RE = re.compile(r"^(?:[/\\~]|[A-Za-z]:)")
-
-
-def _walk_strings(node, dotted):
-    """Yield (dotted key, string) for every string anywhere under node."""
-    if isinstance(node, dict):
-        for key, value in node.items():
-            yield from _walk_strings(value, f"{dotted}.{key}" if dotted else key)
-    elif isinstance(node, list):
-        for i, value in enumerate(node):
-            yield from _walk_strings(value, f"{dotted}[{i}]")
-    elif isinstance(node, str):
-        yield dotted, node
 
 
 def _is_path_key(dotted):
@@ -85,7 +74,7 @@ def config_violations(config_path, samples_root):
     base = Path(config_path).parent
     inside = Path(samples_root).resolve()
     offenders = []
-    for dotted, value in _walk_strings(cfg, ""):
+    for dotted, value in walk_strings(cfg, ""):
         if ABSOLUTE_START_RE.match(value):
             offenders.append(f"{dotted}: absolute or ~ string")
         elif _is_path_key(dotted) and not (base / value).resolve().is_relative_to(inside):
@@ -653,17 +642,18 @@ HAVE_GIT = shutil.which("git") is not None
 needs_git = pytest.mark.skipif(not HAVE_GIT, reason="git not on PATH")
 
 
-def _decode(data):
-    return data.decode("utf-8", "surrogateescape")
-
-
-def git(root, *args, input=None, hermetic=False):
+def git_env(hermetic=False):
+    """The environment without GIT_*; hermetic also drops global and system config."""
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     if hermetic:
         env["GIT_CONFIG_GLOBAL"] = os.devnull
         env["GIT_CONFIG_NOSYSTEM"] = "1"
+    return env
+
+
+def git(root, *args, input=None, hermetic=False):
     return subprocess.run(
-        ["git", *args], cwd=root, input=input, capture_output=True, env=env
+        ["git", *args], cwd=root, input=input, capture_output=True, env=git_env(hermetic)
     )
 
 
@@ -675,7 +665,7 @@ def git_work_tree(root):
     result = git(root, "rev-parse", "--show-toplevel")
     if result.returncode != 0:
         return False
-    return os.path.samefile(_decode(result.stdout).strip(), root)
+    return os.path.samefile(decode_bytes(result.stdout).strip(), root)
 
 
 def sample_files(root, hermetic=False):
@@ -685,8 +675,8 @@ def sample_files(root, hermetic=False):
             root, "ls-files", "-z", "--cached", "--others", "--exclude-standard",
             "--", "samples/", hermetic=hermetic,
         )
-        assert result.returncode == 0, _decode(result.stderr)
-        return sorted(p for p in _decode(result.stdout).split("\0") if p)
+        assert result.returncode == 0, decode_bytes(result.stderr)
+        return sorted(p for p in decode_bytes(result.stdout).split("\0") if p)
     samples = root / "samples"
     return sorted(
         p.relative_to(root).as_posix()
@@ -703,29 +693,6 @@ def bom_offenders(root, files):
     return [f for f in files if (Path(root) / f).read_bytes().startswith(b"\xef\xbb\xbf")]
 
 
-# #44 moves this list to tools/commit_check.py; this test then imports it from
-# there. B matches the start of the text or one boundary character. The forms
-# are built so this source holds none of them.
-B = r"""(?<![^\s"'`(=<\[,;|])"""
-PATH_FORMS = {
-    "drive_backslash": r"(?<![A-Za-z0-9])[A-Za-z]:\\",
-    "drive_slash":     r"(?<![A-Za-z0-9])[A-Za-z]:/",
-    "unc":             r"(?<![:A-Za-z0-9])(?:\\\\|//)[A-Za-z0-9._$-]+[\\/]",
-    "posix_home":      B + r"/(?:home|Users|root|mnt)/",
-    "msys_drive":      B + r"/[A-Za-z]/",
-    "tilde":           B + r"~[A-Za-z0-9._-]*/",
-}
-PATH_FORM_RES = {form: re.compile(pattern) for form, pattern in PATH_FORMS.items()}
-
-
-def path_form_hits(text):
-    return [
-        (form, m.group(0))
-        for form, pattern in PATH_FORM_RES.items()
-        for m in pattern.finditer(text)
-    ]
-
-
 def path_form_offenders(root, files):
     return [
         f for f in files
@@ -736,8 +703,8 @@ def path_form_offenders(root, files):
 def unpinned(root, files, hermetic=False):
     stdin = "".join(f + "\0" for f in files).encode("utf-8", "surrogateescape")
     result = git(root, "check-attr", "-z", "--stdin", "eol", "text", input=stdin, hermetic=hermetic)
-    assert result.returncode == 0, _decode(result.stderr)
-    fields = _decode(result.stdout).split("\0")
+    assert result.returncode == 0, decode_bytes(result.stderr)
+    fields = decode_bytes(result.stdout).split("\0")
     if fields and fields[-1] == "":
         fields.pop()
     triples = [fields[i:i + 3] for i in range(0, len(fields), 3)]
@@ -796,6 +763,8 @@ def test_no_path_forms_in_samples():
     assert path_form_offenders(ROOT, sample_files(ROOT)) == []
 
 
+# One positive control per form, built so this source holds none of them;
+# tests/test_source_scan.py and tests/test_commit_check.py reuse the list.
 PATH_FORM_CONTROLS = [
     ("drive_backslash", "D" + ":" + "\\" + "work"),
     ("drive_slash", "D" + ":" + "/" + "work"),
@@ -808,12 +777,14 @@ PATH_FORM_CONTROLS = [
     ("msys_drive", "/" + "c" + "/x"),
     ("tilde", "~" + "/x"),
     ("tilde", "~" + "someone" + "/x"),
+    ("file_url", "file:" + "/" * 3 + "srv" + "/x"),
+    ("file_url", "file:" + "/" * 2 + "srv" + "/share" + "/x"),
 ]
 
 
 def test_path_form_controls_cover_every_form():
     assert {form for form, _ in PATH_FORM_CONTROLS} == set(PATH_FORMS)
-    assert len(PATH_FORMS) == 6
+    assert len(PATH_FORMS) == 7
 
 
 @pytest.mark.parametrize("shape", ["alone", "quoted"])
@@ -823,7 +794,8 @@ def test_path_form_positive_controls(form, sample, shape):
     assert form in {f for f, _ in path_form_hits(text)}, (text, path_form_hits(text))
 
 
-@pytest.mark.parametrize("text", [
+# tests/test_commit_check.py reuses the list.
+PATH_FORM_NEGATIVES = [
     "https://github.com/sample_owner/harbor",
     "../harbor",
     "samples/devagent/out/",
@@ -835,7 +807,10 @@ def test_path_form_positive_controls(form, sample, shape):
     "6-12",
     "2026-01-15",
     "P1:",
-])
+]
+
+
+@pytest.mark.parametrize("text", PATH_FORM_NEGATIVES)
 def test_path_form_negative_controls(text):
     assert path_form_hits(text) == []
 
@@ -860,7 +835,7 @@ def _temp_tree(tmp_path, with_git):
     shutil.copyfile(GITATTRIBUTES, tree / ".gitattributes")
     if with_git:
         result = git(tree, "init", "-q", hermetic=True)
-        assert result.returncode == 0, _decode(result.stderr)
+        assert result.returncode == 0, decode_bytes(result.stderr)
     return tree
 
 
@@ -915,7 +890,7 @@ def test_attr_check_names_unpinned_stuck(tmp_path):
     attrs.write_bytes(after.encode("utf-8"))
     assert unpinned(tree, sample_files(tree, hermetic=True), hermetic=True) == []
     marsh = git(tree, "check-attr", "text", "--", MARSH_PATH, hermetic=True)
-    assert _decode(marsh.stdout).strip().endswith("text: unset")
+    assert decode_bytes(marsh.stdout).strip().endswith("text: unset")
 
 
 # --- samples/README.md --------------------------------------------------------
