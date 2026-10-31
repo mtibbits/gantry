@@ -406,6 +406,32 @@ def staged_files(repo):
     return [f for f in files if f[0] != GITLINK]
 
 
+def tree_files(repo, rev):
+    """[(mode, blob id, path)] for every file in rev's tree (gitlinks skipped)."""
+    files = []
+    for record in _nul_fields(repo.run("ls-tree", "-r", "-z", rev).stdout):
+        info, path = record.split("\t", 1)
+        mode, kind, oid = info.split(" ")
+        if kind == "blob":
+            files.append((mode, oid, path))
+    return files
+
+
+def stale_exemptions(repo, entries, files):
+    """Finding lines for entries whose file is gone or whose text holds no flagged form."""
+    oids = {path: oid for _, oid, path in files}
+    present = [e for e in entries if e.path in oids]
+    texts = repo.read_objects([oids[e.path] for e in present])
+    live = {e: entry_is_live(e, decode_blob(t) or "") for e, t in zip(present, texts)}
+    findings = []
+    for entry in entries:
+        if entry not in live:
+            findings.append(f"{EXEMPT_PATH}:{entry.lineno}: exemption (file missing)")
+        elif not live[entry]:
+            findings.append(f"{EXEMPT_PATH}:{entry.lineno}: exemption (text no longer flagged)")
+    return findings
+
+
 def check_blobs(repo, files, exemptions):
     """check_file over [(mode, blob id, path)], read through one cat-file --batch."""
     findings = []
@@ -426,8 +452,17 @@ def report(findings):
     return 1 if n else 0
 
 
+def tree_findings(repo):
+    """Every tracked file at HEAD, rule 4, and the exemption list's own checks."""
+    exemptions, findings = read_exemptions(repo, "HEAD")
+    files = tree_files(repo, "HEAD")
+    findings += check_blobs(repo, files, exemptions)
+    findings += ignore_rule(repo, "HEAD")
+    return findings + stale_exemptions(repo, exemptions, files)
+
+
 def cmd_tree(repo, args):
-    return report(ignore_rule(repo, "HEAD"))
+    return report(tree_findings(repo))
 
 
 def cmd_staged(repo, args):

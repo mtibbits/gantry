@@ -457,3 +457,56 @@ def test_staged_on_unborn_head(tmp_path):
     rc, out, err = tool(tmp_path, "staged")
     assert rc == 1, (out, err)
     assert "site/index.html: generated-output (html page)" in out.splitlines()
+
+
+# --- tree: exemptions and the stale check (Task 6) --------------------------------
+
+def stage_exemptions(repo, *entries):
+    stage(repo, commit_check.EXEMPT_PATH, "# test list\n" + "".join(e + "\n" for e in entries))
+
+
+@needs_git
+def test_exempted_line_passes_other_path_fails(repo):
+    stage(repo, "docs/x.md", f"one\ntwo\nsee {HOME} here\nfour\nand {TILDE}x there\n")
+    stage_exemptions(repo, f"docs/x.md | absolute-path | see {HOME} | the page explains it")
+    commit(repo)
+    rc, out, err = tool(repo, "tree")
+    assert rc == 1, (out, err)
+    assert finding_lines(out) == ["docs/x.md:5: absolute-path (tilde)"]
+
+
+@needs_git
+def test_stale_entry_missing_file_fails(repo):
+    stage_exemptions(repo, f"docs/gone.md | absolute-path | see {HOME} | it was here")
+    commit(repo)
+    rc, out, err = tool(repo, "tree")
+    assert rc == 1, (out, err)
+    assert finding_lines(out) == [f"{commit_check.EXEMPT_PATH}:2: exemption (file missing)"]
+
+
+@needs_git
+def test_stale_entry_text_no_longer_flagged_fails(repo):
+    stage(repo, "docs/x.md", "see the notes folder\n")
+    stage_exemptions(repo, "docs/x.md | absolute-path | see the notes | it held a path once")
+    commit(repo)
+    rc, out, err = tool(repo, "tree")
+    assert rc == 1, (out, err)
+    assert finding_lines(out) == [f"{commit_check.EXEMPT_PATH}:2: exemption (text no longer flagged)"]
+
+
+@needs_git
+def test_entry_text_is_flagged_path_tree_clean(repo):
+    stage(repo, "docs/x.md", f"see {HOME} here\n")
+    stage_exemptions(repo, f"docs/x.md | absolute-path | {HOME} | the page explains it")
+    commit(repo)
+    rc, out, err = tool(repo, "tree")
+    assert (rc, finding_lines(out)) == (0, []), (out, err)
+
+
+@needs_git
+def test_malformed_entry_fails_tree(repo):
+    stage_exemptions(repo, "docs/x.md | absolute-path | no reason")
+    commit(repo)
+    rc, out, err = tool(repo, "tree")
+    assert rc == 1, (out, err)
+    assert finding_lines(out) == [f"{commit_check.EXEMPT_PATH}:2: exemption (malformed entry)"]
