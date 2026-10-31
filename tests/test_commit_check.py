@@ -889,6 +889,169 @@ def test_names_empty_or_absent_denylist_exits_2(repo, tmp_path):
     assert tool(repo, "names", "--staged")[0] == 2
 
 
+# --- install-hook and the hooks (Task 10) -------------------------------------------
+
+HOOKS = ("pre-commit", "commit-msg")
+
+
+def hooks_dir(repo):
+    rel = run_git(repo, "rev-parse", "--git-path", "hooks").strip()
+    return (Path(repo) / rel).resolve()
+
+
+def gantry_config(repo):
+    result = git(repo, "config", "--get-regexp", "^gantry\\.", hermetic=True)
+    return _decode(result.stdout).strip()
+
+
+def git_commit(repo, *args):
+    """A real `git commit` (hooks run); (rc, stdout + stderr)."""
+    result = subprocess.run(
+        ["git", *IDENTITY, "commit", "-q", *args],
+        cwd=repo, env=HERMETIC_ENV, capture_output=True,
+    )
+    return result.returncode, _decode(result.stdout) + _decode(result.stderr)
+
+
+@pytest.fixture
+def hooked(repo, denylist):
+    rc, out, err = tool(repo, "install-hook", "--denylist", str(denylist))
+    assert rc == 0, (out, err)
+    return repo
+
+
+@needs_git
+def test_install_hook_writes_into_linked_worktree_git_path(repo, denylist):
+    wt = repo.parent / "wt"
+    run_git(repo, "worktree", "add", "-q", str(wt))
+    rc, out, err = tool(wt, "install-hook", "--denylist", str(denylist))
+    assert rc == 0, (out, err)
+    for name in HOOKS:
+        data = (hooks_dir(wt) / name).read_bytes()
+        assert data.split(b"\n")[1].startswith(b"# gantry commit-check hook "), name
+        assert b"\r" not in data
+    config = gantry_config(wt)
+    assert f"gantry.python {sys.executable}" in config.splitlines()
+    assert "gantry.denylist " in config
+
+
+@needs_git
+@pytest.mark.parametrize("case", ["denylist_in_work_tree", "hooks_path_set", "foreign_hook"])
+def test_install_hook_refuses(repo, denylist, case):
+    target = denylist
+    if case == "denylist_in_work_tree":
+        target = repo / "notes" / "list.txt"
+        target.parent.mkdir()
+        target.write_bytes(denylist.read_bytes())
+    elif case == "hooks_path_set":
+        run_git(repo, "config", "core.hooksPath", "githooks")
+    else:
+        hooks_dir(repo).mkdir(parents=True, exist_ok=True)
+        (hooks_dir(repo) / "pre-commit").write_bytes(b"#!/bin/sh\n# someone else's hook\n")
+    before = {n: (hooks_dir(repo) / n).read_bytes() for n in HOOKS if (hooks_dir(repo) / n).exists()}
+    rc, out, err = tool(repo, "install-hook", "--denylist", str(target))
+    assert rc == 2, (out, err)
+    reason = {"denylist_in_work_tree": "inside a work tree", "hooks_path_set": "core.hooksPath",
+              "foreign_hook": "did not write"}[case]
+    assert reason in err, err
+    after = {n: (hooks_dir(repo) / n).read_bytes() for n in HOOKS if (hooks_dir(repo) / n).exists()}
+    assert after == before
+    assert gantry_config(repo) == ""
+
+
+@needs_git
+def test_install_hook_refuses_denylist_in_main_worktree_from_linked(repo, denylist):
+    wt = repo.parent / "wt"
+    run_git(repo, "worktree", "add", "-q", str(wt))
+    inside_main = repo / "private" / "list.txt"
+    inside_main.parent.mkdir()
+    inside_main.write_bytes(denylist.read_bytes())
+    rc, out, err = tool(wt, "install-hook", "--denylist", str(inside_main))
+    assert rc == 2, (out, err)
+    assert "inside a work tree" in err, err
+    assert not [n for n in HOOKS if (hooks_dir(wt) / n).exists()]
+    assert gantry_config(wt) == ""
+
+
+@needs_git
+def test_install_hook_reinstalls_over_own(hooked, denylist):
+    rc, out, err = tool(hooked, "install-hook", "--denylist", str(denylist))
+    assert rc == 0, (out, err)
+
+
+@needs_git
+def test_hook_stops_commit_when_denylist_deleted(hooked, denylist):
+    start = head(hooked)
+    denylist.unlink()
+    stage(hooked, "notes/a.md", "clean\n")
+    rc, out = git_commit(hooked, "-m", "clean")
+    assert rc != 0, out
+    assert "gantry.denylist" in out
+    assert head(hooked) == start
+
+
+@needs_git
+def test_hook_stops_commit_with_denylist_name(hooked):
+    start = head(hooked)
+    stage(hooked, "notes/a.md", f"met {ENTRY}\n")
+    rc, out = git_commit(hooked, "-m", "notes")
+    assert rc != 0, out
+    assert "names: 1 match" in out.splitlines()
+    assert head(hooked) == start
+
+
+@needs_git
+def test_hook_stops_commit_with_flagged_path(hooked):
+    start = head(hooked)
+    stage(hooked, "notes/a.md", f"see {HOME}\n")
+    rc, out = git_commit(hooked, "-m", "notes")
+    assert rc != 0, out
+    assert "notes/a.md:1: absolute-path (posix_home)" in out.splitlines()
+    assert head(hooked) == start
+
+
+@needs_git
+def test_commit_msg_hook_stops_home_path_message(hooked):
+    start = head(hooked)
+    stage(hooked, "notes/a.md", "clean\n")
+    rc, out = git_commit(hooked, "-m", f"notes\n\nfrom {HOME}x")
+    assert rc != 0, out
+    assert "message:3: absolute-path (posix_home)" in out.splitlines()
+    assert head(hooked) == start
+
+
+@needs_git
+def test_hook_without_denylist_runs_ci_rules(hooked):
+    run_git(hooked, "config", "--unset", "gantry.denylist")
+    start = head(hooked)
+    stage(hooked, "notes/a.md", "clean\n")
+    rc, out = git_commit(hooked, "-m", "clean")
+    assert rc == 0, out
+    assert "names and hostnames were not checked" in out
+    assert head(hooked) != start
+
+
+@needs_git
+def test_hook_missing_tool_prints_remedy(hooked):
+    run_git(hooked, "rm", "-q", "tools/commit_check.py")
+    start = head(hooked)
+    rc, out = git_commit(hooked, "-m", "drop the tool")
+    assert rc != 0, out
+    assert "tools/commit_check.py is missing" in out and "--no-verify" in out
+    assert head(hooked) == start
+
+
+@needs_git
+def test_hook_dead_interpreter_names_key(hooked, tmp_path):
+    run_git(hooked, "config", "gantry.python", str(tmp_path / "no-such-python"))
+    start = head(hooked)
+    stage(hooked, "notes/a.md", "clean\n")
+    rc, out = git_commit(hooked, "-m", "clean")
+    assert rc != 0, out
+    assert "gantry.python" in out and "install-hook" in out
+    assert head(hooked) == start
+
+
 def test_authorship_fields_constant():
     assert commit_check.AUTHORSHIP_FIELDS == (
         ("LICENSE", None),

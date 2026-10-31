@@ -25,6 +25,7 @@ import subprocess
 import sys
 import tomllib
 from dataclasses import dataclass
+from pathlib import Path
 
 SEP = "/"
 BACK = "\\"
@@ -819,9 +820,69 @@ def cmd_names(repo, args):
     return 1 if n else 0
 
 
+# --- install-hook ---------------------------------------------------------------
+
+HOOK_MARK = "# gantry commit-check hook "
+_HOOK = """#!/bin/sh
+# gantry commit-check hook v1 -- written by tools/commit_check.py install-hook
+py=$(git config --get gantry.python) || { echo "commit-check: git config gantry.python is not set; run install-hook again" >&2; exit 1; }
+"$py" -c pass 2>/dev/null || { echo "commit-check: the interpreter git config gantry.python names cannot run; run install-hook again" >&2; exit 1; }
+[ -f tools/commit_check.py ] || { echo "commit-check: tools/commit_check.py is missing on this checkout; commit with --no-verify or remove the hooks" >&2; exit 1; }
+"$py" tools/commit_check.py {check} || exit 1
+if git config --get gantry.denylist >/dev/null; then
+  exec "$py" tools/commit_check.py names {names}
+fi
+echo "commit-check: no gantry.denylist recorded; names and hostnames were not checked" >&2
+"""
+# Hooks run at the work-tree top, so the relative path runs the checked-out tool.
+HOOK_TEXTS = {
+    "pre-commit": _HOOK.replace("{check}", "staged").replace("{names}", "--staged"),
+    "commit-msg": _HOOK.replace("{check}", 'message "$1"').replace("{names}", '--message "$1"'),
+}
+
+
+def _canonical(path):
+    return os.path.normcase(str(Path(path).resolve()))
+
+
+def _inside_any_worktree(repo, path):
+    target = _canonical(path)
+    for line in repo.out("worktree", "list", "--porcelain").split("\n"):
+        if line.startswith("worktree "):
+            top = _canonical(line[len("worktree "):]).rstrip(os.sep)
+            if target == top or target.startswith(top + os.sep):
+                return True
+    return False
+
+
+def cmd_install_hook(repo, args):
+    # Every check runs before any write.
+    read_denylist(args.denylist, "--denylist")
+    if _inside_any_worktree(repo, args.denylist):
+        raise SetupError("the denylist is inside a work tree of this repo; keep it outside, so it cannot be committed")
+    if repo.run("config", "--get", "core.hooksPath", check=False).returncode == 0:
+        raise SetupError("core.hooksPath is set, so git would never run hooks written to the hooks folder")
+    hooks = Path(repo.top) / repo.out("rev-parse", "--git-path", "hooks").rstrip("\n")
+    for name in HOOK_TEXTS:
+        path = hooks / name
+        if path.exists():
+            lines = path.read_bytes().split(b"\n")
+            if len(lines) < 2 or not lines[1].startswith(HOOK_MARK.encode()):
+                raise SetupError(f"a {name} hook this tool did not write exists; remove it or merge it by hand")
+    repo.run("config", "--local", "gantry.denylist", str(Path(args.denylist).resolve()))
+    repo.run("config", "--local", "gantry.python", sys.executable)
+    hooks.mkdir(parents=True, exist_ok=True)
+    for name, text in HOOK_TEXTS.items():
+        path = hooks / name
+        path.write_bytes(text.encode("utf-8"))
+        path.chmod(0o755)
+    print(f"install-hook: wrote {', '.join(HOOK_TEXTS)}; recorded gantry.denylist and gantry.python")
+    return 0
+
+
 COMMANDS = {
     "tree": cmd_tree, "staged": cmd_staged, "range": cmd_range, "message": cmd_message,
-    "ci": cmd_ci, "names": cmd_names,
+    "ci": cmd_ci, "names": cmd_names, "install-hook": cmd_install_hook,
 }
 
 
@@ -844,6 +905,8 @@ def build_parser():
     scope.add_argument("--all", action="store_true", help="every tracked file at HEAD")
     scope.add_argument("--message", metavar="FILE", help="a commit message file (cleaned)")
     scope.add_argument("--text", metavar="FILE", help="any text, such as a pull-request body")
+    p = sub.add_parser("install-hook", help="write the pre-commit and commit-msg hooks")
+    p.add_argument("--denylist", required=True, help="the private denylist, outside the repo")
     return parser
 
 
