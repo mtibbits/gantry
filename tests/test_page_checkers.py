@@ -13,6 +13,7 @@ import re
 
 import pytest
 
+import commit_check
 import page_safety
 from page_safety import (
     CSP_CONTENT,
@@ -26,6 +27,7 @@ from page_safety import (
     check_rules,
     page_findings,
 )
+from test_samples import ROOT
 
 COMMENT_OPEN = "<" + "!--"
 KNOWN_BAD = RULES_PATH.parent / "known_bad"
@@ -427,3 +429,37 @@ def test_no_external_resources_passes_clean_page():
 
 def test_no_external_resources_without_explicit_head():
     assert_no_external_resources(ext_page(body=CLEAN_BODY, explicit_head=False))
+
+
+# --- the committed page files ---------------------------------------------------------
+
+PAGE_SCRIPT = "tests/page_script"
+# Every file under tests/page_script; #53 adds its own here.
+EXPECTED = {"page_rules.json", "known_bad/element_context.html", "known_bad/attribute_context.html"}
+ASCII_LF = sorted({f"{PAGE_SCRIPT}/{rel}" for rel in EXPECTED} | {"tests/page_safety.py", "tests/test_page_checkers.py"})
+SKIP_DIRS = {"__pycache__", "node_modules"}
+
+
+def test_page_script_files_pass_commit_check():
+    folder = ROOT / PAGE_SCRIPT
+    found = {
+        p.relative_to(folder).as_posix()
+        for p in folder.rglob("*")
+        if p.is_file() and not SKIP_DIRS & set(p.relative_to(folder).parts)
+    }
+    assert found == EXPECTED
+
+    # tests/** is eol=lf, so these hold printable ASCII and LF only.
+    for rel in ASCII_LF:
+        data = (ROOT / rel).read_bytes()
+        assert all(32 <= b < 127 or b == 10 for b in data), rel
+
+    entries, errors = commit_check.parse_exemptions((ROOT / commit_check.EXEMPT_PATH).read_bytes().decode("utf-8"))
+    assert errors == []
+    for rel in ASCII_LF:
+        assert commit_check.check_file(rel, (ROOT / rel).read_bytes(), entries) == [], rel
+
+    # The same predicate refuses a page outside the known-bad folder.
+    data = (ROOT / PAGE_SCRIPT / "known_bad" / "element_context.html").read_bytes()
+    findings = commit_check.check_file(f"{PAGE_SCRIPT}/element_context.html", data, [])
+    assert any("generated-output (html page)" in f for f in findings), findings
