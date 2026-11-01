@@ -15,11 +15,13 @@ import pytest
 
 import page_safety
 from page_safety import (
+    CSP_CONTENT,
     CSP_META,
     HOSTILE,
     RULES,
     RULES_PATH,
     Finding,
+    assert_no_external_resources,
     assert_page_safe,
     check_rules,
     page_findings,
@@ -214,6 +216,8 @@ def test_page_safe_passes_clean_page():
     page = hostile_page()
     assert page_findings(page) == []
     assert assert_page_safe(page, HOSTILE) == {"values": list(HOSTILE), "keyed": {"__proto__": "proto-key"}}
+    # HOSTILE in attribute values does not trip the URL rules.
+    assert_no_external_resources(page)
 
 
 @pytest.mark.parametrize("i", range(len(HOSTILE)))
@@ -297,3 +301,129 @@ def test_page_safe_refuses_bare_string_planted():
         assert_page_safe(hostile_page(), HOSTILE[0])
     with pytest.raises(TypeError, match="7"):
         assert_page_safe(hostile_page(), ["x", 7])
+
+
+# --- assert_no_external_resources --------------------------------------------------
+
+HEAD = '<meta charset="utf-8">\n' + CSP_META + "\n<title>t</title>"
+S2 = "/" * 2
+F3 = "file:" + "/" * 3
+
+
+def ext_page(head=None, body="", explicit_head=True):
+    head = HEAD if head is None else head
+    lines = ["<!doctype html>", '<html lang="en">']
+    lines += ["<head>", head, "</head>"] if explicit_head else [head]
+    lines += ["<body>", body, "</body>", "</html>"]
+    return "\n".join(lines) + "\n"
+
+
+def external_lines(page):
+    """The problem lines assert_no_external_resources raises with."""
+    with pytest.raises(AssertionError) as excinfo:
+        assert_no_external_resources(page)
+    first, *lines = message(excinfo).split("\n")
+    assert first == "page may load external resources:"
+    return [line.removeprefix("  ") for line in lines]
+
+
+def _link(href):
+    return ext_page(body=f'<a href="{href}">x</a>')
+
+
+def _https(tag, attr, inner=""):
+    return ext_page(body=f'<{tag} {attr}="https://example.invalid/a">{inner}</{tag}>')
+
+
+def _charset_after_body_element():
+    page = ext_page(explicit_head=False)
+    return page.replace('<html lang="en">\n', '<html lang="en">\n<p>x</p>\n', 1)
+
+
+EXTERNAL_FAILS = [
+    ("http_src", ext_page(body='<script src="http://example.invalid/a.js"></script>'), "src on <script>"),
+    ("https_href", ext_page(body='<link rel="stylesheet" href="https://example.invalid/a.css">'), "href on <link>"),
+    ("protocol_relative_src", ext_page(body='<img src="' + S2 + 'example.invalid/a.png">'), "src on <img>"),
+    ("relative_src", ext_page(body='<img src="a.png">'), "src on <img>"),
+    ("file_href", ext_page(body='<link rel="stylesheet" href="' + F3 + 'a.css">'), "href on <link>"),
+    ("data_href", ext_page(body='<link rel="stylesheet" href="data:text/css,p{}">'), "href on <link>"),
+    ("xlink_href", ext_page(body='<svg><use xlink:href="https://example.invalid/s.svg#a"></use></svg>'),
+     "xlink:href on <use>"),
+    ("action", _https("form", "action"), "action on <form>"),
+    ("formaction", _https("button", "formaction", "x"), "formaction on <button>"),
+    ("poster", _https("video", "poster"), "poster on <video>"),
+    ("data", _https("object", "data"), "data on <object>"),
+    ("srcset_second", ext_page(body='<img srcset="#a 1x, https://example.invalid/b.png 2x">'), "srcset on <img>"),
+    ("https_link", _link("https://example.invalid/x.html"), "href on <a>"),
+    ("javascript_link", _link("javascript:gantrypwn(1)"), "href on <a>"),
+    ("protocol_relative_link", _link(S2 + "example.invalid/x.html"), "href on <a>"),
+    ("file_link", _link(F3 + "x.html"), "href on <a>"),
+    ("data_link", _link("data:text/html,x"), "href on <a>"),
+    ("root_relative_link", _link("/x.html"), "href on <a>"),
+    ("query_link", _link("other.html?x=1"), "href on <a>"),
+    ("backslash_link", _link(chr(92) + "x.html"), "href on <a>"),
+    ("tab_scheme_link", _link("java" + "\t" + "script:x"), "href on <a>"),
+    ("blob_src", ext_page(body='<img src="blob:https://example.invalid/1">'), "src on <img>"),
+    ("meta_refresh", ext_page(head=HEAD + '\n<meta http-equiv="refresh" content="0; url=other.html">'),
+     "meta http-equiv refresh is not the CSP"),
+    ("import_style", ext_page(body='<style>@import "a.css";</style>'), "@import in <style>"),
+    ("import_style_attr", ext_page(body="<p style=\"@import 'a.css'\">x</p>"), "@import in style on <p>"),
+    ("url_style", ext_page(body="<style>p { background: url(https://example.invalid/a.png) }</style>"),
+     "url() other than url(#id) in <style>"),
+    ("url_filter_attr", ext_page(body='<svg><rect filter="url(https://example.invalid/f.svg#f)"></rect></svg>'),
+     "url() other than url(#id) in filter on <rect>"),
+    ("no_csp", ext_page(head='<meta charset="utf-8">\n<title>t</title>'), "no CSP meta"),
+    ("other_csp", ext_page(head=HEAD.replace(CSP_CONTENT, "default-src *")), "CSP meta content is not the page CSP"),
+    ("csp_not_after_charset", ext_page(head='<meta charset="utf-8">\n<title>t</title>\n' + CSP_META),
+     'is not directly followed by the CSP meta'),
+    ("head_end_tag_first", ext_page(head="<head></head>\n" + HEAD, explicit_head=False), "<head> does not open with"),
+    ("charset_after_body_element", _charset_after_body_element(), "is not the first element of the head"),
+]
+
+
+@pytest.mark.parametrize("page,substring", [c[1:] for c in EXTERNAL_FAILS], ids=[c[0] for c in EXTERNAL_FAILS])
+def test_no_external_resources_fails(page, substring):
+    lines = external_lines(page)
+    matched = [line for line in lines if substring in line]
+    assert matched, lines
+    # Only an absence has no location.
+    if substring != "no CSP meta":
+        assert re.search(r" \(line \d+\)$", matched[0]), lines
+
+
+def test_no_charset_reports_only_the_absence():
+    # With no charset meta, the order checks that hang off it are skipped.
+    assert external_lines(ext_page(head=CSP_META + "\n<title>t</title>")) == ['no <meta charset="utf-8">']
+
+
+def test_head_opens_with_title_lines():
+    page = ext_page(head='<title>t</title>\n<meta charset="utf-8">\n' + CSP_META)
+    n = line_of(page, "<title>t</title>")
+    assert external_lines(page) == [
+        f'<head> does not open with <meta charset="utf-8"> (line {n})',
+        f'<meta charset="utf-8"> is not the first element of the head (line {n})',
+    ]
+
+
+CLEAN_BODY = "\n".join([
+    "<style>marker { fill: url(#marker) } p { background: url( \"#a\" ) }</style>",
+    '<svg><defs><marker id="arrow"></marker></defs><path d="M0 0" marker-end="url(#arrow)"></path>'
+    '<use href="#m"></use></svg>',
+    '<a href="#leaf">x</a>',
+    '<img src="">',
+    '<a href="#leaf%2D1">x</a>',
+    '<li data-item="x" data-value="y">z</li>',
+    '<a href="other.html#leaf-1">x</a>',
+    '<a href="sites/other.html#leaf-1">x</a>',
+    '<a href="../index.html">x</a>',
+    "<button disabled>x</button>",
+    "<a href>x</a>",
+])
+
+
+def test_no_external_resources_passes_clean_page():
+    assert_no_external_resources(ext_page(body=CLEAN_BODY))
+
+
+def test_no_external_resources_without_explicit_head():
+    assert_no_external_resources(ext_page(body=CLEAN_BODY, explicit_head=False))

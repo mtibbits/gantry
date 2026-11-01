@@ -6,6 +6,7 @@ docs/page-safety.md for the rules, the rules file and the limits.
 """
 
 import json
+import re
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import NamedTuple
@@ -229,3 +230,100 @@ def assert_page_safe(page, planted, rules=None):
     if lines:
         raise AssertionError("page breaks the page rules:\n  " + "\n  ".join(lines))
     return data
+
+
+# --- external resources -------------------------------------------------------------
+
+URL_ATTRS = frozenset({"src", "href", "xlink:href", "srcset", "action", "formaction", "poster", "data"})
+URL_STRIP = "".join(map(chr, range(0x21)))   # what a URL parser strips: C0 controls and space
+LINK_RE = re.compile(r"(?![A-Za-z][A-Za-z0-9+.\-]*:)[^\x00-\x20/\\?#][^\x00-\x20\\?#]*(?:#[^\x00-\x20]*)?")
+IMPORT_RE = re.compile(r"(?i)@import")
+URL_FN_RE = re.compile(r"(?i)url\((?!\s*['\"]?\s*#)")
+
+CHARSET_META = '<meta charset="utf-8">'
+
+
+def _url_ok(tag, attr, value):
+    v = value.strip(URL_STRIP)
+    if attr == "srcset":
+        return all(not c.split() or c.split()[0].startswith("#") for c in v.split(","))
+    return v == "" or v.startswith("#") or (attr == "href" and tag == "a" and LINK_RE.fullmatch(v) is not None)
+
+
+def _is_csp(event):
+    return event.tag == "meta" and (_attr(event, "http-equiv") or "").lower() == "content-security-policy"
+
+
+def _is_charset(event):
+    return event.kind in ("start", "startend") and event.tag == "meta" and (_attr(event, "charset") or "").lower() == "utf-8"
+
+
+def _blank(event):
+    return event.kind == "text" and not event.data.strip()
+
+
+def _next_event(events, i):
+    """The first event after index i that is not whitespace text, or None."""
+    return next((e for e in events[i + 1:] if not _blank(e)), None)
+
+
+def _resource_lines(events):
+    lines = []
+    style_open = False
+    for e in events:
+        if e.kind == "text" and style_open:
+            if IMPORT_RE.search(e.data):
+                lines.append(f"@import in <style> (line {e.line})")
+            if URL_FN_RE.search(e.data):
+                lines.append(f"url() other than url(#id) in <style> (line {e.line})")
+        style_open = e.kind == "start" and e.tag == "style"
+        if e.kind not in ("start", "startend"):
+            continue
+        for name, value in e.attrs:
+            value = value or ""  # a valueless attribute arrives as None
+            if name in URL_ATTRS and not _url_ok(e.tag, name, value):
+                lines.append(f"{name} on <{e.tag}> is not empty or a #fragment (line {e.line})")
+            if name == "style" and IMPORT_RE.search(value):
+                lines.append(f"@import in style on <{e.tag}> (line {e.line})")
+            if URL_FN_RE.search(value):
+                lines.append(f"url() other than url(#id) in {name} on <{e.tag}> (line {e.line})")
+        equiv = _attr(e, "http-equiv")
+        if e.tag == "meta" and equiv is not None and equiv.lower() != "content-security-policy":
+            lines.append(f"meta http-equiv {equiv} is not the CSP (line {e.line})")
+    return lines
+
+
+def _head_lines(events):
+    lines = []
+    csps = [e for e in events if e.kind in ("start", "startend") and _is_csp(e)]
+    if not csps:
+        lines.append("no CSP meta")
+    lines += [f"CSP meta content is not the page CSP (line {e.line})" for e in csps if _attr(e, "content") != CSP_CONTENT]
+    at = next((i for i, e in enumerate(events) if _is_charset(e)), None)
+    if at is None:
+        # The order checks below all hang off the charset meta.
+        return lines + [f"no {CHARSET_META}"]
+    charset = events[at]
+    after = _next_event(events, at)
+    if after is None or after.kind not in ("start", "startend") or not _is_csp(after):
+        where = charset if after is None else after
+        lines.append(f"{CHARSET_META} is not directly followed by the CSP meta (line {where.line})")
+    head = next((i for i, e in enumerate(events) if e.kind == "start" and e.tag == "head"), None)
+    if head is not None:
+        first = _next_event(events, head)
+        if first is not charset:
+            where = events[head] if first is None else first
+            lines.append(f"<head> does not open with {CHARSET_META} (line {where.line})")
+    before = next((e for e in events[:at] if (e.kind in ("start", "startend") and e.tag not in ("html", "head"))
+                   or e.kind == "comment" or (e.kind == "text" and not _blank(e))), None)
+    if before is not None:
+        lines.append(f"{CHARSET_META} is not the first element of the head (line {before.line})")
+    return lines
+
+
+def assert_no_external_resources(page):
+    """None, or one AssertionError listing every way the page may load a resource."""
+    events = _scan(page)
+    lines = _resource_lines(events) + _head_lines(events)
+    if lines:
+        raise AssertionError("page may load external resources:\n  " + "\n  ".join(lines))
