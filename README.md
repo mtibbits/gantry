@@ -31,6 +31,9 @@ How Gantry reads a site's `WBS.md`, and what it reports:
 A commit check keeps real pages, configs, local paths and private names out of
 this repository: [docs/commit-check.md](docs/commit-check.md).
 
+How a page's tests check it is safe to open, with no injected markup and
+nothing loaded from outside it: [docs/page-safety.md](docs/page-safety.md).
+
 ## License
 
 MIT. See [LICENSE](LICENSE).

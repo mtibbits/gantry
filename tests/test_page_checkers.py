@@ -19,8 +19,10 @@ from page_safety import (
     CSP_CONTENT,
     CSP_META,
     HOSTILE,
+    RULE_KEYS,
     RULES,
     RULES_PATH,
+    URL_ATTRS,
     Finding,
     assert_no_external_resources,
     assert_page_safe,
@@ -438,6 +440,9 @@ PAGE_SCRIPT = "tests/page_script"
 EXPECTED = {"page_rules.json", "known_bad/element_context.html", "known_bad/attribute_context.html"}
 ASCII_LF = sorted({f"{PAGE_SCRIPT}/{rel}" for rel in EXPECTED} | {"tests/page_safety.py", "tests/test_page_checkers.py"})
 SKIP_DIRS = {"__pycache__", "node_modules"}
+# docs/ has no eol rule and may be CRLF on a Windows checkout: the commit
+# check, not the byte test.
+DOC = "docs/page-safety.md"
 
 
 def test_page_script_files_pass_commit_check():
@@ -456,10 +461,43 @@ def test_page_script_files_pass_commit_check():
 
     entries, errors = commit_check.parse_exemptions((ROOT / commit_check.EXEMPT_PATH).read_bytes().decode("utf-8"))
     assert errors == []
-    for rel in ASCII_LF:
+    for rel in ASCII_LF + [DOC]:
         assert commit_check.check_file(rel, (ROOT / rel).read_bytes(), entries) == [], rel
 
     # The same predicate refuses a page outside the known-bad folder.
     data = (ROOT / PAGE_SCRIPT / "known_bad" / "element_context.html").read_bytes()
     findings = commit_check.check_file(f"{PAGE_SCRIPT}/element_context.html", data, [])
     assert any("generated-output (html page)" in f for f in findings), findings
+
+
+# --- the doc ------------------------------------------------------------------------------
+
+
+def test_page_safety_doc_states_contract():
+    doc = (ROOT / DOC).read_bytes().decode("utf-8")
+    assert CSP_META in doc
+    names = [
+        "HOSTILE", "RULES", "check_rules", "page_findings", "assert_page_safe",
+        "assert_no_external_resources", "CSP_META", "page_rules.json", "tests/page_script/known_bad/",
+        *RULE_KEYS, *sorted(URL_ATTRS),
+    ]
+    assert [n for n in names if f"`{n}`" not in doc] == []
+    assert "\n## Limits" in doc
+    assert COMMENT_OPEN not in doc
+
+
+# Each documented blind spot, built: a fix that closes one reddens here, and
+# the doc's Limits section changes with it.
+LIMITS = [
+    ("script_sink", lambda: assert_page_safe(
+        hostile_page(script="document.getElementById('out').innerHTML = '<b>' + 'x' + '</b>';"), HOSTILE)),
+    ("css_escape", lambda: assert_no_external_resources(
+        ext_page(body="<style>p { background: u" + chr(92) + "72l(https://example.invalid/a.png) }</style>"))),
+    ("image_set", lambda: assert_no_external_resources(
+        ext_page(body='<style>p { background: image-set("https://example.invalid/a.png" 1x) }</style>'))),
+]
+
+
+@pytest.mark.parametrize("check", [c[1] for c in LIMITS], ids=[c[0] for c in LIMITS])
+def test_documented_limits_hold(check):
+    check()
