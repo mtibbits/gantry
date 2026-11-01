@@ -301,16 +301,16 @@ def _resource_lines(events):
     lines = []
     # A style's sheet is all its text up to </style>: in foreign content the
     # text comes in pieces between child tags, and the pieces join.
-    style = None
+    style_line, style_text = None, []
     for e in events:
-        if style is not None:
+        if style_line is not None:
             if e.kind == "text":
-                style[1].append(e.data)
+                style_text.append(e.data)
             elif e.kind == "end" and e.tag == "style":
-                lines += _style_lines("".join(style[1]), style[0])
-                style = None
-        if e.kind == "start" and e.tag == "style" and style is None:
-            style = (e.line, [])
+                lines += _style_lines("".join(style_text), style_line)
+                style_line, style_text = None, []
+        if e.kind == "start" and e.tag == "style" and style_line is None:
+            style_line = e.line
         if not e.is_start:
             continue
         for name, value in e.attrs:
@@ -324,8 +324,8 @@ def _resource_lines(events):
         equiv = _attr(e, "http-equiv")
         if e.tag == "meta" and equiv is not None and not _is_csp(e):
             lines.append(f"meta http-equiv {equiv} is not the CSP (line {e.line})")
-    if style is not None:
-        lines += _style_lines("".join(style[1]), style[0])
+    if style_line is not None:
+        lines += _style_lines("".join(style_text), style_line)
     return lines
 
 

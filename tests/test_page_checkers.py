@@ -220,7 +220,7 @@ def test_page_findings_one_per_rule(extra, expected, line):
 def test_page_safe_flags_raw_title():
     # Every view's title is record-derived; a raw write breaks out of it.
     page = hostile_page().replace("<title>Hostile values</title>", "<title>" + "".join(HOSTILE) + "</title>")
-    with pytest.raises(AssertionError, match=r"tag not allowed: <script>|script id not the page's own"):
+    with pytest.raises(AssertionError, match="script id not the page's own: <script>"):
         assert_page_safe(page, HOSTILE)
 
 
@@ -407,7 +407,7 @@ EXTERNAL_FAILS = [
     ("nbsp_between_metas", ext_page(head=HEAD.replace("\n", "&nbsp;\n", 1)),
      "is not directly followed by the CSP meta"),
     ("nbsp_before_charset", ext_page(head="&nbsp;" + HEAD), "<head> does not open with"),
-    ("head_end_tag_first",ext_page(head="<head></head>\n" + HEAD, explicit_head=False), "<head> does not open with"),
+    ("head_end_tag_first", ext_page(head="<head></head>\n" + HEAD, explicit_head=False), "<head> does not open with"),
     ("charset_after_body_element", _charset_after_body_element(), "is not the first element of the head"),
 ]
 

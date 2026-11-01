@@ -129,13 +129,14 @@ character inside.
 **Meta, `@import` and `url()`.** A `meta` with an `http-equiv` other than
 the CSP fails (a refresh, for one). `@import` fails in a `style` element or a
 `style` attribute; a `style` element's text is judged whole, up to its end
-tag, even when child tags inside an `svg` split it. `url()` fails in a `style` element and in any attribute
-value unless its argument is a fragment, as in `url(#arrow)`.
+tag, even when child tags inside an `svg` split it. `url()` fails in a
+`style` element and in any attribute value unless its argument is a
+fragment, as in `url(#arrow)`.
 
 **The head.** The page needs one `<meta charset="utf-8">`, directly followed
 (only ASCII whitespace between) by the page's CSP meta. Any other character,
-a no-break space among them, opens the body in a browser. When the page has a `head`
-tag, the charset meta opens it. With or without one, no element other than
+a no-break space among them, opens the body in a browser. When the page has a
+`head` tag, the charset meta opens it. With or without one, no element other than
 `html` and `head`, no comment and no text comes before the charset meta, so a
 browser cannot meet a body element before the CSP. The CSP meta is
 `CSP_META`, verbatim:
