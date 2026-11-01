@@ -1,0 +1,5 @@
+{
+  "allowed_attrs": ["aria-expanded", "aria-hidden", "aria-label", "aria-live", "aria-pressed", "charset", "class", "content", "cx", "cy", "d", "data-control", "data-control-items", "data-item", "data-lane", "data-value", "disabled", "for", "height", "http-equiv", "id", "lang", "marker-end", "markerheight", "markerwidth", "name", "orient", "r", "refx", "refy", "role", "rx", "selected", "tabindex", "text-anchor", "type", "value", "viewbox", "width", "x", "x1", "x2", "y", "y1", "y2"],
+  "allowed_tags": ["b", "body", "button", "circle", "defs", "div", "em", "figcaption", "figure", "g", "h1", "h2", "h3", "head", "header", "html", "i", "label", "li", "line", "main", "marker", "meta", "option", "p", "path", "rect", "script", "section", "select", "span", "strong", "style", "svg", "table", "tbody", "td", "text", "th", "thead", "title", "tr", "ul"],
+  "own_script_ids": ["gantry-data", "gantry-page", "gantry-schedule"]
+}

@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<title>Known bad: attribute context</title>
+<script type="application/json" id="gantry-data">{}</script>
+</head>
+<body>
+<p><span data-item=""><svg onload=gantrypwn(4)>">x</span></p>
+</body>
+</html>
