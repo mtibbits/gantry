@@ -7,8 +7,9 @@ load anything from outside itself. Two static checkers in
 
 - `page_findings` and `assert_page_safe` check a page against the **page
   rules** and the embedded-data contract;
-- `assert_no_external_resources` checks that nothing in the page can load a
-  resource, and that the page's own CSP meta comes first in the head.
+- `assert_no_external_resources` checks that no listed URL attribute, style
+  or meta can load a resource, and that the page's own CSP meta comes first
+  in the head.
 
 Both read the page text with one standard-library `html.parser` pass. They
 are test helpers, not part of the installed package: a view's tests import
@@ -96,11 +97,14 @@ checks the embedded data:
 
 - the page holds exactly one `<script type="application/json"
   id="gantry-data">` (both attributes exact);
+- no other `script` carries `id="gantry-data"`: the id is an own script id,
+  so the page rules alone would let one run;
 - its text is JSON (`NaN` and `Infinity` are refused);
 - every planted value is in the data, as a string value or an object key, at
   any depth.
 
-It raises one `AssertionError` listing every problem, each with its line, or
+It raises one `AssertionError` listing every problem, each with its line
+where it has one (a missing, doubled or non-JSON data block has none), or
 returns the parsed data. `planted` is a collection of strings; a bare string
 is refused with `TypeError`.
 
@@ -129,16 +133,17 @@ character inside.
 **Meta, `@import` and `url()`.** A `meta` with an `http-equiv` other than
 the CSP fails (a refresh, for one). `@import` fails in a `style` element or a
 `style` attribute; a `style` element's text is judged whole, up to its end
-tag, even when child tags inside an `svg` split it. `url()` fails in a
+tag, even when child tags inside an `svg` split it, and a self-closing
+`<style/>` opens one, as in a browser. `url()` fails in a
 `style` element and in any attribute value unless its argument is a
 fragment, as in `url(#arrow)`.
 
 **The head.** The page needs one `<meta charset="utf-8">`, directly followed
 (only ASCII whitespace between) by the page's CSP meta. Any other character,
 a no-break space among them, opens the body in a browser. When the page has a
-`head` tag, the charset meta opens it. With or without one, no element other than
-`html` and `head`, no comment and no text comes before the charset meta, so a
-browser cannot meet a body element before the CSP. The CSP meta is
+`head` tag, the charset meta opens it. With or without one, no element other
+than `html` and `head`, no comment and no text comes before the charset meta,
+so a browser cannot meet a body element before the CSP. The CSP meta is
 `CSP_META`, verbatim:
 
 ```html
@@ -166,10 +171,20 @@ commit check refuses an HTML file anywhere else.
 
 - A script sink such as `innerHTML` is invisible to a static read: a page
   whose own script writes markup passes. The browser harness covers it.
-- CSS escapes (a backslash escape inside the word `url`) and strings in
+- CSS escapes (a backslash escape inside `url` or `@import`) and strings in
   `image-set()` are not seen.
-- Only the URL attributes listed above are checked; the page rules keep the
-  other URL-bearing attributes out.
+- Only the URL attributes listed above are checked. Others (`srcdoc`,
+  `background`, `ping`, an svg `set`) are not seen; the page rules keep
+  them out, so adding one to `allowed_attrs` needs a URL rule with it.
+- A self-closing own-id `<script id="gantry-page"/>` passes, though a
+  browser runs the text after it as that script. Only a template can
+  write one; a record value cannot.
+- Which element holds an own id is not checked: an element other than a
+  script may carry `id="gantry-data"`, and `getElementById` would then
+  find it before the data block.
+- `title` and `textarea` text is raw text on newer Python versions and
+  markup on 3.11, so a value written raw inside a `title` can give
+  different findings on different CI versions.
 - A record value holding `url(` in an attribute fails the check, even when
   it is only text: the check fails closed.
 - `html.parser` is not an HTML5 parser, and its handling of malformed markup

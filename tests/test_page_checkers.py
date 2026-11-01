@@ -291,6 +291,17 @@ def test_page_safe_data_block_count(build, found):
     assert 'embedded data: expected exactly one <script type="application/json" id="gantry-data">, ' + found in message(excinfo)
 
 
+@pytest.mark.parametrize("opener", ['<script id="gantry-data">', '<script type="module" id="gantry-data">'])
+def test_page_safe_refuses_runnable_data_id_script(opener):
+    # The data id is an own script id; without the data type the script runs.
+    extra = opener + "gantrypwn(9)</script>"
+    page = hostile_page(body_extra=extra)
+    assert page_findings(page) == []
+    with pytest.raises(AssertionError) as excinfo:
+        assert_page_safe(page, HOSTILE)
+    assert f'<script id="gantry-data"> without type="application/json" (line {line_of(page, extra)})' in message(excinfo)
+
+
 def test_page_safe_refuses_non_json_data():
     page = hostile_page(keyed={"a": float("nan")})
     assert "NaN" in _data_block(page)
@@ -397,6 +408,7 @@ EXTERNAL_FAILS = [
     # An svg style's sheet is its text pieces joined, whatever child tags split them.
     ("import_svg_style_split", ext_page(body='<svg><style><g></g>@imp<g></g>ort "https://example.invalid/a.css";</style></svg>'),
      "@import in <style>"),
+    ("import_self_closing_style", ext_page(body='<style/>@import "https://example.invalid/a.css";'), "@import in <style>"),
     ("url_filter_attr", ext_page(body='<svg><rect filter="url(https://example.invalid/f.svg#f)"></rect></svg>'),
      "url() other than url(#id) in filter on <rect>"),
     ("no_csp", ext_page(head='<meta charset="utf-8">\n<title>t</title>'), "no CSP meta"),
@@ -520,6 +532,12 @@ LIMITS = [
         ext_page(body="<style>p { background: u" + chr(92) + "72l(https://example.invalid/a.png) }</style>"))),
     ("image_set", lambda: assert_no_external_resources(
         ext_page(body='<style>p { background: image-set("https://example.invalid/a.png" 1x) }</style>'))),
+    ("css_escape_import", lambda: assert_no_external_resources(
+        ext_page(body="<style>@" + chr(92) + '69mport "https://example.invalid/a.css";</style>'))),
+    ("self_closing_own_script", lambda: assert_page_safe(
+        hostile_page(body_extra='<script id="gantry-page"/>gantrypwn(10)'), HOSTILE)),
+    ("own_id_on_other_element", lambda: assert_page_safe(
+        hostile_page(body_extra='<span id="gantry-data">x</span>'), HOSTILE)),
 ]
 
 

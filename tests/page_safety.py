@@ -233,6 +233,10 @@ def assert_page_safe(page, planted, rules=None):
     checked = _resolve(rules)
     events = _scan(page)
     lines = [_finding_line(f) for f in _findings(events, checked)]
+    # The data id is an own script id, so the page rules pass any script that
+    # carries it; only the typed block may.
+    lines += [f'<script id="{DATA_ID}"> without type="{DATA_TYPE}" (line {e.line})' for e in events
+              if e.is_start and e.tag == "script" and _attr(e, "id") == DATA_ID and _attr(e, "type") != DATA_TYPE]
     texts = _data_texts(events)
     data = None
     if len(texts) != 1:
@@ -309,7 +313,8 @@ def _resource_lines(events):
             elif e.kind == "end" and e.tag == "style":
                 lines += _style_lines("".join(style_text), style_line)
                 style_line, style_text = None, []
-        if e.kind == "start" and e.tag == "style" and style_line is None:
+        # A browser opens a style at <style/> too: the slash is ignored.
+        if e.is_start and e.tag == "style" and style_line is None:
             style_line = e.line
         if not e.is_start:
             continue
