@@ -33,6 +33,7 @@ HOSTILE = (
     "__proto__",
     "{{DATA}}",
     "&amp;lt;b&amp;gt;",
+    "</title></style></textarea><script>gantrypwn(8)</script>",
 )
 
 
@@ -86,11 +87,21 @@ class _Scanner(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.events = []
+        self.svg_depth = 0
 
     def _add(self, kind, tag=None, attrs=(), data=None):
         self.events.append(_Event(kind, tag, tuple(attrs), data, self.getpos()[0]))
 
+    def set_cdata_mode(self, elem, *args, **kwargs):
+        # Inside svg a browser parses title and style children as markup, so
+        # html.parser must not read them as raw text there.
+        if self.svg_depth and elem in ("title", "style"):
+            return
+        super().set_cdata_mode(elem, *args, **kwargs)
+
     def handle_starttag(self, tag, attrs):
+        if tag == "svg":
+            self.svg_depth += 1
         self._add("start", tag, attrs)
 
     def handle_startendtag(self, tag, attrs):
@@ -98,6 +109,8 @@ class _Scanner(HTMLParser):
         self._add("startend", tag, attrs)
 
     def handle_endtag(self, tag):
+        if tag == "svg" and self.svg_depth:
+            self.svg_depth -= 1
         self._add("end", tag)
 
     def handle_data(self, data):
@@ -258,8 +271,11 @@ def _is_charset(event):
     return event.kind in ("start", "startend") and event.tag == "meta" and (_attr(event, "charset") or "").lower() == "utf-8"
 
 
+ASCII_SPACE = " \t\n\r\f"   # the only whitespace a browser ignores in the head
+
+
 def _blank(event):
-    return event.kind == "text" and not event.data.strip()
+    return event.kind == "text" and not event.data.strip(ASCII_SPACE)
 
 
 def _next_event(events, i):

@@ -91,9 +91,9 @@ def test_check_rules_refuses_malformed(rules, message):
 
 
 def test_hostile_covers_each_context():
-    assert len(HOSTILE) == 10
-    assert len(set(HOSTILE)) == 10
-    for prefix in ("<script>", "</script>", "<img ", '"><svg ', "' on", COMMENT_OPEN, "&amp;"):
+    assert len(HOSTILE) == 11
+    assert len(set(HOSTILE)) == 11
+    for prefix in ("<script>", "</script>", "<img ", '"><svg ', "' on", COMMENT_OPEN, "&amp;", "</title>"):
         assert any(h.startswith(prefix) for h in HOSTILE), prefix
     assert any(chr(0x2028) in h and chr(0x2029) in h for h in HOSTILE)
     assert "__proto__" in HOSTILE
@@ -214,6 +214,23 @@ def test_page_findings_one_per_rule(extra, expected, line):
     with pytest.raises(AssertionError) as excinfo:
         assert_page_safe(page, HOSTILE)
     assert f"{line} (line {n})" in message(excinfo)
+
+
+def test_page_safe_flags_raw_title():
+    # Every view's title is record-derived; a raw write breaks out of it.
+    page = hostile_page().replace("<title>Hostile values</title>", "<title>" + "".join(HOSTILE) + "</title>")
+    with pytest.raises(AssertionError, match=r"tag not allowed: <script>|script id not the page's own"):
+        assert_page_safe(page, HOSTILE)
+
+
+@pytest.mark.parametrize("element", ["title", "style"])
+def test_svg_raw_text_is_markup(element):
+    # Inside svg a browser parses title and style children as markup.
+    raw = hostile_page(body_extra=f"<svg><g><{element}>{HOSTILE[2]}</{element}></g></svg>")
+    n = line_of(raw, "<svg><g>")
+    assert Finding("tag", "img", None, n) in page_findings(raw)
+    escaped = hostile_page(body_extra=f"<svg><g><{element}>{esc(HOSTILE[2])}</{element}></g></svg>")
+    assert page_findings(escaped) == []
 
 
 def test_page_safe_passes_clean_page():
@@ -380,14 +397,18 @@ EXTERNAL_FAILS = [
     ("other_csp", ext_page(head=HEAD.replace(CSP_CONTENT, "default-src *")), "CSP meta content is not the page CSP"),
     ("csp_not_after_charset", ext_page(head='<meta charset="utf-8">\n<title>t</title>\n' + CSP_META),
      'is not directly followed by the CSP meta'),
-    ("head_end_tag_first", ext_page(head="<head></head>\n" + HEAD, explicit_head=False), "<head> does not open with"),
+    # Only ASCII whitespace is ignorable in the head; a no-break space opens the body.
+    ("nbsp_between_metas", ext_page(head=HEAD.replace("\n", "&nbsp;\n", 1)),
+     "is not directly followed by the CSP meta"),
+    ("nbsp_before_charset", ext_page(head="&nbsp;" + HEAD), "<head> does not open with"),
+    ("head_end_tag_first",ext_page(head="<head></head>\n" + HEAD, explicit_head=False), "<head> does not open with"),
     ("charset_after_body_element", _charset_after_body_element(), "is not the first element of the head"),
 ]
 
 
-@pytest.mark.parametrize("page,substring", [c[1:] for c in EXTERNAL_FAILS], ids=[c[0] for c in EXTERNAL_FAILS])
-def test_no_external_resources_fails(page, substring):
-    lines = external_lines(page)
+@pytest.mark.parametrize("text,substring", [c[1:] for c in EXTERNAL_FAILS], ids=[c[0] for c in EXTERNAL_FAILS])
+def test_no_external_resources_fails(text, substring):
+    lines = external_lines(text)
     matched = [line for line in lines if substring in line]
     assert matched, lines
     # Only an absence has no location.

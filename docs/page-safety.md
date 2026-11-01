@@ -40,6 +40,7 @@ one targets a context a value can escape from:
 | `__proto__` | an object key that a careless merge turns into a prototype change |
 | `{{DATA}}` | a template placeholder that must stay text, never be filled twice |
 | an already-escaped ampersand | catches double escaping and double unescaping |
+| title, style and textarea end tags, then a script | breaks out of a raw-text element, such as the page title, that embeds the value raw |
 
 ## `page_rules.json`
 
@@ -85,6 +86,9 @@ instruction or a declaration other than the doctype: the ordinary form, a
 question-mark form, a CDATA section and a conditional comment each give one
 finding, on every Python version CI runs.
 
+Inside an `svg`, the children of `title` and `style` are read as markup, the
+way a browser reads them there, so a raw value in an SVG tooltip is found.
+
 `assert_page_safe(page, planted, rules=None)` lists every finding, then
 checks the embedded data:
 
@@ -126,7 +130,8 @@ the CSP fails (a refresh, for one). `@import` fails in a `style` element or a
 value unless its argument is a fragment, as in `url(#arrow)`.
 
 **The head.** The page needs one `<meta charset="utf-8">`, directly followed
-(only whitespace between) by the page's CSP meta. When the page has a `head`
+(only ASCII whitespace between) by the page's CSP meta. Any other character,
+a no-break space among them, opens the body in a browser. When the page has a `head`
 tag, the charset meta opens it. With or without one, no element other than
 `html` and `head`, no comment and no text comes before the charset meta, so a
 browser cannot meet a body element before the CSP. The CSP meta is
