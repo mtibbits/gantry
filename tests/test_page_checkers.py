@@ -30,6 +30,7 @@ from page_safety import (
     page_findings,
 )
 from test_samples import ROOT
+from test_source_scan import ALLOW
 
 COMMENT_OPEN = "<" + "!--"
 KNOWN_BAD = RULES_PATH.parent / "known_bad"
@@ -225,12 +226,21 @@ def test_page_safe_flags_raw_title():
 
 @pytest.mark.parametrize("element", ["title", "style"])
 def test_svg_raw_text_is_markup(element):
-    # Inside svg a browser parses title and style children as markup.
+    # Inside svg a browser parses no child as raw text.
     raw = hostile_page(body_extra=f"<svg><g><{element}>{HOSTILE[2]}</{element}></g></svg>")
     n = line_of(raw, "<svg><g>")
     assert Finding("tag", "img", None, n) in page_findings(raw)
     escaped = hostile_page(body_extra=f"<svg><g><{element}>{esc(HOSTILE[2])}</{element}></g></svg>")
     assert page_findings(escaped) == []
+
+
+def test_svg_script_is_markup():
+    # An own-id script is no cover inside svg: its img child breaks out and runs.
+    raw = hostile_page(body_extra=f'<svg><script id="gantry-page">{HOSTILE[2]}</script></svg>')
+    n = line_of(raw, "<svg><script")
+    findings = page_findings(raw)
+    assert Finding("tag", "img", None, n) in findings
+    assert Finding("attribute", "img", "onerror", n) in findings
 
 
 def test_page_safe_passes_clean_page():
@@ -288,24 +298,18 @@ def test_page_safe_refuses_non_json_data():
         assert_page_safe(page, HOSTILE)
 
 
-def _details_rules():
-    rules = copy.deepcopy(RULES)
-    rules["allowed_tags"].append("details")
-    return rules
-
-
 def test_page_safe_tag_outside_rules():
     page = hostile_page(body_extra="<details>note</details>")
     with pytest.raises(AssertionError, match="tag not allowed: <details>"):
         assert_page_safe(page, HOSTILE)
-    rules2 = _details_rules()
+    rules2 = _appended("allowed_tags", "details")
     assert assert_page_safe(page, HOSTILE, rules=rules2)["values"] == list(HOSTILE)
     assert page_findings(page, rules=rules2) == []
 
 
 def test_rules_default_resolved_at_call_time(monkeypatch):
     page = hostile_page(body_extra="<details>note</details>")
-    monkeypatch.setattr(page_safety, "RULES", _details_rules())
+    monkeypatch.setattr(page_safety, "RULES", _appended("allowed_tags", "details"))
     assert assert_page_safe(page, HOSTILE)["values"] == list(HOSTILE)
 
 
@@ -331,8 +335,7 @@ S2 = "/" * 2
 F3 = "file:" + "/" * 3
 
 
-def ext_page(head=None, body="", explicit_head=True):
-    head = HEAD if head is None else head
+def ext_page(head=HEAD, body="", explicit_head=True):
     lines = ["<!doctype html>", '<html lang="en">']
     lines += ["<head>", head, "</head>"] if explicit_head else [head]
     lines += ["<body>", body, "</body>", "</html>"]
@@ -391,6 +394,9 @@ EXTERNAL_FAILS = [
     ("import_style_attr", ext_page(body="<p style=\"@import 'a.css'\">x</p>"), "@import in style on <p>"),
     ("url_style", ext_page(body="<style>p { background: url(https://example.invalid/a.png) }</style>"),
      "url() other than url(#id) in <style>"),
+    # An svg style's sheet is its text pieces joined, whatever child tags split them.
+    ("import_svg_style_split", ext_page(body='<svg><style><g></g>@imp<g></g>ort "https://example.invalid/a.css";</style></svg>'),
+     "@import in <style>"),
     ("url_filter_attr", ext_page(body='<svg><rect filter="url(https://example.invalid/f.svg#f)"></rect></svg>'),
      "url() other than url(#id) in filter on <rect>"),
     ("no_csp", ext_page(head='<meta charset="utf-8">\n<title>t</title>'), "no CSP meta"),
@@ -480,10 +486,8 @@ def test_page_script_files_pass_commit_check():
         data = (ROOT / rel).read_bytes()
         assert all(32 <= b < 127 or b == 10 for b in data), rel
 
-    entries, errors = commit_check.parse_exemptions((ROOT / commit_check.EXEMPT_PATH).read_bytes().decode("utf-8"))
-    assert errors == []
     for rel in ASCII_LF + [DOC]:
-        assert commit_check.check_file(rel, (ROOT / rel).read_bytes(), entries) == [], rel
+        assert commit_check.check_file(rel, (ROOT / rel).read_bytes(), ALLOW) == [], rel
 
     # The same predicate refuses a page outside the known-bad folder.
     data = (ROOT / PAGE_SCRIPT / "known_bad" / "element_context.html").read_bytes()

@@ -86,8 +86,10 @@ instruction or a declaration other than the doctype: the ordinary form, a
 question-mark form, a CDATA section and a conditional comment each give one
 finding, on every Python version CI runs.
 
-Inside an `svg`, the children of `title` and `style` are read as markup, the
-way a browser reads them there, so a raw value in an SVG tooltip is found.
+Inside an `svg` or `math`, no element's text is read raw: the children of
+`title`, `style` and `script` are read as markup, the way a browser reads
+them there, so a raw value in an SVG tooltip is found, and so is one in an
+own-id script nested in an `svg`.
 
 `assert_page_safe(page, planted, rules=None)` lists every finding, then
 checks the embedded data:
@@ -126,7 +128,8 @@ character inside.
 
 **Meta, `@import` and `url()`.** A `meta` with an `http-equiv` other than
 the CSP fails (a refresh, for one). `@import` fails in a `style` element or a
-`style` attribute. `url()` fails in a `style` element and in any attribute
+`style` attribute; a `style` element's text is judged whole, up to its end
+tag, even when child tags inside an `svg` split it. `url()` fails in a `style` element and in any attribute
 value unless its argument is a fragment, as in `url(#arrow)`.
 
 **The head.** The page needs one `<meta charset="utf-8">`, directly followed

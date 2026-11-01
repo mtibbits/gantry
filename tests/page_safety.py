@@ -8,6 +8,7 @@ docs/page-safety.md for the rules, the rules file and the limits.
 import json
 import re
 from html.parser import HTMLParser
+from itertools import islice
 from pathlib import Path
 from typing import NamedTuple
 
@@ -82,26 +83,33 @@ class _Event(NamedTuple):
     data: str | None
     line: int
 
+    @property
+    def is_start(self):
+        return self.kind in ("start", "startend")
+
+
+# Inside these a browser parses no element as raw text (foreign content), so
+# a script, style or title child there is markup, and html.parser must not
+# read it as raw text.
+FOREIGN = ("svg", "math")
+
 
 class _Scanner(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.events = []
-        self.svg_depth = 0
+        self.foreign_depth = 0
 
     def _add(self, kind, tag=None, attrs=(), data=None):
         self.events.append(_Event(kind, tag, tuple(attrs), data, self.getpos()[0]))
 
     def set_cdata_mode(self, elem, *args, **kwargs):
-        # Inside svg a browser parses title and style children as markup, so
-        # html.parser must not read them as raw text there.
-        if self.svg_depth and elem in ("title", "style"):
-            return
-        super().set_cdata_mode(elem, *args, **kwargs)
+        if not self.foreign_depth:
+            super().set_cdata_mode(elem, *args, **kwargs)
 
     def handle_starttag(self, tag, attrs):
-        if tag == "svg":
-            self.svg_depth += 1
+        if tag in FOREIGN:
+            self.foreign_depth += 1
         self._add("start", tag, attrs)
 
     def handle_startendtag(self, tag, attrs):
@@ -109,8 +117,8 @@ class _Scanner(HTMLParser):
         self._add("startend", tag, attrs)
 
     def handle_endtag(self, tag):
-        if tag == "svg" and self.svg_depth:
-            self.svg_depth -= 1
+        if tag in FOREIGN and self.foreign_depth:
+            self.foreign_depth -= 1
         self._add("end", tag)
 
     def handle_data(self, data):
@@ -127,11 +135,7 @@ class _Scanner(HTMLParser):
     def handle_comment(self, data):
         self._add("comment", data=data)
 
-    def handle_pi(self, data):
-        self._add("comment", data=data)
-
-    def unknown_decl(self, data):
-        self._add("comment", data=data)
+    handle_pi = unknown_decl = handle_comment
 
     def handle_decl(self, decl):
         self._add("decl" if decl.lower().startswith("doctype") else "comment", data=decl)
@@ -164,13 +168,14 @@ def _findings(events, checked):
     for e in events:
         if e.kind == "comment":
             found.append(Finding("comment", None, None, e.line))
-        if e.kind not in ("start", "startend"):
+        if not e.is_start:
             continue
         if e.tag not in checked["allowed_tags"]:
             found.append(Finding("tag", e.tag, None, e.line))
         found += [Finding("attribute", e.tag, k, e.line) for k, _ in e.attrs if k not in checked["allowed_attrs"]]
-        if e.tag == "script" and _attr(e, "id") not in checked["own_script_ids"]:
-            found.append(Finding("script", "script", _attr(e, "id"), e.line))
+        script_id = _attr(e, "id")
+        if e.tag == "script" and script_id not in checked["own_script_ids"]:
+            found.append(Finding("script", "script", script_id, e.line))
     return found
 
 
@@ -264,11 +269,11 @@ def _url_ok(tag, attr, value):
 
 
 def _is_csp(event):
-    return event.tag == "meta" and (_attr(event, "http-equiv") or "").lower() == "content-security-policy"
+    return event.is_start and event.tag == "meta" and (_attr(event, "http-equiv") or "").lower() == "content-security-policy"
 
 
 def _is_charset(event):
-    return event.kind in ("start", "startend") and event.tag == "meta" and (_attr(event, "charset") or "").lower() == "utf-8"
+    return event.is_start and event.tag == "meta" and (_attr(event, "charset") or "").lower() == "utf-8"
 
 
 ASCII_SPACE = " \t\n\r\f"   # the only whitespace a browser ignores in the head
@@ -280,20 +285,33 @@ def _blank(event):
 
 def _next_event(events, i):
     """The first event after index i that is not whitespace text, or None."""
-    return next((e for e in events[i + 1:] if not _blank(e)), None)
+    return next((e for e in islice(events, i + 1, None) if not _blank(e)), None)
+
+
+def _style_lines(text, line):
+    lines = []
+    if IMPORT_RE.search(text):
+        lines.append(f"@import in <style> (line {line})")
+    if URL_FN_RE.search(text):
+        lines.append(f"url() other than url(#id) in <style> (line {line})")
+    return lines
 
 
 def _resource_lines(events):
     lines = []
-    style_open = False
+    # A style's sheet is all its text up to </style>: in foreign content the
+    # text comes in pieces between child tags, and the pieces join.
+    style = None
     for e in events:
-        if e.kind == "text" and style_open:
-            if IMPORT_RE.search(e.data):
-                lines.append(f"@import in <style> (line {e.line})")
-            if URL_FN_RE.search(e.data):
-                lines.append(f"url() other than url(#id) in <style> (line {e.line})")
-        style_open = e.kind == "start" and e.tag == "style"
-        if e.kind not in ("start", "startend"):
+        if style is not None:
+            if e.kind == "text":
+                style[1].append(e.data)
+            elif e.kind == "end" and e.tag == "style":
+                lines += _style_lines("".join(style[1]), style[0])
+                style = None
+        if e.kind == "start" and e.tag == "style" and style is None:
+            style = (e.line, [])
+        if not e.is_start:
             continue
         for name, value in e.attrs:
             value = value or ""  # a valueless attribute arrives as None
@@ -304,14 +322,16 @@ def _resource_lines(events):
             if URL_FN_RE.search(value):
                 lines.append(f"url() other than url(#id) in {name} on <{e.tag}> (line {e.line})")
         equiv = _attr(e, "http-equiv")
-        if e.tag == "meta" and equiv is not None and equiv.lower() != "content-security-policy":
+        if e.tag == "meta" and equiv is not None and not _is_csp(e):
             lines.append(f"meta http-equiv {equiv} is not the CSP (line {e.line})")
+    if style is not None:
+        lines += _style_lines("".join(style[1]), style[0])
     return lines
 
 
 def _head_lines(events):
     lines = []
-    csps = [e for e in events if e.kind in ("start", "startend") and _is_csp(e)]
+    csps = [e for e in events if _is_csp(e)]
     if not csps:
         lines.append("no CSP meta")
     lines += [f"CSP meta content is not the page CSP (line {e.line})" for e in csps if _attr(e, "content") != CSP_CONTENT]
@@ -321,7 +341,7 @@ def _head_lines(events):
         return lines + [f"no {CHARSET_META}"]
     charset = events[at]
     after = _next_event(events, at)
-    if after is None or after.kind not in ("start", "startend") or not _is_csp(after):
+    if after is None or not _is_csp(after):
         where = charset if after is None else after
         lines.append(f"{CHARSET_META} is not directly followed by the CSP meta (line {where.line})")
     head = next((i for i, e in enumerate(events) if e.kind == "start" and e.tag == "head"), None)
@@ -330,7 +350,7 @@ def _head_lines(events):
         if first is not charset:
             where = events[head] if first is None else first
             lines.append(f"<head> does not open with {CHARSET_META} (line {where.line})")
-    before = next((e for e in events[:at] if (e.kind in ("start", "startend") and e.tag not in ("html", "head"))
+    before = next((e for e in events[:at] if (e.is_start and e.tag not in ("html", "head"))
                    or e.kind == "comment" or (e.kind == "text" and not _blank(e))), None)
     if before is not None:
         lines.append(f"{CHARSET_META} is not the first element of the head (line {before.line})")
