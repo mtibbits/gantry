@@ -1,0 +1,9 @@
+{
+  "name": "gantry-page-script",
+  "private": true,
+  "description": "Development-only page-script harness for Gantry's tests; never installed with Gantry.",
+  "license": "MIT",
+  "dependencies": {
+    "jsdom": "30.1.3"
+  }
+}

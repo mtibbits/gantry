@@ -9,7 +9,11 @@ twin of the commit-check test.
 import copy
 import html
 import json
+import os
 import re
+import subprocess
+import sys
+import xml.etree.ElementTree as ET
 
 import pytest
 
@@ -28,6 +32,21 @@ from page_safety import (
     assert_page_safe,
     check_rules,
     page_findings,
+)
+from page_script.gate import CI_SUFFIX, require_node
+from page_script import harness
+from page_script.harness import (
+    JSDOM_MISSING,
+    JSDOM_STALE,
+    NODE_MISSING,
+    HarnessError,
+    PageScriptError,
+    Planted,
+    find_node,
+    node_status,
+    node_version,
+    open_page,
+    run_function,
 )
 from test_samples import ROOT
 from test_source_scan import ALLOW
@@ -475,8 +494,10 @@ def test_no_external_resources_without_explicit_head():
 # --- the committed page files ---------------------------------------------------------
 
 PAGE_SCRIPT = "tests/page_script"
+# The page-script harness's own files (#53).
+OWN = {"package.json", "package-lock.json", "driver.js", "harness.py", "gate.py", "known_bad/raw_sink.html"}
 # Every file under tests/page_script; #53 adds its own here.
-EXPECTED = {"page_rules.json", "known_bad/element_context.html", "known_bad/attribute_context.html"}
+EXPECTED = {"page_rules.json", "known_bad/element_context.html", "known_bad/attribute_context.html"} | OWN
 ASCII_LF = sorted({f"{PAGE_SCRIPT}/{rel}" for rel in EXPECTED} | {"tests/page_safety.py", "tests/test_page_checkers.py"})
 SKIP_DIRS = {"__pycache__", "node_modules"}
 # docs/ has no eol rule and may be CRLF on a Windows checkout: the commit
@@ -510,17 +531,42 @@ def test_page_script_files_pass_commit_check():
 # --- the doc ------------------------------------------------------------------------------
 
 
+def repo_text(name):
+    return (ROOT / name).read_bytes().decode("utf-8")
+
+
 def test_page_safety_doc_states_contract():
-    doc = (ROOT / DOC).read_bytes().decode("utf-8")
+    doc = repo_text(DOC)
     assert CSP_META in doc
     names = [
         "HOSTILE", "RULES", "check_rules", "page_findings", "assert_page_safe",
         "assert_no_external_resources", "CSP_META", "page_rules.json", "tests/page_script/known_bad/",
         *RULE_KEYS, *sorted(URL_ATTRS),
+        # The page-script harness (#53).
+        "open_page", "drive", "query", "planted_nodes", "run_function", "require_node",
+        "PageScriptError", "HarnessError", "select[data-control]", "button[data-control][data-value]",
+        "data-control-items", "data-item", "focusin", "npm ci --prefix tests/page_script",
     ]
     assert [n for n in names if f"`{n}`" not in doc] == []
     assert "\n## Limits" in doc
     assert COMMENT_OPEN not in doc
+    for reason in (NODE_MISSING, JSDOM_MISSING, JSDOM_STALE.format(found="<found>", pinned="<pinned>"), "Node.js 24"):
+        assert reason in doc, reason
+    readme = repo_text("README.md")
+    for text in ("Node.js 24", "npm ci --prefix tests/page_script", "docs/page-safety.md"):
+        assert text in readme, text
+
+
+def test_node_major_agrees():
+    # Every home of the Node major, the floor and the jsdom pin says the same.
+    major = workflow_node_major()
+    doc = repo_text(DOC)
+    for text in (doc, repo_text("README.md")):
+        majors = {int(m) for m in re.findall(r"Node\.js\s+(\d+)", text)}
+        assert majors == {major}, majors
+    pin = json.loads((ROOT / PAGE_SCRIPT / "package.json").read_bytes())["dependencies"]["jsdom"]
+    assert set(re.findall(r"jsdom\s+(\d+\.\d+\.\d+)", doc)) == {pin}
+    assert set(re.findall(r"Node\.js\s+(\d+\.\d+\.\d+)\s+or\s+later", doc)) == {".".join(map(str, NODE_FLOOR))}
 
 
 # Each documented blind spot, built: a fix that closes one reddens here, and
@@ -544,3 +590,562 @@ LIMITS = [
 @pytest.mark.parametrize("check", [c[1] for c in LIMITS], ids=[c[0] for c in LIMITS])
 def test_documented_limits_hold(check):
     check()
+
+
+# --- the Node gate (#53) ---------------------------------------------------------------
+
+
+def no_node(name, path=None):
+    return None
+
+
+def some_node(name, path=None):
+    return "node"
+
+
+def gate_root(tmp_path, pinned="1.2.3", installed=None):
+    """A harness folder pinning jsdom pinned, with installed as its node_modules copy."""
+    (tmp_path / "package.json").write_text(json.dumps({"dependencies": {"jsdom": pinned}}))
+    if installed is not None:
+        folder = tmp_path / "node_modules" / "jsdom"
+        folder.mkdir(parents=True)
+        (folder / "package.json").write_text(json.dumps({"version": installed}))
+    return tmp_path
+
+
+@pytest.mark.parametrize("env", [{}, {"CI": ""}], ids=["unset", "empty"])
+def test_gate_skips_without_node(env):
+    with pytest.raises(pytest.skip.Exception) as excinfo:
+        require_node(env=env, which=no_node)
+    assert excinfo.value.msg == NODE_MISSING
+
+
+@pytest.mark.parametrize("ci", ["true", "1"])
+def test_gate_fails_in_ci_without_node(ci):
+    with pytest.raises(pytest.fail.Exception) as excinfo:
+        require_node(env={"CI": ci}, which=no_node)
+    assert excinfo.value.msg == NODE_MISSING + CI_SUFFIX
+
+
+def assert_gate_refuses(root, reason):
+    """The gate skips with reason, and fails with it under CI."""
+    with pytest.raises(pytest.skip.Exception) as excinfo:
+        require_node(env={}, which=some_node, root=root)
+    assert excinfo.value.msg == reason
+    with pytest.raises(pytest.fail.Exception) as excinfo:
+        require_node(env={"CI": "true"}, which=some_node, root=root)
+    assert excinfo.value.msg == reason + CI_SUFFIX
+
+
+def test_gate_jsdom_missing_on_empty_folder(tmp_path):
+    assert_gate_refuses(tmp_path, JSDOM_MISSING)
+
+
+def test_gate_jsdom_stale(tmp_path):
+    root = gate_root(tmp_path, pinned="1.2.3", installed="1.2.4")
+    assert_gate_refuses(root, JSDOM_STALE.format(found="1.2.4", pinned="1.2.3"))
+
+
+def test_gate_ready(tmp_path):
+    root = gate_root(tmp_path, installed="1.2.3")
+    assert node_status(env={}, which=some_node, root=root) is None
+    assert require_node(env={"CI": "true"}, which=some_node, root=root) is None
+
+
+def test_find_node_reads_env_path():
+    calls = []
+
+    def spy(name, path=None):
+        calls.append((name, path))
+        return None
+
+    find_node(env={"PATH": "p"}, which=spy)
+    find_node(env={}, which=spy)
+    # Never None: a None path makes shutil.which read os.environ.
+    assert calls == [("node", "p"), ("node", "")]
+
+
+def _no_package_json(root):
+    (root / "package.json").unlink()
+
+
+def _invalid_package_json(root):
+    (root / "package.json").write_text("{")
+
+
+def _no_jsdom_pin(root):
+    (root / "package.json").write_text(json.dumps({"dependencies": {}}))
+
+
+@pytest.mark.parametrize("spoil", [_no_package_json, _invalid_package_json, _no_jsdom_pin],
+                         ids=["absent", "invalid", "no_pin"])
+def test_gate_bad_package_json_is_harness_error(tmp_path, spoil):
+    # The pin is read once jsdom is found installed: an empty folder is JSDOM_MISSING.
+    root = gate_root(tmp_path, installed="1.2.3")
+    spoil(root)
+    with pytest.raises(HarnessError, match="package.json"):
+        node_status(env={}, which=some_node, root=root)
+
+
+def test_jsdom_pin_is_exact():
+    package = json.loads((ROOT / PAGE_SCRIPT / "package.json").read_bytes())
+    assert list(package["dependencies"]) == ["jsdom"]
+    version = package["dependencies"]["jsdom"]
+    assert re.fullmatch(r"\d+\.\d+\.\d+", version), version
+    lock = json.loads((ROOT / PAGE_SCRIPT / "package-lock.json").read_bytes())
+    assert lock["lockfileVersion"] == 3
+    assert lock["packages"][""]["dependencies"]["jsdom"] == version
+    assert lock["packages"]["node_modules/jsdom"]["version"] == version
+
+
+# --- the page-script harness (#53) -------------------------------------------------------
+
+IMG = HOSTILE[2]
+
+
+def write_page(tmp_path, text, name="page.html"):
+    """Write a test page as UTF-8 bytes: HOSTILE carries a raw U+2028."""
+    path = tmp_path / name
+    path.write_bytes(text.encode("utf-8"))
+    return path
+
+
+def violation_set(planted):
+    return {(v["rule"], v["tag"], v["attr"]) for v in planted.violations}
+
+
+def finding_set(text, rules=None):
+    """violation_set's twin for the static checker."""
+    return {(f.rule, f.tag, f.attr) for f in page_findings(text, rules=rules)}
+
+
+def known_bad_text(name):
+    return (KNOWN_BAD / name).read_bytes().decode("ascii")
+
+
+def test_harness_reports_raw_innerhtml_sink(node):
+    path = KNOWN_BAD / "raw_sink.html"
+    with open_page(path) as page:
+        found = page.planted_nodes([IMG])
+    assert found.unrendered == []
+    assert violation_set(found) == {("tag", "img", None), ("attribute", "img", "src"), ("attribute", "img", "onerror")}
+    assert {"node": "element", "tag": "img", "value": IMG} in found.created
+    assert {"node": "attribute", "tag": "img", "attr": "onerror", "value": IMG} in found.created
+    # The static checkers cannot see a script sink.
+    text = known_bad_text("raw_sink.html")
+    assert_page_safe(text, [IMG])
+    assert_no_external_resources(text)
+
+
+def test_harness_builds_real_elements(node):
+    with open_page(KNOWN_BAD / "raw_sink.html") as page:
+        imgs = page.query("#out img")
+    assert len(imgs) == 1
+    assert imgs[0].tag == "img"
+    assert imgs[0].attrs["onerror"] == IMG.split("onerror=")[1].split(">")[0]
+
+
+def test_harness_clean_page_reports_nothing(node, tmp_path):
+    with open_page(write_page(tmp_path, hostile_page())) as page:
+        assert page.planted_nodes(HOSTILE) == Planted([], [], [])
+        # The script did render, and the raw U+2028 value came back whole.
+        assert [e.text for e in page.query("#out li")] == list(HOSTILE)
+
+
+def test_harness_lists_unrendered(node, tmp_path):
+    script = RENDER_SCRIPT.replace("data.values", 'data.values.filter(v => v !== "{{DATA}}")', 1)
+    text = hostile_page(values=[v for v in HOSTILE if v != "{{DATA}}"], script=script)
+    with open_page(write_page(tmp_path, text)) as page:
+        found = page.planted_nodes(HOSTILE)
+    # The script's own copy of the value has a script ancestor, so it does not count.
+    assert found == Planted([], [], ["{{DATA}}"])
+
+
+SCRIPT_DETAILS = RENDER_SCRIPT + "\n" + "\n".join([
+    'const details = document.createElement("details");',
+    'details.textContent = "note";',
+    "document.body.appendChild(details);",
+])
+
+
+def test_harness_reports_tag_outside_rules(node, tmp_path, monkeypatch):
+    text = hostile_page(script=SCRIPT_DETAILS)
+    widened = _appended("allowed_tags", "details")
+    with open_page(write_page(tmp_path, text)) as page:
+        assert page.planted_nodes([]).violations == [{"rule": "tag", "tag": "details", "attr": None}]
+        assert page_findings(text) == []
+        assert page.planted_nodes([], rules=widened).violations == []
+        monkeypatch.setattr(page_safety, "RULES", widened)
+        assert page.planted_nodes([]).violations == []
+
+
+def _known_bad_text(name):
+    return lambda: known_bad_text(name)
+
+
+AGREE = [
+    *[(c[0], lambda extra=c[1]: hostile_page(body_extra=extra), None) for c in ONE_PER_RULE],
+    ("element_context", _known_bad_text("element_context.html"), None),
+    ("attribute_context", _known_bad_text("attribute_context.html"), None),
+    ("details_widened", lambda: hostile_page(body_extra="<details>note</details>"), _appended("allowed_tags", "details")),
+]
+
+
+@pytest.mark.parametrize("build,rules", [c[1:] for c in AGREE], ids=[c[0] for c in AGREE])
+def test_checkers_agree_on_rule_findings(node, tmp_path, build, rules):
+    # Two parsers, jsdom's and html.parser, on statically written markup.
+    text = build()
+    with open_page(write_page(tmp_path, text)) as page:
+        live = violation_set(page.planted_nodes([], rules=rules))
+    assert live == finding_set(text, rules)
+    assert bool(live) == (rules is None)
+
+
+def test_planted_nodes_checks_rules(node, tmp_path, monkeypatch):
+    with open_page(write_page(tmp_path, hostile_page())) as page:
+        sent = []
+        monkeypatch.setattr(page, "_request", sent.append)
+        with pytest.raises(ValueError, match="keys must be exactly"):
+            page.planted_nodes([], rules={"allowed_tags": []})
+    assert sent == []
+
+
+def test_planted_nodes_rejects_bad_planted(node, tmp_path, monkeypatch):
+    with open_page(write_page(tmp_path, hostile_page())) as page:
+        sent = []
+        monkeypatch.setattr(page, "_request", sent.append)
+        with pytest.raises(TypeError, match="not one string"):
+            page.planted_nodes(IMG)
+        with pytest.raises(TypeError, match="3"):
+            page.planted_nodes([IMG, 3])
+    assert sent == []
+
+
+def test_harness_loads_no_subresource(node, tmp_path):
+    (tmp_path / "side.js").write_text('document.title = "loaded";')
+    (tmp_path / "side.css").write_text("body { color: red }")
+    script = 'try { new XMLHttpRequest(); } catch (e) { document.getElementById("out").textContent = e.message; }'
+    extra = '<script src="side.js"></script><link rel="stylesheet" href="side.css">'
+    with open_page(write_page(tmp_path, hostile_page(body_extra=extra, script=script))) as page:
+        assert page.query("title")[0].text == "Hostile values"
+        assert "loads no subresource: XMLHttpRequest" in page.query("#out")[0].text
+
+
+def test_harness_load_error_raises(node, tmp_path):
+    path = write_page(tmp_path, hostile_page(script='throw new Error("gantry-load-boom");'))
+    with pytest.raises(PageScriptError, match="gantry-load-boom"):
+        with open_page(path):
+            pass
+
+
+@pytest.mark.parametrize("script,pattern", [
+    ('Promise.reject(new Error("gantry-reject"));', "page script error: Error: gantry-reject"),
+    ('throw "gantry-bare";', "page script error: gantry-bare"),
+], ids=["rejection", "non_error"])
+def test_harness_load_failure_is_named(node, tmp_path, script, pattern):
+    with pytest.raises(PageScriptError, match=pattern):
+        with open_page(write_page(tmp_path, hostile_page(script=script))):
+            pass
+
+
+# Statically written markup where jsdom and html.parser disagree, each listed
+# under the doc's Limits: a fix that closes one reddens here.
+DIVERGE = [
+    ("template_content", "<template><img src=x onerror=y></template>"),
+    ("valueless_script_id", "<script id>1</script>"),
+    ("image_alias", "<image src=x>"),
+]
+
+
+@pytest.mark.parametrize("extra", [c[1] for c in DIVERGE], ids=[c[0] for c in DIVERGE])
+def test_checkers_diverge_where_documented(node, tmp_path, extra):
+    text = hostile_page(body_extra=extra)
+    with open_page(write_page(tmp_path, text)) as page:
+        live = violation_set(page.planted_nodes([]))
+    static = finding_set(text)
+    # Both still fail the page: the divergence is in the detail, not the verdict.
+    assert live and static and live != static
+
+
+def test_harness_errors_are_harness_errors(node, tmp_path, monkeypatch):
+    with open_page(write_page(tmp_path, hostile_page())) as page:
+        with pytest.raises(HarnessError, match="bad selector"):
+            page.query("[")
+        page._proc.kill()
+        page._proc.wait()
+        with pytest.raises(HarnessError, match="exited"):
+            page.query("p")
+    monkeypatch.setattr(harness, "REPLY_TIMEOUT", 2)
+    spin = write_page(tmp_path, hostile_page(script="for (;;) {}"), name="spin.html")
+    with pytest.raises(HarnessError, match="no reply"):
+        with open_page(spin):
+            pass
+
+
+@pytest.mark.parametrize("name", ["setTimeout", "setInterval", "requestAnimationFrame"])
+def test_harness_refuses_timers(node, tmp_path, name):
+    path = write_page(tmp_path, hostile_page(script=name + "(function () {});"))
+    with pytest.raises(PageScriptError, match="runs no timer: " + name):
+        with open_page(path):
+            pass
+
+
+def test_harness_storage_is_page_script_error(node, tmp_path):
+    # A file: page has an opaque origin, so storage throws.
+    path = write_page(tmp_path, hostile_page(script='localStorage.getItem("k");'))
+    with pytest.raises(PageScriptError, match="SecurityError"):
+        with open_page(path):
+            pass
+
+
+LISTENER_BODY = "\n".join([
+    '<select data-control="lanes">',
+    *[f'<option value="{n}">{n}</option>' for n in range(1, 5)],
+    "</select>",
+    '<button data-control="zoom" data-value="wave">wave</button>',
+    '<button data-control="zoom" data-value="all">all</button>',
+    '<div id="panel"></div>',
+    '<ul id="log"></ul>',
+])
+
+LISTENER_SCRIPT = "\n".join([
+    'document.getElementById("panel").innerHTML = '
+    "'<svg data-control=\"detail\" data-control-items><g data-item=\"leaf-1\"></g><g data-item=\"leaf-2\"></g></svg>';",
+    "function record(type, target, value) {",
+    '  const control = target.closest("[data-control]").getAttribute("data-control");',
+    '  const li = document.createElement("li");',
+    '  li.textContent = type + ":" + control + ":" + value;',
+    '  document.getElementById("log").appendChild(li);',
+    "}",
+    'document.addEventListener("change", (e) => record("change", e.target, e.target.value));',
+    "document.addEventListener(\"click\", (e) => {",
+    '  const button = e.target.closest("[data-control]");',
+    '  record("click", button, button.getAttribute("data-value"));',
+    "});",
+    'document.addEventListener("focusin", (e) => record("focusin", e.target, e.target.getAttribute("data-item")));',
+])
+
+
+def listener_page(tmp_path, body=LISTENER_BODY):
+    return write_page(tmp_path, hostile_page(body_extra=body, script=LISTENER_SCRIPT))
+
+
+def test_drive_each_control_kind(node, tmp_path):
+    with open_page(listener_page(tmp_path)) as page:
+        page.drive("lanes", "3")
+        page.drive("zoom", "all")
+        page.drive("detail", "leaf-2")
+        # The focusin target is the matching item, not the first one.
+        assert [e.text for e in page.query("#log li")] == ["change:lanes:3", "click:zoom:all", "focusin:detail:leaf-2"]
+        assert page.planted_nodes([]).violations == []
+
+
+def test_drive_unknown_control_raises(node, tmp_path):
+    with open_page(listener_page(tmp_path)) as page:
+        with pytest.raises(PageScriptError, match="nosuch"):
+            page.drive("nosuch", "1")
+
+
+DISABLED_LANES = LISTENER_BODY.replace('<select data-control="lanes">', '<select data-control="lanes" disabled>')
+
+
+@pytest.mark.parametrize("control,value,body,pattern", [
+    ("lanes", "9", LISTENER_BODY, '"9"'),
+    ("zoom", "none", LISTENER_BODY, '"none"'),
+    ("detail", "leaf-9", LISTENER_BODY, '"leaf-9"'),
+    ("lanes", "3", DISABLED_LANES, "is disabled"),
+    ("lanes", "3", LISTENER_BODY + '\n<button data-control="lanes" data-value="3">3</button>', "is ambiguous"),
+    ("bare", "x", LISTENER_BODY + '\n<div data-control="bare">x</div>', "is not a select"),
+], ids=["option", "button", "item", "disabled_select", "ambiguous", "not_a_control"])
+def test_drive_unknown_value_raises(node, tmp_path, control, value, body, pattern):
+    with open_page(listener_page(tmp_path, body)) as page:
+        with pytest.raises(PageScriptError, match=pattern):
+            page.drive(control, value)
+
+
+@pytest.mark.parametrize("asynchronous", ["", "async "], ids=["sync", "async"])
+def test_drive_listener_error_raises(node, tmp_path, asynchronous):
+    script = f'document.addEventListener("click", {asynchronous}() => {{ throw new Error("gantry-listener-boom"); }});'
+    body = '<button data-control="boom" data-value="x">b</button>'
+    with open_page(write_page(tmp_path, hostile_page(body_extra=body, script=script))) as page:
+        with pytest.raises(PageScriptError, match="gantry-listener-boom"):
+            page.drive("boom", "x")
+
+
+def test_drive_rejects_non_str(node, tmp_path):
+    with open_page(listener_page(tmp_path)) as page:
+        with pytest.raises(TypeError, match="lanes"):
+            page.drive("lanes", 3)
+
+
+GANTRY_TEST = "\n".join([
+    "globalThis.gantryTest = Object.freeze({",
+    '  pairs: (n) => new Map([["__proto__", n], ["b", 2.5], ["m", new Map([["k", true]])]]),',
+    '  keys: (o) => Object.keys(o).join(",") + "|" + Array.isArray(o.list),',
+    "  notfn: 3,",
+    '  boom: () => { throw new Error("gantry-call-boom"); },',
+    "  undef: () => undefined,",
+    "  spin: () => { for (;;) {} },",
+    '  rej: () => Promise.reject(new Error("gantry-later")),',
+    '  bare: () => { throw "gantry-bare"; },',
+    "});",
+])
+
+
+def gantry_test_page(tmp_path):
+    return write_page(tmp_path, hostile_page(script=GANTRY_TEST), name="functions.html")
+
+
+def test_run_function_returns_map_pairs(node, tmp_path):
+    got = run_function(gantry_test_page(tmp_path), "gantryTest.pairs", [1])
+    assert got == [["__proto__", 1], ["b", 2.5], ["m", [["k", True]]]]
+
+
+def test_run_function_args_in_page_realm(node, tmp_path):
+    got = run_function(gantry_test_page(tmp_path), "gantryTest.keys", [{"__proto__": 1, "list": []}])
+    assert got == "__proto__,list|true"
+
+
+@pytest.mark.parametrize("name,pattern", [
+    ("gantryTest.nosuch", "nosuch"),
+    ("gantryTest.notfn", "is not a function"),
+    ("gantryTest.boom", "gantry-call-boom"),
+    ("gantryTest.undef", "JSON cannot carry"),
+    ("gantryTest.bare", "threw gantry-bare"),
+], ids=["nosuch", "notfn", "boom", "undef", "bare"])
+def test_run_function_errors(node, tmp_path, name, pattern):
+    with pytest.raises(PageScriptError, match=pattern):
+        run_function(gantry_test_page(tmp_path), name)
+
+
+def test_run_function_rejection_stays_with_its_call(node, tmp_path):
+    page = gantry_test_page(tmp_path)
+    with pytest.raises(PageScriptError, match="gantry-later"):
+        run_function(page, "gantryTest.rej")
+    # The rejection neither killed the shared driver nor reached the next call.
+    assert run_function(page, "gantryTest.pairs", [1])[0] == ["__proto__", 1]
+
+
+def test_shared_driver_recycles_after_timeout(node, tmp_path, monkeypatch):
+    page = gantry_test_page(tmp_path)
+    monkeypatch.setattr(harness, "REPLY_TIMEOUT", 2)
+    with pytest.raises(HarnessError, match="no reply"):
+        run_function(page, "gantryTest.spin")
+    # The timeout times the spin only; the next call gets the usual one.
+    monkeypatch.undo()
+    assert run_function(page, "gantryTest.pairs", [1])[0] == ["__proto__", 1]
+
+
+# --- CI and the end-to-end gate (#53) -----------------------------------------------------
+
+WORKFLOW = ".github/workflows/test.yml"
+# jsdom 30.1.3's engines floor (^24.15.0 on the 24 line).
+NODE_FLOOR = (24, 15, 0)
+SETUP_NODE_RE = re.compile(r"(?:- )?uses: actions/setup-node@v(\d+)")
+
+
+def workflow_lines():
+    return [line.strip() for line in (ROOT / WORKFLOW).read_bytes().decode("utf-8").splitlines()]
+
+
+def workflow_node_major():
+    found = [line for line in workflow_lines() if line.startswith("node-version:")]
+    assert len(found) == 1, found
+    return int(re.fullmatch(r'node-version: "(\d+)"', found[0]).group(1))
+
+
+def test_test_workflow_installs_node():
+    lines = workflow_lines()
+    steps = [
+        lambda line: line in ("uses: actions/setup-python@v5", "- uses: actions/setup-python@v5"),
+        # A newer setup-node major takes the same inputs.
+        lambda line: (m := SETUP_NODE_RE.fullmatch(line)) is not None and int(m.group(1)) >= 4,
+        lambda line: line == 'node-version: "24"',
+        lambda line: line == "- run: npm ci --prefix tests/page_script",
+        lambda line: line == "- run: python -m pytest -q -rs",
+    ]
+    at = -1
+    for i, step in enumerate(steps):
+        hits = [n for n, line in enumerate(lines) if n > at and step(line)]
+        assert hits, f"step {i} missing or out of order"
+        at = hits[0]
+    assert "os: [ubuntu-latest, windows-latest]" in lines
+    assert 'python: ["3.11", "3.x"]' in lines
+    assert not [line for line in lines if line.startswith(("if:", "- if:"))]
+    assert not [line for line in lines if "run:" in line and "&&" in line]
+
+
+def test_driver_runs_pinned_node_major(node):
+    version = node_version()
+    assert re.fullmatch(r"\d+\.\d+\.\d+", version), version
+    parts = tuple(int(p) for p in version.split("."))
+    assert parts >= NODE_FLOOR, version
+    if os.environ.get("CI"):
+        assert parts[0] == workflow_node_major(), version
+
+
+# Floors, not exact counts: raise them when adding tests to this module.
+NODE_TESTS = 51
+STATIC_TESTS = 113
+
+
+def gate_run(tmp_path, ci):
+    """Run this module, minus this test, with no node on PATH: (exit code, junit cases)."""
+    empty = tmp_path / "empty"
+    empty.mkdir(exist_ok=True)
+    env = {k: v for k, v in os.environ.items() if k not in ("PYTEST_ADDOPTS", "CI")}
+    env["PATH"] = str(empty)
+    if ci is not None:
+        env["CI"] = ci
+    xml = tmp_path / f"gate-{ci}.xml"
+    command = [sys.executable, "-m", "pytest", "-q", "-rs", "-p", "no:cacheprovider", "-k", "not end_to_end",
+               "--junitxml", str(xml), "tests/test_page_checkers.py"]
+    proc = subprocess.run(command, cwd=ROOT, env=env, capture_output=True)
+    cases = []
+    for case in ET.parse(xml).getroot().iter("testcase"):
+        outcome = next(((c.tag, c.get("message") or "") for c in case if c.tag in ("skipped", "failure", "error")),
+                       ("passed", ""))
+        cases.append(outcome)
+    return proc.returncode, cases
+
+
+@pytest.mark.parametrize("ci", [None, "", "true"], ids=["unset", "empty", "true"])
+def test_node_gate_end_to_end(tmp_path, ci):
+    code, cases = gate_run(tmp_path, ci)
+    passed = [kind for kind, _ in cases].count("passed")
+    others = [(kind, message) for kind, message in cases if kind != "passed"]
+    if ci:
+        # A setup-time pytest.fail is an <error> wrapping the reason (spike.md U7).
+        assert all(kind in ("failure", "error") and NODE_MISSING + CI_SUFFIX in message for kind, message in others), others
+        assert code == 1
+    else:
+        assert all(kind == "skipped" and message == NODE_MISSING for kind, message in others), others
+        assert code == 0
+    assert len(others) >= NODE_TESTS
+    assert passed >= STATIC_TESTS
+
+
+def test_open_page_without_node_is_harness_error(tmp_path, monkeypatch):
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    monkeypatch.setenv("PATH", str(empty))
+    with pytest.raises(HarnessError, match=NODE_MISSING):
+        with open_page(write_page(tmp_path, hostile_page())):
+            pass
+
+
+def test_driver_spawn_failure_is_harness_error(tmp_path, monkeypatch):
+    def refuse(*args, **kwargs):
+        raise PermissionError("node is not executable")
+
+    monkeypatch.setattr(harness, "node_status", lambda: None)
+    monkeypatch.setattr(harness.subprocess, "Popen", refuse)
+    with pytest.raises(HarnessError, match="cannot start the page-script driver: node is not executable"):
+        with open_page(write_page(tmp_path, hostile_page())):
+            pass
+
+
+@pytest.mark.parametrize("name,args", [(1, ()), ("gantryTest.pairs", "ab")], ids=["name", "args"])
+def test_run_function_rejects_bad_arguments(tmp_path, name, args):
+    with pytest.raises(TypeError, match="run_function"):
+        run_function(tmp_path / "unused.html", name, args)
