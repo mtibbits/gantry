@@ -183,7 +183,9 @@ checks what its script built with `planted_nodes`.
 
 - `open_page(path)` is a context manager: it loads the page, waits for its
   load event and one settle step, and yields a page. The page's scripts run;
-  nothing else it names is loaded.
+  nothing else it names is loaded. jsdom is no sandbox: a page's script runs
+  with the test process's rights, so the harness is only for pages Gantry's
+  own templates built, never for a page from outside the repository.
 - `page.drive(control, value)` sets a control the way a user would (see
   [Control convention](#control-convention)), then settles.
 - `page.query(selector)` returns the matching elements, in document order,
@@ -222,9 +224,11 @@ Two errors keep the page's failures apart from the harness's own:
   something jsdom does not implement, a refused network call or timer, a
   missing or disabled control or value, or a `run_function` name that is not
   defined, is not a function, throws or returns what JSON cannot carry;
-- `HarnessError`: Node or jsdom is not ready, the driver exited or sent no
-  reply within `REPLY_TIMEOUT` seconds, the reply broke the protocol, or a
-  selector is invalid.
+- `HarnessError`: Node or jsdom is not ready, `package.json` pins no jsdom,
+  the driver could not start, exited or sent no reply within `REPLY_TIMEOUT`
+  seconds, the reply broke the protocol, or a selector is invalid. A new
+  driver first gets `START_TIMEOUT` seconds to load jsdom, so a short
+  `REPLY_TIMEOUT` times the page, not the load.
 
 The harness loads no subresource: a `script src`, a stylesheet or a frame
 the page names is never fetched, and `fetch`, `XMLHttpRequest`, `WebSocket`
@@ -287,6 +291,9 @@ finds one of four states:
 | jsdom installed at another version than the pin | skips | fails |
 | ready | runs | runs |
 
+A `package.json` that cannot be read or pins no jsdom is a `HarnessError`,
+not a skip.
+
 The reasons, verbatim (the CI failure adds a note that `CI` is set):
 
 ```
@@ -328,6 +335,7 @@ harness reports the `img` and its handler it built.
   `IntersectionObserver` and a canvas `getContext` are missing or not
   implemented in jsdom, and fail the same way.
 - jsdom does no layout: sizes and positions are zero.
+- A page's console output is discarded.
 - jsdom does not enforce the CSP.
 - `drive` fires only `change`, `click` and `focusin`.
 - The harness's `violations` and `page_findings` differ in detail on some

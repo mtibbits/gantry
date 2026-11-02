@@ -243,7 +243,11 @@ class Page(_Driver):
 
 @contextmanager
 def open_page(path):
-    """Load the page at path into jsdom, run its scripts, and yield a Page."""
+    """Load the page at path into jsdom, run its scripts, and yield a Page.
+
+    The page's script runs with this process's rights: open only pages
+    Gantry's own templates built.
+    """
     page = Page()
     try:
         page._request({"op": "open", "path": str(Path(path).resolve())})

@@ -406,4 +406,9 @@ async function main() {
   if (state.page !== null) state.page.window.close();
 }
 
-main();
+// The unhandledRejection listener keeps Node alive on a rejection, so a
+// fault in main itself must end the driver, not leave Python waiting.
+main().catch((e) => {
+  process.stderr.write("page-script driver failed: " + describe(e) + "\n");
+  process.exit(1);
+});
