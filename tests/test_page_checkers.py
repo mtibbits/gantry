@@ -30,7 +30,18 @@ from page_safety import (
     page_findings,
 )
 from page_script.gate import CI_SUFFIX, require_node
-from page_script.harness import JSDOM_MISSING, JSDOM_STALE, NODE_MISSING, HarnessError, find_node, node_status
+from page_script import harness
+from page_script.harness import (
+    JSDOM_MISSING,
+    JSDOM_STALE,
+    NODE_MISSING,
+    HarnessError,
+    PageScriptError,
+    Planted,
+    find_node,
+    node_status,
+    open_page,
+)
 from test_samples import ROOT
 from test_source_scan import ALLOW
 
@@ -478,7 +489,7 @@ def test_no_external_resources_without_explicit_head():
 
 PAGE_SCRIPT = "tests/page_script"
 # The page-script harness's own files (#53).
-OWN = {"package.json", "package-lock.json", "harness.py", "gate.py"}
+OWN = {"package.json", "package-lock.json", "driver.js", "harness.py", "gate.py", "known_bad/raw_sink.html"}
 # Every file under tests/page_script; #53 adds its own here.
 EXPECTED = {"page_rules.json", "known_bad/element_context.html", "known_bad/attribute_context.html"} | OWN
 ASCII_LF = sorted({f"{PAGE_SCRIPT}/{rel}" for rel in EXPECTED} | {"tests/page_safety.py", "tests/test_page_checkers.py"})
@@ -655,3 +666,174 @@ def test_jsdom_pin_is_exact():
     assert lock["lockfileVersion"] == 3
     assert lock["packages"][""]["dependencies"]["jsdom"] == version
     assert lock["packages"]["node_modules/jsdom"]["version"] == version
+
+
+# --- the page-script harness (#53) -------------------------------------------------------
+
+IMG = HOSTILE[2]
+
+
+def write_page(tmp_path, text, name="page.html"):
+    """Write a test page as UTF-8 bytes: HOSTILE carries a raw U+2028."""
+    path = tmp_path / name
+    path.write_bytes(text.encode("utf-8"))
+    return path
+
+
+def violation_set(planted):
+    return {(v["rule"], v["tag"], v["attr"]) for v in planted.violations}
+
+
+def test_harness_reports_raw_innerhtml_sink(node):
+    path = KNOWN_BAD / "raw_sink.html"
+    with open_page(path) as page:
+        found = page.planted_nodes([IMG])
+    assert found.unrendered == []
+    assert violation_set(found) == {("tag", "img", None), ("attribute", "img", "src"), ("attribute", "img", "onerror")}
+    assert {"node": "element", "tag": "img", "value": IMG} in found.created
+    assert {"node": "attribute", "tag": "img", "attr": "onerror", "value": IMG} in found.created
+    # The static checkers cannot see a script sink.
+    text = path.read_bytes().decode("ascii")
+    assert_page_safe(text, [IMG])
+    assert_no_external_resources(text)
+
+
+def test_harness_builds_real_elements(node):
+    with open_page(KNOWN_BAD / "raw_sink.html") as page:
+        imgs = page.query("#out img")
+    assert len(imgs) == 1
+    assert imgs[0].tag == "img"
+    assert imgs[0].attrs["onerror"] == IMG.split("onerror=")[1].split(">")[0]
+
+
+def test_harness_clean_page_reports_nothing(node, tmp_path):
+    with open_page(write_page(tmp_path, hostile_page())) as page:
+        assert page.planted_nodes(HOSTILE) == Planted([], [], [])
+        # The script did render, and the raw U+2028 value came back whole.
+        assert [e.text for e in page.query("#out li")] == list(HOSTILE)
+
+
+def test_harness_lists_unrendered(node, tmp_path):
+    script = RENDER_SCRIPT.replace("data.values", 'data.values.filter(v => v !== "{{DATA}}")', 1)
+    text = hostile_page(values=[v for v in HOSTILE if v != "{{DATA}}"], script=script)
+    with open_page(write_page(tmp_path, text)) as page:
+        found = page.planted_nodes(HOSTILE)
+    # The script's own copy of the value has a script ancestor, so it does not count.
+    assert found == Planted([], [], ["{{DATA}}"])
+
+
+SCRIPT_DETAILS = RENDER_SCRIPT + "\n" + "\n".join([
+    'const details = document.createElement("details");',
+    'details.textContent = "note";',
+    "document.body.appendChild(details);",
+])
+
+
+def test_harness_reports_tag_outside_rules(node, tmp_path, monkeypatch):
+    text = hostile_page(script=SCRIPT_DETAILS)
+    widened = _appended("allowed_tags", "details")
+    with open_page(write_page(tmp_path, text)) as page:
+        assert page.planted_nodes([]).violations == [{"rule": "tag", "tag": "details", "attr": None}]
+        assert page_findings(text) == []
+        assert page.planted_nodes([], rules=widened).violations == []
+        monkeypatch.setattr(page_safety, "RULES", widened)
+        assert page.planted_nodes([]).violations == []
+
+
+def _known_bad_text(name):
+    return lambda: (KNOWN_BAD / name).read_bytes().decode("ascii")
+
+
+AGREE = [
+    *[(c[0], lambda extra=c[1]: hostile_page(body_extra=extra), None) for c in ONE_PER_RULE],
+    ("element_context", _known_bad_text("element_context.html"), None),
+    ("attribute_context", _known_bad_text("attribute_context.html"), None),
+    ("details_widened", lambda: hostile_page(body_extra="<details>note</details>"), _appended("allowed_tags", "details")),
+]
+
+
+@pytest.mark.parametrize("build,rules", [c[1:] for c in AGREE], ids=[c[0] for c in AGREE])
+def test_checkers_agree_on_rule_findings(node, tmp_path, build, rules):
+    # Two parsers, jsdom's and html.parser, on statically written markup.
+    text = build()
+    with open_page(write_page(tmp_path, text)) as page:
+        live = violation_set(page.planted_nodes([], rules=rules))
+    assert live == {(f.rule, f.tag, f.attr) for f in page_findings(text, rules=rules)}
+    assert bool(live) == (rules is None)
+
+
+def test_planted_nodes_checks_rules(node, tmp_path, monkeypatch):
+    with open_page(write_page(tmp_path, hostile_page())) as page:
+        sent = []
+        monkeypatch.setattr(page, "_request", sent.append)
+        with pytest.raises(ValueError, match="keys must be exactly"):
+            page.planted_nodes([], rules={"allowed_tags": []})
+    assert sent == []
+
+
+def test_planted_nodes_rejects_bad_planted(node, tmp_path, monkeypatch):
+    with open_page(write_page(tmp_path, hostile_page())) as page:
+        sent = []
+        monkeypatch.setattr(page, "_request", sent.append)
+        with pytest.raises(TypeError, match="not one string"):
+            page.planted_nodes(IMG)
+        with pytest.raises(TypeError, match="3"):
+            page.planted_nodes([IMG, 3])
+    assert sent == []
+
+
+def test_harness_loads_no_subresource(node, tmp_path):
+    (tmp_path / "side.js").write_text('document.title = "loaded";')
+    (tmp_path / "side.css").write_text("body { color: red }")
+    script = 'try { new XMLHttpRequest(); } catch (e) { document.getElementById("out").textContent = e.message; }'
+    extra = '<script src="side.js"></script><link rel="stylesheet" href="side.css">'
+    with open_page(write_page(tmp_path, hostile_page(body_extra=extra, script=script))) as page:
+        assert page.query("title")[0].text == "Hostile values"
+        assert "loads no subresource: XMLHttpRequest" in page.query("#out")[0].text
+
+
+def test_harness_load_error_raises(node, tmp_path):
+    path = write_page(tmp_path, hostile_page(script='throw new Error("gantry-load-boom");'))
+    with pytest.raises(PageScriptError, match="gantry-load-boom"):
+        with open_page(path):
+            pass
+
+
+def test_harness_errors_are_harness_errors(node, tmp_path, monkeypatch):
+    with open_page(write_page(tmp_path, hostile_page())) as page:
+        with pytest.raises(HarnessError, match="bad selector"):
+            page.query("[")
+        page._proc.kill()
+        page._proc.wait()
+        with pytest.raises(HarnessError, match="exited"):
+            page.query("p")
+    monkeypatch.setattr(harness, "REPLY_TIMEOUT", 2)
+    spin = write_page(tmp_path, hostile_page(script="for (;;) {}"), name="spin.html")
+    with pytest.raises(HarnessError, match="no reply"):
+        with open_page(spin):
+            pass
+
+
+@pytest.mark.parametrize("name", ["setTimeout", "setInterval", "requestAnimationFrame"])
+def test_harness_refuses_timers(node, tmp_path, name):
+    path = write_page(tmp_path, hostile_page(script=name + "(function () {});"))
+    with pytest.raises(PageScriptError, match="runs no timer: " + name):
+        with open_page(path):
+            pass
+
+
+def test_harness_storage_is_page_script_error(node, tmp_path):
+    # A file: page has an opaque origin, so storage throws.
+    path = write_page(tmp_path, hostile_page(script='localStorage.getItem("k");'))
+    with pytest.raises(PageScriptError, match="SecurityError"):
+        with open_page(path):
+            pass
+
+
+def test_open_page_without_node_is_harness_error(tmp_path, monkeypatch):
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    monkeypatch.setenv("PATH", str(empty))
+    with pytest.raises(HarnessError, match=NODE_MISSING):
+        with open_page(write_page(tmp_path, hostile_page())):
+            pass
