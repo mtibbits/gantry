@@ -6,3 +6,5 @@ __pycache__/
 # Generated pages and per-installation config never belong in this repo.
 out/
 *.local.toml
+# The page-script harness's npm install (tests/page_script); never committed.
+node_modules/

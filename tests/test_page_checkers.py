@@ -29,6 +29,8 @@ from page_safety import (
     check_rules,
     page_findings,
 )
+from page_script.gate import CI_SUFFIX, require_node
+from page_script.harness import JSDOM_MISSING, JSDOM_STALE, NODE_MISSING, HarnessError, find_node, node_status
 from test_samples import ROOT
 from test_source_scan import ALLOW
 
@@ -475,8 +477,10 @@ def test_no_external_resources_without_explicit_head():
 # --- the committed page files ---------------------------------------------------------
 
 PAGE_SCRIPT = "tests/page_script"
+# The page-script harness's own files (#53).
+OWN = {"package.json", "package-lock.json", "harness.py", "gate.py"}
 # Every file under tests/page_script; #53 adds its own here.
-EXPECTED = {"page_rules.json", "known_bad/element_context.html", "known_bad/attribute_context.html"}
+EXPECTED = {"page_rules.json", "known_bad/element_context.html", "known_bad/attribute_context.html"} | OWN
 ASCII_LF = sorted({f"{PAGE_SCRIPT}/{rel}" for rel in EXPECTED} | {"tests/page_safety.py", "tests/test_page_checkers.py"})
 SKIP_DIRS = {"__pycache__", "node_modules"}
 # docs/ has no eol rule and may be CRLF on a Windows checkout: the commit
@@ -544,3 +548,110 @@ LIMITS = [
 @pytest.mark.parametrize("check", [c[1] for c in LIMITS], ids=[c[0] for c in LIMITS])
 def test_documented_limits_hold(check):
     check()
+
+
+# --- the Node gate (#53) ---------------------------------------------------------------
+
+
+def no_node(name, path=None):
+    return None
+
+
+def some_node(name, path=None):
+    return "node"
+
+
+def gate_root(tmp_path, pinned="1.2.3", installed=None):
+    """A harness folder pinning jsdom pinned, with installed as its node_modules copy."""
+    (tmp_path / "package.json").write_text(json.dumps({"dependencies": {"jsdom": pinned}}))
+    if installed is not None:
+        folder = tmp_path / "node_modules" / "jsdom"
+        folder.mkdir(parents=True)
+        (folder / "package.json").write_text(json.dumps({"version": installed}))
+    return tmp_path
+
+
+@pytest.mark.parametrize("env", [{}, {"CI": ""}], ids=["unset", "empty"])
+def test_gate_skips_without_node(env):
+    with pytest.raises(pytest.skip.Exception) as excinfo:
+        require_node(env=env, which=no_node)
+    assert excinfo.value.msg == NODE_MISSING
+
+
+@pytest.mark.parametrize("ci", ["true", "1"])
+def test_gate_fails_in_ci_without_node(ci):
+    with pytest.raises(pytest.fail.Exception) as excinfo:
+        require_node(env={"CI": ci}, which=no_node)
+    assert excinfo.value.msg == NODE_MISSING + CI_SUFFIX
+
+
+def test_gate_jsdom_missing_on_empty_folder(tmp_path):
+    with pytest.raises(pytest.skip.Exception) as excinfo:
+        require_node(env={}, which=some_node, root=tmp_path)
+    assert excinfo.value.msg == JSDOM_MISSING
+    with pytest.raises(pytest.fail.Exception) as excinfo:
+        require_node(env={"CI": "true"}, which=some_node, root=tmp_path)
+    assert excinfo.value.msg == JSDOM_MISSING + CI_SUFFIX
+
+
+def test_gate_jsdom_stale(tmp_path):
+    root = gate_root(tmp_path, pinned="1.2.3", installed="1.2.4")
+    reason = JSDOM_STALE.format(found="1.2.4", pinned="1.2.3")
+    with pytest.raises(pytest.skip.Exception) as excinfo:
+        require_node(env={}, which=some_node, root=root)
+    assert excinfo.value.msg == reason
+    with pytest.raises(pytest.fail.Exception) as excinfo:
+        require_node(env={"CI": "true"}, which=some_node, root=root)
+    assert excinfo.value.msg == reason + CI_SUFFIX
+
+
+def test_gate_ready(tmp_path):
+    root = gate_root(tmp_path, installed="1.2.3")
+    assert node_status(env={}, which=some_node, root=root) is None
+    assert require_node(env={"CI": "true"}, which=some_node, root=root) is None
+
+
+def test_find_node_reads_env_path():
+    calls = []
+
+    def spy(name, path=None):
+        calls.append((name, path))
+        return None
+
+    find_node(env={"PATH": "p"}, which=spy)
+    find_node(env={}, which=spy)
+    # Never None: a None path makes shutil.which read os.environ.
+    assert calls == [("node", "p"), ("node", "")]
+
+
+def _no_package_json(root):
+    (root / "package.json").unlink()
+
+
+def _invalid_package_json(root):
+    (root / "package.json").write_text("{")
+
+
+def _no_jsdom_pin(root):
+    (root / "package.json").write_text(json.dumps({"dependencies": {}}))
+
+
+@pytest.mark.parametrize("spoil", [_no_package_json, _invalid_package_json, _no_jsdom_pin],
+                         ids=["absent", "invalid", "no_pin"])
+def test_gate_bad_package_json_is_harness_error(tmp_path, spoil):
+    # The pin is read once jsdom is found installed: an empty folder is JSDOM_MISSING.
+    root = gate_root(tmp_path, installed="1.2.3")
+    spoil(root)
+    with pytest.raises(HarnessError, match="package.json"):
+        node_status(env={}, which=some_node, root=root)
+
+
+def test_jsdom_pin_is_exact():
+    package = json.loads((ROOT / PAGE_SCRIPT / "package.json").read_bytes())
+    assert list(package["dependencies"]) == ["jsdom"]
+    version = package["dependencies"]["jsdom"]
+    assert re.fullmatch(r"\d+\.\d+\.\d+", version), version
+    lock = json.loads((ROOT / PAGE_SCRIPT / "package-lock.json").read_bytes())
+    assert lock["lockfileVersion"] == 3
+    assert lock["packages"][""]["dependencies"]["jsdom"] == version
+    assert lock["packages"]["node_modules/jsdom"]["version"] == version
