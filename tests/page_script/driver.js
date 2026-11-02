@@ -209,6 +209,131 @@ function plantedReport(page, planted, rules) {
   return { created, violations, unrendered };
 }
 
+// --- drive -----------------------------------------------------------------------
+
+// The three control kinds (docs/page-safety.md, "Control convention").
+function kindOf(el) {
+  if (tagOf(el) === "select") return "select";
+  if (tagOf(el) === "button" && el.hasAttribute("data-value")) return "button";
+  if (el.hasAttribute("data-control-items")) return "items";
+  return "other";
+}
+
+async function drive(page, control, value) {
+  const { document, window } = page;
+  // Matched by comparing the attribute, never by a selector built from a value.
+  const matches = Array.from(document.querySelectorAll("[data-control]")).filter(
+    (el) => el.getAttribute("data-control") === control,
+  );
+  const name = '"' + control + '"';
+  if (matches.length === 0) throw new PageError("no control named " + name);
+  const kinds = new Set(matches.map(kindOf));
+  if (kinds.size > 1) throw new PageError("control " + name + " is ambiguous");
+  const kind = kindOf(matches[0]);
+  if (kind === "select") {
+    const select = matches[0];
+    const option = Array.from(select.options).find((o) => o.value === value);
+    if (option === undefined) throw new PageError("control " + name + ' has no option "' + value + '"');
+    if (select.disabled || option.disabled) throw new PageError("control " + name + " is disabled");
+    select.value = value;
+    select.dispatchEvent(new window.Event("change", { bubbles: true }));
+  } else if (kind === "button") {
+    const button = matches.find((b) => b.getAttribute("data-value") === value);
+    if (button === undefined) throw new PageError("control " + name + ' has no button "' + value + '"');
+    if (button.disabled) throw new PageError("control " + name + " is disabled");
+    button.click();
+  } else if (kind === "items") {
+    const item = matches
+      .flatMap((c) => Array.from(c.querySelectorAll("[data-item]")))
+      .find((el) => el.getAttribute("data-item") === value);
+    if (item === undefined) throw new PageError("control " + name + ' has no item "' + value + '"');
+    item.dispatchEvent(new window.FocusEvent("focusin", { bubbles: true }));
+  } else {
+    throw new PageError("control " + name + " is not a select, a button with data-value or a data-control-items container");
+  }
+  await settle();
+  drain(page.errors);
+}
+
+// --- call --------------------------------------------------------------------------
+
+class Unencodable extends Error {
+  constructor(path, kind) {
+    super(path + ": " + kind);
+    this.path = path;
+    this.kind = kind;
+  }
+}
+
+function kindName(value) {
+  if (value === undefined) return "undefined";
+  if (typeof value === "number") return "non-finite number";
+  if (typeof value !== "object") return typeof value;
+  return Object.prototype.toString.call(value).slice(8, -1);
+}
+
+// The return value as JSON can carry it: null, booleans, finite numbers,
+// strings, arrays and plain objects, with a Map as [key, value] pairs.
+function encode(value, path, pageObject) {
+  if (value === null || typeof value === "boolean" || typeof value === "string") return value;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (Array.isArray(value)) {
+    const out = [];
+    for (let i = 0; i < value.length; i++) out.push(encode(value[i], path + "[" + i + "]", pageObject));
+    return out;
+  }
+  if (typeof value === "object") {
+    // A page-realm Map is not instanceof this realm's Map (spike.md U5).
+    if (Object.prototype.toString.call(value) === "[object Map]") {
+      return Array.from(value, ([k, v], i) => [
+        encode(k, path + ".key(" + i + ")", pageObject),
+        encode(v, path + ".get(" + i + ")", pageObject),
+      ]);
+    }
+    const proto = Object.getPrototypeOf(value);
+    if (proto === null || proto === Object.prototype || proto === pageObject) {
+      // A null prototype, so an own __proto__ key stays a key.
+      const out = Object.create(null);
+      for (const key of Object.keys(value)) out[key] = encode(value[key], path + "." + key, pageObject);
+      return out;
+    }
+  }
+  throw new Unencodable(path, kindName(value));
+}
+
+async function call(path, name, args) {
+  const page = await load(path);
+  try {
+    let parent = null;
+    let target = page.window;
+    for (const segment of name.split(".")) {
+      const owner = target === null || target === undefined ? null : Object(target);
+      if (owner === null || !Object.prototype.hasOwnProperty.call(owner, segment)) {
+        throw new PageError("run_function: " + segment + " is not defined on the page");
+      }
+      parent = target;
+      target = owner[segment];
+    }
+    if (typeof target !== "function") throw new PageError("run_function: " + name + " is not a function");
+    // Rebuilt in the page realm, so the function sees its own Object and Array.
+    const pageArgs = page.window.JSON.parse(JSON.stringify(args));
+    let result;
+    try {
+      result = target.apply(parent, pageArgs);
+    } catch (e) {
+      throw new PageError("run_function: " + name + " threw " + (e && e.name) + ": " + (e && e.message));
+    }
+    try {
+      return encode(result, "result", page.window.Object.prototype);
+    } catch (e) {
+      if (!(e instanceof Unencodable)) throw e;
+      throw new PageError("run_function: " + name + " returned a value JSON cannot carry at " + e.path + ": " + e.kind);
+    }
+  } finally {
+    page.window.close();
+  }
+}
+
 // --- the request loop ----------------------------------------------------------
 
 function needPage(state) {
@@ -226,6 +351,11 @@ async function handle(request, state) {
       return query(needPage(state), request.selector);
     case "planted":
       return plantedReport(needPage(state), request.planted, request.rules);
+    case "drive":
+      await drive(needPage(state), request.control, request.value);
+      return null;
+    case "call":
+      return await call(request.path, request.name, request.args);
     case "version":
       return { node: process.versions.node };
     case "close":

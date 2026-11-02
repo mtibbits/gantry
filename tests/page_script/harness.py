@@ -226,6 +226,13 @@ class Page(_Driver):
         })
         return Planted(result["created"], result["violations"], result["unrendered"])
 
+    def drive(self, control, value):
+        """Set a control the way a user would: pick an option, press a button, focus an item."""
+        for arg in (control, value):
+            if not isinstance(arg, str):
+                raise TypeError(f"drive({control!r}, {value!r}): control and value must be strings")
+        self._request({"op": "drive", "control": control, "value": value})
+
 
 @contextmanager
 def open_page(path):
@@ -264,3 +271,13 @@ def _stop_shared():
 def node_version():
     """The version of the Node the harness runs, such as 24.20.0."""
     return _shared_driver()._request({"op": "version"})["node"]
+
+
+def run_function(page_path, name, args=()):
+    """Call the page function at a dotted name, such as gantryTest.pairs, in a fresh window.
+
+    The name resolves one own property at a time from window, and a Map in
+    the return value comes back as a list of [key, value] pairs.
+    """
+    request = {"op": "call", "path": str(Path(page_path).resolve()), "name": name, "args": list(args)}
+    return _shared_driver()._request(request)

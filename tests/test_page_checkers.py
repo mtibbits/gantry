@@ -41,6 +41,7 @@ from page_script.harness import (
     find_node,
     node_status,
     open_page,
+    run_function,
 )
 from test_samples import ROOT
 from test_source_scan import ALLOW
@@ -828,6 +829,130 @@ def test_harness_storage_is_page_script_error(node, tmp_path):
     with pytest.raises(PageScriptError, match="SecurityError"):
         with open_page(path):
             pass
+
+
+LISTENER_BODY = "\n".join([
+    '<select data-control="lanes">',
+    *[f'<option value="{n}">{n}</option>' for n in range(1, 5)],
+    "</select>",
+    '<button data-control="zoom" data-value="wave">wave</button>',
+    '<button data-control="zoom" data-value="all">all</button>',
+    '<div id="panel"></div>',
+    '<ul id="log"></ul>',
+])
+
+LISTENER_SCRIPT = "\n".join([
+    'document.getElementById("panel").innerHTML = '
+    "'<svg data-control=\"detail\" data-control-items><g data-item=\"leaf-1\"></g><g data-item=\"leaf-2\"></g></svg>';",
+    "function record(type, target, value) {",
+    '  const control = target.closest("[data-control]").getAttribute("data-control");',
+    '  const li = document.createElement("li");',
+    '  li.textContent = type + ":" + control + ":" + value;',
+    '  document.getElementById("log").appendChild(li);',
+    "}",
+    'document.addEventListener("change", (e) => record("change", e.target, e.target.value));',
+    "document.addEventListener(\"click\", (e) => {",
+    '  const button = e.target.closest("[data-control]");',
+    '  record("click", button, button.getAttribute("data-value"));',
+    "});",
+    'document.addEventListener("focusin", (e) => record("focusin", e.target, e.target.getAttribute("data-item")));',
+])
+
+
+def listener_page(tmp_path, body=LISTENER_BODY):
+    return write_page(tmp_path, hostile_page(body_extra=body, script=LISTENER_SCRIPT))
+
+
+def test_drive_each_control_kind(node, tmp_path):
+    with open_page(listener_page(tmp_path)) as page:
+        page.drive("lanes", "3")
+        page.drive("zoom", "all")
+        page.drive("detail", "leaf-2")
+        # The focusin target is the matching item, not the first one.
+        assert [e.text for e in page.query("#log li")] == ["change:lanes:3", "click:zoom:all", "focusin:detail:leaf-2"]
+        assert page.planted_nodes([]).violations == []
+
+
+def test_drive_unknown_control_raises(node, tmp_path):
+    with open_page(listener_page(tmp_path)) as page:
+        with pytest.raises(PageScriptError, match="nosuch"):
+            page.drive("nosuch", "1")
+
+
+DISABLED_LANES = LISTENER_BODY.replace('<select data-control="lanes">', '<select data-control="lanes" disabled>')
+
+
+@pytest.mark.parametrize("control,value,body,pattern", [
+    ("lanes", "9", LISTENER_BODY, '"9"'),
+    ("zoom", "none", LISTENER_BODY, '"none"'),
+    ("detail", "leaf-9", LISTENER_BODY, '"leaf-9"'),
+    ("lanes", "3", DISABLED_LANES, "is disabled"),
+], ids=["option", "button", "item", "disabled_select"])
+def test_drive_unknown_value_raises(node, tmp_path, control, value, body, pattern):
+    with open_page(listener_page(tmp_path, body)) as page:
+        with pytest.raises(PageScriptError, match=pattern):
+            page.drive(control, value)
+
+
+def test_drive_listener_error_raises(node, tmp_path):
+    script = 'document.addEventListener("click", () => { throw new Error("gantry-listener-boom"); });'
+    body = '<button data-control="boom" data-value="x">b</button>'
+    with open_page(write_page(tmp_path, hostile_page(body_extra=body, script=script))) as page:
+        with pytest.raises(PageScriptError, match="gantry-listener-boom"):
+            page.drive("boom", "x")
+
+
+def test_drive_rejects_non_str(node, tmp_path):
+    with open_page(listener_page(tmp_path)) as page:
+        with pytest.raises(TypeError, match="lanes"):
+            page.drive("lanes", 3)
+
+
+GANTRY_TEST = "\n".join([
+    "globalThis.gantryTest = Object.freeze({",
+    '  pairs: (n) => new Map([["__proto__", n], ["b", 2.5], ["m", new Map([["k", true]])]]),',
+    '  keys: (o) => Object.keys(o).join(",") + "|" + Array.isArray(o.list),',
+    "  notfn: 3,",
+    '  boom: () => { throw new Error("gantry-call-boom"); },',
+    "  undef: () => undefined,",
+    "  spin: () => { for (;;) {} },",
+    "});",
+])
+
+
+def gantry_test_page(tmp_path):
+    return write_page(tmp_path, hostile_page(script=GANTRY_TEST), name="functions.html")
+
+
+def test_run_function_returns_map_pairs(node, tmp_path):
+    got = run_function(gantry_test_page(tmp_path), "gantryTest.pairs", [1])
+    assert got == [["__proto__", 1], ["b", 2.5], ["m", [["k", True]]]]
+
+
+def test_run_function_args_in_page_realm(node, tmp_path):
+    got = run_function(gantry_test_page(tmp_path), "gantryTest.keys", [{"__proto__": 1, "list": []}])
+    assert got == "__proto__,list|true"
+
+
+@pytest.mark.parametrize("name,pattern", [
+    ("gantryTest.nosuch", "nosuch"),
+    ("gantryTest.notfn", "is not a function"),
+    ("gantryTest.boom", "gantry-call-boom"),
+    ("gantryTest.undef", "JSON cannot carry"),
+], ids=["nosuch", "notfn", "boom", "undef"])
+def test_run_function_errors(node, tmp_path, name, pattern):
+    with pytest.raises(PageScriptError, match=pattern):
+        run_function(gantry_test_page(tmp_path), name)
+
+
+def test_shared_driver_recycles_after_timeout(node, tmp_path, monkeypatch):
+    page = gantry_test_page(tmp_path)
+    monkeypatch.setattr(harness, "REPLY_TIMEOUT", 2)
+    with pytest.raises(HarnessError, match="no reply"):
+        run_function(page, "gantryTest.spin")
+    # The timeout times the spin only; the next call gets the usual one.
+    monkeypatch.undo()
+    assert run_function(page, "gantryTest.pairs", [1])[0] == ["__proto__", 1]
 
 
 def test_open_page_without_node_is_harness_error(tmp_path, monkeypatch):
