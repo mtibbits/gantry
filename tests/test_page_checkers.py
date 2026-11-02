@@ -9,7 +9,11 @@ twin of the commit-check test.
 import copy
 import html
 import json
+import os
 import re
+import subprocess
+import sys
+import xml.etree.ElementTree as ET
 
 import pytest
 
@@ -40,6 +44,7 @@ from page_script.harness import (
     Planted,
     find_node,
     node_status,
+    node_version,
     open_page,
     run_function,
 )
@@ -953,6 +958,95 @@ def test_shared_driver_recycles_after_timeout(node, tmp_path, monkeypatch):
     # The timeout times the spin only; the next call gets the usual one.
     monkeypatch.undo()
     assert run_function(page, "gantryTest.pairs", [1])[0] == ["__proto__", 1]
+
+
+# --- CI and the end-to-end gate (#53) -----------------------------------------------------
+
+WORKFLOW = ".github/workflows/test.yml"
+# jsdom 30.1.3's engines floor (^24.15.0 on the 24 line).
+NODE_FLOOR = (24, 15, 0)
+SETUP_NODE_RE = re.compile(r"(?:- )?uses: actions/setup-node@v(\d+)")
+
+
+def workflow_lines():
+    return [line.strip() for line in (ROOT / WORKFLOW).read_bytes().decode("utf-8").splitlines()]
+
+
+def workflow_node_major():
+    found = [line for line in workflow_lines() if line.startswith("node-version:")]
+    assert len(found) == 1, found
+    return int(re.fullmatch(r'node-version: "(\d+)"', found[0]).group(1))
+
+
+def test_test_workflow_installs_node():
+    lines = workflow_lines()
+    steps = [
+        lambda line: line in ("uses: actions/setup-python@v5", "- uses: actions/setup-python@v5"),
+        # A newer setup-node major takes the same inputs.
+        lambda line: (m := SETUP_NODE_RE.fullmatch(line)) is not None and int(m.group(1)) >= 4,
+        lambda line: line == 'node-version: "24"',
+        lambda line: line == "- run: npm ci --prefix tests/page_script",
+        lambda line: line == "- run: python -m pytest -q -rs",
+    ]
+    at = -1
+    for i, step in enumerate(steps):
+        hits = [n for n, line in enumerate(lines) if n > at and step(line)]
+        assert hits, f"step {i} missing or out of order"
+        at = hits[0]
+    assert "os: [ubuntu-latest, windows-latest]" in lines
+    assert 'python: ["3.11", "3.x"]' in lines
+    assert not [line for line in lines if line.startswith(("if:", "- if:"))]
+    assert not [line for line in lines if "run:" in line and "&&" in line]
+
+
+def test_driver_runs_pinned_node_major(node):
+    version = node_version()
+    assert re.fullmatch(r"\d+\.\d+\.\d+", version), version
+    parts = tuple(int(p) for p in version.split("."))
+    assert parts >= NODE_FLOOR, version
+    if os.environ.get("CI"):
+        assert parts[0] == workflow_node_major(), version
+
+
+# Floors, not exact counts: raise them when adding tests to this module.
+NODE_TESTS = 41
+STATIC_TESTS = 109
+
+
+def gate_run(tmp_path, ci):
+    """Run this module, minus this test, with no node on PATH: (exit code, junit cases)."""
+    empty = tmp_path / "empty"
+    empty.mkdir(exist_ok=True)
+    env = {k: v for k, v in os.environ.items() if k not in ("PYTEST_ADDOPTS", "CI")}
+    env["PATH"] = str(empty)
+    if ci is not None:
+        env["CI"] = ci
+    xml = tmp_path / f"gate-{ci}.xml"
+    command = [sys.executable, "-m", "pytest", "-q", "-rs", "-p", "no:cacheprovider", "-k", "not end_to_end",
+               "--junitxml", str(xml), "tests/test_page_checkers.py"]
+    proc = subprocess.run(command, cwd=ROOT, env=env, capture_output=True)
+    cases = []
+    for case in ET.parse(xml).getroot().iter("testcase"):
+        outcome = next(((c.tag, c.get("message") or "") for c in case if c.tag in ("skipped", "failure", "error")),
+                       ("passed", ""))
+        cases.append(outcome)
+    return proc.returncode, cases
+
+
+@pytest.mark.parametrize("ci", [None, "", "true"], ids=["unset", "empty", "true"])
+def test_node_gate_end_to_end(tmp_path, ci):
+    code, cases = gate_run(tmp_path, ci)
+    passed = [kind for kind, _ in cases].count("passed")
+    others = [(kind, message) for kind, message in cases if kind != "passed"]
+    if ci:
+        # A setup-time pytest.fail is an <error> wrapping the reason (spike.md U7).
+        assert all(kind in ("failure", "error") and NODE_MISSING + CI_SUFFIX in message for kind, message in others), others
+        assert code == 1
+    else:
+        assert all(kind == "skipped" and message == NODE_MISSING for kind, message in others), others
+        assert code == 0
+    assert len(others) >= NODE_TESTS
+    assert passed >= STATIC_TESTS
 
 
 def test_open_page_without_node_is_harness_error(tmp_path, monkeypatch):
