@@ -26,8 +26,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
-          cache: npm
-          cache-dependency-path: tests/page_script/package-lock.json
       - run: npm ci --prefix tests/page_script
       - run: python -m pip install -e ".[dev]"
       - run: python -m pytest -q -rs

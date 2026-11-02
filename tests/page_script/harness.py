@@ -106,14 +106,19 @@ class _Driver:
             raise HarnessError(reason)
         env = {k: v for k, v in os.environ.items() if k not in DROPPED_ENV}
         self._stderr = tempfile.TemporaryFile()
-        # node itself, never the npm shim.
-        self._proc = subprocess.Popen(
-            [find_node(), str(DRIVER)],
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self._stderr, env=env,
-        )
+        try:
+            # node itself, never the npm shim.
+            self._proc = subprocess.Popen(
+                [find_node(), str(DRIVER)],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self._stderr, env=env,
+            )
+        except OSError as exc:
+            self._stderr.close()
+            raise HarnessError(f"cannot start the page-script driver: {exc}") from None
         self._replies = queue.Queue()
         self.dead = False
-        threading.Thread(target=self._read, daemon=True).start()
+        self._reader = threading.Thread(target=self._read, daemon=True)
+        self._reader.start()
         # driver.js answers once jsdom has loaded.
         self._request({"op": "version"}, START_TIMEOUT)
 
@@ -194,6 +199,8 @@ class _Driver:
         self._close_files()
 
     def _close_files(self):
+        # The reader ends at EOF; let it finish before its pipe is closed.
+        self._reader.join(CLOSE_WAIT)
         for f in (self._proc.stdin, self._proc.stdout, self._stderr):
             try:
                 f.close()
@@ -217,7 +224,8 @@ class Page(_Driver):
         for p in planted:
             if not isinstance(p, str):
                 raise TypeError(f"planted item {p!r} is not a string")
-        checked = page_safety._resolve(rules)
+        # page_safety.RULES is read at call time, never bound as a default.
+        checked = page_safety.check_rules(page_safety.RULES if rules is None else rules)
         result = self._request({
             "op": "planted",
             "planted": planted,
@@ -274,5 +282,7 @@ def run_function(page_path, name, args=()):
     The name resolves one own property at a time from window, and a Map in
     the return value comes back as a list of [key, value] pairs.
     """
+    if not isinstance(name, str) or isinstance(args, str):
+        raise TypeError(f"run_function({name!r}, {args!r}): name must be a string and args a sequence, not a string")
     request = {"op": "call", "path": str(Path(page_path).resolve()), "name": name, "args": list(args)}
     return _shared_driver()._request(request)

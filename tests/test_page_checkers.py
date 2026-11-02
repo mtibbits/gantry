@@ -954,7 +954,9 @@ DISABLED_LANES = LISTENER_BODY.replace('<select data-control="lanes">', '<select
     ("zoom", "none", LISTENER_BODY, '"none"'),
     ("detail", "leaf-9", LISTENER_BODY, '"leaf-9"'),
     ("lanes", "3", DISABLED_LANES, "is disabled"),
-], ids=["option", "button", "item", "disabled_select"])
+    ("lanes", "3", LISTENER_BODY + '\n<button data-control="lanes" data-value="3">3</button>', "is ambiguous"),
+    ("bare", "x", LISTENER_BODY + '\n<div data-control="bare">x</div>', "is not a select"),
+], ids=["option", "button", "item", "disabled_select", "ambiguous", "not_a_control"])
 def test_drive_unknown_value_raises(node, tmp_path, control, value, body, pattern):
     with open_page(listener_page(tmp_path, body)) as page:
         with pytest.raises(PageScriptError, match=pattern):
@@ -1083,8 +1085,8 @@ def test_driver_runs_pinned_node_major(node):
 
 
 # Floors, not exact counts: raise them when adding tests to this module.
-NODE_TESTS = 49
-STATIC_TESTS = 110
+NODE_TESTS = 51
+STATIC_TESTS = 113
 
 
 def gate_run(tmp_path, ci):
@@ -1130,3 +1132,20 @@ def test_open_page_without_node_is_harness_error(tmp_path, monkeypatch):
     with pytest.raises(HarnessError, match=NODE_MISSING):
         with open_page(write_page(tmp_path, hostile_page())):
             pass
+
+
+def test_driver_spawn_failure_is_harness_error(tmp_path, monkeypatch):
+    def refuse(*args, **kwargs):
+        raise PermissionError("node is not executable")
+
+    monkeypatch.setattr(harness, "node_status", lambda: None)
+    monkeypatch.setattr(harness.subprocess, "Popen", refuse)
+    with pytest.raises(HarnessError, match="cannot start the page-script driver: node is not executable"):
+        with open_page(write_page(tmp_path, hostile_page())):
+            pass
+
+
+@pytest.mark.parametrize("name,args", [(1, ()), ("gantryTest.pairs", "ab")], ids=["name", "args"])
+def test_run_function_rejects_bad_arguments(tmp_path, name, args):
+    with pytest.raises(TypeError, match="run_function"):
+        run_function(tmp_path / "unused.html", name, args)

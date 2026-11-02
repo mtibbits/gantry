@@ -58,8 +58,9 @@ exactly three keys, each a sorted list of lower-case names:
   data among them.
 
 `check_rules` is the one check behind the file, the `rules=` argument and
-the [page-script harness](#page-script-harness). It returns each list as a frozenset, and it raises
-`ValueError` naming the defect when the value is not an object, the keys are
+the [page-script harness](#page-script-harness). It returns each list as a
+frozenset, and it raises `ValueError` naming the defect when the value is
+not an object, the keys are
 not exactly those three, a value is not a list, an item is not a non-empty
 lower-case string, an item is listed twice, or an `allowed_attrs` item is an
 event handler (it starts with `on`). `RULES` is the parsed file, and it is
@@ -186,7 +187,9 @@ checks what its script built with `planted_nodes`.
 - `page.drive(control, value)` sets a control the way a user would (see
   [Control convention](#control-convention)), then settles.
 - `page.query(selector)` returns the matching elements, in document order,
-  each with its `tag`, `attrs`, `classes` and `text`.
+  each with its `tag`, `attrs`, `classes` and `text`. The `tag` is lower
+  case; attribute names are as the live DOM holds them, so an SVG name keeps
+  its case, such as `viewBox`.
 - `page.planted_nodes(planted, rules=None)` reports three lists:
   - `created`: each element or attribute a planted value built, because the
     page wrote it as markup. The harness parses each value inertly, as markup
