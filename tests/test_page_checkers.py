@@ -538,10 +538,32 @@ def test_page_safety_doc_states_contract():
         "HOSTILE", "RULES", "check_rules", "page_findings", "assert_page_safe",
         "assert_no_external_resources", "CSP_META", "page_rules.json", "tests/page_script/known_bad/",
         *RULE_KEYS, *sorted(URL_ATTRS),
+        # The page-script harness (#53).
+        "open_page", "drive", "query", "planted_nodes", "run_function", "require_node",
+        "PageScriptError", "HarnessError", "select[data-control]", "button[data-control][data-value]",
+        "data-control-items", "data-item", "focusin", "npm ci --prefix tests/page_script",
     ]
     assert [n for n in names if f"`{n}`" not in doc] == []
     assert "\n## Limits" in doc
     assert COMMENT_OPEN not in doc
+    for reason in (NODE_MISSING, JSDOM_MISSING, JSDOM_STALE.format(found="<found>", pinned="<pinned>"), "Node.js 24"):
+        assert reason in doc, reason
+    readme = (ROOT / "README.md").read_bytes().decode("utf-8")
+    for text in ("Node.js 24", "npm ci --prefix tests/page_script", "docs/page-safety.md"):
+        assert text in readme, text
+
+
+def test_node_major_agrees():
+    # Every home of the Node major, the floor and the jsdom pin says the same.
+    major = workflow_node_major()
+    doc = (ROOT / DOC).read_bytes().decode("utf-8")
+    readme = (ROOT / "README.md").read_bytes().decode("utf-8")
+    for text in (doc, readme):
+        majors = {int(m) for m in re.findall(r"Node\.js\s+(\d+)", text)}
+        assert majors == {major}, majors
+    pin = json.loads((ROOT / PAGE_SCRIPT / "package.json").read_bytes())["dependencies"]["jsdom"]
+    assert set(re.findall(r"jsdom\s+(\d+\.\d+\.\d+)", doc)) == {pin}
+    assert set(re.findall(r"Node\.js\s+(\d+\.\d+\.\d+)\s+or\s+later", doc)) == {".".join(map(str, NODE_FLOOR))}
 
 
 # Each documented blind spot, built: a fix that closes one reddens here, and
@@ -1010,7 +1032,7 @@ def test_driver_runs_pinned_node_major(node):
 
 # Floors, not exact counts: raise them when adding tests to this module.
 NODE_TESTS = 41
-STATIC_TESTS = 109
+STATIC_TESTS = 110
 
 
 def gate_run(tmp_path, ci):

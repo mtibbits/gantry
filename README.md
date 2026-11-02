@@ -34,6 +34,24 @@ this repository: [docs/commit-check.md](docs/commit-check.md).
 How a page's tests check it is safe to open, with no injected markup and
 nothing loaded from outside it: [docs/page-safety.md](docs/page-safety.md).
 
+## Development
+
+Install Gantry with its test tools:
+
+```
+python -m pip install -e ".[dev]"
+```
+
+The page-script tests also need Node.js 24 and the harness's pinned jsdom:
+
+```
+npm ci --prefix tests/page_script
+```
+
+Node.js is for development only; installed Gantry never needs it. Without
+it the page-script tests skip, except under `CI`, where they fail. See
+[docs/page-safety.md](docs/page-safety.md).
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
