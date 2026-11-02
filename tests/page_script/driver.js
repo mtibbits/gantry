@@ -32,13 +32,32 @@ function settle() {
   return new Promise((resolve) => setImmediate(resolve));
 }
 
+// A thrown value, named: an error's name and message, anything else as text.
+function describe(value) {
+  if (value !== null && (typeof value === "object" || typeof value === "function") && "message" in value) {
+    return value.name + ": " + value.message;
+  }
+  return String(value);
+}
+
+// The errors of the page the current step runs on. A promise the page leaves
+// rejected lands there, rather than ending Node (its default) and failing a
+// later, unrelated call on the shared driver.
+let activeErrors = null;
+process.on("unhandledRejection", (reason) => {
+  if (activeErrors !== null) {
+    activeErrors.push({ type: "unhandled-rejection", cause: reason });
+  } else {
+    process.stderr.write("unhandled rejection outside a step: " + describe(reason) + "\n");
+  }
+});
+
 // jsdom reports page errors to the virtual console synchronously; the first
 // relevant one fails the step that caused it.
 function drain(errors) {
   for (const e of errors.splice(0)) {
-    if (e.type === "unhandled-exception") {
-      const cause = e.cause || {};
-      throw new PageError("page script error: " + cause.name + ": " + cause.message);
+    if (e.type === "unhandled-exception" || e.type === "unhandled-rejection") {
+      throw new PageError("page script error: " + (e.cause === undefined ? e.message : describe(e.cause)));
     }
     if (e.type === "not-implemented") {
       throw new PageError("page used something jsdom does not implement: " + e.message);
@@ -48,6 +67,7 @@ function drain(errors) {
 
 async function load(path) {
   const errors = [];
+  activeErrors = errors;
   const virtualConsole = new VirtualConsole();
   virtualConsole.on("jsdomError", (e) => errors.push(e));
   // No resources option (D6): jsdom loads no script, sheet or frame the page
@@ -321,8 +341,11 @@ async function call(path, name, args) {
     try {
       result = target.apply(parent, pageArgs);
     } catch (e) {
-      throw new PageError("run_function: " + name + " threw " + (e && e.name) + ": " + (e && e.message));
+      throw new PageError("run_function: " + name + " threw " + describe(e));
     }
+    // A rejection the call leaves behind is this call's error.
+    await settle();
+    drain(page.errors);
     try {
       return encode(result, "result", page.window.Object.prototype);
     } catch (e) {
@@ -371,6 +394,7 @@ async function main() {
   const lines = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
   for await (const line of lines) {
     let reply;
+    activeErrors = state.page === null ? null : state.page.errors;
     try {
       reply = { ok: true, result: await handle(JSON.parse(line), state) };
     } catch (e) {

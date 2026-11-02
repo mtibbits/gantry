@@ -827,6 +827,35 @@ def test_harness_load_error_raises(node, tmp_path):
             pass
 
 
+@pytest.mark.parametrize("script,pattern", [
+    ('Promise.reject(new Error("gantry-reject"));', "page script error: Error: gantry-reject"),
+    ('throw "gantry-bare";', "page script error: gantry-bare"),
+], ids=["rejection", "non_error"])
+def test_harness_load_failure_is_named(node, tmp_path, script, pattern):
+    with pytest.raises(PageScriptError, match=pattern):
+        with open_page(write_page(tmp_path, hostile_page(script=script))):
+            pass
+
+
+# Statically written markup where jsdom and html.parser disagree, each listed
+# under the doc's Limits: a fix that closes one reddens here.
+DIVERGE = [
+    ("template_content", "<template><img src=x onerror=y></template>"),
+    ("valueless_script_id", "<script id>1</script>"),
+    ("image_alias", "<image src=x>"),
+]
+
+
+@pytest.mark.parametrize("extra", [c[1] for c in DIVERGE], ids=[c[0] for c in DIVERGE])
+def test_checkers_diverge_where_documented(node, tmp_path, extra):
+    text = hostile_page(body_extra=extra)
+    with open_page(write_page(tmp_path, text)) as page:
+        live = violation_set(page.planted_nodes([]))
+    static = {(f.rule, f.tag, f.attr) for f in page_findings(text)}
+    # Both still fail the page: the divergence is in the detail, not the verdict.
+    assert live and static and live != static
+
+
 def test_harness_errors_are_harness_errors(node, tmp_path, monkeypatch):
     with open_page(write_page(tmp_path, hostile_page())) as page:
         with pytest.raises(HarnessError, match="bad selector"):
@@ -929,6 +958,14 @@ def test_drive_listener_error_raises(node, tmp_path):
             page.drive("boom", "x")
 
 
+def test_drive_async_listener_error_raises(node, tmp_path):
+    script = 'document.addEventListener("click", async () => { throw new Error("gantry-async-boom"); });'
+    body = '<button data-control="boom" data-value="x">b</button>'
+    with open_page(write_page(tmp_path, hostile_page(body_extra=body, script=script))) as page:
+        with pytest.raises(PageScriptError, match="gantry-async-boom"):
+            page.drive("boom", "x")
+
+
 def test_drive_rejects_non_str(node, tmp_path):
     with open_page(listener_page(tmp_path)) as page:
         with pytest.raises(TypeError, match="lanes"):
@@ -943,6 +980,8 @@ GANTRY_TEST = "\n".join([
     '  boom: () => { throw new Error("gantry-call-boom"); },',
     "  undef: () => undefined,",
     "  spin: () => { for (;;) {} },",
+    '  rej: () => Promise.reject(new Error("gantry-later")),',
+    '  bare: () => { throw "gantry-bare"; },',
     "});",
 ])
 
@@ -966,10 +1005,19 @@ def test_run_function_args_in_page_realm(node, tmp_path):
     ("gantryTest.notfn", "is not a function"),
     ("gantryTest.boom", "gantry-call-boom"),
     ("gantryTest.undef", "JSON cannot carry"),
-], ids=["nosuch", "notfn", "boom", "undef"])
+    ("gantryTest.bare", "threw gantry-bare"),
+], ids=["nosuch", "notfn", "boom", "undef", "bare"])
 def test_run_function_errors(node, tmp_path, name, pattern):
     with pytest.raises(PageScriptError, match=pattern):
         run_function(gantry_test_page(tmp_path), name)
+
+
+def test_run_function_rejection_stays_with_its_call(node, tmp_path):
+    page = gantry_test_page(tmp_path)
+    with pytest.raises(PageScriptError, match="gantry-later"):
+        run_function(page, "gantryTest.rej")
+    # The rejection neither killed the shared driver nor reached the next call.
+    assert run_function(page, "gantryTest.pairs", [1])[0] == ["__proto__", 1]
 
 
 def test_shared_driver_recycles_after_timeout(node, tmp_path, monkeypatch):
@@ -1031,7 +1079,7 @@ def test_driver_runs_pinned_node_major(node):
 
 
 # Floors, not exact counts: raise them when adding tests to this module.
-NODE_TESTS = 41
+NODE_TESTS = 49
 STATIC_TESTS = 110
 
 

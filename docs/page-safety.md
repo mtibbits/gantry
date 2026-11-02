@@ -199,9 +199,10 @@ checks what its script built with `planted_nodes`.
     either: the page dropped it.
 
   `rules=` works as it does for the static checkers: `check_rules` checks it,
-  and `RULES` is read at call time when it is left out. On markup a page
-  writes statically, the harness's `violations` and `page_findings` agree; a
-  test holds them equal on each kind of break and on both known-bad pages.
+  and `RULES` is read at call time when it is left out. On each kind of
+  break a page writes statically, and on both known-bad pages, the
+  harness's `violations` and `page_findings` agree, and a test holds them
+  equal; [Limits](#limits) lists the markup where they differ.
 - `run_function(path, name, args=())` loads the page in a fresh window and
   calls the function at a dotted name, such as `gantryTest.pairs`, with
   `args` rebuilt as page values. The name resolves one own property at a
@@ -213,7 +214,8 @@ checks what its script built with `planted_nodes`.
 
 Two errors keep the page's failures apart from the harness's own:
 
-- `PageScriptError`: a script error at load or in a listener, a use of
+- `PageScriptError`: a script error at load or in a listener (a thrown
+  value of any kind, or a promise the page leaves rejected), a use of
   something jsdom does not implement, a refused network call or timer, a
   missing or disabled control or value, or a `run_function` name that is not
   defined, is not a function, throws or returns what JSON cannot carry;
@@ -325,6 +327,11 @@ harness reports the `img` and its handler it built.
 - jsdom does no layout: sizes and positions are zero.
 - jsdom does not enforce the CSP.
 - `drive` fires only `change`, `click` and `focusin`.
+- The harness's `violations` and `page_findings` differ in detail on some
+  statically written markup, though both fail the page: an element inside a
+  `template` is reported only by `page_findings`, since the live document
+  keeps template content apart; a valueless `<script id>` has the id `""`
+  live and `None` statically; and `<image>` is `img` live.
 - CSS escapes (a backslash escape inside `url` or `@import`) and strings in
   `image-set()` are not seen.
 - Only the URL attributes listed above are checked. Others (`srcdoc`,
