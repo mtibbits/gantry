@@ -15,16 +15,14 @@ const NETWORK = ["fetch", "XMLHttpRequest", "WebSocket", "EventSource"];
 const TIMERS = ["setTimeout", "setInterval", "requestAnimationFrame"];
 
 function beforeParse(window) {
-  for (const name of NETWORK) {
-    window[name] = function () {
-      throw new Error("the page-script harness loads no subresource: " + name);
-    };
-  }
-  // With no timer, the setImmediate after each step is a true settle point.
-  for (const name of TIMERS) {
-    window[name] = function () {
-      throw new Error("the page-script harness runs no timer: " + name);
-    };
+  // Network and timers both throw. With no timer, the setImmediate after
+  // each step is a true settle point.
+  for (const [names, refusal] of [[NETWORK, "loads no subresource"], [TIMERS, "runs no timer"]]) {
+    for (const name of names) {
+      window[name] = function () {
+        throw new Error("the page-script harness " + refusal + ": " + name);
+      };
+    }
   }
 }
 
@@ -210,6 +208,7 @@ function plantedReport(page, planted, rules) {
       if (!ownScriptIds.has(id)) violations.push({ rule: "script", tag: "script", attr: id });
     }
     const sig = signature(node);
+    const pairKeys = attrs.map((pair) => JSON.stringify(pair));
     planted.forEach((p, i) => {
       for (const [, value] of attrs) {
         if (value.includes(p)) rendered.add(i);
@@ -218,9 +217,9 @@ function plantedReport(page, planted, rules) {
         add({ node: "element", tag, value: p });
         for (const [name] of attrs) add({ node: "attribute", tag, attr: name, value: p });
       }
-      for (const pair of attrs) {
-        if (built[i].extras.has(JSON.stringify(pair))) add({ node: "attribute", tag, attr: pair[0], value: p });
-      }
+      pairKeys.forEach((key, j) => {
+        if (built[i].extras.has(key)) add({ node: "attribute", tag, attr: attrs[j][0], value: p });
+      });
     });
   }
   // A created match supersedes: the value is not also unrendered.
@@ -249,7 +248,7 @@ async function drive(page, control, value) {
   if (matches.length === 0) throw new PageError("no control named " + name);
   const kinds = new Set(matches.map(kindOf));
   if (kinds.size > 1) throw new PageError("control " + name + " is ambiguous");
-  const kind = kindOf(matches[0]);
+  const [kind] = kinds;
   if (kind === "select") {
     const select = matches[0];
     const option = Array.from(select.options).find((o) => o.value === value);

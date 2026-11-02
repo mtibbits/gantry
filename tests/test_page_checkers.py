@@ -531,8 +531,12 @@ def test_page_script_files_pass_commit_check():
 # --- the doc ------------------------------------------------------------------------------
 
 
+def repo_text(name):
+    return (ROOT / name).read_bytes().decode("utf-8")
+
+
 def test_page_safety_doc_states_contract():
-    doc = (ROOT / DOC).read_bytes().decode("utf-8")
+    doc = repo_text(DOC)
     assert CSP_META in doc
     names = [
         "HOSTILE", "RULES", "check_rules", "page_findings", "assert_page_safe",
@@ -548,7 +552,7 @@ def test_page_safety_doc_states_contract():
     assert COMMENT_OPEN not in doc
     for reason in (NODE_MISSING, JSDOM_MISSING, JSDOM_STALE.format(found="<found>", pinned="<pinned>"), "Node.js 24"):
         assert reason in doc, reason
-    readme = (ROOT / "README.md").read_bytes().decode("utf-8")
+    readme = repo_text("README.md")
     for text in ("Node.js 24", "npm ci --prefix tests/page_script", "docs/page-safety.md"):
         assert text in readme, text
 
@@ -556,9 +560,8 @@ def test_page_safety_doc_states_contract():
 def test_node_major_agrees():
     # Every home of the Node major, the floor and the jsdom pin says the same.
     major = workflow_node_major()
-    doc = (ROOT / DOC).read_bytes().decode("utf-8")
-    readme = (ROOT / "README.md").read_bytes().decode("utf-8")
-    for text in (doc, readme):
+    doc = repo_text(DOC)
+    for text in (doc, repo_text("README.md")):
         majors = {int(m) for m in re.findall(r"Node\.js\s+(\d+)", text)}
         assert majors == {major}, majors
     pin = json.loads((ROOT / PAGE_SCRIPT / "package.json").read_bytes())["dependencies"]["jsdom"]
@@ -624,24 +627,23 @@ def test_gate_fails_in_ci_without_node(ci):
     assert excinfo.value.msg == NODE_MISSING + CI_SUFFIX
 
 
-def test_gate_jsdom_missing_on_empty_folder(tmp_path):
-    with pytest.raises(pytest.skip.Exception) as excinfo:
-        require_node(env={}, which=some_node, root=tmp_path)
-    assert excinfo.value.msg == JSDOM_MISSING
-    with pytest.raises(pytest.fail.Exception) as excinfo:
-        require_node(env={"CI": "true"}, which=some_node, root=tmp_path)
-    assert excinfo.value.msg == JSDOM_MISSING + CI_SUFFIX
-
-
-def test_gate_jsdom_stale(tmp_path):
-    root = gate_root(tmp_path, pinned="1.2.3", installed="1.2.4")
-    reason = JSDOM_STALE.format(found="1.2.4", pinned="1.2.3")
+def assert_gate_refuses(root, reason):
+    """The gate skips with reason, and fails with it under CI."""
     with pytest.raises(pytest.skip.Exception) as excinfo:
         require_node(env={}, which=some_node, root=root)
     assert excinfo.value.msg == reason
     with pytest.raises(pytest.fail.Exception) as excinfo:
         require_node(env={"CI": "true"}, which=some_node, root=root)
     assert excinfo.value.msg == reason + CI_SUFFIX
+
+
+def test_gate_jsdom_missing_on_empty_folder(tmp_path):
+    assert_gate_refuses(tmp_path, JSDOM_MISSING)
+
+
+def test_gate_jsdom_stale(tmp_path):
+    root = gate_root(tmp_path, pinned="1.2.3", installed="1.2.4")
+    assert_gate_refuses(root, JSDOM_STALE.format(found="1.2.4", pinned="1.2.3"))
 
 
 def test_gate_ready(tmp_path):
@@ -712,6 +714,15 @@ def violation_set(planted):
     return {(v["rule"], v["tag"], v["attr"]) for v in planted.violations}
 
 
+def finding_set(text, rules=None):
+    """violation_set's twin for the static checker."""
+    return {(f.rule, f.tag, f.attr) for f in page_findings(text, rules=rules)}
+
+
+def known_bad_text(name):
+    return (KNOWN_BAD / name).read_bytes().decode("ascii")
+
+
 def test_harness_reports_raw_innerhtml_sink(node):
     path = KNOWN_BAD / "raw_sink.html"
     with open_page(path) as page:
@@ -721,7 +732,7 @@ def test_harness_reports_raw_innerhtml_sink(node):
     assert {"node": "element", "tag": "img", "value": IMG} in found.created
     assert {"node": "attribute", "tag": "img", "attr": "onerror", "value": IMG} in found.created
     # The static checkers cannot see a script sink.
-    text = path.read_bytes().decode("ascii")
+    text = known_bad_text("raw_sink.html")
     assert_page_safe(text, [IMG])
     assert_no_external_resources(text)
 
@@ -769,7 +780,7 @@ def test_harness_reports_tag_outside_rules(node, tmp_path, monkeypatch):
 
 
 def _known_bad_text(name):
-    return lambda: (KNOWN_BAD / name).read_bytes().decode("ascii")
+    return lambda: known_bad_text(name)
 
 
 AGREE = [
@@ -786,7 +797,7 @@ def test_checkers_agree_on_rule_findings(node, tmp_path, build, rules):
     text = build()
     with open_page(write_page(tmp_path, text)) as page:
         live = violation_set(page.planted_nodes([], rules=rules))
-    assert live == {(f.rule, f.tag, f.attr) for f in page_findings(text, rules=rules)}
+    assert live == finding_set(text, rules)
     assert bool(live) == (rules is None)
 
 
@@ -851,7 +862,7 @@ def test_checkers_diverge_where_documented(node, tmp_path, extra):
     text = hostile_page(body_extra=extra)
     with open_page(write_page(tmp_path, text)) as page:
         live = violation_set(page.planted_nodes([]))
-    static = {(f.rule, f.tag, f.attr) for f in page_findings(text)}
+    static = finding_set(text)
     # Both still fail the page: the divergence is in the detail, not the verdict.
     assert live and static and live != static
 
@@ -950,19 +961,12 @@ def test_drive_unknown_value_raises(node, tmp_path, control, value, body, patter
             page.drive(control, value)
 
 
-def test_drive_listener_error_raises(node, tmp_path):
-    script = 'document.addEventListener("click", () => { throw new Error("gantry-listener-boom"); });'
+@pytest.mark.parametrize("asynchronous", ["", "async "], ids=["sync", "async"])
+def test_drive_listener_error_raises(node, tmp_path, asynchronous):
+    script = f'document.addEventListener("click", {asynchronous}() => {{ throw new Error("gantry-listener-boom"); }});'
     body = '<button data-control="boom" data-value="x">b</button>'
     with open_page(write_page(tmp_path, hostile_page(body_extra=body, script=script))) as page:
         with pytest.raises(PageScriptError, match="gantry-listener-boom"):
-            page.drive("boom", "x")
-
-
-def test_drive_async_listener_error_raises(node, tmp_path):
-    script = 'document.addEventListener("click", async () => { throw new Error("gantry-async-boom"); });'
-    body = '<button data-control="boom" data-value="x">b</button>'
-    with open_page(write_page(tmp_path, hostile_page(body_extra=body, script=script))) as page:
-        with pytest.raises(PageScriptError, match="gantry-async-boom"):
             page.drive("boom", "x")
 
 

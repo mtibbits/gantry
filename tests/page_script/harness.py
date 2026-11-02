@@ -217,8 +217,7 @@ class Page(_Driver):
         for p in planted:
             if not isinstance(p, str):
                 raise TypeError(f"planted item {p!r} is not a string")
-        # page_safety.RULES is read at call time, never bound as a default.
-        checked = page_safety.check_rules(page_safety.RULES if rules is None else rules)
+        checked = page_safety._resolve(rules)
         result = self._request({
             "op": "planted",
             "planted": planted,
@@ -240,10 +239,6 @@ def open_page(path):
     page = Page()
     try:
         page._request({"op": "open", "path": str(Path(path).resolve())})
-    except BaseException:
-        page.stop()
-        raise
-    try:
         yield page
     finally:
         page.stop()
