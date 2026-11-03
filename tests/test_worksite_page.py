@@ -603,7 +603,7 @@ def test_js_class_tokens_match_render(node, tmp_path):
 # --- the docs ----------------------------------------------------------------------
 
 PAGE_TEXTS = [getattr(worksite, name) for name in (
-    "SCHEDULE_LABEL", "STUCK_LINE", "STUCK_LINE_ONE", "INTERIM_NOTE", "NO_TIERS", "NO_LEAVES", "NO_OPEN",
+    "SCHEDULE_LABEL", "STUCK_LINE", "STUCK_LINE_ONE", "INTERIM_NOTE", "NO_TIERS", "NO_LEAVES", "NO_OPEN", "ALL_HELD",
     "NOTHING_MISSING", "NO_ISSUE_LINE", "NO_ISSUE_LINE_ONE", "WAITS_LINE", "FOREIGN", "CHAIN_LINE",
     "CAPACITY_LINE")] + list(worksite.STATE_MARKS.values())
 
@@ -624,3 +624,35 @@ def test_doc_states_page_texts():
     }
     for rel, text in stale.items():
         assert text not in (ROOT / rel).read_bytes().decode("utf-8"), rel
+
+
+# --- final-review fixes --------------------------------------------------------------
+
+FORK = "- [ ] A {issue: Issue-1}\n- [ ] B {issue: Issue-2, depends_on: [Issue-1]}\n- [ ] C {issue: Issue-3, depends_on: [Issue-1]}\n"
+
+
+def test_fork_critical_path_is_one_chain():
+    m = model(data=parse_wbs(FORK, "alpha"))
+    assert m["network"]["critical"] == ["Issue-1", "Issue-2", "Issue-3"]
+    assert m["network"]["path"] == ["Issue-1", "Issue-2"]
+    assert m["network"]["heaviest"]["same"] is True
+    t = tree(page_for(data=parse_wbs(FORK, "alpha")))
+    (detail,) = [i for i in find(t, "div") if t.elements[i]["attrs"].get("id") == "detail"]
+    text = text_of(t, detail)
+    assert "Issue-1 → Issue-2" in text and "Issue-2 → Issue-3" not in text
+    assert "picks the same chain, 12 h end to end" in text
+
+
+def test_all_held_out_site_says_so():
+    data = parse_wbs("- [ ] A {issue: Issue-1, depends_on: [Issue-2]}\n- [ ] B {issue: Issue-2, depends_on: [Issue-1]}\n",
+                     "alpha")
+    page = visible_text(render_page("alpha", data, default_unit_hours=6))
+    assert worksite.ALL_HELD in page
+    assert NO_OPEN not in page
+
+
+def test_critical_cross_link_stays_dashed():
+    style = (ROOT / "gantry" / "templates" / "worksite.html").read_bytes().decode("utf-8")
+    crit = style.index(".edge.crit {")
+    both = re.search(r"\.edge\.crit\.cross \{[^}]*stroke-dasharray: 5 4", style)
+    assert both is not None and both.start() > crit

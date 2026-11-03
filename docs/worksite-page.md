@@ -225,7 +225,9 @@ and the page says how many. Columns are the earliest slot a leaf can start
 in, one slot per leaf; rows are the lanes. A leaf's slack is how many slots
 it can slip before the network gets longer. A box is red at slack 0 (the
 critical path), tinted at slack 1 to 3, and plain above. A link between two
-lanes is dashed; a top-level leaf's link to an epic leaf crosses lanes too.
+lanes is dashed, red when it is critical; a top-level leaf's link to an epic
+leaf crosses lanes too. Slack 0 can branch, so the critical path the page
+names is one chain of critical links from the first slot to the last.
 Below the network, the critical path, the near-critical leaves by slack, and
 the hours-weighted heaviest chain are listed.
 
@@ -302,9 +304,11 @@ two changes:
   renders.
 
 With nothing to list, the panel says `Nothing is missing or unreadable.`
-A site whose `WBS.md` has no nodes shows `This site has no leaves.`, and one
-with leaves but none open shows `This site has no open leaves.`; neither
-draws a network or a schedule.
+A site whose `WBS.md` has no nodes shows `This site has no leaves.`, one
+with leaves but none open shows `This site has no open leaves.`, and one
+whose open leaves all wait on a cycle shows
+`Every open leaf waits on a dependency cycle, so nothing can be scheduled; the panel lists them.`;
+none of them draws a network or a schedule.
 
 ### Foreign entries
 

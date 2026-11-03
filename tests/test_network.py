@@ -5,7 +5,7 @@ Every literal is hand-derived from tests/fixtures/wbs/page.md and cycle.md.
 
 import time
 
-from gantry.network import build, heaviest_chain
+from gantry.network import build, critical_chain, heaviest_chain
 from gantry.render import slack_class
 from gantry.wbs_stopgap import parse_wbs
 from test_samples import ROOT
@@ -58,6 +58,18 @@ def test_critical_path():
     net, _ = network("page")
     assert net.critical == CRITICAL
     assert net.crit_edges == tuple(zip(CRITICAL, CRITICAL[1:]))
+
+
+def test_critical_chain_is_one_chain():
+    net, _ = network("page")
+    assert critical_chain(net) == CRITICAL
+    # A fork: both b and c have slack 0, but they are not one chain.
+    fork = build(["a", "b", "c"], [("a", "b"), ("a", "c")], dict.fromkeys("abc"))
+    assert fork.critical == ("a", "b", "c")
+    assert critical_chain(fork) == ("a", "b")
+    diamond = build(list("abcd"), [("a", "b"), ("a", "c"), ("b", "d"), ("c", "d")], dict.fromkeys("abcd"))
+    assert critical_chain(diamond) == ("a", "b", "d")
+    assert critical_chain(build(["a"], [], {"a": None})) == ()
 
 
 def test_only_cross_epic_link_is_dashed():

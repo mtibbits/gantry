@@ -90,6 +90,8 @@ figcaption { color: var(--muted); font-size: 14px; max-width: 72ch; }
 .edge { fill: none; stroke: var(--muted); stroke-width: 1.2; opacity: .75; }
 .edge.cross { stroke: var(--cross); stroke-dasharray: 5 4; opacity: .9; }
 .edge.crit { stroke: var(--crit); stroke-width: 3; opacity: 1; stroke-dasharray: none; }
+/* A critical link across epics is red and still dashed. */
+.edge.crit.cross { stroke-dasharray: 5 4; }
 .arrow { fill: var(--muted); }
 .arrow-crit { fill: var(--crit); }
 .arrow-cross { fill: var(--cross); }

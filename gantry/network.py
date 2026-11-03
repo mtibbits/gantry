@@ -92,6 +92,26 @@ def build(keys, links, lane_of) -> Network:
                    tuple(n for n in order if slack[n] == 0), crit_edges, cross)
 
 
+def critical_chain(net: Network) -> tuple[str, ...]:
+    """One chain of critical edges from slot 0 to the last slot.
+
+    `critical` is every node with slack 0, which may branch; this walks from
+    the first of them in slot 0, taking the first critical edge each time.
+    Every slack-0 node before the last slot has one, so the chain is `length`
+    nodes long.
+    """
+    succ = {}
+    for u, v in net.crit_edges:
+        succ.setdefault(u, []).append(v)
+    starts = [n for n in net.critical if net.es[n] == 0]
+    if not starts:
+        return ()
+    chain = [starts[0]]
+    while chain[-1] in succ:
+        chain.append(succ[chain[-1]][0])
+    return tuple(chain)
+
+
 def heaviest_chain(net: Network, hours) -> tuple[tuple[str, ...], float]:
     """(keys, total hours) of the chain of edges with the most hours, by `hours[key]`."""
     preds = {n: [] for n in net.nodes}

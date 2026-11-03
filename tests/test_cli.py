@@ -428,3 +428,15 @@ def test_launcher_dash_leading_config_is_a_value(tmp_path):
     result, _ = run_launcher(copy, ["-dash.toml"], shims, samples, tmp_path)
     assert result.returncode == 0, result.stderr
     assert sample_line_count(result) == 6
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX file modes only")
+def test_site_page_mode_follows_umask(tmp_path, capsys):
+    config = write_site_tree(tmp_path, {"alpha": (FIXTURES / "page.md").read_bytes()})
+    old = os.umask(0o022)
+    try:
+        assert site_build(capsys, config, "alpha")[0] == 0
+    finally:
+        os.umask(old)
+    page = tmp_path / "out" / "sites" / "alpha.html"
+    assert page.stat().st_mode & 0o777 == 0o644

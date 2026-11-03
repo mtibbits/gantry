@@ -78,6 +78,11 @@ def _write_page(folder, name, text):
     try:
         with os.fdopen(fd, "wb") as handle:
             handle.write(text.encode("utf-8"))
+        # mkstemp makes the file 0600; a page gets the mode any new file
+        # gets, so a server on the private network can read it.
+        umask = os.umask(0)
+        os.umask(umask)
+        os.chmod(tmp, 0o666 & ~umask)
         os.replace(tmp, folder / f"{name}.html")
     except BaseException:
         # fdopen closed the descriptor, on success or failure.

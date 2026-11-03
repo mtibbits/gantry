@@ -28,6 +28,7 @@ INTERIM_NOTE = "every duration is the default unit; no estimates are read yet"
 NO_TIERS = "no per-leaf model tiers recorded"
 NO_LEAVES = "This site has no leaves."
 NO_OPEN = "This site has no open leaves."
+ALL_HELD = "Every open leaf waits on a dependency cycle, so nothing can be scheduled; the panel lists them."
 NOTHING_MISSING = "Nothing is missing or unreadable."
 NO_ISSUE_LINE = "{n} leaves have no issue: id and are named by outline position"
 NO_ISSUE_LINE_ONE = "1 leaf has no issue: id and is named by outline position"
@@ -185,6 +186,7 @@ def page_model(site, data, *, default_unit_hours) -> dict:
         })
 
     chain, chain_total = network.heaviest_chain(net, {k: hours[k][0] for k in net.nodes})
+    path = network.critical_chain(net)
     near = {}
     for k in net.nodes:
         if 0 < net.slack[k] <= 3:
@@ -206,8 +208,9 @@ def page_model(site, data, *, default_unit_hours) -> dict:
             "links": len(links),
             "length": net.length,
             "critical": list(net.critical),
+            "path": list(path),
             "near": [[s, near[s]] for s in sorted(near)],
-            "heaviest": {"keys": list(chain), "hours": chain_total, "same": chain == net.critical},
+            "heaviest": {"keys": list(chain), "hours": chain_total, "same": bool(path) and chain_total == sum(hours[k][0] for k in path)},
         },
         "panel": _panel(data),
         "notes": {
@@ -470,7 +473,8 @@ def render_page(site, data, *, default_unit_hours) -> str:
     net = m["network"]
     items = m["schedule"]["items"]
     linked = len(net["nodes"])
-    status = NO_LEAVES if m["empty"] else NO_OPEN if not items else None
+    held = any(leaf.open for leaf in data.leaves)
+    status = NO_LEAVES if m["empty"] else (ALL_HELD if held else NO_OPEN) if not items else None
     heavy = net["heaviest"]
     if not heavy["keys"]:
         hours_note = "No open leaf waits on another."
@@ -494,7 +498,7 @@ def render_page(site, data, *, default_unit_hours) -> str:
         NO_TIERS=_note(m["notes"]["no_tiers"]),
         SVG=_network_svg(m),
         LENGTH=net["length"],
-        CHAIN=Markup(ARROW.join(f'<span class="mono">{esc(k)}</span>' for k in net["critical"])) or "none",
+        CHAIN=Markup(ARROW.join(f'<span class="mono">{esc(k)}</span>' for k in net["path"])) or "none",
         NEAR=near or "none",
         HOURS_NOTE=hours_note,
         COUNTS=(f"{linked} of the {len(items)} open leaves have an open link and appear in the network; the other "
