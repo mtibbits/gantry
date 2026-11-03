@@ -11,9 +11,11 @@ import pytest
 
 from gantry.cli import main, status_text
 from gantry.wbs_stopgap import parse_wbs
-from helpers_config import append_bytes, copy_samples, sample_projects
+from helpers_config import append_bytes, copy_samples, sample_projects, write_site_tree
 from sample_roles import BUSY, NO_WBS, OWN_UNIT, SMALL, UNESTIMATED, UNREADABLE
 from test_samples import ROOT
+
+FIXTURES = ROOT / "tests" / "fixtures" / "wbs"
 
 
 def run_module(*args, cwd=ROOT):
@@ -121,6 +123,17 @@ def test_status_text_forms():
         "unresolved_ref 2, bad_priority 2, skipped_line 2"
     )
     assert status_text(parse_wbs("- [ ] One {issue: Issue-1}\n", "alpha")) == "open 1, finished 0"
+
+
+def test_write_site_tree_lists_sites(tmp_path, capsys):
+    page = (FIXTURES / "page.md").read_bytes()
+    empty = (FIXTURES / "empty.md").read_bytes()
+    config = write_site_tree(tmp_path, {"alpha": page, "beta": empty})
+    assert main(["build", "--config", str(config)]) == 0
+    lines = [line.split("\t") for line in capsys.readouterr().out.splitlines()]
+    assert [f[0] for f in lines] == ["alpha", "beta"]
+    assert lines[0][2] == "open 14, finished 1; no_issue 2, unresolved_ref 1"
+    assert lines[1][2] == "open 0, finished 0; no_nodes 1"
 
 
 def snapshot(root):

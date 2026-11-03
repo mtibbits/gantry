@@ -38,6 +38,30 @@ def sample_projects():
     return list(load_config()["project"])
 
 
+def write_site_tree(folder, sites, **raw):
+    """Write a devagent config naming `sites`, each site's WBS.md and a config.
+
+    `sites` maps a site name to its WBS.md bytes, in order; `None` leaves the
+    site's planning directory with no WBS.md. Site i's planning directory is
+    the folder `<i>` beside the devagent config. `raw` is as write_config's.
+    """
+    folder = Path(folder)
+    folder.mkdir(parents=True, exist_ok=True)
+    tables = []
+    for index, (name, wbs) in enumerate(sites.items()):
+        planning = folder / str(index)
+        planning.mkdir()
+        if wbs is not None:
+            (planning / "WBS.md").write_bytes(wbs)
+        tables.append(f'[project."{name}"]\ndevdoc_dir = "{index}"\n')
+    (folder / "devagent.toml").write_bytes("\n".join(tables).encode("utf-8"))
+    values = {**BASE, **raw}
+    lines = [f"{key} = {value}" for key, value in values.items() if value is not None]
+    path = folder / "gantry.toml"
+    path.write_bytes(("\n".join(lines) + "\n").encode("utf-8"))
+    return path
+
+
 def copy_samples(tmp_path):
     copy = tmp_path / "samples"
     shutil.copytree(SAMPLES, copy, ignore=shutil.ignore_patterns("out"))

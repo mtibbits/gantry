@@ -25,7 +25,7 @@ from test_samples import MARSH_BAD_OFFSET, ROOT, decode_bytes, git, git_work_tre
 
 FIXTURES = ROOT / "tests" / "fixtures" / "wbs"
 NOT_UTF8 = FIXTURES / "not_utf8.md"
-UTF8_FIXTURES = ("nesting", "fences", "ids", "rows", "refs", "cycle", "priority", "empty")
+UTF8_FIXTURES = ("nesting", "fences", "ids", "rows", "refs", "cycle", "priority", "empty", "page", "states")
 
 
 # --- fixtures ----------------------------------------------------------------
