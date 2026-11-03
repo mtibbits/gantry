@@ -11,9 +11,6 @@ import html
 import json
 import os
 import re
-import subprocess
-import sys
-import xml.etree.ElementTree as ET
 
 import pytest
 
@@ -48,6 +45,7 @@ from page_script.harness import (
     open_page,
     run_function,
 )
+from helpers_gate import gate_run
 from test_samples import ROOT
 from test_source_scan import ALLOW
 
@@ -1087,26 +1085,6 @@ def test_driver_runs_pinned_node_major(node):
 # Floors, not exact counts: raise them when adding tests to this module.
 NODE_TESTS = 51
 STATIC_TESTS = 113
-
-
-def gate_run(tmp_path, ci):
-    """Run this module, minus this test, with no node on PATH: (exit code, junit cases)."""
-    empty = tmp_path / "empty"
-    empty.mkdir(exist_ok=True)
-    env = {k: v for k, v in os.environ.items() if k not in ("PYTEST_ADDOPTS", "CI")}
-    env["PATH"] = str(empty)
-    if ci is not None:
-        env["CI"] = ci
-    xml = tmp_path / f"gate-{ci}.xml"
-    command = [sys.executable, "-m", "pytest", "-q", "-rs", "-p", "no:cacheprovider", "-k", "not end_to_end",
-               "--junitxml", str(xml), "tests/test_page_checkers.py"]
-    proc = subprocess.run(command, cwd=ROOT, env=env, capture_output=True)
-    cases = []
-    for case in ET.parse(xml).getroot().iter("testcase"):
-        outcome = next(((c.tag, c.get("message") or "") for c in case if c.tag in ("skipped", "failure", "error")),
-                       ("passed", ""))
-        cases.append(outcome)
-    return proc.returncode, cases
 
 
 @pytest.mark.parametrize("ci", [None, "", "true"], ids=["unset", "empty", "true"])
