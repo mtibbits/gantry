@@ -14,7 +14,9 @@ three kinds of planning page:
 - a **daily screen** for your phone: anything on fire, then today's tasks to
   start warming up on.
 
-Status: design approved, nothing built yet.
+Status: the worksite page for one site is built
+(`gantry build --config FILE --site NAME`); every site at once, the index and
+the other pages are not built yet.
 
 ## Your data stays private
 
@@ -25,8 +27,8 @@ data are meant for a private network, never for a public site.
 
 Installation config reference: [docs/config.md](docs/config.md).
 
-How Gantry reads a site's `WBS.md`, and what it reports:
-[docs/worksite-page.md](docs/worksite-page.md).
+How Gantry reads a site's `WBS.md`, what it reports, and what the worksite
+page shows: [docs/worksite-page.md](docs/worksite-page.md).
 
 A commit check keeps real pages, configs, local paths and private names out of
 this repository: [docs/commit-check.md](docs/commit-check.md).

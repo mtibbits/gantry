@@ -29,7 +29,7 @@ from gantry.views.worksite import (
     render_page,
 )
 from gantry.wbs_stopgap import parse_wbs, read_wbs
-from page_safety import HOSTILE, assert_no_external_resources, assert_page_safe
+from page_safety import CSP_CONTENT, HOSTILE, assert_no_external_resources, assert_page_safe
 from page_script.harness import Planted, open_page, run_function
 from sample_roles import BUSY, READABLE
 from test_samples import ROOT, SAMPLES
@@ -598,3 +598,29 @@ def test_hostile_page_under_harness(node, tmp_path):
 def test_js_class_tokens_match_render(node, tmp_path):
     path = write(tmp_path, page_for())
     assert run_function(path, "gantryPage.classTokens") == sorted(CLASS_TOKENS)
+
+
+# --- the docs ----------------------------------------------------------------------
+
+PAGE_TEXTS = [getattr(worksite, name) for name in (
+    "SCHEDULE_LABEL", "STUCK_LINE", "STUCK_LINE_ONE", "INTERIM_NOTE", "NO_TIERS", "NO_LEAVES", "NO_OPEN",
+    "NOTHING_MISSING", "NO_ISSUE_LINE", "NO_ISSUE_LINE_ONE", "WAITS_LINE", "FOREIGN", "CHAIN_LINE",
+    "CAPACITY_LINE")] + list(worksite.STATE_MARKS.values())
+
+
+def test_doc_states_page_texts():
+    doc = (ROOT / "docs" / "worksite-page.md").read_bytes().decode("utf-8")
+    missing = [text for text in PAGE_TEXTS if f"`{text}`" not in doc]
+    assert missing == []
+    assert f"`{CSP_CONTENT}`" in doc
+    assert "`--site`" in doc
+    assert "](page-safety.md" in doc
+    assert "file:" + "//" not in doc
+    stale = {
+        "docs/config.md": "It writes nothing yet",
+        "README.md": "nothing built yet",
+        "commands/build.md": "pages come in later releases",
+        "docs/worksite-page.md": "The page itself comes in #9",
+    }
+    for rel, text in stale.items():
+        assert text not in (ROOT / rel).read_bytes().decode("utf-8"), rel

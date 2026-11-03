@@ -1,10 +1,14 @@
 # The worksite page
 
 A worksite page shows one site's work: its leaves, the links between them,
-their priorities and what Gantry could not use. The page itself comes in #9;
-this document fixes what it is built from. Every Gantry view reads the same
-parsed data (`gantry/model.py`), produced by `gantry.wbs_stopgap.read_wbs`
-until devagent exports its own.
+their priorities, a schedule across agent lanes, and what Gantry could not
+use. `gantry build --config FILE --site NAME` writes it
+([On the command line](#on-the-command-line)). This document fixes what the
+page is built from ([Reading `WBS.md`](#reading-wbsmd)), what it shows
+([The page](#the-page)) and how it keeps record values inert
+([Page safety](#page-safety)). Every Gantry view reads the same parsed data
+(`gantry/model.py`), produced by `gantry.wbs_stopgap.read_wbs` until devagent
+exports its own.
 
 ## Reading `WBS.md`
 
@@ -178,12 +182,193 @@ in this table's order.
 | `no_nodes` | the file has no node lines | shows an empty site |
 | `site_unreadable` | `WBS.md` cannot be opened, read or decoded as UTF-8 | shows the site as unreadable, with the reason |
 
+## The page
+
+`gantry/views/worksite.py` turns a parsed site into the page's data
+(`page_model`), draws the network, and fills `gantry/templates/worksite.html`
+(`render_page`). The page's own script, `gantry/static/worksite.js`, draws
+the schedule and the details. The page is one self-contained file: it works
+when opened from a local file, with no server and no network.
+
+The page shows **open work**: every leaf whose glyph is open and that no
+cycle holds out. Finished leaves are left out (a link to one is already
+satisfied).
+
+### Lanes and states
+
+The network and the schedule have one row per epic, a top-level row that
+holds open work, in `WBS.md` order. A row's label is its `issue:` id, if it
+has one, then its title. A last `no epic` lane holds the top-level leaves.
+
+A leaf in the `!`, `?` or `P` state is open work like any other: it is drawn
+in the network, takes lane time in the schedule, and holds back the leaves
+that wait on it. Its box and its schedule bar carry its state's class from a
+fixed set (`st-stuck`, `st-blocked`, `st-parked`; `~` is `st-wip`), and its
+details name the state:
+
+| State | Glyph | Shown as |
+|---|---|---|
+| `in_progress` | `~` | `in progress` |
+| `stuck` | `!` | `stuck` |
+| `blocked_external` | `?` | `blocked` |
+| `parked` | `P` | `parked` |
+
+When a site has any stuck, blocked or parked leaf, one line above the
+schedule says so: `{n} stuck, blocked or parked leaves are scheduled as if an agent could start them`,
+or `1 stuck, blocked or parked leaf is scheduled as if an agent could start it`.
+
+### The network
+
+The network's nodes are the open leaves with a link to another open leaf.
+Every link a longer chain already implies is removed (transitive reduction),
+and the page says how many. Columns are the earliest slot a leaf can start
+in, one slot per leaf; rows are the lanes. A leaf's slack is how many slots
+it can slip before the network gets longer. A box is red at slack 0 (the
+critical path), tinted at slack 1 to 3, and plain above. A link between two
+lanes is dashed; a top-level leaf's link to an epic leaf crosses lanes too.
+Below the network, the critical path, the near-critical leaves by slack, and
+the hours-weighted heaviest chain are listed.
+
+A box shows the leaf's key, its priority as written and its hours, then its
+title cut to 40 characters; the full key, title and priority are in the
+box's tooltip and in the leaf's details. Hover, select or tab to a leaf to
+open its details (state, epic, priority, effective priority, hours, model
+tiers, flags, metadata and foreign entries, earliest slot, slack, what it
+waits on and unblocks) and to trace everything upstream and downstream.
+
+### Rolling wave
+
+A leaf keeps its full box when its slack is 0, its own priority as written
+is P1 (not its effective priority), it is in progress (`~`), or the schedule
+starts it within 10 working days (60 agent-hours at 6 a day) at the default
+4 lanes. Every other leaf is a circle whose area is its hours. "Every leaf
+as a box" shows them all as boxes; "Rolling wave" returns.
+
+### The model band and table
+
+Where a site records a leaf's model tiers (#10 reads them), the bottom band
+of its box names its thinking tier (left) and checking tier (right), each
+shaded by a class from a fixed set (`m-haiku`, `m-sonnet`, `m-opus`,
+`m-fable`, and `m-other` for any other value). Each lane's label carries a
+table of how many of its open leaves use each tier, linked or not. When no
+leaf records a tier, there is no band and no table, and one line says
+`no per-leaf model tiers recorded`.
+
+### The schedule
+
+The schedule spreads every open leaf, linked or not, across 1 to 8 agent
+lanes (a page control, default 4). The page always uses its own default and
+never the portfolio file's lanes: this schedule ignores the operator's
+attention. A leaf with an estimate (#10) takes its midpoint; a leaf with
+none takes `default_unit_hours` from the installation config and is marked
+unestimated. When a lane comes free it takes the ready leaf (every
+predecessor finished) with the most urgent effective priority, then the
+earliest in `WBS.md`. A lane with nothing ready waits for the next finish.
+Leaves with no link appear only here.
+
+Rows group by epic or by lane; by epic, each epic's row expands to list its
+leaves ("Expand all epics" and "Collapse all"). One line says which limit
+sets the finish: `With {lanes}, the dependency chain sets the finish.` when
+the plan ends no later than the heaviest chain of waits, else
+`With {lanes}, capacity sets the finish.`; `{lanes}` reads `1 lane` or
+`4 lanes`. The schedule is labelled
+`agent capacity only; ignores operator attention; the week view is the plan`.
+
+The scheduler is `gantry/schedule.py`, a plain function over leaf data with
+no page or site code in it. Its line-for-line twin `gantry/static/schedule.js`
+is inlined into the page, and `tests/test_schedule_agreement.py` holds the
+two to the same start, end and lane for every leaf, calling the page's copy
+through the page-script harness. `tools/check_schedulers.py --config FILE
+--out DIR` runs the same comparison on real sites; it refuses a `DIR` inside
+the repository and prints only counts.
+
+### The interim estimate note
+
+No estimate is read yet, so every duration is the default unit. Until #10
+replaces it with per-figure labels, the page carries one note above the
+network and schedule while no open leaf has an estimate:
+`every duration is the default unit; no estimates are read yet`.
+
+### Missing or unreadable
+
+The panel lists each report entry's message, in the report's order, with
+two changes:
+
+- the issue-less leaves are one count, at the first of them:
+  `{n} leaves have no issue: id and are named by outline position`, or
+  `1 leaf has no issue: id and is named by outline position`;
+- each leaf held out by a cycle reads `WBS.md line {line}: {key!r} waits on a cycle`.
+  It is left out of the network and the schedule, and the rest of the page
+  renders.
+
+With nothing to list, the panel says `Nothing is missing or unreadable.`
+A site whose `WBS.md` has no nodes shows `This site has no leaves.`, and one
+with leaves but none open shows `This site has no open leaves.`; neither
+draws a network or a schedule.
+
+### Foreign entries
+
+A one-site page does not resolve another site's leaves (#11 does). A
+leaf's foreign `depends_on` entries, then those of each open row above it,
+top-down, are listed in its details as `{raw} (on another site)`, such as
+`beta:Issue-3 (on another site)`.
+
+## Page safety
+
+Every page follows the rules in [page-safety.md](page-safety.md), and its
+tests use that document's checkers and harness. This page applies them so:
+
+- **Text, never markup.** Every record-derived string (titles, ids and
+  outline-position names, epic and site names, priorities, metadata values,
+  model tiers, flags) reaches the page as text. `gantry/render.py`'s `esc`
+  escapes `&`, `<`, `>`, `"` and `'`; attributes are double-quoted, and a
+  text is cut before it is escaped. `fill` replaces each `{{NAME}}` in one
+  pass, so a value is never read again as a placeholder, escapes every value
+  that is not `Markup` (a fragment the page builder made from escaped
+  parts), and refuses a placeholder with no value or a value with no
+  placeholder.
+- **Embedded data.** The page's data is one
+  `<script type="application/json" id="gantry-data">` block, written by
+  `embed_json`: ASCII JSON with no `NaN`, and `<`, `>` and `&` as `\u`
+  escapes, so no value can end the block. Records are arrays, never objects
+  keyed by a record value, so a key such as `__proto__` stays data.
+- **Fixed classes.** A class name is never built from a record value: the
+  model-tier and state classes come from fixed sets with a fallback
+  (`m-other`, `st-other`), and slack gives `crit`, `near` or `free`. The
+  page's script takes a class from the data only when its own fixed set
+  holds it, and a test holds that set equal to `CLASS_TOKENS`.
+- **The page's script.** It writes details with `textContent`; where it
+  writes markup (the schedule), every record value goes through its own
+  `esc`, which escapes the same five characters. Lookups by key are `Map`s.
+  A leaf element carries `data-item`, read with `getAttribute`; no selector
+  is ever built from a record value.
+- **Controls.** The page follows the harness's control convention: a
+  `select[data-control="lanes"]` (1 to 8, default 4); buttons
+  `data-control="zoom"` (`wave`, `all`), `group` (`epic`, `lane`) and
+  `expand` (`all`, `none`, disabled when grouped by lane); and two item
+  containers, `network-detail` (the network's `g.node` items) and
+  `schedule-detail` (the schedule's `rect.seg` items), whose details open
+  on `focusin`. Listeners are delegated on `document`; there are no inline
+  handlers.
+- **No resource from any URL.** The head opens with
+  `<meta charset="utf-8">`, then the CSP meta with the content
+  `default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'`.
+  Fonts are system font stacks, and no `url()` other than `url(#id)`
+  appears. The CSP guards against loads only: inline script is allowed, so
+  escaping stays the defence against injected markup.
+- **Limits the harness sets.** The page uses no timer, no storage and no
+  layout read; an `svg` holds no `script` or `style` of its own; the
+  scripts come last in `body` (`gantry-data`, then `gantry-schedule`, then
+  `gantry-page`). `render_page` refuses a script asset that holds
+  `</script` or `<!--`. The template and both scripts are package data, LF
+  everywhere.
+
 ## On the command line
 
-Until the pages exist, `gantry build` prints each site's counts as the third
-field of its line: `open N, finished M` (leaf counts), then `; ` and
-`<kind> <count>` for each kind with a count, joined by `, ` in the table's
-order. With no entries there is no `;` part:
+`gantry build --config FILE` lists the sites and writes nothing. Each site's
+line gives its counts as the third field: `open N, finished M` (leaf counts),
+then `; ` and `<kind> <count>` for each kind with a count, joined by `, ` in
+the table's order. With no entries there is no `;` part:
 
 ```text
 harbor	<planning directory>	open 8, finished 6
@@ -193,3 +378,19 @@ marsh	<planning directory>	cannot read: WBS.md is not valid UTF-8 at byte 88
 
 A site Gantry cannot read prints `cannot read: <reason>` instead; the reasons
 are in [config.md](config.md#sites).
+
+With `--site`, `gantry build --config FILE --site NAME` writes that site's page to
+`<output_dir>/sites/<NAME>.html` and prints the page's absolute path. It
+creates `<output_dir>/sites/` when it is missing, and writes the page to a
+temporary file in that folder, then renames it into place, so no partial
+page is ever left. Each of these exits 1 with the reason and writes no page
+(an existing page is kept as it was):
+
+- `--site NAME: no such site in <devagent config>`;
+- `--site NAME: cannot build: <reason>`: the site has a problem (an invalid
+  name, no planning directory, no `WBS.md`) or its `WBS.md` cannot be read;
+- `--site NAME: render error: <type>: <message>`: building the page's data
+  or filling its template failed;
+- `--site NAME: cannot write <page>: <reason>`.
+
+An invalid name is printed escaped, as in the listing.
