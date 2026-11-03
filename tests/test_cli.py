@@ -10,6 +10,8 @@ import tomllib
 import pytest
 
 from gantry.cli import main, status_text
+from gantry.views import worksite
+from gantry.views.worksite import NO_LEAVES
 from gantry.wbs_stopgap import parse_wbs
 from helpers_config import append_bytes, copy_samples, sample_projects, write_site_tree
 from sample_roles import BUSY, NO_WBS, OWN_UNIT, SMALL, UNESTIMATED, UNREADABLE
@@ -150,6 +152,126 @@ def test_build_writes_nothing(tmp_path, capsys):
     assert len(capsys.readouterr().out.splitlines()) == 6
     assert snapshot(tmp_path) == before
     assert not (copy / "out").exists()
+
+
+# --- build --site ---------------------------------------------------------------
+
+
+def site_build(capsys, config, name):
+    """(exit code, stdout, stderr) of `build --site name`."""
+    code = main(["build", "--config", str(config), "--site", name])
+    captured = capsys.readouterr()
+    return code, captured.out, captured.err
+
+
+def leftovers(folder):
+    return sorted(p.name for p in folder.rglob("*.tmp"))
+
+
+def test_site_unreadable_writes_no_page(tmp_path, capsys):
+    copy = copy_samples(tmp_path)
+    config = copy / "gantry.sample.toml"
+    for name, reason in ((UNREADABLE, "WBS.md is not valid UTF-8 at byte 88"),
+                         (NO_WBS, "no WBS.md in the planning directory")):
+        code, out, err = site_build(capsys, config, name)
+        assert (code, out) == (1, "")
+        assert err == f"gantry: error: --site {name}: cannot build: {reason}\n"
+        assert not (copy / "out").exists()
+
+
+def test_site_no_nodes_writes_page(tmp_path, capsys):
+    config = write_site_tree(tmp_path, {"alpha": (FIXTURES / "empty.md").read_bytes()})
+    code, out, err = site_build(capsys, config, "alpha")
+    page = tmp_path / "out" / "sites" / "alpha.html"
+    assert (code, out, err) == (0, f"{page}\n", "")
+    assert NO_LEAVES in page.read_bytes().decode("utf-8")
+
+
+def test_site_unconfigured_exits_1(tmp_path, capsys):
+    config = write_site_tree(tmp_path, {"alpha": (FIXTURES / "page.md").read_bytes()})
+    code, out, err = site_build(capsys, config, "nowhere")
+    assert (code, out) == (1, "")
+    assert err == f"gantry: error: --site nowhere: no such site in {tmp_path / 'devagent.toml'}\n"
+    assert not (tmp_path / "out").exists()
+
+
+def test_site_invalid_name_exits_1(tmp_path, capsys):
+    config = write_site_tree(tmp_path, {"bad\tname": (FIXTURES / "page.md").read_bytes()})
+    code, out, err = site_build(capsys, config, "bad\tname")
+    assert (code, out) == (1, "")
+    assert err == "gantry: error: --site bad\\tname: cannot build: name does not match [A-Za-z0-9][A-Za-z0-9_.-]*\n"
+    assert not (tmp_path / "out").exists()
+
+
+def test_site_creates_sites_folder(tmp_path, capsys):
+    config = write_site_tree(tmp_path, {"alpha": (FIXTURES / "page.md").read_bytes()}, output_dir='"deep/out"')
+    assert not (tmp_path / "deep").exists()
+    code, out, _ = site_build(capsys, config, "alpha")
+    page = tmp_path / "deep" / "out" / "sites" / "alpha.html"
+    assert (code, out) == (0, f"{page}\n")
+    assert page.read_bytes().startswith(b"<!doctype html>\n")
+    assert leftovers(tmp_path) == []
+
+
+def test_site_output_unwritable(tmp_path, capsys):
+    config = write_site_tree(tmp_path, {"alpha": (FIXTURES / "page.md").read_bytes()})
+    (tmp_path / "out").write_bytes(b"a file, not a folder")
+    code, out, err = site_build(capsys, config, "alpha")
+    assert (code, out) == (1, "")
+    assert err.startswith(f"gantry: error: --site alpha: cannot write {tmp_path / 'out' / 'sites' / 'alpha.html'}: ")
+    (tmp_path / "out").unlink()
+    (tmp_path / "out" / "sites" / "alpha.html").mkdir(parents=True)
+    code, out, err = site_build(capsys, config, "alpha")
+    assert (code, out) == (1, "")
+    assert err.startswith("gantry: error: --site alpha: cannot write ")
+    assert leftovers(tmp_path) == []
+    assert (tmp_path / "out" / "sites" / "alpha.html").is_dir()
+
+
+def test_site_render_error_leaves_no_page(tmp_path, capsys, monkeypatch):
+    config = write_site_tree(tmp_path, {"alpha": (FIXTURES / "page.md").read_bytes()})
+    assert site_build(capsys, config, "alpha")[0] == 0
+    page = tmp_path / "out" / "sites" / "alpha.html"
+    before = page.read_bytes()
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("forced")
+
+    monkeypatch.setattr(worksite, "render_page", boom)
+    code, out, err = site_build(capsys, config, "alpha")
+    assert (code, out) == (1, "")
+    assert err == "gantry: error: --site alpha: render error: RuntimeError: forced\n"
+    assert page.read_bytes() == before
+    assert leftovers(tmp_path) == []
+
+
+def test_python_m_builds_sample_site(tmp_path):
+    copy = copy_samples(tmp_path)
+    result = run_module("build", "--config", str(copy / "gantry.sample.toml"), "--site", BUSY)
+    assert result.returncode == 0, result.stderr
+    printed = result.stdout.decode("utf-8").strip()
+    assert os.path.isabs(printed)
+    assert os.path.samefile(printed, copy / "out" / "sites" / f"{BUSY}.html")
+
+
+def test_listing_does_not_import_the_view():
+    code = "import sys, gantry.cli; gantry.cli.main(['build', '--config', 'samples/gantry.sample.toml']); " \
+           "sys.exit('gantry.views.worksite' in sys.modules)"
+    result = subprocess.run([sys.executable, "-c", code], cwd=ROOT, capture_output=True,
+                            env={**os.environ, "PYTHONPATH": str(ROOT)})
+    assert result.returncode == 0, result.stderr
+    assert len(result.stdout.splitlines()) == 6
+
+
+def test_portfolio_file_does_not_change_page(tmp_path, capsys):
+    copy = copy_samples(tmp_path)
+    config = copy / "gantry.sample.toml"
+    assert site_build(capsys, config, BUSY)[0] == 0
+    page = copy / "out" / "sites" / f"{BUSY}.html"
+    plain = page.read_bytes()
+    append_bytes(config, 'portfolio_file = "portfolio.toml"\n')
+    assert site_build(capsys, config, BUSY)[0] == 0
+    assert page.read_bytes() == plain
 
 
 def test_reserved_keys_have_no_effect_on_build(tmp_path, capsys):
