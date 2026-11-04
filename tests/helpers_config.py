@@ -26,11 +26,14 @@ def write_config(folder, tail="", name="gantry.toml", **raw):
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(CONFIG, folder / "devagent.toml")
+    return _write_toml(folder / name, tail, raw)
+
+
+def _write_toml(path, tail, raw):
+    """BASE updated by `raw` (`None` drops a key), then `tail`, written to path."""
     values = {**BASE, **raw}
     lines = [f"{key} = {value}" for key, value in values.items() if value is not None]
-    text = "\n".join(lines) + "\n" + tail
-    path = folder / name
-    path.write_bytes(text.encode("utf-8"))
+    path.write_bytes(("\n".join(lines) + "\n" + tail).encode("utf-8"))
     return path
 
 
@@ -55,11 +58,7 @@ def write_site_tree(folder, sites, **raw):
             (planning / "WBS.md").write_bytes(wbs)
         tables.append(f'[project."{name}"]\ndevdoc_dir = "{index}"\n')
     (folder / "devagent.toml").write_bytes("\n".join(tables).encode("utf-8"))
-    values = {**BASE, **raw}
-    lines = [f"{key} = {value}" for key, value in values.items() if value is not None]
-    path = folder / "gantry.toml"
-    path.write_bytes(("\n".join(lines) + "\n").encode("utf-8"))
-    return path
+    return _write_toml(folder / "gantry.toml", "", raw)
 
 
 def copy_samples(tmp_path):

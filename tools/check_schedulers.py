@@ -17,11 +17,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / "tests")]
 
+from gantry.cli import site_data  # noqa: E402
 from gantry.config import ConfigError, load_config  # noqa: E402
 from gantry.schedule import plan  # noqa: E402
 from gantry.sites import load_sites  # noqa: E402
-from gantry.views.worksite import page_model, render_page  # noqa: E402
-from gantry.wbs_stopgap import read_wbs  # noqa: E402
+from gantry.views.worksite import page_model, render_model  # noqa: E402
 from page_script.harness import HarnessError, run_function  # noqa: E402
 
 LANES = range(1, 9)
@@ -53,14 +53,15 @@ def main(argv=None):
     folder = out / "sites"
     built = skipped = leaves = disagreements = 0
     for site in sites:
-        data = read_wbs(site.planning_dir / "WBS.md", site.name) if site.problem is None else None
-        if data is None or any(e.kind == "site_unreadable" for e in data.report):
+        data, problem = site_data(site)
+        if problem is not None:
             skipped += 1
             continue
-        items = page_model(site.name, data, default_unit_hours=config.default_unit_hours)["schedule"]["items"]
+        m = page_model(site.name, data, default_unit_hours=config.default_unit_hours)
+        items = m["schedule"]["items"]
         folder.mkdir(parents=True, exist_ok=True)
         page = folder / f"{site.name}.html"
-        page.write_bytes(render_page(site.name, data, default_unit_hours=config.default_unit_hours).encode("utf-8"))
+        page.write_bytes(render_model(m).encode("utf-8"))
         built += 1
         leaves += len(items)
         for lanes in LANES:

@@ -109,14 +109,19 @@ def _foreign(site, leaf, row_at):
     return out
 
 
+def _known_first(tiers):
+    """The known tiers in MODEL_CLASSES order, then the rest as given."""
+    rank = list(MODEL_CLASSES)
+    return sorted(tiers, key=lambda t: rank.index(t) if t in MODEL_CLASSES else len(rank))
+
+
 def _tier_counts(tiers):
     """[[tier, count], ...]: the known tiers in order, then the rest as first seen."""
     counts = {}
     for t in tiers:
         if t is not None:
             counts[t] = counts.get(t, 0) + 1
-    known = [t for t in MODEL_CLASSES if t in counts]
-    return [[t, counts[t]] for t in known + [t for t in counts if t not in MODEL_CLASSES]]
+    return [[t, counts[t]] for t in _known_first(counts)]
 
 
 def page_model(site, data, *, default_unit_hours) -> dict:
@@ -143,11 +148,6 @@ def page_model(site, data, *, default_unit_hours) -> dict:
               "wbs_index": wbs_index[k]} for k in keys]
     starts = {k: v[0] for k, v in schedule.plan(items, LANES_DEFAULT).items()}
 
-    net_preds = {k: [] for k in net.nodes}
-    net_succs = {k: [] for k in net.nodes}
-    for u, v in net.edges:
-        net_preds[v].append(u)
-        net_succs[u].append(v)
     row_at = {row.outline: row for row in data.rows}
     leaves = []
     for leaf in work:
@@ -164,11 +164,11 @@ def page_model(site, data, *, default_unit_hours) -> dict:
             "hours": hours[k][0], "unestimated": hours[k][1], "linked": linked,
             "slack": net.slack[k] if linked else None,
             "sclass": slack_class(net.slack[k]) if linked else None,
-            "es": net.es[k] if linked else None, "crit": k in net.critical, "wave_full": wave_full,
+            "es": net.es[k] if linked else None, "wave_full": wave_full,
             "models": tiers, "mc": [model_class(t) for t in tiers] if tiers else None,
             "flags": _flags(leaf), "meta": [[mk, mv] for mk, mv in leaf.meta.items()],
             "foreign": _foreign(site, leaf, row_at),
-            "preds": net_preds.get(k, []), "succs": net_succs.get(k, []),
+            "preds": net.preds.get(k, []), "succs": net.succs.get(k, []),
         })
 
     lanes = []
@@ -192,9 +192,18 @@ def page_model(site, data, *, default_unit_hours) -> dict:
         if 0 < net.slack[k] <= 3:
             near.setdefault(net.slack[k], []).append(k)
     held = sum(leaf.state in HELD_STATES for leaf in work)
+    empty = not data.leaves and not data.rows
+    if items:
+        status = None
+    elif empty:
+        status = NO_LEAVES
+    else:
+        # No items but an open leaf: every open leaf is held out.
+        status = ALL_HELD if any(leaf.open for leaf in data.leaves) else NO_OPEN
     return {
         "site": site,
-        "empty": not data.leaves and not data.rows,
+        "empty": empty,
+        "status": status,
         "lanes": lanes,
         "lanes_default": LANES_DEFAULT,
         "lanes_max": LANES_MAX,
@@ -315,9 +324,7 @@ def _layout(nodes, es, lane_of, preds):
 def _tier_rows(lane):
     """[(tier, think count, check count)], the known tiers first."""
     think, check = dict(lane["models"]["think"]), dict(lane["models"]["check"])
-    names = list(dict.fromkeys([*think, *check]))
-    names.sort(key=lambda t: list(MODEL_CLASSES).index(t) if t in MODEL_CLASSES else len(MODEL_CLASSES))
-    return [(t, think.get(t, 0), check.get(t, 0)) for t in names]
+    return [(t, think.get(t, 0), check.get(t, 0)) for t in _known_first(dict.fromkeys([*think, *check]))]
 
 
 def _lane_label(lane, top, tiers_shown):
@@ -463,18 +470,22 @@ def _note(text):
     return Markup(f'<p class="note">{esc(text)}</p>') if text else Markup("")
 
 
-def _mono(keys):
-    return Markup(", ".join(f'<span class="mono">{esc(k)}</span>' for k in keys))
+def _mono(keys, sep=", "):
+    return Markup(sep.join(f'<span class="mono">{esc(k)}</span>' for k in keys))
 
 
 def render_page(site, data, *, default_unit_hours) -> str:
     """The worksite page for one site's parsed WBS.md, as one HTML text."""
-    m = page_model(site, data, default_unit_hours=default_unit_hours)
+    return render_model(page_model(site, data, default_unit_hours=default_unit_hours))
+
+
+def render_model(m) -> str:
+    """The worksite page for a page_model result, as one HTML text."""
+    site = m["site"]
     net = m["network"]
     items = m["schedule"]["items"]
     linked = len(net["nodes"])
-    held = any(leaf.open for leaf in data.leaves)
-    status = NO_LEAVES if m["empty"] else (ALL_HELD if held else NO_OPEN) if not items else None
+    status = m["status"]
     heavy = net["heaviest"]
     if not heavy["keys"]:
         hours_note = "No open leaf waits on another."
@@ -498,7 +509,7 @@ def render_page(site, data, *, default_unit_hours) -> str:
         NO_TIERS=_note(m["notes"]["no_tiers"]),
         SVG=_network_svg(m),
         LENGTH=net["length"],
-        CHAIN=Markup(ARROW.join(f'<span class="mono">{esc(k)}</span>' for k in net["path"])) or "none",
+        CHAIN=_mono(net["path"], ARROW) or "none",
         NEAR=near or "none",
         HOURS_NOTE=hours_note,
         COUNTS=(f"{linked} of the {len(items)} open leaves have an open link and appear in the network; the other "

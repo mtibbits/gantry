@@ -89,9 +89,13 @@
     return seen;
   }
 
+  let traced = null;
+
   function showNet(key) {
     const leaf = leaves.get(key);
-    if (leaf === undefined || svg === null || detail === null) return;
+    // mouseover fires again for each child of the node the pointer crosses.
+    if (leaf === undefined || svg === null || detail === null || key === traced) return;
+    traced = key;
     const up = walk(key, "preds");
     const down = walk(key, "succs");
     const inUp = (k) => k === key || up.has(k);
@@ -114,6 +118,7 @@
   }
 
   function leaveNet() {
+    traced = null;
     if (svg !== null) svg.classList.remove("tracing");
     clearNet();
   }
@@ -145,6 +150,9 @@
   let byKey = new Map();
   let end = 0;
   let span = 20;
+  let hot = null;
+  const W = LABW + TW + PADR;
+  const px = (d) => LABW + (d / span) * TW;
 
   function controls(name) {
     return Array.from(document.querySelectorAll("button[data-control]"))
@@ -182,13 +190,23 @@
   }
 
   function segClass(leaf) {
-    return ["seg", leaf.crit ? "crit" : "", leaf.mc === null ? "" : tok(leaf.mc[0]), tok(leaf.sc)]
+    return ["seg", leaf.sclass === "crit" ? "crit" : "", leaf.mc === null ? "" : tok(leaf.mc[0]), tok(leaf.sc)]
       .filter((c) => c !== "").join(" ");
   }
 
-  function bar(r, x, w, y, h) {
+  function extent(r) {
+    const x = px(r.a);
+    return [x, Math.max(1.2, px(r.b) - x)];
+  }
+
+  function bar(r, y, h) {
+    const [x, w] = extent(r);
     return '<rect class="' + segClass(r.leaf) + '" data-item="' + esc(r.leaf.key) + '" data-lane="' + r.leaf.lane +
       '" x="' + num(x) + '" y="' + num(y) + '" width="' + num(w) + '" height="' + h + '" tabindex="0"/>';
+  }
+
+  function laneRect(i, y, h) {
+    return '<rect class="lane' + (i % 2 ? " alt" : "") + '" x="0" y="' + y + '" width="' + W + '" height="' + h + '"/>';
   }
 
   function text(cls, x, y, value, anchor) {
@@ -198,13 +216,12 @@
 
   function render() {
     for (const b of controls("expand")) b.disabled = group !== "epic";
+    hot = null;
     if (host === null) return;
     if (!rows.length) {
       host.replaceChildren();
       return;
     }
-    const px = (d) => LABW + (d / span) * TW;
-    const W = LABW + TW + PADR;
     const out = [];
     let y = TOP;
     if (group === "epic") {
@@ -218,25 +235,21 @@
         const hours = list.reduce((s, r) => s + r.leaf.hours, 0);
         const first = list[0].a;
         const last = list.reduce((m, r) => Math.max(m, r.b), 0);
-        out.push('<rect class="lane' + (li % 2 ? " alt" : "") + '" x="0" y="' + y + '" width="' + W + '" height="' + h + '"/>');
+        out.push(laneRect(li, y, h));
         out.push('<g class="g-toggle" data-lane="' + li + '" tabindex="0" role="button" aria-expanded="' + isOpen + '">' +
           '<rect x="0" y="' + y + '" width="' + (LABW - 8) + '" height="' + GH + '"/>' +
           text("g-name", 14, y + 18, (isOpen ? "\u25be " : "\u25b8 ") + cut(laneText(li), 40)) +
           text("g-sub", 28, y + 33, list.length + (list.length === 1 ? " leaf" : " leaves") + " \u00b7 " + num(hours) +
             " h \u00b7 days " + num(first) + "\u2013" + num(last)) + "</g>");
         const top = y + (GH - st.n * TRK) / 2;
-        list.forEach((r, j) => {
-          const x = px(r.a);
-          out.push(bar(r, x, Math.max(1.2, px(r.b) - x), top + st.at[j] * TRK + 5, TRK - 5));
-        });
+        list.forEach((r, j) => out.push(bar(r, top + st.at[j] * TRK + 5, TRK - 5)));
         if (isOpen) {
           list.forEach((r, j) => {
             const ry = y + GH + j * LH + 13;
-            const x = px(r.a);
-            const w = Math.max(1.2, px(r.b) - x);
+            const [x, w] = extent(r);
             out.push(text("g-leaf", 28, ry, cut(r.leaf.key + " " + r.leaf.title, 44)));
             if (r.leaf.priority !== null) out.push(text("g-prio", LABW - 12, ry, cut(r.leaf.priority, 8), "end"));
-            out.push(bar(r, x, w, ry - 9, 11));
+            out.push(bar(r, ry - 9, 11));
             out.push(text("g-hrs", x + w + 5, ry, num(r.leaf.hours) + " h" + (r.leaf.unestimated ? ", unestimated" : "")));
             if (r.leaf.mark !== null) out.push(text("g-mark", x + w + 90, ry, r.leaf.mark));
           });
@@ -247,14 +260,11 @@
       for (let wl = 0; wl < k; wl++) {
         const list = rows.filter((r) => r.wl === wl).sort((p, q) => p.a - q.a);
         const busy = list.reduce((s, r) => s + (r.b - r.a), 0);
-        out.push('<rect class="lane' + (wl % 2 ? " alt" : "") + '" x="0" y="' + y + '" width="' + W + '" height="' + WLH + '"/>');
+        out.push(laneRect(wl, y, WLH));
         out.push(text("g-name", 14, y + 17, "Lane " + (wl + 1)));
         out.push(text("g-sub", 14, y + 32, list.length + (list.length === 1 ? " leaf" : " leaves") + " \u00b7 busy " +
           Math.round((busy / end) * 100) + "% of the plan"));
-        list.forEach((r) => {
-          const x = px(r.a);
-          out.push(bar(r, x, Math.max(1.2, px(r.b) - x), y + 12, 20));
-        });
+        list.forEach((r) => out.push(bar(r, y + 12, 20)));
         y += WLH;
       }
     }
@@ -273,15 +283,17 @@
 
   function showSched(key) {
     const r = byKey.get(key);
-    if (r === undefined || gdetail === null || host === null) return;
+    if (r === undefined || gdetail === null || host === null || key === hot) return;
+    hot = key;
     for (const s of host.querySelectorAll(".seg")) s.classList.toggle("hot", s.getAttribute("data-item") === key);
     gdetail.replaceChildren();
     leafLines(gdetail, r.leaf);
     line(gdetail, [["Scheduled:", "lane " + (r.wl + 1) + ", days " + num(r.a) + "\u2013" + num(r.b)],
-      [null, r.leaf.crit ? "on the critical path" : r.leaf.linked ? "linked in the network" : "no links: could move anywhere"]]);
+      [null, r.leaf.sclass === "crit" ? "on the critical path" : r.leaf.linked ? "linked in the network" : "no links: could move anywhere"]]);
   }
 
   function leaveSched() {
+    hot = null;
     if (host !== null) for (const s of host.querySelectorAll(".seg.hot")) s.classList.remove("hot");
     clearSched();
   }

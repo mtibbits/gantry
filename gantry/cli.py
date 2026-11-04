@@ -90,6 +90,17 @@ def _write_page(folder, name, text):
         raise
 
 
+def site_data(site):
+    """(data, None) for a site a page can be built from, else (None, why not)."""
+    if site.problem is not None:
+        return None, site.problem
+    data = read_wbs(site.planning_dir / "WBS.md", site.name)
+    unreadable = [e for e in data.report if e.kind == "site_unreadable"]
+    if unreadable:
+        return None, unreadable[0].message
+    return data, None
+
+
 def _build_site(config, sites, name):
     def fail(message):
         print(f"gantry: error: --site {shown(name)}: {message}", file=sys.stderr)
@@ -98,12 +109,9 @@ def _build_site(config, sites, name):
     site = next((s for s in sites if s.name == name), None)
     if site is None:
         return fail(f"no such site in {config.devagent_config}")
-    if site.problem is not None:
-        return fail(f"cannot build: {site.problem}")
-    data = read_wbs(site.planning_dir / "WBS.md", site.name)
-    unreadable = [e for e in data.report if e.kind == "site_unreadable"]
-    if unreadable:
-        return fail(f"cannot build: {unreadable[0].message}")
+    data, problem = site_data(site)
+    if problem is not None:
+        return fail(f"cannot build: {problem}")
     # The view is imported only here: listing sites never loads it.
     from gantry.views import worksite
 

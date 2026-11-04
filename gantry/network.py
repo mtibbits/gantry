@@ -21,6 +21,9 @@ class Network:
     critical: tuple[str, ...]  # slack 0, in topological order
     crit_edges: tuple[tuple[str, str], ...]
     cross: frozenset[tuple[str, str]]
+    preds: dict[str, list[str]]  # over edges
+    succs: dict[str, list[str]]
+    order: tuple[str, ...]  # topological, ties in nodes order
 
 
 def _reaches(succ, start, goal, skip):
@@ -72,24 +75,24 @@ def build(keys, links, lane_of) -> Network:
         succ[u].append(v)
     edges = tuple((u, v) for u, v in kept if not _reaches(succ, u, v, v))
     preds = {n: [] for n in nodes}
-    after = {n: [] for n in nodes}
+    succs = {n: [] for n in nodes}
     for u, v in edges:
         preds[v].append(u)
-        after[u].append(v)
-    order = _order(nodes, edges)
+        succs[u].append(v)
+    order = tuple(_order(nodes, edges))
     es = {}
     for n in order:
         es[n] = max((es[p] + 1 for p in preds[n]), default=0)
     length = max(es.values(), default=-1) + 1
     ls = {}
     for n in reversed(order):
-        ls[n] = min((ls[s] - 1 for s in after[n]), default=length - 1)
+        ls[n] = min((ls[s] - 1 for s in succs[n]), default=length - 1)
     slack = {n: ls[n] - es[n] for n in nodes}
     crit_edges = tuple((u, v) for u, v in edges
                        if slack[u] == 0 and slack[v] == 0 and es[v] == es[u] + 1)
     cross = frozenset((u, v) for u, v in edges if lane_of[u] != lane_of[v])
-    return Network(nodes, edges, {n: es[n] for n in nodes}, slack, length,
-                   tuple(n for n in order if slack[n] == 0), crit_edges, cross)
+    return Network(nodes, edges, es, slack, length, tuple(n for n in order if slack[n] == 0),
+                   crit_edges, cross, preds, succs, order)
 
 
 def critical_chain(net: Network) -> tuple[str, ...]:
@@ -114,13 +117,10 @@ def critical_chain(net: Network) -> tuple[str, ...]:
 
 def heaviest_chain(net: Network, hours) -> tuple[tuple[str, ...], float]:
     """(keys, total hours) of the chain of edges with the most hours, by `hours[key]`."""
-    preds = {n: [] for n in net.nodes}
-    for u, v in net.edges:
-        preds[v].append(u)
     best, back = {}, {}
-    order = _order(net.nodes, net.edges)
+    order = net.order
     for n in order:
-        p = max(preds[n], key=lambda q: best[q], default=None)
+        p = max(net.preds[n], key=lambda q: best[q], default=None)
         best[n] = (best[p] if p is not None else 0.0) + hours[n]
         back[n] = p
     if not order:
