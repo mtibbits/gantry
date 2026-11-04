@@ -10,10 +10,14 @@ import tomllib
 import pytest
 
 from gantry.cli import main, status_text
+from gantry.views import worksite
+from gantry.views.worksite import NO_LEAVES
 from gantry.wbs_stopgap import parse_wbs
-from helpers_config import append_bytes, copy_samples, sample_projects
+from helpers_config import append_bytes, copy_samples, sample_projects, write_site_tree
 from sample_roles import BUSY, NO_WBS, OWN_UNIT, SMALL, UNESTIMATED, UNREADABLE
 from test_samples import ROOT
+
+FIXTURES = ROOT / "tests" / "fixtures" / "wbs"
 
 
 def run_module(*args, cwd=ROOT):
@@ -123,6 +127,17 @@ def test_status_text_forms():
     assert status_text(parse_wbs("- [ ] One {issue: Issue-1}\n", "alpha")) == "open 1, finished 0"
 
 
+def test_write_site_tree_lists_sites(tmp_path, capsys):
+    page = (FIXTURES / "page.md").read_bytes()
+    empty = (FIXTURES / "empty.md").read_bytes()
+    config = write_site_tree(tmp_path, {"alpha": page, "beta": empty})
+    assert main(["build", "--config", str(config)]) == 0
+    lines = [line.split("\t") for line in capsys.readouterr().out.splitlines()]
+    assert [f[0] for f in lines] == ["alpha", "beta"]
+    assert lines[0][2] == "open 14, finished 1; no_issue 2, unresolved_ref 1"
+    assert lines[1][2] == "open 0, finished 0; no_nodes 1"
+
+
 def snapshot(root):
     return {
         p.relative_to(root).as_posix(): (p.stat().st_size, p.stat().st_mtime_ns)
@@ -137,6 +152,136 @@ def test_build_writes_nothing(tmp_path, capsys):
     assert len(capsys.readouterr().out.splitlines()) == 6
     assert snapshot(tmp_path) == before
     assert not (copy / "out").exists()
+
+
+# --- build --site ---------------------------------------------------------------
+
+
+def site_build(capsys, config, name):
+    """(exit code, stdout, stderr) of `build --site name`."""
+    code = main(["build", "--config", str(config), "--site", name])
+    captured = capsys.readouterr()
+    return code, captured.out, captured.err
+
+
+def leftovers(folder):
+    return sorted(p.name for p in folder.rglob("*.tmp"))
+
+
+def test_site_unreadable_writes_no_page(tmp_path, capsys):
+    copy = copy_samples(tmp_path)
+    config = copy / "gantry.sample.toml"
+    for name, reason in ((UNREADABLE, "WBS.md is not valid UTF-8 at byte 88"),
+                         (NO_WBS, "no WBS.md in the planning directory")):
+        code, out, err = site_build(capsys, config, name)
+        assert (code, out) == (1, "")
+        assert err == f"gantry: error: --site {name}: cannot build: {reason}\n"
+        assert not (copy / "out").exists()
+
+
+def test_site_no_nodes_writes_page(tmp_path, capsys):
+    config = write_site_tree(tmp_path, {"alpha": (FIXTURES / "empty.md").read_bytes()})
+    code, out, err = site_build(capsys, config, "alpha")
+    page = tmp_path / "out" / "sites" / "alpha.html"
+    assert (code, out, err) == (0, f"{page}\n", "")
+    assert NO_LEAVES in page.read_bytes().decode("utf-8")
+
+
+def test_site_unconfigured_exits_1(tmp_path, capsys):
+    config = write_site_tree(tmp_path, {"alpha": (FIXTURES / "page.md").read_bytes()})
+    code, out, err = site_build(capsys, config, "nowhere")
+    assert (code, out) == (1, "")
+    assert err == f"gantry: error: --site nowhere: no such site in {tmp_path / 'devagent.toml'}\n"
+    assert not (tmp_path / "out").exists()
+
+
+def test_site_invalid_name_exits_1(tmp_path, capsys):
+    config = write_site_tree(tmp_path, {"bad\tname": (FIXTURES / "page.md").read_bytes()})
+    code, out, err = site_build(capsys, config, "bad\tname")
+    assert (code, out) == (1, "")
+    assert err == "gantry: error: --site bad\\tname: cannot build: name does not match [A-Za-z0-9][A-Za-z0-9_.-]*\n"
+    assert not (tmp_path / "out").exists()
+
+
+def test_site_creates_sites_folder(tmp_path, capsys):
+    config = write_site_tree(tmp_path, {"alpha": (FIXTURES / "page.md").read_bytes()}, output_dir='"deep/out"')
+    assert not (tmp_path / "deep").exists()
+    code, out, _ = site_build(capsys, config, "alpha")
+    page = tmp_path / "deep" / "out" / "sites" / "alpha.html"
+    assert (code, out) == (0, f"{page}\n")
+    assert page.read_bytes().startswith(b"<!doctype html>\n")
+    assert leftovers(tmp_path) == []
+
+
+def test_site_output_unwritable(tmp_path, capsys):
+    config = write_site_tree(tmp_path, {"alpha": (FIXTURES / "page.md").read_bytes()})
+    (tmp_path / "out").write_bytes(b"a file, not a folder")
+    code, out, err = site_build(capsys, config, "alpha")
+    assert (code, out) == (1, "")
+    assert err.startswith(f"gantry: error: --site alpha: cannot write {tmp_path / 'out' / 'sites' / 'alpha.html'}: ")
+    (tmp_path / "out").unlink()
+    (tmp_path / "out" / "sites" / "alpha.html").mkdir(parents=True)
+    code, out, err = site_build(capsys, config, "alpha")
+    assert (code, out) == (1, "")
+    assert err.startswith("gantry: error: --site alpha: cannot write ")
+    assert leftovers(tmp_path) == []
+    assert (tmp_path / "out" / "sites" / "alpha.html").is_dir()
+
+
+def test_site_render_error_leaves_no_page(tmp_path, capsys, monkeypatch):
+    config = write_site_tree(tmp_path, {"alpha": (FIXTURES / "page.md").read_bytes()})
+    assert site_build(capsys, config, "alpha")[0] == 0
+    page = tmp_path / "out" / "sites" / "alpha.html"
+    before = page.read_bytes()
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("forced")
+
+    monkeypatch.setattr(worksite, "render_page", boom)
+    code, out, err = site_build(capsys, config, "alpha")
+    assert (code, out) == (1, "")
+    assert err == "gantry: error: --site alpha: render error: RuntimeError: forced\n"
+    assert page.read_bytes() == before
+    assert leftovers(tmp_path) == []
+
+    def boom_quoting(*args, **kwargs):
+        raise RuntimeError("bad\ntitle \x1b")
+
+    monkeypatch.setattr(worksite, "render_page", boom_quoting)
+    code, out, err = site_build(capsys, config, "alpha")
+    assert (code, out) == (1, "")
+    assert err.startswith("gantry: error: --site alpha: render error: RuntimeError: bad")
+    assert err.count("\n") == 1 and err.endswith("\n") and "\x1b" not in err
+    assert page.read_bytes() == before
+
+
+def test_python_m_builds_sample_site(tmp_path):
+    copy = copy_samples(tmp_path)
+    result = run_module("build", "--config", str(copy / "gantry.sample.toml"), "--site", BUSY)
+    assert result.returncode == 0, result.stderr
+    printed = result.stdout.decode("utf-8").strip()
+    assert os.path.isabs(printed)
+    assert os.path.samefile(printed, copy / "out" / "sites" / f"{BUSY}.html")
+
+
+def test_listing_does_not_import_the_view():
+    code = "import sys, gantry.cli; gantry.cli.main(['build', '--config', 'samples/gantry.sample.toml']); " \
+           "sys.exit('gantry.views.worksite' in sys.modules)"
+    result = subprocess.run([sys.executable, "-c", code], cwd=ROOT, capture_output=True,
+                            env={**os.environ, "PYTHONPATH": str(ROOT)})
+    assert result.returncode == 0, result.stderr
+    assert len(result.stdout.splitlines()) == 6
+
+
+def test_portfolio_file_does_not_change_page(tmp_path, capsys):
+    copy = copy_samples(tmp_path)
+    config = copy / "gantry.sample.toml"
+    assert site_build(capsys, config, BUSY)[0] == 0
+    page = copy / "out" / "sites" / f"{BUSY}.html"
+    plain = page.read_bytes()
+    append_bytes(config, 'portfolio_file = "portfolio.toml"\n')
+    assert site_build(capsys, config, BUSY)[0] == 0
+    assert page.read_bytes() == plain
 
 
 def test_reserved_keys_have_no_effect_on_build(tmp_path, capsys):
@@ -293,3 +438,15 @@ def test_launcher_dash_leading_config_is_a_value(tmp_path):
     result, _ = run_launcher(copy, ["-dash.toml"], shims, samples, tmp_path)
     assert result.returncode == 0, result.stderr
     assert sample_line_count(result) == 6
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX file modes only")
+def test_site_page_mode_follows_umask(tmp_path, capsys):
+    config = write_site_tree(tmp_path, {"alpha": (FIXTURES / "page.md").read_bytes()})
+    old = os.umask(0o022)
+    try:
+        assert site_build(capsys, config, "alpha")[0] == 0
+    finally:
+        os.umask(old)
+    page = tmp_path / "out" / "sites" / "alpha.html"
+    assert page.stat().st_mode & 0o777 == 0o644

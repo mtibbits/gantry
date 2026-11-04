@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<title>{{SITE}}: worksite</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+/* A drafting sheet: a narrow text column, then wide plates that scroll sideways. */
+:root {
+  --bg: #f3f4f6; --sheet: #ffffff; --ink: #18202c; --muted: #5d6878; --rule: #d6dbe3;
+  --lane: #f7f8fa; --lane-alt: #eef1f5; --crit: #c4321f; --crit-ink: #ffffff;
+  --near: #f8ddd7; --near-ink: #6e1e12; --cross: #3a55c9; --held: #8a5a00;
+  /* model band: a neutral ramp, heavier model = heavier tone */
+  --m-haiku: #f1f3f6; --m-haiku-ink: #3a4452;
+  --m-sonnet: #e6e9ee; --m-sonnet-ink: #3a4452;
+  --m-opus: #8e99aa; --m-opus-ink: #0e131a;
+  --m-fable: #1f2833; --m-fable-ink: #f3f5f8;
+  --m-other: #c9b8e0; --m-other-ink: #2a1f3a;
+  --f-display: "Arial Narrow", "Segoe UI", system-ui, sans-serif;
+  --f-body: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --f-mono: ui-monospace, "Cascadia Mono", Consolas, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f131a; --sheet: #161c25; --ink: #e5e9ef; --muted: #98a3b3; --rule: #2b3442;
+    --lane: #141a22; --lane-alt: #19202a; --crit: #ff6a55; --crit-ink: #1b0904;
+    --near: #47231d; --near-ink: #ffcfc6; --cross: #8fa3ff; --held: #e0b050;
+    --m-haiku: #1c222b; --m-haiku-ink: #b9c2ce;
+    --m-sonnet: #252d38; --m-sonnet-ink: #b9c2ce;
+    --m-opus: #66727f; --m-opus-ink: #0b0f14;
+    --m-fable: #e2e7ee; --m-fable-ink: #10161e;
+    --m-other: #5b4a73; --m-other-ink: #efe6fb;
+    color-scheme: dark;
+  }
+}
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 15px; line-height: 1.55;
+  margin: 0; padding: 32px max(16px, env(safe-area-inset-right, 0px)) 48px max(16px, env(safe-area-inset-left, 0px));
+}
+.wrap { max-width: 1180px; margin: 0 auto; display: grid; gap: 40px; }
+.work { display: grid; gap: 40px; }
+.gone { display: none; }
+.prose { max-width: 72ch; display: grid; gap: 12px; }
+.eyebrow { font-family: var(--f-mono); font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+h1, h2 { font-family: var(--f-display); font-weight: 600; margin: 0; line-height: 1.15; }
+h1 { font-size: 34px; }
+h2 { font-size: 22px; }
+p { margin: 0; }
+.note { border-left: 3px solid var(--held); padding-left: 10px; }
+.label { font-family: var(--f-mono); font-size: 13px; color: var(--muted); }
+.mono { font-family: var(--f-mono); font-size: .92em; }
+section { display: grid; gap: 16px; min-width: 0; }
+figure { margin: 0; display: grid; gap: 10px; min-width: 0; }
+figcaption { color: var(--muted); font-size: 14px; max-width: 72ch; }
+
+/* legend */
+.legend { display: flex; flex-wrap: wrap; gap: 10px 22px; font-size: 13px; color: var(--muted); align-items: center; }
+.legend span { display: inline-flex; align-items: center; gap: 8px; }
+.legend-row { display: grid; gap: 10px; }
+.legend svg { display: block; }
+.sw { width: 26px; height: 14px; border-radius: 2px; border: 1px solid var(--rule); display: inline-block; }
+.sw.crit { background: var(--crit); border-color: var(--crit); }
+.sw.near { background: var(--near); border-color: var(--crit); }
+.sw.free { background: var(--sheet); }
+.sw.st-wip { background: var(--sheet); border: 2px solid var(--ink); }
+.sw.st-stuck { background: var(--sheet); border: 2px dashed var(--held); }
+.sw.st-blocked { background: var(--sheet); border: 2px dotted var(--held); }
+.sw.st-parked { background: var(--lane-alt); border: 2px dashed var(--muted); }
+.sw.m-haiku { background: var(--m-haiku); }
+.sw.m-sonnet { background: var(--m-sonnet); }
+.sw.m-opus { background: var(--m-opus); border-color: var(--m-opus); }
+.sw.m-fable { background: var(--m-fable); border-color: var(--m-fable); }
+.sw.m-other { background: var(--m-other); border-color: var(--m-other); }
+.ln { width: 30px; height: 0; border-top: 2px solid var(--muted); display: inline-block; }
+.ln.crit { border-top: 3px solid var(--crit); }
+.ln.cross { border-top: 2px dashed var(--cross); }
+
+/* network plate */
+.plate { background: var(--sheet); border: 1px solid var(--rule); border-radius: 4px; overflow-x: auto; }
+.net { display: block; font-family: var(--f-body); }
+.lane { fill: var(--lane); }
+.lane.alt { fill: var(--lane-alt); }
+.lane-num { font-family: var(--f-mono); font-size: 12px; font-weight: 600; fill: var(--ink); }
+.lane-name { font-size: 12px; fill: var(--ink); }
+.lane-free { font-size: 11px; fill: var(--muted); font-variant-numeric: tabular-nums; }
+.col-cap { font-family: var(--f-mono); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; fill: var(--muted); }
+.col-num { font-family: var(--f-mono); font-size: 12px; fill: var(--muted); }
+.col-rule { stroke: var(--rule); stroke-width: 1; stroke-dasharray: 2 4; }
+.edge { fill: none; stroke: var(--muted); stroke-width: 1.2; opacity: .75; }
+.edge.cross { stroke: var(--cross); stroke-dasharray: 5 4; opacity: .9; }
+.edge.crit { stroke: var(--crit); stroke-width: 3; opacity: 1; stroke-dasharray: none; }
+/* A critical link across epics is red and still dashed. */
+.edge.crit.cross { stroke-dasharray: 5 4; }
+.arrow { fill: var(--muted); }
+.arrow-crit { fill: var(--crit); }
+.arrow-cross { fill: var(--cross); }
+.node { cursor: pointer; outline: none; }
+.node .box { fill: var(--sheet); }
+.node .outline { fill: none; stroke: var(--rule); stroke-width: 1; }
+.node text { fill: var(--ink); }
+.node .nid { font-family: var(--f-mono); font-size: 12px; font-weight: 600; }
+.node .nmeta { font-family: var(--f-mono); font-size: 10px; fill: var(--muted); font-variant-numeric: tabular-nums; }
+.node .ntitle { font-size: 10.5px; }
+.node.near .box { fill: var(--near); }
+.node.near .outline { stroke: var(--crit); }
+.node.near text.nid, .node.near text.nmeta, .node.near text.ntitle { fill: var(--near-ink); }
+.node.crit .box { fill: var(--crit); }
+.node.crit .outline { stroke: var(--crit); }
+.node.crit text.nid, .node.crit text.nmeta, .node.crit text.ntitle { fill: var(--crit-ink); }
+.node.st-wip .outline { stroke: var(--ink); stroke-width: 2; }
+.node.st-stuck .outline { stroke: var(--held); stroke-width: 2.5; stroke-dasharray: 6 3; }
+.node.st-blocked .outline { stroke: var(--held); stroke-width: 2.5; stroke-dasharray: 2 3; }
+.node.st-parked .outline { stroke: var(--muted); stroke-width: 2.5; stroke-dasharray: 6 3; }
+.band.m-haiku { fill: var(--m-haiku); }
+.band.m-sonnet { fill: var(--m-sonnet); }
+.band.m-opus { fill: var(--m-opus); }
+.band.m-fable { fill: var(--m-fable); }
+.band.m-other { fill: var(--m-other); }
+.node text.band-t { font-family: var(--f-mono); font-size: 9.5px; }
+.node text.band-t.m-haiku { fill: var(--m-haiku-ink); }
+.node text.band-t.m-sonnet { fill: var(--m-sonnet-ink); }
+.node text.band-t.m-opus { fill: var(--m-opus-ink); }
+.node text.band-t.m-fable { fill: var(--m-fable-ink); }
+.node text.band-t.m-other { fill: var(--m-other-ink); }
+.band-split { stroke: var(--sheet); stroke-width: 1.5; }
+.node:focus-visible .outline { stroke: var(--cross); stroke-width: 3; }
+.net.mode-wave .node.compact .full-form, .net:not(.mode-wave) .dot-form,
+.net.mode-wave .e-all, .net:not(.mode-wave) .e-wave { display: none; }
+.dot { fill: var(--m-opus); stroke: var(--muted); stroke-width: .75; }
+.dot.m-haiku { fill: var(--m-haiku); }
+.dot.m-sonnet { fill: var(--m-sonnet); }
+.dot.m-fable { fill: var(--m-fable); }
+.dot.m-other { fill: var(--m-other); }
+.node .dot-l { font-family: var(--f-mono); font-size: 10px; fill: var(--muted); }
+.node.near .dot { stroke: var(--crit); stroke-width: 2; }
+.node.compact:focus-visible .dot { stroke: var(--cross); stroke-width: 3; }
+.legend .dot-k { font-family: var(--f-mono); font-size: 10px; fill: var(--muted); }
+.net.tracing .node, .net.tracing .edge { opacity: .16; transition: opacity .12s; }
+.net.tracing .node.lit, .net.tracing .edge.lit { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .net.tracing .node, .net.tracing .edge { transition: none; } }
+.mt-h { font-family: var(--f-mono); font-size: 10px; fill: var(--muted); letter-spacing: .04em; }
+.mt-rule { stroke: var(--rule); stroke-width: 1; }
+.mt-sw { stroke: var(--m-opus); stroke-width: .5; }
+.mt-sw.m-haiku { fill: var(--m-haiku); }
+.mt-sw.m-sonnet { fill: var(--m-sonnet); }
+.mt-sw.m-opus { fill: var(--m-opus); }
+.mt-sw.m-fable { fill: var(--m-fable); }
+.mt-sw.m-other { fill: var(--m-other); }
+.mt-m { font-family: var(--f-mono); font-size: 11px; fill: var(--ink); }
+.mt-v { font-family: var(--f-mono); font-size: 11px; font-weight: 600; fill: var(--ink); font-variant-numeric: tabular-nums; }
+.mt-v.zero { fill: var(--muted); font-weight: 400; }
+
+/* schedule */
+.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.controls button { font: 500 13px var(--f-body); color: var(--ink); background: var(--sheet); border: 1px solid var(--rule); border-radius: 3px; padding: 5px 12px; cursor: pointer; }
+.controls button:hover { border-color: var(--muted); }
+.controls button:focus-visible, .g-toggle:focus-visible { outline: 2px solid var(--cross); outline-offset: 2px; }
+.controls button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.controls button:disabled { opacity: .45; cursor: default; }
+.controls label { font-size: 13px; color: var(--muted); }
+.controls select { font: 500 13px var(--f-body); color: var(--ink); background: var(--sheet); border: 1px solid var(--rule); border-radius: 3px; padding: 4px 8px; }
+.gantt { display: block; font-family: var(--f-body); }
+.g-toggle { cursor: pointer; }
+.g-toggle rect { fill: transparent; }
+.g-name { font-size: 12.5px; font-weight: 600; fill: var(--ink); }
+.g-sub { font-size: 11px; fill: var(--muted); font-variant-numeric: tabular-nums; }
+.g-leaf { font-size: 11px; fill: var(--ink); }
+.g-prio, .g-hrs, .g-mark { font-family: var(--f-mono); font-size: 10px; fill: var(--muted); }
+.g-mark { fill: var(--held); }
+.g-axis { font-family: var(--f-mono); font-size: 11px; fill: var(--muted); }
+.g-grid { stroke: var(--rule); stroke-width: 1; }
+.seg { fill: var(--muted); stroke: var(--sheet); stroke-width: .75; cursor: pointer; }
+.seg.m-haiku { fill: var(--m-haiku); stroke: var(--m-opus); stroke-width: .5; }
+.seg.m-sonnet { fill: var(--m-sonnet); stroke: var(--m-opus); stroke-width: .5; }
+.seg.m-opus { fill: var(--m-opus); }
+.seg.m-fable { fill: var(--m-fable); }
+.seg.m-other { fill: var(--m-other); }
+.seg.crit { fill: var(--crit); }
+.seg.st-stuck, .seg.st-blocked, .seg.st-parked { stroke: var(--held); stroke-width: 2; stroke-dasharray: 4 2; }
+.seg.hot { stroke: var(--cross); stroke-width: 2; }
+.mk-end { stroke: var(--ink); stroke-width: 1.5; stroke-dasharray: 4 3; }
+
+.detail { background: var(--sheet); border: 1px solid var(--rule); border-radius: 4px; padding: 14px 16px; font-size: 14px; min-height: 96px; display: grid; gap: 4px; overflow-wrap: anywhere; }
+.detail .k { color: var(--muted); }
+.panel { margin: 0; padding-left: 20px; display: grid; gap: 8px; max-width: 72ch; overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<main class="wrap">
+  <header class="prose">
+    <div class="eyebrow">{{SITE}} &#183; WBS.md</div>
+    <h1>{{SITE}}: what sets the pace</h1>
+    <p>A network of every open leaf that waits on, or is waited on by, another open leaf, then a schedule of all open work across parallel agent lanes. Columns give the earliest slot a leaf can start in, counting one slot per leaf. The red line is the critical path: the chain with no slack.</p>
+    {{STATUS}}
+    {{INTERIM}}
+  </header>
+
+  <div class="{{WORK_CLASS}}">
+  <section>
+    <h2>Dependency network</h2>
+    <div class="controls" role="group" aria-label="Network detail">
+      <button type="button" data-control="zoom" data-value="wave" aria-pressed="true">Rolling wave</button>
+      <button type="button" data-control="zoom" data-value="all" aria-pressed="false">Every leaf as a box</button>
+    </div>
+    <p class="prose">Rolling wave keeps full boxes for the critical path, every leaf whose own priority is P1, work in progress, and anything the schedule below starts within {{HORIZON}} working days on its default {{LANES}} lanes. The rest shrink to circles whose area is their hours.</p>
+    <div class="legend-row" aria-hidden="true">
+      <div class="legend">
+        <span><i class="sw crit"></i>critical, slack 0</span>
+        <span><i class="sw near"></i>near-critical, slack 1&#8211;3</span>
+        <span><i class="sw free"></i>slack 4 or more</span>
+        <span><i class="ln crit"></i>critical link</span>
+        <span><i class="ln cross"></i>link across epics</span>
+        <span><i class="ln"></i>link within an epic</span>
+      </div>
+      <div class="legend">
+        <span><i class="sw st-wip"></i>in progress</span>
+        <span><i class="sw st-stuck"></i>stuck</span>
+        <span><i class="sw st-blocked"></i>blocked</span>
+        <span><i class="sw st-parked"></i>parked</span>
+      </div>
+      <div class="legend">
+        <span>Bottom band, left half: thinking model. Right half: checking model.</span>
+        <span><i class="sw m-haiku"></i>haiku</span>
+        <span><i class="sw m-sonnet"></i>sonnet</span>
+        <span><i class="sw m-opus"></i>opus</span>
+        <span><i class="sw m-fable"></i>fable</span>
+        <span><i class="sw m-other"></i>another tier</span>
+      </div>
+      <div class="legend">
+        <span>Circle: a later, lower-priority leaf. Area is hours:</span>
+        <span><svg width="150" height="44" viewBox="0 0 150 44"><circle class="dot" cx="14" cy="18" r="6"/><text class="dot-k" x="14" y="42" text-anchor="middle">4 h</text><circle class="dot" cx="58" cy="18" r="12"/><text class="dot-k" x="58" y="42" text-anchor="middle">16 h</text><circle class="dot" cx="118" cy="18" r="19"/><text class="dot-k" x="118" y="42" text-anchor="middle">40 h</text></svg></span>
+      </div>
+    </div>
+    {{NO_TIERS}}
+    <figure>
+      <div class="plate">
+{{SVG}}
+      </div>
+      <figcaption>Top line of each box: the leaf, its priority as written, and its hours. Slack is how many slots a leaf can slip before it pushes out the end of the longest chain. Hover, select or tab to a leaf to trace everything upstream and downstream of it.</figcaption>
+    </figure>
+    <div class="detail" id="detail" aria-live="polite">
+      <div><span class="k">Critical path ({{LENGTH}} slots):</span> {{CHAIN}}</div>
+      <div><span class="k">Near-critical:</span> {{NEAR}}</div>
+      <div>{{HOURS_NOTE}}</div>
+      <div>{{COUNTS}}</div>
+    </div>
+  </section>
+
+  <section>
+    <div class="prose">
+      <h2>Schedule across agent lanes</h2>
+      <p>All open leaves, linked or not, spread across parallel agent lanes. Each lane is one agent session working {{HOURS_PER_DAY}} agent-hours a day, and each leaf takes the midpoint of its estimate, or the default unit when it has none. When a lane comes free it takes the most urgent leaf that is ready; a leaf takes the priority of anything it unblocks, and WBS order breaks ties. This is one plausible plan, not a forecast.</p>
+      <p class="label">{{LABEL}}</p>
+      {{STUCK}}
+    </div>
+    <div class="controls">
+      <label for="g-lanes">Agent lanes</label>
+      <select id="g-lanes" data-control="lanes">{{LANE_OPTIONS}}</select>
+      <span class="controls" role="group" aria-label="Group rows by">
+        <button type="button" data-control="group" data-value="epic" aria-pressed="true">By epic</button>
+        <button type="button" data-control="group" data-value="lane" aria-pressed="false">By lane</button>
+      </span>
+      <button type="button" data-control="expand" data-value="all">Expand all epics</button>
+      <button type="button" data-control="expand" data-value="none">Collapse all</button>
+    </div>
+    <p id="g-limit" aria-live="polite"></p>
+    <figure>
+      <div class="plate" id="gantt" data-control="schedule-detail" data-control-items></div>
+      <figcaption>Each bar's width is its hours. By epic, leaves that run at the same time stack inside the epic's row; select an epic's name to list its leaves. By lane, gaps in a lane are time it sat idle waiting on a dependency.</figcaption>
+    </figure>
+    <div class="detail" id="gdetail" aria-live="polite">
+      <div><span class="k">Hover, select or tab to a bar to see the leaf.</span></div>
+    </div>
+  </section>
+  </div>
+
+  <section class="prose">
+    <h2>Missing or unreadable</h2>
+    <ul class="panel" id="panel">{{PANEL}}</ul>
+  </section>
+</main>
+<script type="application/json" id="gantry-data">{{DATA}}</script>
+<script id="gantry-schedule">{{SCHEDULE_JS}}</script>
+<script id="gantry-page">{{PAGE_JS}}</script>
+</body>
+</html>

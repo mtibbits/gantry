@@ -266,10 +266,14 @@ def test_gantry_imports_stdlib_only(tmp_path):
     assert non_stdlib_imports(planted) == [("x.py", "yaml"), ("x.py", "requests")]
 
 
+# tools/check_schedulers.py drives the page-script harness from tests/ (#9).
+ALLOWED_TOOL_IMPORTS = {("check_schedulers.py", "page_script.harness")}
+
+
 def test_tools_import_stdlib_only():
     # tools/commit_check.py runs in CI and in hooks with no install step (#44).
     assert (ROOT / "tools" / "commit_check.py").is_file()
-    assert non_stdlib_imports(ROOT / "tools") == []
+    assert set(non_stdlib_imports(ROOT / "tools")) == ALLOWED_TOOL_IMPORTS
 
 
 # --- test-source hygiene ------------------------------------------------------------

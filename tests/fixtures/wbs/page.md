@@ -1,0 +1,18 @@
+# Page
+- [ ] Ground works {issue: Issue-1}
+  - [ ] Survey {issue: Issue-2}
+  - [ ] Dig {issue: Issue-3, depends_on: [Issue-2]}
+  - [ ] Pour {issue: Issue-4, depends_on: [Issue-3, Issue-2]}
+  - [ ] Cure {issue: Issue-5, depends_on: [Issue-4]}
+  - [x] Permit {issue: Issue-6}
+  - [ ] Seal {issue: Issue-9, depends_on: [Issue-5]}
+  - [ ] Polish {depends_on: [Issue-9]}
+- [ ] Frame {issue: Issue-10, depends_on: [gamma:Issue-1]}
+  - [ ] Walls {issue: Issue-11}
+  - [ ] Roof {issue: Issue-12, depends_on: [Issue-11, Issue-6]}
+  - [ ] Brace {issue: Issue-13, depends_on: [Issue-4]}
+  - [ ] Fence {issue: Issue-7, priority: P1, depends_on: [Issue-13]}
+  - [~] Gutters {issue: Issue-14, depends_on: [Issue-13, Issue-99]}
+  - [ ] Sweep
+  - [ ] Trim {issue: Issue-15, depends_on: [beta:Issue-3]}
+- [ ] Sign {issue: Issue-20}

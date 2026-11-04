@@ -13,4 +13,7 @@ samples/**/*.md text eol=lf
 samples/**/*.toml text eol=lf
 samples/**/*.json text eol=lf
 tools/*.sh text eol=lf
+# The page assets are read as bytes and written into pages as they are (#9).
+gantry/templates/** text eol=lf
+gantry/static/** text eol=lf
 samples/marsh/WBS.md -text

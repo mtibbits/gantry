@@ -19,7 +19,10 @@ dev = ["pytest>=7"]
 gantry = "gantry.cli:main"
 
 [tool.setuptools]
-packages = ["gantry"]
+packages = ["gantry", "gantry.views"]
+
+[tool.setuptools.package-data]
+gantry = ["templates/*.html", "static/*.js"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -26,16 +26,39 @@ def write_config(folder, tail="", name="gantry.toml", **raw):
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(CONFIG, folder / "devagent.toml")
+    return _write_toml(folder / name, tail, raw)
+
+
+def _write_toml(path, tail, raw):
+    """BASE updated by `raw` (`None` drops a key), then `tail`, written to path."""
     values = {**BASE, **raw}
     lines = [f"{key} = {value}" for key, value in values.items() if value is not None]
-    text = "\n".join(lines) + "\n" + tail
-    path = folder / name
-    path.write_bytes(text.encode("utf-8"))
+    path.write_bytes(("\n".join(lines) + "\n" + tail).encode("utf-8"))
     return path
 
 
 def sample_projects():
     return list(load_config()["project"])
+
+
+def write_site_tree(folder, sites, **raw):
+    """Write a devagent config naming `sites`, each site's WBS.md and a config.
+
+    `sites` maps a site name to its WBS.md bytes, in order; `None` leaves the
+    site's planning directory with no WBS.md. Site i's planning directory is
+    the folder `<i>` beside the devagent config. `raw` is as write_config's.
+    """
+    folder = Path(folder)
+    folder.mkdir(parents=True, exist_ok=True)
+    tables = []
+    for index, (name, wbs) in enumerate(sites.items()):
+        planning = folder / str(index)
+        planning.mkdir()
+        if wbs is not None:
+            (planning / "WBS.md").write_bytes(wbs)
+        tables.append(f'[project."{name}"]\ndevdoc_dir = "{index}"\n')
+    (folder / "devagent.toml").write_bytes("\n".join(tables).encode("utf-8"))
+    return _write_toml(folder / "gantry.toml", "", raw)
 
 
 def copy_samples(tmp_path):

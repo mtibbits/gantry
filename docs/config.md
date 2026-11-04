@@ -145,14 +145,19 @@ or the counts from its `WBS.md`: `open N, finished M` (leaf counts), then
 reported, just `open 8, finished 6`). The kinds and the reading rules are in
 [worksite-page.md](worksite-page.md#reading-wbsmd). A name that fails the pattern above is printed
 escaped (a tab as `\t`, an ESC as `\x1b`), so each site stays one line of
-three fields. It writes nothing yet; the page writers join in later issues.
+three fields. The listing writes nothing.
+
+`gantry build --site NAME` writes that site's worksite page to
+`<output_dir>/sites/<NAME>.html` instead, creating `<output_dir>/sites/`
+when it is missing; [worksite-page.md](worksite-page.md#on-the-command-line)
+has the page and the errors. The page's durations use `default_unit_hours`.
 
 ## Exit codes
 
 | Code | Meaning |
 |---|---|
-| 0 | the config is valid and at least one site is listed (site problems and warnings do not change it) |
-| 1 | a config or data error: the installation config or devagent's config is missing, unreadable, invalid or refused |
+| 0 | the config is valid and at least one site is listed (site problems and warnings do not change it), or `--site` wrote its page |
+| 1 | a config or data error: the installation config or devagent's config is missing, unreadable, invalid or refused; or, with `--site`, a site that is not configured or cannot be built, a render error, or a page that cannot be written |
 | 2 | a usage error, such as a missing `--config` |
 
 ## Supported platforms
