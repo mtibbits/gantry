@@ -288,7 +288,7 @@ the repository and prints only counts.
 
 No estimate is read yet, so every duration is the default unit. Until #10
 replaces it with per-figure labels, the page carries one note above the
-network and schedule while no open leaf has an estimate:
+network and schedule while it schedules open leaves and none has an estimate:
 `every duration is the default unit; no estimates are read yet`.
 
 ### Missing or unreadable

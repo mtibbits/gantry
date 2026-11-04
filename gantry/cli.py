@@ -118,7 +118,8 @@ def _build_site(config, sites, name):
     try:
         text = worksite.render_page(site.name, data, default_unit_hours=config.default_unit_hours)
     except Exception as e:
-        return fail(f"render error: {type(e).__name__}: {e}")
+        # The text may quote a record value: escape it so the message stays one line.
+        return fail(f"render error: {type(e).__name__}: {ascii(str(e))[1:-1]}")
     folder = config.output_dir / "sites"
     page = folder / f"{site.name}.html"
     try:

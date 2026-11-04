@@ -412,9 +412,10 @@ def test_page_texts_present():
     assert "stuck, blocked or parked" not in page
     states = visible_text(page_for("states"))
     assert "3 stuck, blocked or parked leaves are scheduled as if an agent could start them" in states
-    assert NO_LEAVES in visible_text(page_for("empty"))
-    done = render_page("alpha", parse_wbs("- [x] Done {issue: Issue-1}\n", "alpha"), default_unit_hours=6)
-    assert NO_OPEN in visible_text(done)
+    empty = visible_text(page_for("empty"))
+    assert NO_LEAVES in empty and INTERIM_NOTE not in empty
+    done = visible_text(render_page("alpha", parse_wbs("- [x] Done {issue: Issue-1}\n", "alpha"), default_unit_hours=6))
+    assert NO_OPEN in done and INTERIM_NOTE not in done
 
 
 def bands(t, node):
@@ -648,7 +649,7 @@ def test_all_held_out_site_says_so():
                      "alpha")
     page = visible_text(render_page("alpha", data, default_unit_hours=6))
     assert worksite.ALL_HELD in page
-    assert NO_OPEN not in page
+    assert NO_OPEN not in page and INTERIM_NOTE not in page
 
 
 def test_critical_cross_link_stays_dashed():

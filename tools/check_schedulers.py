@@ -7,7 +7,8 @@ DIR/sites/, then compares gantry.schedule.plan with the page's own
 gantrySchedule.plan (through the page-script harness) at 1 to 8 lanes. It
 prints one line of counts, never a site's data, so the line can go in a PR.
 Exit codes: 0 agreed, 1 a disagreement, 2 a usage error, a refused --out, a
-config error or a harness that cannot run. DIR must be outside the repository.
+config error, a page that cannot be built (named by site and error type only)
+or a harness that cannot run. DIR must be outside the repository.
 """
 
 import argparse
@@ -17,7 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / "tests")]
 
-from gantry.cli import site_data  # noqa: E402
+from gantry.cli import shown, site_data  # noqa: E402
 from gantry.config import ConfigError, load_config  # noqa: E402
 from gantry.schedule import plan  # noqa: E402
 from gantry.sites import load_sites  # noqa: E402
@@ -57,11 +58,15 @@ def main(argv=None):
         if problem is not None:
             skipped += 1
             continue
-        m = page_model(site.name, data, default_unit_hours=config.default_unit_hours)
-        items = m["schedule"]["items"]
-        folder.mkdir(parents=True, exist_ok=True)
         page = folder / f"{site.name}.html"
-        page.write_bytes(render_model(m).encode("utf-8"))
+        try:
+            m = page_model(site.name, data, default_unit_hours=config.default_unit_hours)
+            items = m["schedule"]["items"]
+            folder.mkdir(parents=True, exist_ok=True)
+            page.write_bytes(render_model(m).encode("utf-8"))
+        except Exception as e:
+            # The type only: a traceback or message could carry the site's data.
+            return _fail(f"{shown(site.name)}: cannot build its page: {type(e).__name__}")
         built += 1
         leaves += len(items)
         for lanes in LANES:

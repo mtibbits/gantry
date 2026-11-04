@@ -244,6 +244,16 @@ def test_site_render_error_leaves_no_page(tmp_path, capsys, monkeypatch):
     assert page.read_bytes() == before
     assert leftovers(tmp_path) == []
 
+    def boom_quoting(*args, **kwargs):
+        raise RuntimeError("bad\ntitle \x1b")
+
+    monkeypatch.setattr(worksite, "render_page", boom_quoting)
+    code, out, err = site_build(capsys, config, "alpha")
+    assert (code, out) == (1, "")
+    assert err.startswith("gantry: error: --site alpha: render error: RuntimeError: bad")
+    assert err.count("\n") == 1 and err.endswith("\n") and "\x1b" not in err
+    assert page.read_bytes() == before
+
 
 def test_python_m_builds_sample_site(tmp_path):
     copy = copy_samples(tmp_path)

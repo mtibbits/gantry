@@ -223,7 +223,7 @@ def page_model(site, data, *, default_unit_hours) -> dict:
         },
         "panel": _panel(data),
         "notes": {
-            "interim": INTERIM_NOTE if all(hours[k][1] for k in keys) else None,
+            "interim": INTERIM_NOTE if keys and all(hours[k][1] for k in keys) else None,
             "no_tiers": None if any(leaf["models"] for leaf in leaves) else NO_TIERS,
             "stuck": _count_line(held, STUCK_LINE, STUCK_LINE_ONE) if held else None,
         },

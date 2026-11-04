@@ -5,6 +5,7 @@ copy under test is the one a page carries. Each Node test takes the `node`
 fixture: it skips without Node and jsdom, and fails instead under CI.
 """
 
+import importlib.util
 import math
 import random
 import subprocess
@@ -161,6 +162,22 @@ def test_check_schedulers_refuses_out_in_repo():
         assert result.returncode == 2, result.stderr
         assert b"check_schedulers: --out must be outside the repository" in result.stderr
         assert sorted(p.name for p in ROOT.iterdir()) == before
+
+
+def test_check_schedulers_build_error_names_type_only(tmp_path, capsys, monkeypatch):
+    spec = importlib.util.spec_from_file_location("check_schedulers", TOOL)
+    tool = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(tool)
+
+    def boom(*args, **kwargs):
+        raise KeyError("Issue-1 secret title")
+
+    monkeypatch.setattr(tool, "page_model", boom)
+    code = tool.main(["--config", str(ROOT / "samples" / "gantry.sample.toml"), "--out", str(tmp_path / "out")])
+    out, err = capsys.readouterr()
+    assert (code, out) == (2, "")
+    assert err.startswith("check_schedulers: ") and err.endswith(": cannot build its page: KeyError\n")
+    assert "secret" not in err and "Traceback" not in err
 
 
 def test_check_schedulers_agrees_on_samples(node, tmp_path):
