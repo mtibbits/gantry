@@ -795,6 +795,71 @@ def test_hostile_page_under_harness(node, tmp_path):
     assert run_function(path, "gantryPage.esc", ["&<>\"'"]) == "&amp;&lt;&gt;&quot;&#39;"
 
 
+def test_caption_and_epic_rows_after_redraw(node, tmp_path):
+    inputs = est_inputs(tmp_path)
+    m = model_with(inputs)
+    site = m["unestimated"]["site"]
+    with open_page(write(tmp_path, page_with(inputs))) as page:
+        page.drive("lanes", "2")
+        page.drive("group", "lane")
+        page.drive("group", "epic")
+        (dates,) = page.query("#g-dates")
+        assert dates.attrs["data-unestimated"] == str(site)
+        assert dates.text == DATES.format(n=site)
+        rows = page.query(".g-toggle")
+        assert len(rows) == len(m["lanes"]) == 2
+        seen = set()
+        for row in rows:
+            n = m["lanes"][int(row.attrs["data-lane"])]["unestimated"]
+            assert row.attrs["data-unestimated"] == str(n)
+            assert (INCLUDES.format(n=n) in row.text) is (n > 0)
+            seen.add(n > 0)
+        assert seen == {True, False}
+
+
+def test_caption_redraw_keeps_one_form(node, tmp_path):
+    inputs = inputs_for(tmp_path / "one", "- [ ] J {issue: Issue-12}\n- [ ] A {issue: Issue-2, est: 3h}\n")
+    with open_page(write(tmp_path, page_with(inputs))) as page:
+        page.drive("lanes", "3")
+        (dates,) = page.query("#g-dates")
+        assert (dates.attrs["data-unestimated"], dates.text) == ("1", DATES_ONE)
+
+
+def test_unest_bars_marked(node, tmp_path):
+    inputs = est_inputs(tmp_path)
+    leaves = by_key(model_with(inputs))
+    with open_page(write(tmp_path, page_with(inputs))) as page:
+        for group in ("epic", "lane"):
+            page.drive("group", group)
+            bars = page.query("rect.seg")
+            assert bars
+            for bar in bars:
+                assert ("unest" in bar.classes) is leaves[bar.attrs["data-item"]]["unestimated"], bar.attrs
+
+
+def test_detail_shows_source_and_effort(node, tmp_path):
+    inputs = sample_inputs(BUSY)
+    leaves = by_key(model_with(inputs, BUSY))
+    key = next(k for k, leaf in leaves.items() if leaf["source"] == "estimates_file" and leaf["linked"])
+    effort = leaves[key]["effort"]
+    with open_page(write(tmp_path, page_with(inputs, BUSY))) as page:
+        page.drive("network-detail", key)
+        page.drive("schedule-detail", key)
+        for panel in ("#detail", "#gdetail"):
+            (detail,) = page.query(panel)
+            assert f"(from the estimates file, effort {effort})" in detail.text, panel
+
+
+def test_detail_shows_est_default_and_non_time(node, tmp_path):
+    inputs = est_inputs(tmp_path)
+    with open_page(write(tmp_path, page_with(inputs))) as page:
+        page.drive("schedule-detail", "Issue-2")
+        assert "(from its est: value)" in page.query("#gdetail")[0].text
+        page.drive("schedule-detail", "Issue-10")
+        text = page.query("#gdetail")[0].text
+        assert "(unestimated: the default unit)" in text and "Not in the hours: 48 pr" in text
+
+
 def test_js_class_tokens_match_render(node, tmp_path):
     path = write(tmp_path, page_for())
     assert run_function(path, "gantryPage.classTokens") == sorted(CLASS_TOKENS)

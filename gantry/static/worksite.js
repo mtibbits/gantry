@@ -28,6 +28,13 @@
   const num = (x) => (Math.round(x * 10) / 10).toString();
   const laneText = (i) => [lanes[i].tag, lanes[i].name].filter((s) => s !== "").join(" ");
   const lanesText = (k) => (k === 1 ? "1 lane" : k + " lanes");
+  // The page's count texts (#10): numbers only are filled in.
+  const count = (n, many, one) => (n === 1 ? one : many.split("{n}").join(String(n)));
+  const includes = (n) => count(n, DATA.texts.includes, DATA.texts.includes_one);
+  const SOURCES = new Map([["est", " (from its est: value)"], ["default", " (unestimated: the default unit)"]]);
+  const sourceText = (leaf) => (leaf.source === "estimates_file"
+    ? " (from the estimates file" + (leaf.effort === null ? "" : ", effort " + leaf.effort) + ")"
+    : SOURCES.get(leaf.source) || "");
 
   // --- the detail panels, built as text --------------------------------------
 
@@ -55,7 +62,8 @@
     box.append(title);
     line(box, [["Epic:", laneText(leaf.lane)], ["priority", leaf.priority === null ? "none" : leaf.priority],
       ["scheduled as", "P" + leaf.eff]]);
-    line(box, [["Hours:", num(leaf.hours) + (leaf.unestimated ? " (unestimated: the default unit)" : "")]]
+    line(box, [["Hours:", num(leaf.hours) + sourceText(leaf)]]
+      .concat(leaf.non_time === null ? [] : [["Not in the hours:", leaf.non_time]])
       .concat(leaf.mark === null ? [] : [["state", leaf.mark]]));
     if (leaf.models !== null) {
       line(box, [["Thinking:", leaf.models[0] === null ? "none" : leaf.models[0]],
@@ -133,6 +141,7 @@
   const host = document.getElementById("gantt");
   const gdetail = document.getElementById("gdetail");
   const limitLine = document.getElementById("g-limit");
+  const datesLine = document.getElementById("g-dates");
   const select = Array.from(document.querySelectorAll("select[data-control]"))
     .find((s) => s.getAttribute("data-control") === "lanes");
   const clearSched = gdetail === null ? () => {} : resting(gdetail);
@@ -190,8 +199,8 @@
   }
 
   function segClass(leaf) {
-    return ["seg", leaf.sclass === "crit" ? "crit" : "", leaf.mc === null ? "" : tok(leaf.mc[0]), tok(leaf.sc)]
-      .filter((c) => c !== "").join(" ");
+    return ["seg", leaf.sclass === "crit" ? "crit" : "", leaf.mc === null ? "" : tok(leaf.mc[0]), tok(leaf.sc),
+      leaf.unestimated ? tok("unest") : ""].filter((c) => c !== "").join(" ");
   }
 
   function extent(r) {
@@ -217,6 +226,12 @@
   function render() {
     for (const b of controls("expand")) b.disabled = group !== "epic";
     hot = null;
+    if (datesLine !== null) {
+      // Every drawn date depends on the whole schedule: the site's N.
+      const n = DATA.unestimated.site;
+      datesLine.setAttribute("data-unestimated", String(n));
+      datesLine.textContent = n ? count(n, DATA.texts.dates, DATA.texts.dates_one) : "";
+    }
     if (host === null) return;
     if (!rows.length) {
       host.replaceChildren();
@@ -236,11 +251,14 @@
         const first = list[0].a;
         const last = list.reduce((m, r) => Math.max(m, r.b), 0);
         out.push(laneRect(li, y, h));
-        out.push('<g class="g-toggle" data-lane="' + li + '" tabindex="0" role="button" aria-expanded="' + isOpen + '">' +
+        const unest = ln.unestimated;
+        out.push('<g class="g-toggle" data-lane="' + li + '" data-unestimated="' + unest +
+          '" tabindex="0" role="button" aria-expanded="' + isOpen + '">' +
           '<rect x="0" y="' + y + '" width="' + (LABW - 8) + '" height="' + GH + '"/>' +
           text("g-name", 14, y + 18, (isOpen ? "\u25be " : "\u25b8 ") + cut(laneText(li), 40)) +
           text("g-sub", 28, y + 33, list.length + (list.length === 1 ? " leaf" : " leaves") + " \u00b7 " + num(hours) +
-            " h \u00b7 days " + num(first) + "\u2013" + num(last)) + "</g>");
+            " h \u00b7 days " + num(first) + "\u2013" + num(last) + (unest ? " \u00b7 " + includes(unest) : "")) +
+          "</g>");
         const top = y + (GH - st.n * TRK) / 2;
         list.forEach((r, j) => out.push(bar(r, top + st.at[j] * TRK + 5, TRK - 5)));
         if (isOpen) {
