@@ -125,6 +125,10 @@ figcaption { color: var(--muted); font-size: 14px; max-width: 72ch; }
 .node text.band-t.m-other { fill: var(--m-other-ink); }
 .band-split { stroke: var(--sheet); stroke-width: 1.5; }
 .node:focus-visible .outline { stroke: var(--cross); stroke-width: 3; }
+/* An unestimated leaf: its hours are the default unit. */
+.node.unest text.nmeta { font-style: italic; }
+.node.unest .dot { stroke-dasharray: 2 2; }
+.seg.unest { fill-opacity: .55; }
 .net.mode-wave .node.compact .full-form, .net:not(.mode-wave) .dot-form,
 .net.mode-wave .e-all, .net:not(.mode-wave) .e-wave { display: none; }
 .dot { fill: var(--m-opus); stroke: var(--muted); stroke-width: .75; }
@@ -193,7 +197,8 @@ figcaption { color: var(--muted); font-size: 14px; max-width: 72ch; }
     <h1>{{SITE}}: what sets the pace</h1>
     <p>A network of every open leaf that waits on, or is waited on by, another open leaf, then a schedule of all open work across parallel agent lanes. Columns give the earliest slot a leaf can start in, counting one slot per leaf. The red line is the critical path: the chain with no slack.</p>
     {{STATUS}}
-    {{INTERIM}}
+    {{ESTIMATES}}
+    {{NON_TIME}}
   </header>
 
   <div class="{{WORK_CLASS}}">
@@ -242,7 +247,7 @@ figcaption { color: var(--muted); font-size: 14px; max-width: 72ch; }
     <div class="detail" id="detail" aria-live="polite">
       <div><span class="k">Critical path ({{LENGTH}} slots):</span> {{CHAIN}}</div>
       <div><span class="k">Near-critical:</span> {{NEAR}}</div>
-      <div>{{HOURS_NOTE}}</div>
+      <div id="hours-note" data-unestimated="{{HOURS_UNEST}}">{{HOURS_NOTE}}</div>
       <div>{{COUNTS}}</div>
     </div>
   </section>
@@ -266,6 +271,7 @@ figcaption { color: var(--muted); font-size: 14px; max-width: 72ch; }
     </div>
     <p id="g-limit" aria-live="polite"></p>
     <figure>
+      <p id="g-dates" class="label" data-unestimated="{{SITE_UNEST}}">{{DATES}}</p>
       <div class="plate" id="gantt" data-control="schedule-detail" data-control-items></div>
       <figcaption>Each bar's width is its hours. By epic, leaves that run at the same time stack inside the epic's row; select an epic's name to list its leaves. By lane, gaps in a lane are time it sat idle waiting on a dependency.</figcaption>
     </figure>

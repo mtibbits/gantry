@@ -295,12 +295,29 @@ through the page-script harness. `tools/check_schedulers.py --config FILE
 --out DIR` runs the same comparison on real sites; it refuses a `DIR` inside
 the repository and prints only counts.
 
-### The interim estimate note
+### Unestimated leaves and their labels
 
-No estimate is read yet, so every duration is the default unit. Until #10
-replaces it with per-figure labels, the page carries one note above the
-network and schedule while it schedules open leaves and none has an estimate:
-`every duration is the default unit; no estimates are read yet`.
+A leaf with no time `est:` and no estimates-file hours is scheduled at the
+default unit and is **unestimated** (#10). Its box carries the `unest` class
+and its tooltip ends `· unestimated`; its rolling-wave circle is drawn at
+the default unit. Every figure built on unestimated hours says so and
+carries `data-unestimated="N"`, N = 0 included; the fragment shows only
+when N is above 0:
+
+- each lane's label in the network's gutter: that epic's own unestimated
+  leaves, with `includes {n} unestimated leaves` (or
+  `includes 1 unestimated leaf`);
+- the hours note under the network: the unestimated leaves on the heaviest
+  chain, ending `; includes {n} unestimated leaves`;
+- the caption directly above the schedule, `dates include {n} unestimated leaves`
+  (or `dates include 1 unestimated leaf`), with the site's N: any leaf's
+  start depends on the whole schedule.
+
+The header names the estimates file read, `Estimates read from {name}, dated {date}.`
+or `Estimates read from {name} (no date).` for a configured file whose name
+has no date, then the site's non-time quantities,
+`Not in any hour figure: {parts}`, where each part is
+`{quantity} {unit} ({n} leaves)` and parts are joined with `; `.
 
 ### Missing or unreadable
 
@@ -311,6 +328,11 @@ two changes:
   `{n} leaves have no issue: id and are named by outline position`, or
   `1 leaf has no issue: id and is named by outline position`;
 - each leaf held out by a cycle reads `WBS.md line {line}: {key!r} waits on a cycle`.
+- the unestimated leaves are one line per `est:` class, at the first of
+  them: `{n} leaves with {what} and no estimates-file hours are unestimated: {keys}`,
+  or `1 leaf with {what} and no estimates-file hours is unestimated: {keys}`,
+  where `{what}` is `no est:`, `a placeholder est:`, `a non-time est:` or
+  `an unparseable est:`.
   It is left out of the network and the schedule, and the rest of the page
   renders.
 

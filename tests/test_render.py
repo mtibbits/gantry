@@ -71,5 +71,5 @@ def test_class_tokens_are_safe():
     assert CLASS_TOKENS == {
         "m-haiku", "m-sonnet", "m-opus", "m-fable", "m-other",
         "st-pending", "st-wip", "st-stuck", "st-blocked", "st-parked", "st-other",
-        "crit", "near", "free",
+        "crit", "near", "free", "unest",
     }

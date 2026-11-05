@@ -13,7 +13,9 @@ from importlib import resources
 
 from gantry import network, priority, schedule
 from gantry.deps import refs
-from gantry.model import FINISHED_GLYPHS, HOURS_PER_DAY, meta_scalar
+from gantry.est_rules import classify_est
+from gantry.inputs import NO_TIERS, UNEST_WHAT, site_totals
+from gantry.model import FINISHED_GLYPHS, HOURS_PER_DAY, Estimate, Models, meta_scalar
 from gantry.render import MODEL_CLASSES, Markup, embed_json, esc, fill, model_class, slack_class, state_class
 
 LANES_DEFAULT = 4
@@ -23,8 +25,15 @@ HORIZON_DAYS = 10
 SCHEDULE_LABEL = "agent capacity only; ignores operator attention; the week view is the plan"
 STUCK_LINE = "{n} stuck, blocked or parked leaves are scheduled as if an agent could start them"
 STUCK_LINE_ONE = "1 stuck, blocked or parked leaf is scheduled as if an agent could start it"
-INTERIM_NOTE = "every duration is the default unit; no estimates are read yet"
-NO_TIERS = "no per-leaf model tiers recorded"
+INCLUDES = "includes {n} unestimated leaves"
+INCLUDES_ONE = "includes 1 unestimated leaf"
+DATES = "dates include {n} unestimated leaves"
+DATES_ONE = "dates include 1 unestimated leaf"
+ESTIMATES_LINE = "Estimates read from {name}, dated {date}."
+ESTIMATES_UNDATED = "Estimates read from {name} (no date)."
+NON_TIME_LINE = "Not in any hour figure: {parts}"
+UNESTIMATED_LINE = "{n} leaves with {what} and no estimates-file hours are unestimated: {keys}"
+UNESTIMATED_LINE_ONE = "1 leaf with {what} and no estimates-file hours is unestimated: {keys}"
 NO_LEAVES = "This site has no leaves."
 NO_OPEN = "This site has no open leaves."
 ALL_HELD = "Every open leaf waits on a dependency cycle, so nothing can be scheduled; the panel lists them."
@@ -41,27 +50,44 @@ NO_EPIC = "no epic"
 HELD_STATES = ("stuck", "blocked_external", "parked")
 
 
-# --- the optional inputs (#10 fills them; until then each is None) ---------------
+# --- the optional inputs (gantry/inputs.py fills them, #10) -----------------------
 
 
-def _number(x):
-    return not isinstance(x, bool) and isinstance(x, (int, float)) and math.isfinite(x)
+def _span(leaf, unit):
+    """(lo, hi, unestimated): the leaf's Estimate, else the default unit.
 
-
-def _hours(leaf, unit):
-    """(hours, unestimated): an estimate's midpoint, else the default unit."""
+    apply_inputs is the one validator of a range; any container but an
+    Estimate is a caller's bug.
+    """
     est = leaf.estimate
-    lo, hi = getattr(est, "lo_h", None), getattr(est, "hi_h", None)
-    if est is not None and _number(lo) and _number(hi) and 0 < lo <= hi:
-        return (lo + hi) / 2, False
-    return unit, True
+    if est is None:
+        return unit, unit, True
+    if not isinstance(est, Estimate):
+        raise TypeError(f"a leaf's estimate is a {type(est).__name__}, not an Estimate")
+    return est.lo_h, est.hi_h, est.source == "default"
 
 
 def _tiers(leaf):
     """[thinking, checking], or None when the leaf records neither."""
-    found = [getattr(leaf.models, side, None) for side in ("thinking", "checking")]
-    found = [t if isinstance(t, str) and t else None for t in found]
+    models = leaf.models
+    if models is None:
+        return None
+    if not isinstance(models, Models):
+        raise TypeError(f"a leaf's models is a {type(models).__name__}, not Models")
+    found = [t if isinstance(t, str) and t else None for t in (models.thinking, models.checking)]
     return found if any(found) else None
+
+
+def _non_time(leaf):
+    """The leaf's non-time est: as text ("2.5 pr"), or None."""
+    value = classify_est(leaf.meta.get("est"))
+    return f"{value.number:g} {value.unit}" if value.kind == "non_time" else None
+
+
+def _prio_mark(leaf):
+    """The schedule's marker class for the leaf's own priority as written."""
+    own = meta_scalar(leaf.priority)
+    return "pr-p0" if own == "P0" else "pr-hi" if own in ("P1", "P2") else None
 
 
 def _flags(leaf):
@@ -80,16 +106,35 @@ def _count_line(n, many, one):
     return one if n == 1 else many.format(n=n)
 
 
+def _includes(n):
+    return _count_line(n, INCLUDES, INCLUDES_ONE)
+
+
 def _panel(data):
-    """The report as lines: issue-less leaves as one count, held-out leaves by name."""
+    """The report as lines: issue-less leaves as one count, held-out leaves by
+    name, unestimated leaves as one line per est: class."""
     held_at = {leaf.line: leaf.key for leaf in data.leaves if leaf.key in data.held_out}
     no_issue = sum(e.kind == "no_issue" for e in data.report)
-    lines, counted = [], False
+    # By the leaf's own est: class, never by parsing the message.
+    leaf_at = {leaf.line: leaf for leaf in data.leaves}
+    unestimated = {}
+    for entry in data.report:
+        if entry.kind == "unestimated":
+            leaf = leaf_at[entry.line]
+            unestimated.setdefault(leaf.estimate.est_kind, []).append(leaf.key)
+    lines, counted, grouped = [], False, set()
     for entry in data.report:
         if entry.kind == "no_issue":
             if not counted:
                 lines.append(_count_line(no_issue, NO_ISSUE_LINE, NO_ISSUE_LINE_ONE))
                 counted = True
+        elif entry.kind == "unestimated":
+            kind = leaf_at[entry.line].estimate.est_kind
+            if kind not in grouped:
+                keys = unestimated[kind]
+                text = UNESTIMATED_LINE_ONE if len(keys) == 1 else UNESTIMATED_LINE
+                lines.append(text.format(n=len(keys), what=UNEST_WHAT[kind], keys=", ".join(keys)))
+                grouped.add(kind)
         elif entry.kind == "waits_on_cycle":
             lines.append(WAITS_LINE.format(line=entry.line, key=held_at[entry.line]))
         else:
@@ -138,7 +183,9 @@ def page_model(site, data, *, default_unit_hours, inputs=None) -> dict:
     links = [(a, b) for a, b in data.links if a in keyset and b in keyset]
     eff = priority.effective(work, links)
     net = network.build(keys, links, {leaf.key: leaf.epic for leaf in work})
-    hours = {leaf.key: _hours(leaf, default_unit_hours) for leaf in work}
+    spans = {leaf.key: _span(leaf, default_unit_hours) for leaf in work}
+    hours = {k: ((lo + hi) / 2, unest) for k, (lo, hi, unest) in spans.items()}
+    totals = inputs.totals if inputs is not None else site_totals(work, default_unit_hours)
     wbs_index = {leaf.key: i for i, leaf in enumerate(data.leaves)}
 
     rows = {row.key: row for row in data.rows}
@@ -167,7 +214,11 @@ def page_model(site, data, *, default_unit_hours, inputs=None) -> dict:
             "key": k, "issue": leaf.issue, "outline": leaf.outline, "title": leaf.title,
             "lane": lane_of[leaf.epic], "state": leaf.state, "sc": state_class(leaf.state),
             "mark": STATE_MARKS.get(leaf.state), "priority": leaf.priority, "eff": eff[k],
-            "hours": hours[k][0], "unestimated": hours[k][1], "linked": linked,
+            "prio_mark": _prio_mark(leaf),
+            "hours": hours[k][0], "lo": spans[k][0], "hi": spans[k][1], "unestimated": hours[k][1],
+            "source": leaf.estimate.source if leaf.estimate is not None else "default",
+            "effort": leaf.estimate.effort if leaf.estimate is not None else None,
+            "non_time": _non_time(leaf), "linked": linked,
             "slack": net.slack[k] if linked else None,
             "sclass": slack_class(net.slack[k]) if linked else None,
             "es": net.es[k] if linked else None, "wave_full": wave_full,
@@ -188,6 +239,7 @@ def page_model(site, data, *, default_unit_hours, inputs=None) -> dict:
             "tag": row.issue if row is not None and row.issue is not None else "",
             "open": len(mine), "unlinked": sum(not leaf["linked"] for leaf in mine),
             "hours": sum(leaf["hours"] for leaf in mine),
+            "unestimated": sum(leaf["unestimated"] for leaf in mine),
             "models": {"think": _tier_counts(t[0] for t in tiers), "check": _tier_counts(t[1] for t in tiers)},
         })
 
@@ -198,6 +250,15 @@ def page_model(site, data, *, default_unit_hours, inputs=None) -> dict:
         if 0 < net.slack[k] <= 3:
             near.setdefault(net.slack[k], []).append(k)
     held = sum(leaf.state in HELD_STATES for leaf in work)
+    unest = {k for k in keys if hours[k][1]}
+    if source is None:
+        estimates_line = None
+    elif source.date is None:
+        estimates_line = ESTIMATES_UNDATED.format(name=source.name)
+    else:
+        estimates_line = ESTIMATES_LINE.format(name=source.name, date=source.date.isoformat())
+    parts = [f"{e['quantity']:g} {unit} ({_count_line(e['leaves'], '{n} leaves', '1 leaf')})"
+             for unit, e in totals.non_time.items()]
     empty = not data.leaves and not data.rows
     if items:
         status = None
@@ -228,14 +289,21 @@ def page_model(site, data, *, default_unit_hours, inputs=None) -> dict:
             "heaviest": {"keys": list(chain), "hours": chain_total, "same": bool(path) and chain_total == sum(hours[k][0] for k in path)},
         },
         "panel": _panel(data),
+        "unestimated": {"site": totals.unestimated_count, "heaviest": sum(k in unest for k in chain),
+                        "path": sum(k in unest for k in path)},
+        "totals": {"hours": totals.hours, "hours_lo": totals.hours_lo, "hours_hi": totals.hours_hi,
+                   "unestimated_count": totals.unestimated_count,
+                   "non_time": [[unit, e["quantity"], e["leaves"]] for unit, e in totals.non_time.items()]},
         "estimates": None if source is None else {
             "name": source.name, "date": source.date.isoformat() if source.date is not None else None},
         "notes": {
-            "interim": INTERIM_NOTE if keys and all(hours[k][1] for k in keys) else None,
+            "estimates": estimates_line,
+            "non_time": NON_TIME_LINE.format(parts="; ".join(parts)) if parts else None,
             "no_tiers": None if any(leaf["models"] for leaf in leaves) else NO_TIERS,
             "stuck": _count_line(held, STUCK_LINE, STUCK_LINE_ONE) if held else None,
         },
-        "texts": {"label": SCHEDULE_LABEL, "chain": CHAIN_LINE, "capacity": CAPACITY_LINE},
+        "texts": {"label": SCHEDULE_LABEL, "chain": CHAIN_LINE, "capacity": CAPACITY_LINE,
+                  "includes": INCLUDES, "includes_one": INCLUDES_ONE, "dates": DATES, "dates_one": DATES_ONE},
     }
 
 
@@ -338,7 +406,7 @@ def _tier_rows(lane):
 def _lane_label(lane, top, tiers_shown):
     """(svg parts, height) of a lane's label: name, counts and its model table."""
     full = " ".join(s for s in (lane["tag"], lane["name"]) if s)
-    out = ['<g class="lane-label">', f"<title>{esc(full)}</title>"]
+    out = [f'<g class="lane-label" data-unestimated="{lane["unestimated"]}">', f"<title>{esc(full)}</title>"]
     ty = top + PAD + 13
     if lane["tag"]:
         out.append(_text("lane-num", 14, ty, _cut(lane["tag"], 24)))
@@ -347,6 +415,9 @@ def _lane_label(lane, top, tiers_shown):
         out.append(_text("lane-name", 14, ty + 16 + j * 14, ln))
     y = ty + 16 + len(names) * 14 + 4
     out.append(_text("lane-free", 14, y, f"{lane['open']} open{DOT}{_h(lane['hours'])}"))
+    if lane["unestimated"]:
+        y += 14
+        out.append(_text("lane-free", 14, y, _includes(lane["unestimated"])))
     if tiers_shown:
         y += 18
         out += [_text("mt-h", 14, y, "model"), _text("mt-h", 136, y, "think", "end"),
@@ -437,13 +508,16 @@ def _network_svg(m):
 
     for n in nodes:
         leaf, (x, yy) = leaves[n], pos[n]
-        classes = ["node", leaf["sclass"], leaf["sc"]] + (["compact"] if n in compact else [])
+        classes = (["node", leaf["sclass"], leaf["sc"]] + (["compact"] if n in compact else [])
+                   + (["unest"] if leaf["unestimated"] else []))
         out.append(f'<g class="{" ".join(classes)}" data-item="{esc(n)}" tabindex="0">')
         tip = f"{n} {leaf['title']}"
         if leaf["priority"] is not None:
             tip += f"{DOT}priority {leaf['priority']}"
         if leaf["mark"] is not None:
             tip += f"{DOT}{leaf['mark']}"
+        if leaf["unestimated"]:
+            tip += f"{DOT}unestimated"
         out.append(f"<title>{esc(tip)}</title>")
         mc = leaf["mc"]
         if n in compact:
@@ -502,6 +576,9 @@ def render_model(m) -> str:
     else:
         hours_note = (f"Weighting each leaf by its hours picks a different chain: {ARROW.join(heavy['keys'])}, "
                       f"{_h(heavy['hours'])} end to end.")
+    unest = m["unestimated"]
+    if unest["heaviest"]:
+        hours_note = f"{hours_note[:-1]}; {_includes(unest['heaviest'])}."
     near = Markup("; ".join(f"slack {s}: " + _mono(keys) for s, keys in net["near"]))
     options = "".join(f'<option value="{i}"{" selected" if i == LANES_DEFAULT else ""}>{i}</option>'
                       for i in range(1, LANES_MAX + 1))
@@ -510,7 +587,8 @@ def render_model(m) -> str:
         _asset("templates/worksite.html"),
         SITE=site,
         STATUS=_note(status),
-        INTERIM=_note(m["notes"]["interim"]),
+        ESTIMATES=Markup(f'<p class="label">{esc(m["notes"]["estimates"])}</p>') if m["notes"]["estimates"] else "",
+        NON_TIME=_note(m["notes"]["non_time"]),
         WORK_CLASS="work gone" if status else "work",
         HORIZON=HORIZON_DAYS,
         LANES=LANES_DEFAULT,
@@ -520,6 +598,9 @@ def render_model(m) -> str:
         CHAIN=_mono(net["path"], ARROW) or "none",
         NEAR=near or "none",
         HOURS_NOTE=hours_note,
+        HOURS_UNEST=unest["heaviest"],
+        SITE_UNEST=unest["site"],
+        DATES=_count_line(unest["site"], DATES, DATES_ONE) if unest["site"] else "",
         COUNTS=(f"{linked} of the {len(items)} open leaves have an open link and appear in the network; the other "
                 f"{len(items) - linked} appear only in the schedule. WBS.md gives {net['links']} links between "
                 f"them; {net['links'] - len(net['edges'])} repeat what a longer chain implies and are not drawn."),

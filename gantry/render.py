@@ -82,6 +82,9 @@ def slack_class(slack: int) -> str:
     return "near" if slack <= 3 else "free"
 
 
+# A leaf scheduled at the default unit (#10).
+UNESTIMATED_CLASS = "unest"
 CLASS_TOKENS = frozenset(
-    [*MODEL_CLASSES.values(), MODEL_FALLBACK, *STATE_CLASSES.values(), STATE_FALLBACK, *SLACK_CLASSES]
+    [*MODEL_CLASSES.values(), MODEL_FALLBACK, *STATE_CLASSES.values(), STATE_FALLBACK, *SLACK_CLASSES,
+     UNESTIMATED_CLASS]
 )

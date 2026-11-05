@@ -10,7 +10,7 @@
   const CLASS_SET = new Set([
     "m-haiku", "m-sonnet", "m-opus", "m-fable", "m-other",
     "st-pending", "st-wip", "st-stuck", "st-blocked", "st-parked", "st-other",
-    "crit", "near", "free",
+    "crit", "near", "free", "unest",
   ]);
   const tok = (t) => (typeof t === "string" && CLASS_SET.has(t) ? t : "");
   const classTokens = () => Array.from(CLASS_SET).sort();

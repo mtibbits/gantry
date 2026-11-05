@@ -6,8 +6,8 @@ Every literal is hand-derived from tests/fixtures/wbs/.
 
 import dataclasses
 import fnmatch
-import math
 import re
+import shutil
 import tomllib
 from html.parser import HTMLParser
 from types import SimpleNamespace
@@ -15,12 +15,20 @@ from types import SimpleNamespace
 import pytest
 
 from commit_check import path_form_hits
-from gantry.model import Leaf, Row, SiteData
+from gantry.config import SiteOverride
+from gantry.inputs import apply_inputs
+from gantry.model import Estimate, Leaf, Models, Row, SiteData
+from gantry.sites import SiteEntry
 from gantry.render import CLASS_TOKENS
 from gantry.schedule import limit, plan
 from gantry.views import worksite
 from gantry.views.worksite import (
-    INTERIM_NOTE,
+    DATES,
+    DATES_ONE,
+    ESTIMATES_LINE,
+    ESTIMATES_UNDATED,
+    INCLUDES,
+    INCLUDES_ONE,
     NO_LEAVES,
     NO_OPEN,
     NO_TIERS,
@@ -31,11 +39,12 @@ from gantry.views.worksite import (
 from gantry.wbs_stopgap import parse_wbs, read_wbs
 from page_safety import CSP_CONTENT, HOSTILE, assert_no_external_resources, assert_page_safe
 from page_script.harness import Planted, open_page, run_function
-from sample_roles import BUSY, READABLE
+from sample_roles import BUSY, READABLE, UNESTIMATED
 from test_samples import ROOT, SAMPLES
 from test_source_scan import code_files
 
 FIXTURES = ROOT / "tests" / "fixtures" / "wbs"
+INPUTS = ROOT / "tests" / "fixtures" / "inputs"
 PAGE_ASSETS = ("gantry/templates/worksite.html", "gantry/static/schedule.js", "gantry/static/worksite.js")
 
 
@@ -158,7 +167,7 @@ def test_default_unit_hours_drive_durations():
     assert six["schedule"]["items"]
     assert all(i["hours"] == 6 for i in six["schedule"]["items"])
     assert all(leaf["unestimated"] for leaf in six["leaves"])
-    assert six["notes"]["interim"] == INTERIM_NOTE
+    assert six["unestimated"]["site"] == len(six["schedule"]["items"])
     other = page_model(UNESTIMATED, data, default_unit_hours=7.5)
     assert all(i["hours"] == 7.5 for i in other["schedule"]["items"])
     end = lambda m: max(e for _, e, _ in plan(m["schedule"]["items"], 4).values())
@@ -166,19 +175,19 @@ def test_default_unit_hours_drive_durations():
 
 
 def test_estimate_midpoint():
-    data = with_leaf(fixture("page"), "Issue-2", estimate=SimpleNamespace(lo_h=2, hi_h=5))
+    data = with_leaf(fixture("page"), "Issue-2", estimate=Estimate(2, 5, "estimates_file", "absent", "S"))
     m = model(data=data)
     leaf = by_key(m)["Issue-2"]
-    assert (leaf["hours"], leaf["unestimated"]) == (3.5, False)
-    assert m["notes"]["interim"] is None
-    for lo, hi in ((5, 2), (2, math.inf), (0, 2), (True, 2), ("2", 5)):
-        bad = model(data=with_leaf(fixture("page"), "Issue-2", estimate=SimpleNamespace(lo_h=lo, hi_h=hi)))
-        assert (by_key(bad)["Issue-2"]["hours"], by_key(bad)["Issue-2"]["unestimated"]) == (24, True), (lo, hi)
-        assert bad["notes"]["interim"] == INTERIM_NOTE
+    assert (leaf["hours"], leaf["lo"], leaf["hi"], leaf["unestimated"]) == (3.5, 2, 5, False)
+    assert (leaf["source"], leaf["effort"]) == ("estimates_file", "S")
+    assert m["unestimated"]["site"] == len(m["schedule"]["items"]) - 1
+    # apply_inputs is the one validator of an hours range (tests/test_estimates_file.py).
+    default = model(data=with_leaf(fixture("page"), "Issue-2", estimate=Estimate(24, 24, "default", "absent", None)))
+    assert by_key(default)["Issue-2"]["unestimated"] is True
 
 
 def test_model_tiers_table_and_line():
-    tiers = SimpleNamespace(thinking="opus", checking="fable")
+    tiers = Models("opus", "fable", "estimates_file")
     m = model(data=with_leaf(fixture("page"), "Issue-11", models=tiers))
     leaf = by_key(m)["Issue-11"]
     assert leaf["models"] == ["opus", "fable"]
@@ -298,7 +307,7 @@ def sample_page(site):
 
 
 def with_tiers(data, thinking="opus", checking="fable"):
-    tiers = SimpleNamespace(thinking=thinking, checking=checking)
+    tiers = Models(thinking, checking, "estimates_file")
     return dataclasses.replace(data, leaves=tuple(dataclasses.replace(leaf, models=tiers) for leaf in data.leaves))
 
 
@@ -315,7 +324,7 @@ def hostile_site():
     h = HOSTILE
     leaves = (
         _leaf(h[7], h[7], "1.1", h[0], EPIC, 2, priority=h[5], meta={"issue": h[7], "note": h[6]}, flags=[h[9]]),
-        _leaf(h[1], h[1], "1.2", h[8], EPIC, 3, models=SimpleNamespace(thinking=h[3], checking=None)),
+        _leaf(h[1], h[1], "1.2", h[8], EPIC, 3, models=Models(h[3], None, "estimates_file")),
         _leaf(h[2], None, "1.3", h[10], EPIC, 4),
         _leaf("Issue-4", "Issue-4", "2", "Plain", None, 5),
     )
@@ -408,14 +417,13 @@ def test_sample_page_lane_default_4():
 def test_page_texts_present():
     page = visible_text(page_for("page"))
     assert SCHEDULE_LABEL in page
-    assert INTERIM_NOTE in page
     assert "stuck, blocked or parked" not in page
     states = visible_text(page_for("states"))
     assert "3 stuck, blocked or parked leaves are scheduled as if an agent could start them" in states
     empty = visible_text(page_for("empty"))
-    assert NO_LEAVES in empty and INTERIM_NOTE not in empty
+    assert NO_LEAVES in empty
     done = visible_text(render_page("alpha", parse_wbs("- [x] Done {issue: Issue-1}\n", "alpha"), default_unit_hours=6))
-    assert NO_OPEN in done and INTERIM_NOTE not in done
+    assert NO_OPEN in done
 
 
 def bands(t, node):
@@ -479,6 +487,172 @@ def test_render_refuses_unsafe_asset(monkeypatch, bad):
     monkeypatch.setattr(worksite, "_asset", lambda name: bad if name.endswith(".js") else real(name))
     with pytest.raises(ValueError, match="must not hold"):
         page_for()
+
+
+# --- the optional inputs on the page (#10) --------------------------------------------
+
+
+def inputs_for(folder, text, site="alpha", unit=6, estimates=None, configured=None):
+    """apply_inputs over WBS.md text in `folder`; `estimates` is copied in as a dated file."""
+    folder.mkdir(parents=True, exist_ok=True)
+    if estimates is not None:
+        shutil.copyfile(estimates, folder / "estimates-2026-01-01.md")
+    sites = {} if configured is None else {site: SiteOverride(None, configured)}
+    config = SimpleNamespace(sites=sites, default_unit_hours=unit)
+    return apply_inputs(SiteEntry(site, folder, None), parse_wbs(text, site), config)
+
+
+def sample_inputs(site):
+    """apply_inputs over a sample site, read where it is."""
+    config = SimpleNamespace(sites={}, default_unit_hours=6)
+    return apply_inputs(SiteEntry(site, SAMPLES / site, None), read_wbs(SAMPLES / site / "WBS.md", site), config)
+
+
+def est_inputs(tmp_path):
+    text = (INPUTS / "est.md").read_bytes().decode("utf-8")
+    return inputs_for(tmp_path / "est", text, estimates=INPUTS / "estimates.md")
+
+
+def all_estimated_inputs(tmp_path):
+    return inputs_for(tmp_path / "all", (INPUTS / "all-estimated.md").read_bytes().decode("utf-8"))
+
+
+def model_with(inputs, site="alpha", unit=6):
+    return page_model(site, inputs.data, default_unit_hours=unit, inputs=inputs)
+
+
+def page_with(inputs, site="alpha", unit=6):
+    return render_page(site, inputs.data, default_unit_hours=unit, inputs=inputs)
+
+
+def labelled(t, attr="data-unestimated"):
+    """{element index: N} for every element that carries `attr`."""
+    return {i: int(el["attrs"][attr]) for i, el in enumerate(t.elements) if attr in el["attrs"]}
+
+
+def by_id(t, ident):
+    (i,) = [i for i, el in enumerate(t.elements) if el["attrs"].get("id") == ident]
+    return i
+
+
+def fragments(n):
+    return [INCLUDES_ONE, DATES_ONE] if n == 1 else [INCLUDES.format(n=n), DATES.format(n=n)]
+
+
+def assert_labels_follow_n(t):
+    """Each labelled element shows its fragment iff its N is above 0; returns {index: N}."""
+    found = labelled(t)
+    assert found, "no labelled element"
+    for i, n in found.items():
+        text = text_of(t, i)
+        if n:
+            assert any(f in text for f in fragments(n)), (t.elements[i]["tag"], n, text)
+        else:
+            assert "unestimated lea" not in text, (t.elements[i]["tag"], text)
+    return found
+
+
+def test_unestimated_sample_every_leaf_marked():
+    inputs = sample_inputs(UNESTIMATED)
+    m = model_with(inputs, UNESTIMATED)
+    assert m["leaves"] and all(leaf["unestimated"] and leaf["source"] == "default" for leaf in m["leaves"])
+    t = tree(page_with(inputs, UNESTIMATED))
+    nodes = find(t, "g", ["node"])
+    assert nodes and all("unest" in t.elements[i]["classes"] for i in nodes)
+    titles = [text_of(t, find(t, "title", within=i)[0]) for i in nodes]
+    assert all(title.endswith(" · unestimated") for title in titles)
+
+
+def test_unestimated_sample_labels():
+    inputs = sample_inputs(UNESTIMATED)
+    m = model_with(inputs, UNESTIMATED)
+    t = tree(page_with(inputs, UNESTIMATED))
+    found = assert_labels_follow_n(t)
+    site = m["unestimated"]["site"]
+    assert site == inputs.totals.unestimated_count == len(m["schedule"]["items"]) > 0
+    gutter = find(t, "g", ["lane-label"])
+    assert [found[i] for i in gutter] == [lane["unestimated"] for lane in m["lanes"]]
+    assert sum(found[i] for i in gutter) == site
+    assert found[by_id(t, "hours-note")] == m["unestimated"]["heaviest"]
+    assert found[by_id(t, "g-dates")] == site
+    assert text_of(t, by_id(t, "g-dates")) == DATES.format(n=site)
+
+
+def test_all_estimated_fixture_labels_zero(tmp_path):
+    inputs = all_estimated_inputs(tmp_path)
+    page = page_with(inputs)
+    found = assert_labels_follow_n(tree(page))
+    assert set(found.values()) == {0}
+    assert "unestimated lea" not in visible_text(page)
+
+
+def test_mixed_epics_fixture(tmp_path):
+    inputs = est_inputs(tmp_path)
+    m = model_with(inputs)
+    assert [(lane["key"], lane["unestimated"]) for lane in m["lanes"]] == [("Issue-1", 0), ("Issue-6", 6)]
+    t = tree(page_with(inputs))
+    found = assert_labels_follow_n(t)
+    assert [found[i] for i in find(t, "g", ["lane-label"])] == [0, 6]
+    assert found[by_id(t, "g-dates")] == 6 == inputs.totals.unestimated_count
+
+
+def test_estimates_line_names_file_and_date(tmp_path):
+    harbor = sample_inputs(BUSY)
+    assert ESTIMATES_LINE.format(name=harbor.estimates.name, date="2026-01-15") in visible_text(page_with(harbor, BUSY))
+    folder = tmp_path / "configured"
+    folder.mkdir()
+    shutil.copyfile(INPUTS / "estimates.md", folder / "my-estimates.md")
+    text = (INPUTS / "all-estimated.md").read_bytes().decode("utf-8")
+    configured = inputs_for(folder, text, configured=folder / "my-estimates.md")
+    assert ESTIMATES_UNDATED.format(name="my-estimates.md") in visible_text(page_with(configured))
+    quarry = model_with(sample_inputs(UNESTIMATED), UNESTIMATED)
+    assert "no estimates file" in quarry["panel"]
+    assert quarry["notes"]["estimates"] is None
+
+
+def test_non_time_line(tmp_path):
+    assert "Not in any hour figure: 50.5 pr (2 leaves)" in visible_text(page_with(est_inputs(tmp_path)))
+    assert "Not in any hour figure" not in visible_text(page_with(sample_inputs(UNESTIMATED), UNESTIMATED))
+
+
+def test_panel_groups_unestimated_by_class(tmp_path):
+    panel = model_with(est_inputs(tmp_path))["panel"]
+    tail = " and no estimates-file hours "
+    assert [line for line in panel if tail in line] == [
+        "3 leaves with an unparseable est:" + tail + "are unestimated: Issue-7, Issue-8, Issue-9",
+        "1 leaf with a non-time est:" + tail + "is unestimated: Issue-10",
+        "1 leaf with a placeholder est:" + tail + "is unestimated: Issue-11",
+        "1 leaf with no est:" + tail + "is unestimated: Issue-12",
+    ]
+    assert not [line for line in panel if "scheduled at the default unit" in line]
+
+
+def test_inherit_tier_is_text_with_fallback(tmp_path):
+    t = tree(page_with(est_inputs(tmp_path)))
+    (node,) = [i for i in find(t, "g", ["node"]) if t.elements[i]["attrs"]["data-item"] == "Issue-21"]
+    assert bands(t, node) == [{"band", "m-other"}, {"band", "m-sonnet"}]
+    assert "think inherit" in [text_of(t, i) for i in find(t, "text", ["band-t"], within=node)]
+
+
+def test_no_tiers_line_and_panel():
+    inputs = sample_inputs(UNESTIMATED)
+    m = model_with(inputs, UNESTIMATED)
+    assert m["notes"]["no_tiers"] == NO_TIERS
+    assert NO_TIERS in m["panel"]
+    assert visible_text(page_with(inputs, UNESTIMATED)).count(NO_TIERS) == 2
+
+
+def test_page_model_refuses_untyped_containers():
+    for change in ({"estimate": SimpleNamespace(lo_h=2, hi_h=5)}, {"estimate": {"lo_h": 2, "hi_h": 5}},
+                   {"models": SimpleNamespace(thinking="opus", checking="opus")}, {"models": ["opus", "opus"]}):
+        with pytest.raises(TypeError):
+            model(data=with_leaf(fixture("page"), "Issue-2", **change))
+
+
+def test_interim_note_gone():
+    assert not hasattr(worksite, "INTERIM_NOTE")
+    for page in (sample_page(UNESTIMATED), page_with(sample_inputs(UNESTIMATED), UNESTIMATED)):
+        assert "no estimates are read yet" not in page
 
 
 # --- the page under the harness ----------------------------------------------------
@@ -604,9 +778,10 @@ def test_js_class_tokens_match_render(node, tmp_path):
 # --- the docs ----------------------------------------------------------------------
 
 PAGE_TEXTS = [getattr(worksite, name) for name in (
-    "SCHEDULE_LABEL", "STUCK_LINE", "STUCK_LINE_ONE", "INTERIM_NOTE", "NO_TIERS", "NO_LEAVES", "NO_OPEN", "ALL_HELD",
+    "SCHEDULE_LABEL", "STUCK_LINE", "STUCK_LINE_ONE", "NO_TIERS", "NO_LEAVES", "NO_OPEN", "ALL_HELD",
     "NOTHING_MISSING", "NO_ISSUE_LINE", "NO_ISSUE_LINE_ONE", "WAITS_LINE", "FOREIGN", "CHAIN_LINE",
-    "CAPACITY_LINE")] + list(worksite.STATE_MARKS.values())
+    "CAPACITY_LINE", "INCLUDES", "INCLUDES_ONE", "DATES", "DATES_ONE", "ESTIMATES_LINE", "ESTIMATES_UNDATED",
+    "NON_TIME_LINE", "UNESTIMATED_LINE", "UNESTIMATED_LINE_ONE")] + list(worksite.STATE_MARKS.values())
 
 
 def test_doc_states_page_texts():
@@ -649,7 +824,7 @@ def test_all_held_out_site_says_so():
                      "alpha")
     page = visible_text(render_page("alpha", data, default_unit_hours=6))
     assert worksite.ALL_HELD in page
-    assert NO_OPEN not in page and INTERIM_NOTE not in page
+    assert NO_OPEN not in page
 
 
 def test_critical_cross_link_stays_dashed():
