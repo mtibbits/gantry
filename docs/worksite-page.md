@@ -181,6 +181,17 @@ in this table's order.
 | `skipped_line` | `- [X] text`, `- [] text`, `- [ ]`, `- [ ] ` or `- [x]text`: a node-shaped line that is not a node (`- [xx] text`, `-[x] text`, `* [ ] text` and a link item with two or more characters of text are not reported; `- [1](url)` is) | lists the line |
 | `no_nodes` | the file has no node lines | shows an empty site |
 | `site_unreadable` | `WBS.md` cannot be opened, read or decoded as UTF-8 | shows the site as unreadable, with the reason |
+| `no_estimates_file` | the site has no estimates file, or its `estimates` key is `false` | reads hours and tiers from `est:` and the default unit only |
+| `estimates_ignored` | a discovered `estimates-*.md` file is not the one read: an earlier date, the same date and an earlier name, or no date | lists the file and why |
+| `estimates_unreadable` | the configured file does not exist, or the file cannot be opened or is not valid UTF-8 | continues as if the site had no estimates file |
+| `estimates_column_missing` | an estimates table has no `#`-table column Gantry reads (once per file and column) | reads the rest of the table |
+| `estimates_cell_bad` | a row's `hours` cell is empty or not a number or range above 0 | the row gives no hours; its other cells are still read |
+| `estimates_row_unmatched` | a row `#N` names no `WBS.md` line | lists the row |
+| `estimates_row_duplicate` | a second row names the same `#N` | uses the first row |
+| `est_unparseable` | an open leaf's `est:` is in none of the other classes | lists it; the leaf may still get hours from its estimates-file row |
+| `unestimated` | a scheduled leaf has no time `est:` and no estimates-file hours | schedules it at the default unit and labels every figure that counts it |
+| `no_priority` | open leaves have no `priority:` (one entry for the file) | counts them as P3 |
+| `no_model_tiers` | no open leaf has a model tier | shows "no per-leaf model tiers recorded" |
 
 ## The page
 
