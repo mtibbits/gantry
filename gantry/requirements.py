@@ -15,6 +15,7 @@ from typing import NamedTuple
 
 # DEFAULT_BR_NAMESPACE is re-exported: its one home is gantry.config.
 from gantry.config import DEFAULT_BR_NAMESPACE, ID_TOKEN_RE, error_reason
+from gantry.sites import SiteWarning, shown
 
 # After Wiegers & Beatty: business requirement, business rule, use case,
 # system requirement, functional requirement, quality attribute, external
@@ -458,3 +459,34 @@ def read_requirements(path, namespace, *, layers, br_namespace) -> RequirementSe
         return unreadable(f"the requirements file is not valid UTF-8 at byte {e.start}")
     return parse_requirements(text.removeprefix(_BOM), namespace, source=source, first_line=1,
                               layers=layers, br_namespace=br_namespace)
+
+
+# --- in the trace ----------------------------------------------------------------
+
+
+def in_trace_sites(config, sites):
+    """({site name: requirements path}, warnings) for the sites in the trace.
+
+    A site is in the trace only when its `requirements` key is set. A site
+    whose name is not a usable namespace (it equals br_namespace, or fails
+    ID_TOKEN_RE) is still a site, but its key is not read and it is warned.
+    """
+    traced, warnings = {}, []
+    br = config.requirements.br_namespace
+    for site in sites:
+        override = config.sites.get(site.name)
+        path = override.requirements if override is not None else None
+        if path is None:
+            continue
+        name = shown(site.name)
+        prefix = f"{config.path}: key 'site.{name}.requirements' is not read: site {name}"
+        if not ID_TOKEN_RE.fullmatch(site.name):
+            why = f"{prefix}'s name does not match {ID_TOKEN_RE.pattern}, so it cannot be in the trace"
+        elif site.name == br:
+            why = (f"{prefix} has the name of the installation namespace (br_namespace = {br!r}), "
+                   "so it cannot be in the trace")
+        else:
+            traced[site.name] = path
+            continue
+        warnings.append(SiteWarning(f"site.{site.name}.requirements", why))
+    return traced, warnings

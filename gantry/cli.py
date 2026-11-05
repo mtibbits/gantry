@@ -12,6 +12,7 @@ import tempfile
 
 from gantry.config import ConfigError, error_reason, load_config
 from gantry.model import REPORT_KINDS, SiteData
+from gantry.requirements import in_trace_sites
 from gantry.sites import load_sites, shown
 from gantry.wbs_stopgap import read_wbs
 
@@ -135,6 +136,8 @@ def _build(args):
     except ConfigError as e:
         print(f"gantry: error: {e}", file=sys.stderr)
         return 1
+    # In this issue the build only warns; reading the files is the trace's (#19).
+    warnings += in_trace_sites(config, sites)[1]
     for warning in warnings:
         print(f"gantry: warning: {warning.message}", file=sys.stderr)
     if args.site is not None:

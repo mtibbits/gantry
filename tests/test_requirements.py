@@ -15,9 +15,12 @@ from gantry.requirements import (
     PROJECT_LAYERS,
     ReqId,
     parse_id,
+    in_trace_sites,
     parse_requirements,
     read_requirements,
 )
+from gantry.sites import SiteWarning, load_sites
+from helpers_config import write_site_tree
 
 # A fictional mixed-case namespace (operator decision Q3); the format doc's
 # case rule uses the same name.
@@ -410,3 +413,49 @@ def test_cycle_reported_once_at_its_earliest_member():
     (entry,) = s.report
     assert entry.line == 1
     assert entry.message == "refines cycle: alpha:FR-3 -> alpha:FR-1 -> alpha:FR-2 -> alpha:FR-3"
+
+
+# --- in the trace --------------------------------------------------------------
+
+
+def _trace(tmp_path, names, tail):
+    tree = write_site_tree(tmp_path, {name: b"# x\n" for name in names}, tail=tail)
+    c = cfg.load_config(tree)
+    return c, in_trace_sites(c, load_sites(c)[0])
+
+
+def test_in_trace_sites_rules(tmp_path):
+    c, (traced, warnings) = _trace(
+        tmp_path / "a",
+        ["alpha", "beta", "Life"],
+        '[site.alpha]\nrequirements = "a.md"\n[site.Life]\nrequirements = "l.md"\n',
+    )
+    # beta has no key: out, with no warning. Life is not life: the case is exact.
+    assert traced == {"alpha": c.sites["alpha"].requirements, "Life": c.sites["Life"].requirements}
+    assert warnings == []
+    c, (traced, warnings) = _trace(
+        tmp_path / "b",
+        ["alpha", "beta"],
+        '[requirements]\nbr_namespace = "alpha"\n[site.alpha]\nrequirements = "a.md"\n'
+        '[site.beta]\nrequirements = "b.md"\n',
+    )
+    assert traced == {"beta": c.sites["beta"].requirements}
+    assert warnings == [
+        SiteWarning(
+            "site.alpha.requirements",
+            f"{c.path}: key 'site.alpha.requirements' is not read: site alpha has the name of the "
+            "installation namespace (br_namespace = 'alpha'), so it cannot be in the trace",
+        )
+    ]
+
+
+def test_in_trace_sites_invalid_name(tmp_path):
+    c, (traced, warnings) = _trace(tmp_path, ["bad name"], '[site."bad name"]\nrequirements = "b.md"\n')
+    assert traced == {}
+    assert warnings == [
+        SiteWarning(
+            "site.bad name.requirements",
+            f"{c.path}: key 'site.bad name.requirements' is not read: site bad name's name does not "
+            "match [A-Za-z0-9][A-Za-z0-9_.-]*, so it cannot be in the trace",
+        )
+    ]

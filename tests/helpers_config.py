@@ -41,12 +41,13 @@ def sample_projects():
     return list(load_config()["project"])
 
 
-def write_site_tree(folder, sites, **raw):
+def write_site_tree(folder, sites, tail="", **raw):
     """Write a devagent config naming `sites`, each site's WBS.md and a config.
 
     `sites` maps a site name to its WBS.md bytes, in order; `None` leaves the
     site's planning directory with no WBS.md. Site i's planning directory is
-    the folder `<i>` beside the devagent config. `raw` is as write_config's.
+    the folder `<i>` beside the devagent config. `tail` and `raw` are as
+    write_config's.
     """
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
@@ -58,7 +59,7 @@ def write_site_tree(folder, sites, **raw):
             (planning / "WBS.md").write_bytes(wbs)
         tables.append(f'[project."{name}"]\ndevdoc_dir = "{index}"\n')
     (folder / "devagent.toml").write_bytes("\n".join(tables).encode("utf-8"))
-    return _write_toml(folder / "gantry.toml", "", raw)
+    return _write_toml(folder / "gantry.toml", tail, raw)
 
 
 def copy_samples(tmp_path):

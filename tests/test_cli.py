@@ -10,6 +10,9 @@ import tomllib
 import pytest
 
 from gantry.cli import main, status_text
+from gantry.config import load_config
+from gantry.requirements import in_trace_sites
+from gantry.sites import load_sites
 from gantry.views import worksite
 from gantry.views.worksite import NO_LEAVES
 from gantry.wbs_stopgap import parse_wbs
@@ -476,3 +479,58 @@ def test_site_page_mode_follows_umask(tmp_path, capsys):
         os.umask(old)
     page = tmp_path / "out" / "sites" / "alpha.html"
     assert page.stat().st_mode & 0o777 == 0o644
+
+
+# --- the cannot-be-in-the-trace warnings (#15) ---------------------------------
+
+UNTRACEABLE = '[site.life]\nrequirements = "l.md"\n[site."bad name"]\nrequirements = "b.md"\n'
+
+
+def _untraceable_tree(tmp_path, tail=""):
+    page = (FIXTURES / "page.md").read_bytes()
+    return write_site_tree(tmp_path, {"life": page, "bad name": page, "alpha": page}, tail=tail)
+
+
+def _trace_warnings(config):
+    path = os.path.abspath(config)
+    return [
+        f"gantry: warning: {path}: key 'site.life.requirements' is not read: site life has the name of "
+        "the installation namespace (br_namespace = 'life'), so it cannot be in the trace",
+        f"gantry: warning: {path}: key 'site.bad name.requirements' is not read: site bad name's name "
+        "does not match [A-Za-z0-9][A-Za-z0-9_.-]*, so it cannot be in the trace",
+    ]
+
+
+def test_build_warns_for_untraceable_sites(tmp_path, capsys):
+    config = _untraceable_tree(tmp_path)
+    assert main(["build", "--config", str(config)]) == 0
+    plain = capsys.readouterr()
+    assert plain.err == ""
+    append_bytes(config, UNTRACEABLE)
+    assert main(["build", "--config", str(config)]) == 0
+    captured = capsys.readouterr()
+    assert captured.out == plain.out
+    assert [line.split("\t")[0] for line in captured.out.splitlines()] == ["life", "bad name", "alpha"]
+    assert captured.err.splitlines() == _trace_warnings(config)
+    c = load_config(config)
+    traced, warnings = in_trace_sites(c, load_sites(c)[0])
+    assert traced == {}
+    assert [w.key for w in warnings] == ["site.life.requirements", "site.bad name.requirements"]
+
+
+def test_build_site_mode_prints_trace_warnings(tmp_path, capsys):
+    config = _untraceable_tree(tmp_path, UNTRACEABLE)
+    code, out, err = site_build(capsys, config, "alpha")
+    assert code == 0
+    assert out.strip().endswith("alpha.html")
+    assert err.splitlines() == _trace_warnings(config)
+
+
+def test_trace_warning_escapes_name(tmp_path, capsys):
+    tail = '[site."a\\tb"]\nrequirements = "x.md"\n'
+    config = write_site_tree(tmp_path, {"a\tb": (FIXTURES / "page.md").read_bytes()}, tail=tail)
+    assert main(["build", "--config", str(config)]) == 0
+    err = capsys.readouterr().err
+    assert err.count("\n") == 1
+    assert "site a\\tb's name does not match" in err
+    assert "\t" not in err

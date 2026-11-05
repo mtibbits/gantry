@@ -184,6 +184,14 @@ def test_br_namespace_default_and_set(tmp_path):
     assert c.requirements.br_namespace == "life"
 
 
+def test_neither_new_key_no_trace(tmp_path):
+    from gantry.requirements import in_trace_sites
+
+    c = cfg.load_config(write_config(tmp_path))
+    assert in_trace_sites(c, load_sites(c)[0]) == ({}, [])
+    assert c.requirements.br_namespace == "life"
+
+
 def test_as_of_absent_is_today(tmp_path):
     p = write_config(tmp_path)
     before = date.today()
