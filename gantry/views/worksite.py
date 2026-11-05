@@ -123,8 +123,15 @@ def _tier_counts(tiers):
     return [[t, counts[t]] for t in _known_first(counts)]
 
 
-def page_model(site, data, *, default_unit_hours) -> dict:
-    """The page's data for one site's parsed WBS.md."""
+def page_model(site, data, *, default_unit_hours, inputs=None) -> dict:
+    """The page's data for one site's parsed WBS.md.
+
+    `inputs` is apply_inputs's result for the site; without it every leaf is
+    on the default unit and no estimates file is named.
+    """
+    if inputs is not None:
+        data = inputs.data
+    source = inputs.estimates if inputs is not None else None
     work = [leaf for leaf in data.leaves if leaf.open and leaf.key not in data.held_out]
     keys = [leaf.key for leaf in work]
     keyset = set(keys)
@@ -221,6 +228,8 @@ def page_model(site, data, *, default_unit_hours) -> dict:
             "heaviest": {"keys": list(chain), "hours": chain_total, "same": bool(path) and chain_total == sum(hours[k][0] for k in path)},
         },
         "panel": _panel(data),
+        "estimates": None if source is None else {
+            "name": source.name, "date": source.date.isoformat() if source.date is not None else None},
         "notes": {
             "interim": INTERIM_NOTE if keys and all(hours[k][1] for k in keys) else None,
             "no_tiers": None if any(leaf["models"] for leaf in leaves) else NO_TIERS,
@@ -473,9 +482,9 @@ def _mono(keys, sep=", "):
     return Markup(sep.join(f'<span class="mono">{esc(k)}</span>' for k in keys))
 
 
-def render_page(site, data, *, default_unit_hours) -> str:
+def render_page(site, data, *, default_unit_hours, inputs=None) -> str:
     """The worksite page for one site's parsed WBS.md, as one HTML text."""
-    return render_model(page_model(site, data, default_unit_hours=default_unit_hours))
+    return render_model(page_model(site, data, default_unit_hours=default_unit_hours, inputs=inputs))
 
 
 def render_model(m) -> str:
