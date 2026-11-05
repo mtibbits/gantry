@@ -12,7 +12,7 @@ import tempfile
 
 from gantry.config import ConfigError, error_reason, load_config
 from gantry.model import REPORT_KINDS, SiteData
-from gantry.sites import ID_TOKEN_RE, load_sites
+from gantry.sites import load_sites, shown
 from gantry.wbs_stopgap import read_wbs
 
 
@@ -63,12 +63,6 @@ def status_text(data: SiteData) -> str:
         counts[entry.kind] += 1
     found = [f"{kind} {count}" for kind, count in counts.items() if count]
     return f"{text}; {', '.join(found)}" if found else text
-
-
-def shown(name: str) -> str:
-    """A site name as printed: an invalid name may hold a tab, newline or ESC,
-    so it is escaped, and a line stays one line."""
-    return name if ID_TOKEN_RE.fullmatch(name) else ascii(name)[1:-1]
 
 
 def _write_page(folder, name, text):

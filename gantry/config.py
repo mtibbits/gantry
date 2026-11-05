@@ -8,6 +8,7 @@ enforce both) and a sample entry.
 
 import math
 import os
+import re
 import tomllib
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -15,6 +16,9 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Literal
 
 CONFIG_VERSION = 1
+
+# devagent's ID_TOKEN_RE (scripts/lib/wbs-parser.py); used with fullmatch.
+ID_TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
 
 
 class ConfigError(Exception):

@@ -379,6 +379,15 @@ def test_every_key_has_a_field():
     assert missing == []
 
 
+def test_id_token_re_has_one_home():
+    import gantry.cli
+    import gantry.sites
+
+    assert gantry.sites.ID_TOKEN_RE is cfg.ID_TOKEN_RE
+    assert cfg.ID_TOKEN_RE.pattern == "[A-Za-z0-9][A-Za-z0-9_.-]*"
+    assert gantry.cli.shown is gantry.sites.shown
+
+
 def test_config_doc_estimates_key():
     doc = (ROOT / "docs" / "config.md").read_bytes().decode("utf-8")
     row = next(line for line in doc.splitlines() if line.startswith("| `estimates` |"))
