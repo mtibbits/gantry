@@ -28,6 +28,7 @@ error (exit 2) naming the flag.
 | `default_unit_hours` | positive number, integer or float (0, a negative, infinity or a boolean is refused) | no | `6` | the agent-hours given to a leaf with no estimate | #9 |
 | `portfolio_file` | path | no | none | the installation's portfolio file of shares and capacity | #22 |
 | `fires_list` | path | no | none | the installation's list of things that need the operator now | #30 |
+| `[requirements]` | table | no | none | settings for requirements files | #15 |
 | `[site.<name>]` | table | no | none | per-site overrides, keyed by the devagent `[project.<name>]` table name | #7 |
 
 Keys of a `[site.<name>]` table:
@@ -36,6 +37,12 @@ Keys of a `[site.<name>]` table:
 |---|---|---|---|---|---|
 | `requirements` | path | no | none | the site's requirements file | #15 |
 | `estimates` | path, or `false` | no | discovery | the site's estimates file, read whatever its name and never replaced by discovery; `false` turns discovery off; absent, the planning directory's latest `estimates-YYYY-MM-DD*.md` is read ([the rules](worksite-page.md#the-estimates-file)) | #10 |
+
+Keys of the `[requirements]` table:
+
+| Key | Type | Required | Default | Meaning | Owner |
+|---|---|---|---|---|---|
+| `br_namespace` | name matching `[A-Za-z0-9][A-Za-z0-9_.-]*` | no | `life` | the installation namespace: the namespace of the operator's business requirements | #15 |
 
 A path is a TOML string. The **Owner** column names the issue that reads the
 key. Every key is type-checked, accepted and resolved now; a key whose owner

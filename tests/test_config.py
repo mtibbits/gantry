@@ -55,6 +55,7 @@ def _raw(tail="", **raw):
 
 
 HARBOR = "\n[site.harbor]\n"
+REQ = "\n[requirements]\n"
 
 ERROR_CASES = {
     "missing": (_missing, ["cannot read the config"]),
@@ -80,6 +81,12 @@ ERROR_CASES = {
     "unit-inf": (_raw(default_unit_hours="inf"), ["'default_unit_hours'"]),
     "estimates-true": (_raw(tail=HARBOR + "estimates = true\n"), ["'site.harbor.estimates'"]),
     "estimates-int": (_raw(tail=HARBOR + "estimates = 3\n"), ["'site.harbor.estimates'"]),
+    "br-space": (_raw(tail=REQ + 'br_namespace = "life x"\n'), ["'requirements.br_namespace'"]),
+    "br-colon": (_raw(tail=REQ + 'br_namespace = "a:b"\n'), ["'requirements.br_namespace'"]),
+    "br-empty": (_raw(tail=REQ + 'br_namespace = ""\n'), ["'requirements.br_namespace'"]),
+    "br-int": (_raw(tail=REQ + "br_namespace = 3\n"), ["'requirements.br_namespace'"]),
+    "requirements-not-table": (_raw(requirements='"x"'), ["'requirements'"]),
+    "unknown-requirements-key": (_raw(tail=REQ + "foo = 1\n"), ["'requirements.foo'"]),
 }
 
 
@@ -166,6 +173,15 @@ def test_estimates_false_loads(tmp_path):
     p = write_config(tmp_path, tail=HARBOR + "estimates = false\n")
     c = cfg.load_config(p)
     assert c.sites["harbor"].estimates is False
+
+
+def test_br_namespace_default_and_set(tmp_path):
+    c = cfg.load_config(write_config(tmp_path / "a"))
+    assert c.requirements.br_namespace == "life" == cfg.DEFAULT_BR_NAMESPACE
+    c = cfg.load_config(write_config(tmp_path / "b", tail=REQ + 'br_namespace = "biz"\n'))
+    assert c.requirements.br_namespace == "biz"
+    c = cfg.load_config(write_config(tmp_path / "c", tail=REQ))
+    assert c.requirements.br_namespace == "life"
 
 
 def test_as_of_absent_is_today(tmp_path):
@@ -362,7 +378,7 @@ def test_docs_list_every_key():
     rows = [row for table in md_tables(text) for row in table.rows]
     missing = [
         key.name
-        for key in cfg.KEYS + cfg.SITE_KEYS
+        for key in cfg.KEYS + cfg.SITE_KEYS + cfg.REQUIREMENTS_KEYS
         if not any(row[0] == key.doc_name and key.owner in row for row in rows)
     ]
     assert missing == []
@@ -376,6 +392,8 @@ def test_every_key_has_a_field():
     site_fields = {f.name for f in dataclasses.fields(cfg.SiteOverride)}
     missing = [key.name for key in cfg.KEYS if {"site": "sites"}.get(key.name, key.name) not in fields]
     missing += [key.name for key in cfg.SITE_KEYS if key.name not in site_fields]
+    requirements_fields = {f.name for f in dataclasses.fields(cfg.RequirementsSettings)}
+    missing += [key.name for key in cfg.REQUIREMENTS_KEYS if key.name not in requirements_fields]
     assert missing == []
 
 
