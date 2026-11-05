@@ -183,5 +183,5 @@ def test_check_schedulers_build_error_names_type_only(tmp_path, capsys, monkeypa
 def test_check_schedulers_agrees_on_samples(node, tmp_path):
     result = run_tool("--config", "samples/gantry.sample.toml", "--out", str(tmp_path / "out"))
     assert result.returncode == 0, result.stderr
-    assert result.stdout.decode("utf-8").splitlines() == ["sites 4, skipped 2, leaves 19, lanes 1-8: agreed"]
+    assert result.stdout.decode("utf-8").splitlines() == ["sites 4, skipped 2, leaves 21, lanes 1-8: agreed"]
     assert sorted(p.name for p in (tmp_path / "out" / "sites").iterdir()) == sorted(f"{s}.html" for s in READABLE)

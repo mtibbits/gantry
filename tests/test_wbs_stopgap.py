@@ -73,6 +73,10 @@ def test_report_kinds():
         "no_issue", "duplicate_issue", "key_collision", "unresolved_ref",
         "malformed_ref", "bad_priority", "cycle", "waits_on_cycle",
         "skipped_line", "no_nodes", "site_unreadable",
+        "no_estimates_file", "estimates_ignored", "estimates_unreadable",
+        "estimates_column_missing", "estimates_cell_bad", "estimates_row_unmatched",
+        "estimates_row_duplicate", "est_unparseable", "unestimated", "no_priority",
+        "no_model_tiers",
     )
 
 
@@ -314,10 +318,10 @@ def test_skipped_lines():
 def test_bad_priority_and_p0():
     data = parse("ids")
     found = entries(data, "bad_priority")
-    assert [e.line for e in found] == [3, 4]
-    assert "'P0'" in found[0].message and "'P9'" in found[1].message
+    assert [e.line for e in found] == [4]
+    assert "'P9'" in found[0].message
     nodes = by_line(data)
-    assert rank(nodes[3].priority) == rank(nodes[4].priority) == 3
+    assert (rank(nodes[3].priority), rank(nodes[4].priority)) == (0, 3)
 
 
 def test_quoted_scalar_and_list_depends_on():

@@ -1,6 +1,6 @@
 """Priority: a priority: value's rank and a leaf's effective priority (#8).
 
-P1 is the most urgent and P4 the least; a missing or invalid value counts as P3.
+P0 is the most urgent and P4 the least (#10); a missing or invalid value counts as P3.
 A leaf's effective priority is the most urgent of its own rank and every open
 leaf that waits on it, directly or through other open leaves. Call it over the
 leaves a page schedules:
@@ -13,12 +13,12 @@ from graphlib import CycleError, TopologicalSorter
 
 from gantry.model import meta_scalar
 
-PRIORITY_RE = re.compile(r"P[1-4]")
+PRIORITY_RE = re.compile(r"P[0-4]")
 DEFAULT_RANK = 3
 
 
 def _valid(raw):
-    """The P1-P4 value text, or None."""
+    """The P0-P4 value text, or None."""
     value = meta_scalar(raw)
     return value if value is not None and PRIORITY_RE.fullmatch(value) else None
 

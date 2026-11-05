@@ -6,8 +6,8 @@ Every literal is hand-derived from tests/fixtures/wbs/.
 
 import dataclasses
 import fnmatch
-import math
 import re
+import shutil
 import tomllib
 from html.parser import HTMLParser
 from types import SimpleNamespace
@@ -15,12 +15,23 @@ from types import SimpleNamespace
 import pytest
 
 from commit_check import path_form_hits
-from gantry.model import Leaf, Row, SiteData
+from gantry.cli import site_data
+from gantry.config import SiteOverride
+from gantry.config import load_config as load_installation
+from gantry.inputs import EstimatesSource, apply_inputs
+from gantry.model import Estimate, Leaf, Models, Row, SiteData
+from gantry.estimates_file import find_estimates_file, read_estimates_file
+from gantry.sites import SiteEntry, load_sites
 from gantry.render import CLASS_TOKENS
 from gantry.schedule import limit, plan
 from gantry.views import worksite
 from gantry.views.worksite import (
-    INTERIM_NOTE,
+    DATES,
+    DATES_ONE,
+    ESTIMATES_LINE,
+    ESTIMATES_UNDATED,
+    INCLUDES,
+    INCLUDES_ONE,
     NO_LEAVES,
     NO_OPEN,
     NO_TIERS,
@@ -31,11 +42,12 @@ from gantry.views.worksite import (
 from gantry.wbs_stopgap import parse_wbs, read_wbs
 from page_safety import CSP_CONTENT, HOSTILE, assert_no_external_resources, assert_page_safe
 from page_script.harness import Planted, open_page, run_function
-from sample_roles import BUSY, READABLE
+from sample_roles import BUSY, OWN_UNIT, READABLE, UNESTIMATED
 from test_samples import ROOT, SAMPLES
 from test_source_scan import code_files
 
 FIXTURES = ROOT / "tests" / "fixtures" / "wbs"
+INPUTS = ROOT / "tests" / "fixtures" / "inputs"
 PAGE_ASSETS = ("gantry/templates/worksite.html", "gantry/static/schedule.js", "gantry/static/worksite.js")
 
 
@@ -158,7 +170,7 @@ def test_default_unit_hours_drive_durations():
     assert six["schedule"]["items"]
     assert all(i["hours"] == 6 for i in six["schedule"]["items"])
     assert all(leaf["unestimated"] for leaf in six["leaves"])
-    assert six["notes"]["interim"] == INTERIM_NOTE
+    assert six["unestimated"]["site"] == len(six["schedule"]["items"])
     other = page_model(UNESTIMATED, data, default_unit_hours=7.5)
     assert all(i["hours"] == 7.5 for i in other["schedule"]["items"])
     end = lambda m: max(e for _, e, _ in plan(m["schedule"]["items"], 4).values())
@@ -166,19 +178,19 @@ def test_default_unit_hours_drive_durations():
 
 
 def test_estimate_midpoint():
-    data = with_leaf(fixture("page"), "Issue-2", estimate=SimpleNamespace(lo_h=2, hi_h=5))
+    data = with_leaf(fixture("page"), "Issue-2", estimate=Estimate(2, 5, "estimates_file", "absent", "S"))
     m = model(data=data)
     leaf = by_key(m)["Issue-2"]
-    assert (leaf["hours"], leaf["unestimated"]) == (3.5, False)
-    assert m["notes"]["interim"] is None
-    for lo, hi in ((5, 2), (2, math.inf), (0, 2), (True, 2), ("2", 5)):
-        bad = model(data=with_leaf(fixture("page"), "Issue-2", estimate=SimpleNamespace(lo_h=lo, hi_h=hi)))
-        assert (by_key(bad)["Issue-2"]["hours"], by_key(bad)["Issue-2"]["unestimated"]) == (24, True), (lo, hi)
-        assert bad["notes"]["interim"] == INTERIM_NOTE
+    assert (leaf["hours"], leaf["lo"], leaf["hi"], leaf["unestimated"]) == (3.5, 2, 5, False)
+    assert (leaf["source"], leaf["effort"]) == ("estimates_file", "S")
+    assert m["unestimated"]["site"] == len(m["schedule"]["items"]) - 1
+    # apply_inputs is the one validator of an hours range (tests/test_estimates_file.py).
+    default = model(data=with_leaf(fixture("page"), "Issue-2", estimate=Estimate(24, 24, "default", "absent", None)))
+    assert by_key(default)["Issue-2"]["unestimated"] is True
 
 
 def test_model_tiers_table_and_line():
-    tiers = SimpleNamespace(thinking="opus", checking="fable")
+    tiers = Models("opus", "fable", "estimates_file")
     m = model(data=with_leaf(fixture("page"), "Issue-11", models=tiers))
     leaf = by_key(m)["Issue-11"]
     assert leaf["models"] == ["opus", "fable"]
@@ -214,6 +226,9 @@ STRUCTURAL = {
     "lit", "ln", "mk-end", "mode-wave", "mono", "mt-h", "mt-m", "mt-row", "mt-rule", "mt-sw",
     "mt-v", "net", "nid", "nmeta", "node", "note", "ntitle", "outline", "panel", "plate", "prose",
     "seg", "sw", "tracing", "work", "wrap", "zero",
+    # The re-ported prototype figures (#10).
+    "limits", "lim-label", "lim-val", "lim-note", "lim-axis", "bar-crit", "bar-open", "span", "summary",
+    "mk-crit", "pmark",
 }
 VOID = {"meta", "br", "img", "input", "link", "hr"}
 
@@ -298,7 +313,7 @@ def sample_page(site):
 
 
 def with_tiers(data, thinking="opus", checking="fable"):
-    tiers = SimpleNamespace(thinking=thinking, checking=checking)
+    tiers = Models(thinking, checking, "estimates_file")
     return dataclasses.replace(data, leaves=tuple(dataclasses.replace(leaf, models=tiers) for leaf in data.leaves))
 
 
@@ -315,19 +330,23 @@ def hostile_site():
     h = HOSTILE
     leaves = (
         _leaf(h[7], h[7], "1.1", h[0], EPIC, 2, priority=h[5], meta={"issue": h[7], "note": h[6]}, flags=[h[9]]),
-        _leaf(h[1], h[1], "1.2", h[8], EPIC, 3, models=SimpleNamespace(thinking=h[3], checking=None)),
+        _leaf(h[1], h[1], "1.2", h[8], EPIC, 3, models=Models(h[3], None, "estimates_file")),
         _leaf(h[2], None, "1.3", h[10], EPIC, 4),
-        _leaf("Issue-4", "Issue-4", "2", "Plain", None, 5),
+        _leaf("Issue-4", "Issue-4", "2", "Plain", None, 5, meta={"est": h[2]}),
     )
     rows = (Row(EPIC, EPIC, "1", h[4], " ", "pending", 1, None, {}),)
     links = ((h[7], h[1]), (h[1], h[2]), (h[2], "Issue-4"))
     return SiteData(leaves, rows, links, (), ())
 
 
-# Shown on the base page: the keys, titles, epic name, priority and tier.
+# Shown on the base page: the keys, titles, epic name, priority and tier;
+# with hostile_inputs also the estimates file's name (1) and a thinking tier (0).
 ALWAYS = [HOSTILE[i] for i in (7, 1, 2, 0, 8, 10, 4, 5, 3)]
-# Shown only in the detail of the leaf that holds them: its metadata and flag.
-DETAIL = {HOSTILE[7]: [HOSTILE[6], HOSTILE[9]]}
+# Shown only in the detail of the leaf that holds them: its metadata and flag,
+# and Issue-4's est:.
+DETAIL = {HOSTILE[7]: [HOSTILE[6], HOSTILE[9]], "Issue-4": [HOSTILE[2]]}
+# With hostile_inputs, Issue-4's detail also shows its effort, checking tier and flags.
+INPUT_DETAIL = {**DETAIL, "Issue-4": [HOSTILE[2], HOSTILE[8], HOSTILE[6], HOSTILE[10]]}
 
 
 def test_hostile_data_page_is_safe():
@@ -341,6 +360,41 @@ def test_hostile_data_page_is_safe():
     assert leaves[HOSTILE[1]]["models"] == [HOSTILE[3], None]
     assert (leaves[HOSTILE[2]]["issue"], leaves[HOSTILE[2]]["title"]) == (None, HOSTILE[10])
     assert data["lanes"][0]["name"] == HOSTILE[4]
+
+
+def hostile_inputs(tmp_path):
+    """apply_inputs over hostile_site, with HOSTILE values in Issue-4's estimates row.
+
+    The file name is planted in the EstimatesSource, never on disk: Windows
+    refuses <>"| in a file name.
+    """
+    h = HOSTILE
+    folder = tmp_path / "hostile"
+    folder.mkdir()
+    row = f"| #4 | {h[8]} | 1-2 | {h[0]} | {h[6]} | {h[10]} |"
+    text = "| # | effort | hours | thinking | checking | flags |\n|---|---|---|---|---|---|\n" + row + "\n"
+    (folder / "estimates-2026-01-01.md").write_bytes(text.encode("utf-8"))
+    config = SimpleNamespace(sites={}, default_unit_hours=6)
+    site = hostile_site()
+    inputs = apply_inputs(SiteEntry("alpha", folder, None), site, config)
+    # No row can name the other leaves (their keys are no Issue-N), so their
+    # hand-set tier and flag are put back: every HOSTILE value stays planted.
+    leaves = tuple(new if new.key == "Issue-4" else dataclasses.replace(new, models=old.models, flags=old.flags)
+                   for new, old in zip(inputs.data.leaves, site.leaves))
+    inputs = dataclasses.replace(inputs, data=dataclasses.replace(inputs.data, leaves=leaves))
+    assert inputs.data.leaves[3].models == Models(h[0], h[6], "estimates_file")
+    assert (inputs.data.leaves[3].estimate.effort, inputs.data.leaves[3].flags) == (h[8], h[10])
+    return dataclasses.replace(inputs, estimates=EstimatesSource(h[1], None))
+
+
+def test_hostile_inputs_page_is_safe(tmp_path):
+    inputs = hostile_inputs(tmp_path)
+    data = assert_page_safe(page_with(inputs), HOSTILE)
+    four = {leaf["key"]: leaf for leaf in data["leaves"]}["Issue-4"]
+    assert (four["effort"], four["models"], four["flags"]) == (HOSTILE[8], [HOSTILE[0], HOSTILE[6]], [HOSTILE[10]])
+    assert ["est", HOSTILE[2]] in four["meta"]
+    assert data["notes"]["estimates"] == ESTIMATES_UNDATED.format(name=HOSTILE[1])
+    assert any(repr(HOSTILE[2]) in line for line in data["panel"])
 
 
 def built_pages():
@@ -408,14 +462,13 @@ def test_sample_page_lane_default_4():
 def test_page_texts_present():
     page = visible_text(page_for("page"))
     assert SCHEDULE_LABEL in page
-    assert INTERIM_NOTE in page
     assert "stuck, blocked or parked" not in page
     states = visible_text(page_for("states"))
     assert "3 stuck, blocked or parked leaves are scheduled as if an agent could start them" in states
     empty = visible_text(page_for("empty"))
-    assert NO_LEAVES in empty and INTERIM_NOTE not in empty
+    assert NO_LEAVES in empty
     done = visible_text(render_page("alpha", parse_wbs("- [x] Done {issue: Issue-1}\n", "alpha"), default_unit_hours=6))
-    assert NO_OPEN in done and INTERIM_NOTE not in done
+    assert NO_OPEN in done
 
 
 def bands(t, node):
@@ -479,6 +532,443 @@ def test_render_refuses_unsafe_asset(monkeypatch, bad):
     monkeypatch.setattr(worksite, "_asset", lambda name: bad if name.endswith(".js") else real(name))
     with pytest.raises(ValueError, match="must not hold"):
         page_for()
+
+
+# --- the optional inputs on the page (#10) --------------------------------------------
+
+
+def inputs_for(folder, text, site="alpha", unit=6, estimates=None, configured=None):
+    """apply_inputs over WBS.md text in `folder`; `estimates` is copied in as a dated file."""
+    folder.mkdir(parents=True, exist_ok=True)
+    if estimates is not None:
+        shutil.copyfile(estimates, folder / "estimates-2026-01-01.md")
+    sites = {} if configured is None else {site: SiteOverride(None, configured)}
+    config = SimpleNamespace(sites=sites, default_unit_hours=unit)
+    return apply_inputs(SiteEntry(site, folder, None), parse_wbs(text, site), config)
+
+
+def sample_inputs(site):
+    """apply_inputs over a sample site, read where it is."""
+    config = SimpleNamespace(sites={}, default_unit_hours=6)
+    return apply_inputs(SiteEntry(site, SAMPLES / site, None), read_wbs(SAMPLES / site / "WBS.md", site), config)
+
+
+def est_inputs(tmp_path):
+    text = (INPUTS / "est.md").read_bytes().decode("utf-8")
+    return inputs_for(tmp_path / "est", text, estimates=INPUTS / "estimates.md")
+
+
+def all_estimated_inputs(tmp_path):
+    return inputs_for(tmp_path / "all", (INPUTS / "all-estimated.md").read_bytes().decode("utf-8"))
+
+
+def model_with(inputs, site="alpha", unit=6):
+    return page_model(site, inputs.data, default_unit_hours=unit, inputs=inputs)
+
+
+def page_with(inputs, site="alpha", unit=6):
+    return render_page(site, inputs.data, default_unit_hours=unit, inputs=inputs)
+
+
+def labelled(t, attr="data-unestimated"):
+    """{element index: N} for every element that carries `attr`."""
+    return {i: int(el["attrs"][attr]) for i, el in enumerate(t.elements) if attr in el["attrs"]}
+
+
+def by_id(t, ident):
+    (i,) = [i for i, el in enumerate(t.elements) if el["attrs"].get("id") == ident]
+    return i
+
+
+def fragments(n):
+    return [INCLUDES_ONE, DATES_ONE] if n == 1 else [INCLUDES.format(n=n), DATES.format(n=n)]
+
+
+def assert_labels_follow_n(t):
+    """Each labelled element shows its fragment iff its N is above 0; returns {index: N}."""
+    found = labelled(t)
+    assert found, "no labelled element"
+    for i, n in found.items():
+        text = text_of(t, i)
+        if n:
+            assert any(f in text for f in fragments(n)), (t.elements[i]["tag"], n, text)
+        else:
+            assert "unestimated lea" not in text, (t.elements[i]["tag"], text)
+    return found
+
+
+def test_unestimated_sample_every_leaf_marked():
+    inputs = sample_inputs(UNESTIMATED)
+    m = model_with(inputs, UNESTIMATED)
+    assert m["leaves"] and all(leaf["unestimated"] and leaf["source"] == "default" for leaf in m["leaves"])
+    t = tree(page_with(inputs, UNESTIMATED))
+    nodes = find(t, "g", ["node"])
+    assert nodes and all("unest" in t.elements[i]["classes"] for i in nodes)
+    titles = [text_of(t, find(t, "title", within=i)[0]) for i in nodes]
+    assert all(title.endswith(" · unestimated") for title in titles)
+
+
+def test_unestimated_sample_labels():
+    inputs = sample_inputs(UNESTIMATED)
+    m = model_with(inputs, UNESTIMATED)
+    t = tree(page_with(inputs, UNESTIMATED))
+    found = assert_labels_follow_n(t)
+    site = m["unestimated"]["site"]
+    assert site == inputs.totals.unestimated_count == len(m["schedule"]["items"]) > 0
+    gutter = find(t, "g", ["lane-label"])
+    assert [found[i] for i in gutter] == [lane["unestimated"] for lane in m["lanes"]]
+    assert sum(found[i] for i in gutter) == site
+    assert found[by_id(t, "hours-note")] == m["unestimated"]["heaviest"]
+    assert found[by_id(t, "g-dates")] == site
+    assert text_of(t, by_id(t, "g-dates")) == DATES.format(n=site)
+
+
+def test_all_estimated_fixture_labels_zero(tmp_path):
+    inputs = all_estimated_inputs(tmp_path)
+    page = page_with(inputs)
+    found = assert_labels_follow_n(tree(page))
+    assert set(found.values()) == {0}
+    assert "unestimated lea" not in visible_text(page)
+
+
+def test_mixed_epics_fixture(tmp_path):
+    inputs = est_inputs(tmp_path)
+    m = model_with(inputs)
+    assert [(lane["key"], lane["unestimated"]) for lane in m["lanes"]] == [("Issue-1", 0), ("Issue-6", 6)]
+    t = tree(page_with(inputs))
+    found = assert_labels_follow_n(t)
+    assert [found[i] for i in find(t, "g", ["lane-label"])] == [0, 6]
+    assert found[by_id(t, "g-dates")] == 6 == inputs.totals.unestimated_count
+
+
+def test_estimates_line_names_file_and_date(tmp_path):
+    harbor = sample_inputs(BUSY)
+    assert ESTIMATES_LINE.format(name=harbor.estimates.name, date="2026-01-15") in visible_text(page_with(harbor, BUSY))
+    folder = tmp_path / "configured"
+    folder.mkdir()
+    shutil.copyfile(INPUTS / "estimates.md", folder / "my-estimates.md")
+    text = (INPUTS / "all-estimated.md").read_bytes().decode("utf-8")
+    configured = inputs_for(folder, text, configured=folder / "my-estimates.md")
+    assert ESTIMATES_UNDATED.format(name="my-estimates.md") in visible_text(page_with(configured))
+    quarry = model_with(sample_inputs(UNESTIMATED), UNESTIMATED)
+    assert "no estimates file" in quarry["panel"]
+    assert quarry["notes"]["estimates"] is None
+
+
+def test_non_time_line(tmp_path):
+    assert "Not in any hour figure: 50.5 pr (2 leaves)" in visible_text(page_with(est_inputs(tmp_path)))
+    assert "Not in any hour figure" not in visible_text(page_with(sample_inputs(UNESTIMATED), UNESTIMATED))
+
+
+def test_panel_groups_unestimated_by_class(tmp_path):
+    panel = model_with(est_inputs(tmp_path))["panel"]
+    tail = " and no estimates-file hours "
+    assert [line for line in panel if tail in line] == [
+        "3 leaves with an unparseable est:" + tail + "are unestimated: Issue-7, Issue-8, Issue-9",
+        "1 leaf with a non-time est:" + tail + "is unestimated: Issue-10",
+        "1 leaf with a placeholder est:" + tail + "is unestimated: Issue-11",
+        "1 leaf with no est:" + tail + "is unestimated: Issue-12",
+    ]
+    assert not [line for line in panel if "scheduled at the default unit" in line]
+
+
+def test_inherit_tier_is_text_with_fallback(tmp_path):
+    t = tree(page_with(est_inputs(tmp_path)))
+    (node,) = [i for i in find(t, "g", ["node"]) if t.elements[i]["attrs"]["data-item"] == "Issue-21"]
+    assert bands(t, node) == [{"band", "m-other"}, {"band", "m-sonnet"}]
+    assert "think inherit" in [text_of(t, i) for i in find(t, "text", ["band-t"], within=node)]
+
+
+def test_no_tiers_line_and_panel():
+    inputs = sample_inputs(UNESTIMATED)
+    m = model_with(inputs, UNESTIMATED)
+    assert m["notes"]["no_tiers"] == NO_TIERS
+    assert NO_TIERS in m["panel"]
+    assert visible_text(page_with(inputs, UNESTIMATED)).count(NO_TIERS) == 2
+
+
+def test_page_model_refuses_untyped_containers():
+    for change in ({"estimate": SimpleNamespace(lo_h=2, hi_h=5)}, {"estimate": {"lo_h": 2, "hi_h": 5}},
+                   {"models": SimpleNamespace(thinking="opus", checking="opus")}, {"models": ["opus", "opus"]}):
+        with pytest.raises(TypeError):
+            model(data=with_leaf(fixture("page"), "Issue-2", **change))
+
+
+def test_interim_note_gone():
+    assert not hasattr(worksite, "INTERIM_NOTE")
+    for page in (sample_page(UNESTIMATED), page_with(sample_inputs(UNESTIMATED), UNESTIMATED)):
+        assert "no estimates are read yet" not in page
+
+
+# --- P0 on the page (#10) -------------------------------------------------------------
+
+
+def test_p0_keeps_full_box():
+    # Issue-13 is the page fixture's only circle at unit 24 (test_rolling_wave_set).
+    m = model(data=with_leaf(fixture("page"), "Issue-13", priority="P0"))
+    assert by_key(m)["Issue-13"]["wave_full"] is True
+    assert by_key(model())["Issue-13"]["wave_full"] is False
+
+
+def test_wave_caption_names_p0():
+    assert "every leaf whose own priority is P0 or P1" in visible_text(page_for())
+
+
+def test_p0_note_lists_leaf_and_inheritor(tmp_path):
+    inputs = est_inputs(tmp_path)
+    assert model_with(inputs)["notes"]["p0"] == ["Issue-20", "Issue-21"]
+    assert worksite.P0_NOTE + "Issue-20, Issue-21" in visible_text(page_with(inputs))
+
+
+def test_no_p0_no_note():
+    assert model()["notes"]["p0"] is None
+    assert "does not know P0" not in visible_text(page_for())
+
+
+# --- the re-ported prototype figures (#10) ----------------------------------------------
+
+
+def limits(t):
+    """(chain group, total group, figcaption) of the Two-limits figure."""
+    (fig,) = find(t, "figure", ["limits"])
+    groups = [i for i in find(t, "g", within=fig) if "data-unestimated" in t.elements[i]["attrs"]]
+    (caption,) = find(t, "figcaption", within=fig)
+    return groups[0], groups[1], caption
+
+
+def test_two_limits_figure():
+    data = fixture("page")
+    path = model(data=data, unit=6)["network"]["path"]
+    data = with_leaf(data, path[0], estimate=Estimate(2, 10, "estimates_file", "absent", None))
+    m = model(data=data, unit=6)
+    t = tree(page_for(data=data))
+    chain, total, caption = limits(t)
+    ch_lo, ch_hi = 2 + 6 * (len(path) - 1), 10 + 6 * (len(path) - 1)
+    tot = m["totals"]
+    assert (tot["hours_lo"], tot["hours_hi"]) == (2 + 6 * (len(m["leaves"]) - 1), 10 + 6 * (len(m["leaves"]) - 1))
+    assert f"{ch_lo:g}–{ch_hi:g} h" in text_of(t, chain)
+    assert f"{tot['hours_lo']:g}–{tot['hours_hi']:g} h" in text_of(t, total)
+    labels = [text_of(t, i) for i in find(t, "text", ["lim-label"])]
+    assert labels == [f"Critical chain ({len(path)} leaves)", f"All {len(m['leaves'])} scheduled leaves"]
+    scale = 560 / tot["hours_hi"]
+    widths = [float(t.elements[i]["attrs"]["width"]) for i in find(t, "rect", ["bar-crit"])]
+    assert widths == pytest.approx([ch_lo * scale, (ch_hi - ch_lo) * scale], abs=0.06)
+    widths = [float(t.elements[i]["attrs"]["width"]) for i in find(t, "rect", ["bar-open"])]
+    assert widths == pytest.approx([tot["hours_lo"] * scale, (tot["hours_hi"] - tot["hours_lo"]) * scale], abs=0.06)
+    assert int(t.elements[caption]["attrs"]["data-unestimated"]) == m["unestimated"]["site"]
+
+
+def test_two_limits_labels():
+    inputs = sample_inputs(UNESTIMATED)
+    m = model_with(inputs, UNESTIMATED)
+    t = tree(page_with(inputs, UNESTIMATED))
+    assert_labels_follow_n(t)
+    chain, total, caption = limits(t)
+    found = labelled(t)
+    assert (found[chain], found[total], found[caption]) == (
+        m["unestimated"]["path"], m["unestimated"]["site"], m["unestimated"]["site"])
+    assert m["unestimated"]["site"] > 0
+    assert " The total " + INCLUDES.format(n=m["unestimated"]["site"]) + "." in text_of(t, caption)
+
+
+def test_two_limits_values_stay_in_the_figure(tmp_path):
+    # Every leaf on the chain: the chain bar reaches the axis end, where a value after it would be clipped.
+    inputs = inputs_for(tmp_path / "chain", "- [ ] A {issue: Issue-1, est: 10h, depends_on: [Issue-2]}\n"
+                                            "- [ ] B {issue: Issue-2, est: 200.5h}\n")
+    t = tree(page_with(inputs))
+    values = find(t, "text", ["lim-val"])
+    assert [text_of(t, i) for i in values] == ["210.5–210.5 h", "210.5–210.5 h"]
+    for i in values:
+        attrs = t.elements[i]["attrs"]
+        # 13px monospace: about 7.8 units a character; an end-anchored value ends at its x.
+        right = float(attrs["x"]) + (0 if attrs.get("text-anchor") == "end" else 7.8 * len(text_of(t, i)))
+        assert right <= 760
+
+
+def test_two_limits_empty_site_draws_no_width():
+    t = tree(page_for("empty"))
+    widths = {t.elements[i]["attrs"]["width"] for i in find(t, "rect", ["bar-crit"]) + find(t, "rect", ["bar-open"])}
+    assert widths == {"0"}
+
+
+def test_summary_static_labels():
+    inputs = sample_inputs(UNESTIMATED)
+    m = model_with(inputs, UNESTIMATED)
+    t = tree(page_with(inputs, UNESTIMATED))
+    i = by_id(t, "g-sum")
+    attrs = t.elements[i]["attrs"]
+    assert (int(attrs["data-unestimated"]), int(attrs["data-unestimated-chain"])) == (
+        m["unestimated"]["site"], m["unestimated"]["path"])
+    n, chain = m["unestimated"]["site"], m["unestimated"]["path"]
+    unest = worksite.SUMMARY_UNEST_ONE if n == 1 else worksite.SUMMARY_UNEST
+    assert text_of(t, i).endswith(" The plan " + unest.format(n=n, m=chain) + ".")
+
+
+def test_summary_rounds_half_up():
+    # One 15 h leaf ends on day 2.5: Python's round() would say 2, the script says 3 (U6).
+    data = parse_wbs("- [ ] Long {issue: Issue-1}\n", "alpha")
+    data = with_leaf(data, "Issue-1", estimate=Estimate(15, 15, "est", "time", None))
+    t = tree(page_for(data=data))
+    assert text_of(t, by_id(t, "g-sum")).startswith("With 4 lanes, all open work ends around working day 3. ")
+
+
+NO_LINKS = "- [ ] A {issue: Issue-1}\n- [ ] B {issue: Issue-2, est: 9h}\n"
+
+
+def test_no_chain_summary_and_limits():
+    # No leaf waits on another: no chain figures are stated (final review).
+    data = parse_wbs(NO_LINKS, "alpha")
+    data = with_leaf(data, "Issue-2", estimate=Estimate(9, 9, "est", "time", None))
+    t = tree(page_for(data=data))
+    summary = text_of(t, by_id(t, "g-sum"))
+    assert summary == (worksite.SUMMARY_NO_CHAIN.format(lanes="4 lanes", end=2, even=1, busy=42)
+                       + " The plan " + INCLUDES_ONE + ".")
+    assert "critical chain around" not in summary
+    chain, total, caption = limits(t)
+    assert text_of(t, chain) == worksite.NO_CHAIN
+    assert find(t, "rect", ["bar-crit"]) == []
+    assert text_of(t, caption).startswith(worksite.LIMITS_CAPTION_NO_CHAIN.format(hpd=6, c=3, d=3))
+    assert "The chain decides order" not in text_of(t, caption)
+
+
+def summary_cases(tmp_path):
+    data = parse_wbs("- [ ] Long {issue: Issue-1}\n", "alpha")
+    half = with_leaf(data, "Issue-1", estimate=Estimate(15, 15, "est", "time", None))
+    return {"half": page_for(data=half), "page": page_for(), "est": page_with(est_inputs(tmp_path)),
+            "quarry": page_with(sample_inputs(UNESTIMATED), UNESTIMATED),
+            "nochain": page_for(data=parse_wbs(NO_LINKS, "alpha"))}
+
+
+def test_summary_static_matches_script(node, tmp_path):
+    for name, html in summary_cases(tmp_path).items():
+        t = tree(html)
+        static = text_of(t, by_id(t, "g-sum"))
+        assert static, name
+        with open_page(write(tmp_path, html, f"{name}.html")) as page:
+            (summary,) = page.query("#g-sum")
+            assert summary.text == static, name
+
+
+def test_summary_and_marks_after_redraw(node, tmp_path):
+    inputs = est_inputs(tmp_path)
+    m = model_with(inputs)
+    site, chain = str(m["unestimated"]["site"]), str(m["unestimated"]["path"])
+    with open_page(write(tmp_path, page_with(inputs))) as page:
+        for control, value in (("lanes", "2"), ("group", "lane"), ("group", "epic")):
+            page.drive(control, value)
+            (summary,) = page.query("#g-sum")
+            assert (summary.attrs["data-unestimated"], summary.attrs["data-unestimated-chain"]) == (site, chain)
+            assert summary.text.startswith("With 2 lanes, ")
+            for cls in ("mk-crit", "mk-end"):
+                (mark,) = page.query("line." + cls)
+                assert mark.attrs["data-unestimated"] == site
+                assert INCLUDES.format(n=int(site)) in mark.text
+            (svg,) = page.query("svg.gantt")
+            assert "The critical chain finishes around working day " in svg.attrs["aria-label"]
+
+
+def test_all_estimated_marks_and_epic_rows_after_redraw(node, tmp_path):
+    with open_page(write(tmp_path, page_with(all_estimated_inputs(tmp_path)))) as page:
+        for control, value in (("lanes", "2"), ("group", "lane"), ("group", "epic")):
+            page.drive(control, value)
+            for cls in ("mk-crit", "mk-end"):
+                (mark,) = page.query("line." + cls)
+                assert mark.attrs["data-unestimated"] == "0"
+                assert "unestimated lea" not in mark.text
+        rows = page.query(".g-toggle")
+        assert len(rows) == 2
+        assert all(row.attrs["data-unestimated"] == "0" and "unestimated lea" not in row.text for row in rows)
+
+
+def test_priority_markers_in_both_groupings(node, tmp_path):
+    with open_page(write(tmp_path, page_with(est_inputs(tmp_path)))) as page:
+        for group in ("lane", "epic"):
+            page.drive("group", group)
+            if group == "epic":
+                page.drive("expand", "all")
+            assert keys_of(page.query("#gantt circle.pr-p0")) == {"Issue-20"}
+            assert keys_of(page.query("#gantt circle.pr-hi")) == {"Issue-22", "Issue-23"}
+            assert all("pmark" in c.classes for c in page.query("#gantt circle.pr-p0") + page.query("#gantt circle.pr-hi"))
+
+
+def test_schedule_legend_names_p0_beside_p1_p2():
+    t = tree(page_for())
+    (legend,) = [i for i in find(t, "div", ["legend"]) if "P1 or P2" in text_of(t, i)]
+    spans = [text_of(t, i).strip() for i in find(t, "span", within=legend)]
+    assert spans[-2:] == ["P1 or P2", "P0"]
+    assert spans[:2] == ["bar shade: thinking model", "critical chain"]
+
+
+# --- the sample sites, built as the CLI builds them (#10) ---------------------------------
+
+
+def inputs_page(site):
+    """(inputs, page) of a sample site: the sample config, load_sites, then apply_inputs."""
+    config = load_installation(SAMPLES / "gantry.sample.toml")
+    sites, _ = load_sites(config)
+    entry = next(s for s in sites if s.name == site)
+    data, problem = site_data(entry)
+    assert problem is None, problem
+    inputs = apply_inputs(entry, data, config)
+    return inputs, render_page(site, inputs.data, default_unit_hours=config.default_unit_hours, inputs=inputs)
+
+
+def test_non_time_sample_site():
+    inputs, page = inputs_page(OWN_UNIT)
+    assert "Not in any hour figure: 13 pt (2 leaves)" in visible_text(page)
+    assert (inputs.totals.hours, inputs.totals.unestimated_count) == (90, 5)
+    assert inputs.totals.non_time == {"pt": {"quantity": 13, "leaves": 2}}
+    m = model_with(inputs, OWN_UNIT)
+    pt = [leaf for leaf in m["leaves"] if leaf["non_time"] is not None]
+    assert len(pt) == 2 and all(leaf["hours"] == 6 and leaf["unestimated"] for leaf in pt)
+    t = tree(page)
+    unest = {t.elements[i]["attrs"]["data-item"] for i in find(t, "g", ["node", "unest"])}
+    assert {leaf["key"] for leaf in pt if leaf["linked"]} <= unest
+    assert "6 open leaves have no priority and count as P3" in m["panel"]
+
+
+def test_model_tier_sample_site():
+    inputs, page = inputs_page(BUSY)
+    found = find_estimates_file(SiteEntry(BUSY, SAMPLES / BUSY, None), SimpleNamespace(sites={}))
+    rows = read_estimates_file(found.path, BUSY, found.name).rows
+    m = model_with(inputs, BUSY)
+    assert m["leaves"]
+    for leaf in m["leaves"]:
+        assert leaf["models"] == [rows[leaf["key"]].thinking, rows[leaf["key"]].checking], leaf["key"]
+    t = tree(page)
+    for i in find(t, "g", ["node"]):
+        leaf = by_key(m)[t.elements[i]["attrs"]["data-item"]]
+        assert bands(t, i) == [{"band", c} for c in leaf["mc"]]
+    labels = find(t, "g", ["lane-label"])
+    assert labels and all(find(t, "g", ["mt-row"], within=i) for i in labels)
+    assert NO_TIERS not in visible_text(page)
+    assert not [e for e in inputs.data.report if e.kind == "no_model_tiers"]
+
+
+def test_p0_sample_site(node, tmp_path):
+    inputs, page = inputs_page(UNESTIMATED)
+    m = model_with(inputs, UNESTIMATED)
+    assert by_key(m)["Issue-8"]["wave_full"] is True
+    assert m["notes"]["p0"] == ["Issue-8", "Issue-9"]
+    assert worksite.P0_NOTE + "Issue-8, Issue-9" in visible_text(page)
+    with open_page(write(tmp_path, page)) as live:
+        assert keys_of(live.query("#gantt circle.pr-p0")) == {"Issue-8"}
+
+
+def test_every_sample_page_labelled():
+    for site in sorted(READABLE):
+        inputs, page = inputs_page(site)
+        assert_page_safe(page, [])
+        t = tree(page)
+        found = assert_labels_follow_n(t)
+        m = model_with(inputs, site)
+        assert found[by_id(t, "g-dates")] == found[by_id(t, "g-sum")] == m["unestimated"]["site"], site
+        assert int(t.elements[by_id(t, "g-sum")]["attrs"]["data-unestimated-chain"]) == m["unestimated"]["path"]
+        assert found[by_id(t, "hours-note")] == m["unestimated"]["heaviest"], site
+        assert [found[i] for i in find(t, "g", ["lane-label"])] == [lane["unestimated"] for lane in m["lanes"]]
+        chain, total, caption = limits(t)
+        assert (found[chain], found[total], found[caption]) == (
+            m["unestimated"]["path"], m["unestimated"]["site"], m["unestimated"]["site"]), site
 
 
 # --- the page under the harness ----------------------------------------------------
@@ -596,6 +1086,91 @@ def test_hostile_page_under_harness(node, tmp_path):
     assert run_function(path, "gantryPage.esc", ["&<>\"'"]) == "&amp;&lt;&gt;&quot;&#39;"
 
 
+def test_caption_and_epic_rows_after_redraw(node, tmp_path):
+    inputs = est_inputs(tmp_path)
+    m = model_with(inputs)
+    site = m["unestimated"]["site"]
+    with open_page(write(tmp_path, page_with(inputs))) as page:
+        page.drive("lanes", "2")
+        page.drive("group", "lane")
+        page.drive("group", "epic")
+        (dates,) = page.query("#g-dates")
+        assert dates.attrs["data-unestimated"] == str(site)
+        assert dates.text == DATES.format(n=site)
+        rows = page.query(".g-toggle")
+        assert len(rows) == len(m["lanes"]) == 2
+        seen = set()
+        for row in rows:
+            n = m["lanes"][int(row.attrs["data-lane"])]["unestimated"]
+            assert row.attrs["data-unestimated"] == str(n)
+            assert (INCLUDES.format(n=n) in row.text) is (n > 0)
+            seen.add(n > 0)
+        assert seen == {True, False}
+
+
+def test_caption_redraw_keeps_one_form(node, tmp_path):
+    inputs = inputs_for(tmp_path / "one", "- [ ] J {issue: Issue-12}\n- [ ] A {issue: Issue-2, est: 3h}\n")
+    with open_page(write(tmp_path, page_with(inputs))) as page:
+        page.drive("lanes", "3")
+        (dates,) = page.query("#g-dates")
+        assert (dates.attrs["data-unestimated"], dates.text) == ("1", DATES_ONE)
+
+
+def test_unest_bars_marked(node, tmp_path):
+    inputs = est_inputs(tmp_path)
+    leaves = by_key(model_with(inputs))
+    with open_page(write(tmp_path, page_with(inputs))) as page:
+        for group in ("epic", "lane"):
+            page.drive("group", group)
+            bars = page.query("rect.seg")
+            assert bars
+            for bar in bars:
+                assert ("unest" in bar.classes) is leaves[bar.attrs["data-item"]]["unestimated"], bar.attrs
+
+
+def test_detail_shows_source_and_effort(node, tmp_path):
+    inputs = sample_inputs(BUSY)
+    leaves = by_key(model_with(inputs, BUSY))
+    key = next(k for k, leaf in leaves.items() if leaf["source"] == "estimates_file" and leaf["linked"])
+    effort = leaves[key]["effort"]
+    with open_page(write(tmp_path, page_with(inputs, BUSY))) as page:
+        page.drive("network-detail", key)
+        page.drive("schedule-detail", key)
+        for panel in ("#detail", "#gdetail"):
+            (detail,) = page.query(panel)
+            assert f"(from the estimates file, effort {effort})" in detail.text, panel
+
+
+def test_detail_shows_est_default_and_non_time(node, tmp_path):
+    inputs = est_inputs(tmp_path)
+    with open_page(write(tmp_path, page_with(inputs))) as page:
+        page.drive("schedule-detail", "Issue-2")
+        text = page.query("#gdetail")[0].text
+        # Its hours come from est:, its effort bucket still from its row (final review).
+        assert "(from its est: value)" in text and "effort M" in text
+        page.drive("schedule-detail", "Issue-10")
+        text = page.query("#gdetail")[0].text
+        assert "(unestimated: the default unit)" in text and "Not in the hours: 48 pr" in text
+
+
+def test_hostile_inputs_under_harness(node, tmp_path):
+    path = write(tmp_path, page_with(hostile_inputs(tmp_path)))
+    keys = [HOSTILE[7], HOSTILE[1], HOSTILE[2], "Issue-4"]
+    with open_page(path) as page:
+        assert page.planted_nodes(ALWAYS) == Planted([], [], [])
+        for key in keys:
+            page.drive("network-detail", key)
+            assert page.planted_nodes(ALWAYS + INPUT_DETAIL.get(key, [])) == Planted([], [], []), ("net", key)
+        for group in ("epic", "lane"):
+            page.drive("group", group)
+            for key in keys:
+                page.drive("schedule-detail", key)
+                assert page.planted_nodes(ALWAYS + INPUT_DETAIL.get(key, [])) == Planted([], [], []), ("sched", key)
+        page.drive("schedule-detail", "Issue-4")
+        (detail,) = page.query("#gdetail")
+        assert f"(from the estimates file, effort {HOSTILE[8]})" in detail.text
+
+
 def test_js_class_tokens_match_render(node, tmp_path):
     path = write(tmp_path, page_for())
     assert run_function(path, "gantryPage.classTokens") == sorted(CLASS_TOKENS)
@@ -604,9 +1179,11 @@ def test_js_class_tokens_match_render(node, tmp_path):
 # --- the docs ----------------------------------------------------------------------
 
 PAGE_TEXTS = [getattr(worksite, name) for name in (
-    "SCHEDULE_LABEL", "STUCK_LINE", "STUCK_LINE_ONE", "INTERIM_NOTE", "NO_TIERS", "NO_LEAVES", "NO_OPEN", "ALL_HELD",
+    "SCHEDULE_LABEL", "STUCK_LINE", "STUCK_LINE_ONE", "NO_TIERS", "NO_LEAVES", "NO_OPEN", "ALL_HELD",
     "NOTHING_MISSING", "NO_ISSUE_LINE", "NO_ISSUE_LINE_ONE", "WAITS_LINE", "FOREIGN", "CHAIN_LINE",
-    "CAPACITY_LINE")] + list(worksite.STATE_MARKS.values())
+    "CAPACITY_LINE", "INCLUDES", "INCLUDES_ONE", "DATES", "DATES_ONE", "ESTIMATES_LINE", "ESTIMATES_UNDATED",
+    "NON_TIME_LINE", "UNESTIMATED_LINE", "UNESTIMATED_LINE_ONE", "P0_NOTE", "SUMMARY", "SUMMARY_UNEST",
+    "SUMMARY_UNEST_ONE", "LIMITS_CAPTION", "SUMMARY_NO_CHAIN", "LIMITS_CAPTION_NO_CHAIN", "NO_CHAIN")] + list(worksite.STATE_MARKS.values())
 
 
 def test_doc_states_page_texts():
@@ -649,7 +1226,7 @@ def test_all_held_out_site_says_so():
                      "alpha")
     page = visible_text(render_page("alpha", data, default_unit_hours=6))
     assert worksite.ALL_HELD in page
-    assert NO_OPEN not in page and INTERIM_NOTE not in page
+    assert NO_OPEN not in page
 
 
 def test_critical_cross_link_stays_dashed():

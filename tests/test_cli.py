@@ -69,7 +69,7 @@ SAMPLE_CONFIG = "samples/gantry.sample.toml"
 EXPECTED_STATUS = {
     BUSY: "open 8, finished 6",
     OWN_UNIT: "open 6, finished 3; no_issue 3, unresolved_ref 1",
-    UNESTIMATED: "open 3, finished 3; unresolved_ref 1",
+    UNESTIMATED: "open 5, finished 3; unresolved_ref 1",
     SMALL: "open 2, finished 3",
     UNREADABLE: "cannot read: WBS.md is not valid UTF-8 at byte 88",
     NO_WBS: "cannot read: no WBS.md in the planning directory",
@@ -122,7 +122,7 @@ def test_status_text_forms():
     ids = (ROOT / "tests" / "fixtures" / "wbs" / "ids.md").read_bytes().decode("utf-8")
     assert status_text(parse_wbs(ids, "alpha")) == (
         "open 7, finished 0; no_issue 2, duplicate_issue 1, key_collision 1, "
-        "unresolved_ref 2, bad_priority 2, skipped_line 2"
+        "unresolved_ref 2, bad_priority 1, skipped_line 2"
     )
     assert status_text(parse_wbs("- [ ] One {issue: Issue-1}\n", "alpha")) == "open 1, finished 0"
 
@@ -266,7 +266,7 @@ def test_python_m_builds_sample_site(tmp_path):
 
 def test_listing_does_not_import_the_view():
     code = "import sys, gantry.cli; gantry.cli.main(['build', '--config', 'samples/gantry.sample.toml']); " \
-           "sys.exit('gantry.views.worksite' in sys.modules)"
+           "sys.exit('gantry.views.worksite' in sys.modules or 'gantry.inputs' in sys.modules)"
     result = subprocess.run([sys.executable, "-c", code], cwd=ROOT, capture_output=True,
                             env={**os.environ, "PYTHONPATH": str(ROOT)})
     assert result.returncode == 0, result.stderr
@@ -284,6 +284,32 @@ def test_portfolio_file_does_not_change_page(tmp_path, capsys):
     assert page.read_bytes() == plain
 
 
+def test_site_page_reads_estimates_file(tmp_path, capsys):
+    copy = copy_samples(tmp_path)
+    config = copy / "gantry.sample.toml"
+    name = next((copy / BUSY).glob("estimates-*.md")).name
+    assert site_build(capsys, config, BUSY)[0] == 0
+    page = (copy / "out" / "sites" / f"{BUSY}.html").read_bytes().decode("utf-8")
+    assert name in page
+    assert "no estimates file" not in page
+    append_bytes(config, f"[site.{BUSY}]\nestimates = false\n")
+    assert site_build(capsys, config, BUSY)[0] == 0
+    page = (copy / "out" / "sites" / f"{BUSY}.html").read_bytes().decode("utf-8")
+    assert name not in page
+    assert f"no estimates file: site.{BUSY}.estimates is false" in page
+
+
+# The estimates key is read by --site (#10); the listing still ignores it.
+def test_estimates_key_has_no_effect_on_listing(tmp_path, capsys):
+    copy = copy_samples(tmp_path)
+    config = copy / "gantry.sample.toml"
+    assert main(["build", "--config", str(config)]) == 0
+    plain = capsys.readouterr().out
+    append_bytes(config, f'[site.{BUSY}]\nestimates = "est.md"\n')
+    assert main(["build", "--config", str(config)]) == 0
+    assert capsys.readouterr().out == plain
+
+
 def test_reserved_keys_have_no_effect_on_build(tmp_path, capsys):
     copy = copy_samples(tmp_path)
     config = copy / "gantry.sample.toml"
@@ -292,7 +318,7 @@ def test_reserved_keys_have_no_effect_on_build(tmp_path, capsys):
     append_bytes(
         config,
         'portfolio_file = "portfolio.toml"\nfires_list = "fires.md"\n'
-        f'[site.{BUSY}]\nrequirements = "req.md"\nestimates = "est.md"\n',
+        f'[site.{BUSY}]\nrequirements = "req.md"\n',
     )
     assert main(["build", "--config", str(config)]) == 0
     captured = capsys.readouterr()

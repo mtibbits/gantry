@@ -112,11 +112,14 @@ def _build_site(config, sites, name):
     data, problem = site_data(site)
     if problem is not None:
         return fail(f"cannot build: {problem}")
-    # The view is imported only here: listing sites never loads it.
+    # The view and the inputs are imported only here: listing sites never loads them.
+    from gantry.inputs import apply_inputs
     from gantry.views import worksite
 
     try:
-        text = worksite.render_page(site.name, data, default_unit_hours=config.default_unit_hours)
+        inputs = apply_inputs(site, data, config)
+        text = worksite.render_page(site.name, inputs.data, default_unit_hours=config.default_unit_hours,
+                                    inputs=inputs)
     except Exception as e:
         # The text may quote a record value: escape it so the message stays one line.
         return fail(f"render error: {type(e).__name__}: {ascii(str(e))[1:-1]}")

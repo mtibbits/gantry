@@ -10,7 +10,7 @@
   const CLASS_SET = new Set([
     "m-haiku", "m-sonnet", "m-opus", "m-fable", "m-other",
     "st-pending", "st-wip", "st-stuck", "st-blocked", "st-parked", "st-other",
-    "crit", "near", "free",
+    "crit", "near", "free", "unest", "pr-hi", "pr-p0",
   ]);
   const tok = (t) => (typeof t === "string" && CLASS_SET.has(t) ? t : "");
   const classTokens = () => Array.from(CLASS_SET).sort();
@@ -28,6 +28,15 @@
   const num = (x) => (Math.round(x * 10) / 10).toString();
   const laneText = (i) => [lanes[i].tag, lanes[i].name].filter((s) => s !== "").join(" ");
   const lanesText = (k) => (k === 1 ? "1 lane" : k + " lanes");
+  // The page's count texts (#10): numbers only are filled in.
+  const count = (n, many, one) => (n === 1 ? one : many.split("{n}").join(String(n)));
+  const includes = (n) => count(n, DATA.texts.includes, DATA.texts.includes_one);
+  const fillIn = (t, pairs) => pairs.reduce((s, [name, v]) => s.split("{" + name + "}").join(String(v)), t);
+  const onPath = new Set(DATA.network.path);
+  const SOURCES = new Map([["est", " (from its est: value)"], ["default", " (unestimated: the default unit)"]]);
+  const sourceText = (leaf) => (leaf.source === "estimates_file"
+    ? " (from the estimates file" + (leaf.effort === null ? "" : ", effort " + leaf.effort) + ")"
+    : SOURCES.get(leaf.source) || "");
 
   // --- the detail panels, built as text --------------------------------------
 
@@ -55,7 +64,10 @@
     box.append(title);
     line(box, [["Epic:", laneText(leaf.lane)], ["priority", leaf.priority === null ? "none" : leaf.priority],
       ["scheduled as", "P" + leaf.eff]]);
-    line(box, [["Hours:", num(leaf.hours) + (leaf.unestimated ? " (unestimated: the default unit)" : "")]]
+    // The effort bucket comes from the leaf's row whatever gave its hours.
+    line(box, [["Hours:", num(leaf.hours) + sourceText(leaf)]]
+      .concat(leaf.effort === null || leaf.source === "estimates_file" ? [] : [["effort", leaf.effort]])
+      .concat(leaf.non_time === null ? [] : [["Not in the hours:", leaf.non_time]])
       .concat(leaf.mark === null ? [] : [["state", leaf.mark]]));
     if (leaf.models !== null) {
       line(box, [["Thinking:", leaf.models[0] === null ? "none" : leaf.models[0]],
@@ -133,6 +145,8 @@
   const host = document.getElementById("gantt");
   const gdetail = document.getElementById("gdetail");
   const limitLine = document.getElementById("g-limit");
+  const datesLine = document.getElementById("g-dates");
+  const summaryLine = document.getElementById("g-sum");
   const select = Array.from(document.querySelectorAll("select[data-control]"))
     .find((s) => s.getAttribute("data-control") === "lanes");
   const clearSched = gdetail === null ? () => {} : resting(gdetail);
@@ -149,6 +163,7 @@
   let rows = [];
   let byKey = new Map();
   let end = 0;
+  let critEnd = 0;
   let span = 20;
   let hot = null;
   const W = LABW + TW + PADR;
@@ -168,6 +183,39 @@
     byKey = new Map(rows.map((r) => [r.leaf.key, r]));
     end = rows.reduce((m, r) => Math.max(m, r.b), 0);
     span = Math.max(5, Math.ceil(end / 5) * 5);
+    // gantry/views/worksite.py's summary_text, step for step (U6): sums in
+    // items order, rounding last and half up.
+    let busy = 0;
+    let chain = 0;
+    critEnd = 0;
+    for (const r of rows) {
+      busy += r.b - r.a;
+      if (onPath.has(r.leaf.key)) {
+        chain += r.b - r.a;
+        critEnd = Math.max(critEnd, r.b);
+      }
+    }
+    if (summaryLine !== null) {
+      const u = DATA.unestimated;
+      summaryLine.setAttribute("data-unestimated", String(u.site));
+      summaryLine.setAttribute("data-unestimated-chain", String(u.path));
+      let text = "";
+      if (rows.length) {
+        const figures = [["lanes", lanesText(k)], ["end", Math.round(end)], ["even", Math.round(busy / k)],
+          ["busy", Math.round(busy / (k * end) * 100)]];
+        if (onPath.size === 0) {
+          // No chain: no chain figures (summary_text's same branch).
+          text = fillIn(DATA.texts.summary_no_chain, figures) + (u.site ? " The plan " + includes(u.site) + "." : "");
+        } else {
+          text = fillIn(DATA.texts.summary, figures.concat([["crit", Math.round(critEnd)], ["chain", Math.round(chain)]]));
+          if (u.site) {
+            const form = u.site === 1 ? DATA.texts.summary_unest_one : DATA.texts.summary_unest;
+            text += " The plan " + fillIn(form, [["n", u.site], ["m", u.path]]) + ".";
+          }
+        }
+      }
+      summaryLine.textContent = text;
+    }
     if (limitLine !== null) {
       const name = items.length ? gantrySchedule.limit(items, k) : null;
       const text = name === "chain" ? DATA.texts.chain : name === "capacity" ? DATA.texts.capacity : "";
@@ -190,8 +238,8 @@
   }
 
   function segClass(leaf) {
-    return ["seg", leaf.sclass === "crit" ? "crit" : "", leaf.mc === null ? "" : tok(leaf.mc[0]), tok(leaf.sc)]
-      .filter((c) => c !== "").join(" ");
+    return ["seg", leaf.sclass === "crit" ? "crit" : "", leaf.mc === null ? "" : tok(leaf.mc[0]), tok(leaf.sc),
+      leaf.unestimated ? tok("unest") : ""].filter((c) => c !== "").join(" ");
   }
 
   function extent(r) {
@@ -201,8 +249,15 @@
 
   function bar(r, y, h) {
     const [x, w] = extent(r);
-    return '<rect class="' + segClass(r.leaf) + '" data-item="' + esc(r.leaf.key) + '" data-lane="' + r.leaf.lane +
+    let out = '<rect class="' + segClass(r.leaf) + '" data-item="' + esc(r.leaf.key) + '" data-lane="' + r.leaf.lane +
       '" x="' + num(x) + '" y="' + num(y) + '" width="' + num(w) + '" height="' + h + '" tabindex="0"/>';
+    // The bar comes first: a data-item lookup finds it before its mark.
+    const mark = tok(r.leaf.prio_mark);
+    if (mark !== "") {
+      out += '<circle class="pmark ' + mark + '" data-item="' + esc(r.leaf.key) + '" cx="' + num(x + Math.min(w / 2, 5)) +
+        '" cy="' + num(y - 3) + '" r="2.2"/>';
+    }
+    return out;
   }
 
   function laneRect(i, y, h) {
@@ -217,6 +272,12 @@
   function render() {
     for (const b of controls("expand")) b.disabled = group !== "epic";
     hot = null;
+    if (datesLine !== null) {
+      // Every drawn date depends on the whole schedule: the site's N.
+      const n = DATA.unestimated.site;
+      datesLine.setAttribute("data-unestimated", String(n));
+      datesLine.textContent = n ? count(n, DATA.texts.dates, DATA.texts.dates_one) : "";
+    }
     if (host === null) return;
     if (!rows.length) {
       host.replaceChildren();
@@ -236,11 +297,14 @@
         const first = list[0].a;
         const last = list.reduce((m, r) => Math.max(m, r.b), 0);
         out.push(laneRect(li, y, h));
-        out.push('<g class="g-toggle" data-lane="' + li + '" tabindex="0" role="button" aria-expanded="' + isOpen + '">' +
+        const unest = ln.unestimated;
+        out.push('<g class="g-toggle" data-lane="' + li + '" data-unestimated="' + unest +
+          '" tabindex="0" role="button" aria-expanded="' + isOpen + '">' +
           '<rect x="0" y="' + y + '" width="' + (LABW - 8) + '" height="' + GH + '"/>' +
           text("g-name", 14, y + 18, (isOpen ? "\u25be " : "\u25b8 ") + cut(laneText(li), 40)) +
           text("g-sub", 28, y + 33, list.length + (list.length === 1 ? " leaf" : " leaves") + " \u00b7 " + num(hours) +
-            " h \u00b7 days " + num(first) + "\u2013" + num(last)) + "</g>");
+            " h \u00b7 days " + num(first) + "\u2013" + num(last) + (unest ? " \u00b7 " + includes(unest) : "")) +
+          "</g>");
         const top = y + (GH - st.n * TRK) / 2;
         list.forEach((r, j) => out.push(bar(r, top + st.at[j] * TRK + 5, TRK - 5)));
         if (isOpen) {
@@ -276,9 +340,21 @@
       axis.push(text("g-axis", px(d), TOP - 12, d === 0 ? "day 0" : String(d), "middle"));
     }
     axis.push(text("g-axis", 14, TOP - 12, "working days, " + HPD + " agent-hours per lane"));
-    const mark = '<line class="mk-end" x1="' + num(px(end)) + '" y1="' + (TOP - 4) + '" x2="' + num(px(end)) + '" y2="' + H + '"/>';
+    // Both finish marks are built on every leaf's hours: the site's N.
+    const u = DATA.unestimated.site;
+    const note = u ? "; " + includes(u) : "";
+    const markLine = (cls, d, label) => '<line class="' + cls + '" data-unestimated="' + u + '" x1="' + num(px(d)) +
+      '" y1="' + (TOP - 4) + '" x2="' + num(px(d)) + '" y2="' + H + '"><title>' + esc(label + num(d) + note) +
+      "</title></line>";
+    const chainShown = DATA.network.path.length > 0;
+    const marks = (chainShown ? markLine("mk-crit", critEnd, "the critical chain ends around day ") : "") +
+      markLine("mk-end", end, "all open work ends around day ");
+    const label = "Schedule of the open leaves on " + lanesText(k) + "." + (chainShown
+      ? " The critical chain finishes around working day " + Math.round(critEnd) + " and all work around day " +
+        Math.round(end) + "."
+      : " All work finishes around working day " + Math.round(end) + ".");
     host.innerHTML = '<svg class="gantt" viewBox="0 0 ' + W + " " + H + '" width="' + W + '" height="' + H +
-      '" role="img" aria-label="Schedule of the open leaves on ' + lanesText(k) + '">' + axis.join("") + out.join("") + mark + "</svg>";
+      '" role="img" aria-label="' + esc(label) + '">' + axis.join("") + out.join("") + marks + "</svg>";
   }
 
   function showSched(key) {

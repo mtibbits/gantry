@@ -82,6 +82,11 @@ def slack_class(slack: int) -> str:
     return "near" if slack <= 3 else "free"
 
 
+# A leaf scheduled at the default unit, and the schedule's marks for a leaf
+# whose own priority is P1 or P2, or P0 (#10).
+UNESTIMATED_CLASS = "unest"
+PRIORITY_MARKS = ("pr-hi", "pr-p0")
 CLASS_TOKENS = frozenset(
-    [*MODEL_CLASSES.values(), MODEL_FALLBACK, *STATE_CLASSES.values(), STATE_FALLBACK, *SLACK_CLASSES]
+    [*MODEL_CLASSES.values(), MODEL_FALLBACK, *STATE_CLASSES.values(), STATE_FALLBACK, *SLACK_CLASSES,
+     UNESTIMATED_CLASS, *PRIORITY_MARKS]
 )

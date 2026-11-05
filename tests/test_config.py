@@ -377,3 +377,11 @@ def test_every_key_has_a_field():
     missing = [key.name for key in cfg.KEYS if {"site": "sites"}.get(key.name, key.name) not in fields]
     missing += [key.name for key in cfg.SITE_KEYS if key.name not in site_fields]
     assert missing == []
+
+
+def test_config_doc_estimates_key():
+    doc = (ROOT / "docs" / "config.md").read_bytes().decode("utf-8")
+    row = next(line for line in doc.splitlines() if line.startswith("| `estimates` |"))
+    assert "`false` turns discovery off" in row
+    assert "read whatever its name" in row
+    assert "no effect on the build" not in row

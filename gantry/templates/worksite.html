@@ -76,6 +76,18 @@ figcaption { color: var(--muted); font-size: 14px; max-width: 72ch; }
 .ln.crit { border-top: 3px solid var(--crit); }
 .ln.cross { border-top: 2px dashed var(--cross); }
 
+/* two limits (the prototype's, #10) */
+.limits { background: var(--sheet); border: 1px solid var(--rule); border-radius: 4px; padding: 20px; max-width: 820px; }
+.limits svg { width: 100%; height: auto; display: block; }
+.lim-label { font-family: var(--f-body); font-size: 13px; fill: var(--ink); }
+.lim-val { font-family: var(--f-mono); font-size: 13px; fill: var(--ink); font-variant-numeric: tabular-nums; }
+.lim-note { font-family: var(--f-body); font-size: 12px; fill: var(--muted); }
+.bar-crit { fill: var(--crit); }
+.bar-crit.span { opacity: .35; }
+.bar-open { fill: var(--muted); opacity: .55; }
+.bar-open.span { opacity: .22; }
+.lim-axis { stroke: var(--rule); stroke-width: 1; }
+
 /* network plate */
 .plate { background: var(--sheet); border: 1px solid var(--rule); border-radius: 4px; overflow-x: auto; }
 .net { display: block; font-family: var(--f-body); }
@@ -125,6 +137,10 @@ figcaption { color: var(--muted); font-size: 14px; max-width: 72ch; }
 .node text.band-t.m-other { fill: var(--m-other-ink); }
 .band-split { stroke: var(--sheet); stroke-width: 1.5; }
 .node:focus-visible .outline { stroke: var(--cross); stroke-width: 3; }
+/* An unestimated leaf: its hours are the default unit. */
+.node.unest text.nmeta { font-style: italic; }
+.node.unest .dot { stroke-dasharray: 2 2; }
+.seg.unest { fill-opacity: .55; }
 .net.mode-wave .node.compact .full-form, .net:not(.mode-wave) .dot-form,
 .net.mode-wave .e-all, .net:not(.mode-wave) .e-wave { display: none; }
 .dot { fill: var(--m-opus); stroke: var(--muted); stroke-width: .75; }
@@ -180,6 +196,11 @@ figcaption { color: var(--muted); font-size: 14px; max-width: 72ch; }
 .seg.st-stuck, .seg.st-blocked, .seg.st-parked { stroke: var(--held); stroke-width: 2; stroke-dasharray: 4 2; }
 .seg.hot { stroke: var(--cross); stroke-width: 2; }
 .mk-end { stroke: var(--ink); stroke-width: 1.5; stroke-dasharray: 4 3; }
+.mk-crit { stroke: var(--crit); stroke-width: 1.5; stroke-dasharray: 4 3; }
+.summary { margin: 0; font-size: 15px; max-width: 76ch; }
+/* A leaf's own priority: P1 or P2 a dot, P0 a ringed dot. */
+.pmark.pr-hi { fill: var(--crit); }
+.pmark.pr-p0 { fill: var(--sheet); stroke: var(--crit); stroke-width: 1.6; }
 
 .detail { background: var(--sheet); border: 1px solid var(--rule); border-radius: 4px; padding: 14px 16px; font-size: 14px; min-height: 96px; display: grid; gap: 4px; overflow-wrap: anywhere; }
 .detail .k { color: var(--muted); }
@@ -193,17 +214,26 @@ figcaption { color: var(--muted); font-size: 14px; max-width: 72ch; }
     <h1>{{SITE}}: what sets the pace</h1>
     <p>A network of every open leaf that waits on, or is waited on by, another open leaf, then a schedule of all open work across parallel agent lanes. Columns give the earliest slot a leaf can start in, counting one slot per leaf. The red line is the critical path: the chain with no slack.</p>
     {{STATUS}}
-    {{INTERIM}}
+    {{ESTIMATES}}
+    {{NON_TIME}}
   </header>
 
   <div class="{{WORK_CLASS}}">
+  <section>
+    <h2>Two limits on the finish date</h2>
+    <figure class="limits">
+      {{LIMITS_SVG}}
+      <figcaption data-unestimated="{{SITE_UNEST}}">{{LIMITS_CAPTION}}</figcaption>
+    </figure>
+  </section>
+
   <section>
     <h2>Dependency network</h2>
     <div class="controls" role="group" aria-label="Network detail">
       <button type="button" data-control="zoom" data-value="wave" aria-pressed="true">Rolling wave</button>
       <button type="button" data-control="zoom" data-value="all" aria-pressed="false">Every leaf as a box</button>
     </div>
-    <p class="prose">Rolling wave keeps full boxes for the critical path, every leaf whose own priority is P1, work in progress, and anything the schedule below starts within {{HORIZON}} working days on its default {{LANES}} lanes. The rest shrink to circles whose area is their hours.</p>
+    <p class="prose">Rolling wave keeps full boxes for the critical path, every leaf whose own priority is P0 or P1, work in progress, and anything the schedule below starts within {{HORIZON}} working days on its default {{LANES}} lanes. The rest shrink to circles whose area is their hours.</p>
     <div class="legend-row" aria-hidden="true">
       <div class="legend">
         <span><i class="sw crit"></i>critical, slack 0</span>
@@ -242,7 +272,7 @@ figcaption { color: var(--muted); font-size: 14px; max-width: 72ch; }
     <div class="detail" id="detail" aria-live="polite">
       <div><span class="k">Critical path ({{LENGTH}} slots):</span> {{CHAIN}}</div>
       <div><span class="k">Near-critical:</span> {{NEAR}}</div>
-      <div>{{HOURS_NOTE}}</div>
+      <div id="hours-note" data-unestimated="{{HOURS_UNEST}}">{{HOURS_NOTE}}</div>
       <div>{{COUNTS}}</div>
     </div>
   </section>
@@ -253,6 +283,7 @@ figcaption { color: var(--muted); font-size: 14px; max-width: 72ch; }
       <p>All open leaves, linked or not, spread across parallel agent lanes. Each lane is one agent session working {{HOURS_PER_DAY}} agent-hours a day, and each leaf takes the midpoint of its estimate, or the default unit when it has none. When a lane comes free it takes the most urgent leaf that is ready; a leaf takes the priority of anything it unblocks, and WBS order breaks ties. This is one plausible plan, not a forecast.</p>
       <p class="label">{{LABEL}}</p>
       {{STUCK}}
+      {{P0}}
     </div>
     <div class="controls">
       <label for="g-lanes">Agent lanes</label>
@@ -264,8 +295,16 @@ figcaption { color: var(--muted); font-size: 14px; max-width: 72ch; }
       <button type="button" data-control="expand" data-value="all">Expand all epics</button>
       <button type="button" data-control="expand" data-value="none">Collapse all</button>
     </div>
+    <div class="legend" aria-hidden="true">
+      <span><i class="sw m-sonnet"></i><i class="sw m-opus"></i><i class="sw m-fable"></i>bar shade: thinking model</span>
+      <span><i class="sw crit"></i>critical chain</span>
+      <span><svg width="12" height="12" viewBox="0 0 12 12"><circle class="pmark pr-hi" cx="6" cy="6" r="3"/></svg>P1 or P2</span>
+      <span><svg width="12" height="12" viewBox="0 0 12 12"><circle class="pmark pr-p0" cx="6" cy="6" r="3"/></svg>P0</span>
+    </div>
     <p id="g-limit" aria-live="polite"></p>
+    <p class="summary" id="g-sum" data-unestimated="{{SITE_UNEST}}" data-unestimated-chain="{{PATH_UNEST}}">{{SUMMARY}}</p>
     <figure>
+      <p id="g-dates" class="label" data-unestimated="{{SITE_UNEST}}">{{DATES}}</p>
       <div class="plate" id="gantt" data-control="schedule-detail" data-control-items></div>
       <figcaption>Each bar's width is its hours. By epic, leaves that run at the same time stack inside the epic's row; select an epic's name to list its leaves. By lane, gaps in a lane are time it sat idle waiting on a dependency.</figcaption>
     </figure>

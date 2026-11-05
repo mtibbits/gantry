@@ -34,7 +34,7 @@ the demo shows record text rendered as text:
 |---|---|---|---|
 | harbor | `BUSY` | well estimated, with model tiers; the busy site | two epics, each with an `issue:` id; a `depends_on` naming a leaf under the other epic; P1 to P4 each present, and leaves with no priority; at least 8 open, 5 finished (`x`), one in-progress (`~`) and one skipped (`-`) `issue:` leaf; `est: ?w` on open leaves that have estimates rows; the estimates file, with a row for every open `issue:` leaf, one epic row and one finished row |
 | orchard | `OWN_UNIT` | `est:` values and a unit of its own | `Nd`, `Nw`, `?w` and the non-time `Npt`; no priority at all; at least three issue-less leaves; a `depends_on` entry that is an outline number (`2.1`) and names no issue |
-| quarry | `UNESTIMATED` | wholly unestimated | no `est:` and no estimates file; priorities on some leaves only; a `depends_on` naming a leaf under another epic; a `depends_on` naming an issue that exists on no site |
+| quarry | `UNESTIMATED` | wholly unestimated; the P0 demo | no `est:` and no estimates file; priorities on some leaves only; an open P0 leaf and the open leaf it depends on (#10); a `depends_on` naming a leaf under another epic; a `depends_on` naming an issue that exists on no site |
 | lighthouse | `SMALL`, `HOSTILE_SITE` | small | one epic and one top-level leaf with no epic; the hostile title on an open leaf |
 | bakery | `NO_WBS` | no `WBS.md` | a folder holding only a short `README.md` |
 | marsh | `UNREADABLE` | cannot be read | ordinary node lines, one of whose titles holds a Latin-1 byte that is not valid UTF-8 |

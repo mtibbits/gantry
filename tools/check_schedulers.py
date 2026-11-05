@@ -20,6 +20,7 @@ sys.path[:0] = [str(ROOT), str(ROOT / "tests")]
 
 from gantry.cli import shown, site_data  # noqa: E402
 from gantry.config import ConfigError, load_config  # noqa: E402
+from gantry.inputs import apply_inputs  # noqa: E402
 from gantry.schedule import plan  # noqa: E402
 from gantry.sites import load_sites  # noqa: E402
 from gantry.views.worksite import page_model, render_model  # noqa: E402
@@ -60,7 +61,8 @@ def main(argv=None):
             continue
         page = folder / f"{site.name}.html"
         try:
-            m = page_model(site.name, data, default_unit_hours=config.default_unit_hours)
+            inputs = apply_inputs(site, data, config)
+            m = page_model(site.name, inputs.data, default_unit_hours=config.default_unit_hours, inputs=inputs)
             items = m["schedule"]["items"]
             folder.mkdir(parents=True, exist_ok=True)
             page.write_bytes(render_model(m).encode("utf-8"))

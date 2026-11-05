@@ -12,13 +12,13 @@ from gantry.config import error_reason
 from gantry.deps import refs, resolve
 from gantry.model import (
     FINISHED_GLYPHS,
-    REPORT_KINDS,
     STATE_GLYPHS,
     Leaf,
     ReportEntry,
     Row,
     SiteData,
     meta_scalar,
+    report_order,
 )
 from gantry.priority import is_valid
 
@@ -38,7 +38,7 @@ MESSAGES = {
                        "references resolve to line {first}, and this node is named {key!r}",
     "key_collision": "WBS.md line {line}: outline position {outline!r} is the issue: id on "
                      "line {other}; this node is named {key!r}",
-    "bad_priority": "WBS.md line {line}: priority {raw!r} is not P1, P2, P3 or P4; it counts as P3",
+    "bad_priority": "WBS.md line {line}: priority {raw!r} is not P0, P1, P2, P3 or P4; it counts as P3",
 }
 
 
@@ -261,7 +261,7 @@ def parse_wbs(text: str, site: str) -> SiteData:
         report.append(ReportEntry(site, None, "no_nodes", MESSAGES["no_nodes"]))
     links, held_out, resolved = resolve(site, leaves, rows, by_issue)
     report += resolved
-    report.sort(key=lambda e: (e.line is not None, e.line or 0, REPORT_KINDS.index(e.kind)))
+    report.sort(key=report_order)
     return SiteData(tuple(leaves), tuple(rows), links, held_out, tuple(report))
 
 
