@@ -20,6 +20,9 @@ public tools (in prose, in the `samples/devagent/` folder name and in
   estimates file, giving each open harbor leaf an effort bucket, an hour
   range and model tiers. Its `#N` cells name `Issue-N` on harbor; GitHub
   auto-links them to this repo's issues, which is harmless for a fixture.
+- `lighthouse/requirements.md`: lighthouse's requirements file (#15). The
+  sample config's `[site.lighthouse]` table names it, so lighthouse is the
+  one sample site in the trace; the other sites are not.
 
 ## The hostile title
 
@@ -35,7 +38,7 @@ the demo shows record text rendered as text:
 | harbor | `BUSY` | well estimated, with model tiers; the busy site | two epics, each with an `issue:` id; a `depends_on` naming a leaf under the other epic; P1 to P4 each present, and leaves with no priority; at least 8 open, 5 finished (`x`), one in-progress (`~`) and one skipped (`-`) `issue:` leaf; `est: ?w` on open leaves that have estimates rows; the estimates file, with a row for every open `issue:` leaf, one epic row and one finished row |
 | orchard | `OWN_UNIT` | `est:` values and a unit of its own | `Nd`, `Nw`, `?w` and the non-time `Npt`; no priority at all; at least three issue-less leaves; a `depends_on` entry that is an outline number (`2.1`) and names no issue |
 | quarry | `UNESTIMATED` | wholly unestimated; the P0 demo | no `est:` and no estimates file; priorities on some leaves only; an open P0 leaf and the open leaf it depends on (#10); a `depends_on` naming a leaf under another epic; a `depends_on` naming an issue that exists on no site |
-| lighthouse | `SMALL`, `HOSTILE_SITE` | small | one epic and one top-level leaf with no epic; the hostile title on an open leaf |
+| lighthouse | `SMALL`, `HOSTILE_SITE` | small | one epic and one top-level leaf with no epic; the hostile title on an open leaf; a requirements file, which puts it in the trace, with `UC`, `SR`, `FR`, `QA` and `CON` items, a use case with `needs:` and an `FR` that `refines:` an `SR` |
 | bakery | `NO_WBS` | no `WBS.md` | a folder holding only a short `README.md` |
 | marsh | `UNREADABLE` | cannot be read | ordinary node lines, one of whose titles holds a Latin-1 byte that is not valid UTF-8 |
 

@@ -16,7 +16,7 @@ from gantry.sites import load_sites
 from gantry.views import worksite
 from gantry.views.worksite import NO_LEAVES
 from gantry.wbs_stopgap import parse_wbs
-from helpers_config import append_bytes, copy_samples, sample_projects, write_site_tree
+from helpers_config import add_top_level, append_bytes, copy_samples, sample_projects, write_site_tree
 from sample_roles import BUSY, NO_WBS, OWN_UNIT, SMALL, UNESTIMATED, UNREADABLE
 from test_samples import ROOT
 
@@ -282,7 +282,7 @@ def test_portfolio_file_does_not_change_page(tmp_path, capsys):
     assert site_build(capsys, config, BUSY)[0] == 0
     page = copy / "out" / "sites" / f"{BUSY}.html"
     plain = page.read_bytes()
-    append_bytes(config, 'portfolio_file = "portfolio.toml"\n')
+    add_top_level(config, 'portfolio_file = "portfolio.toml"\n')
     assert site_build(capsys, config, BUSY)[0] == 0
     assert page.read_bytes() == plain
 
@@ -318,11 +318,8 @@ def test_reserved_keys_have_no_effect_on_build(tmp_path, capsys):
     config = copy / "gantry.sample.toml"
     assert main(["build", "--config", str(config)]) == 0
     plain = capsys.readouterr().out
-    append_bytes(
-        config,
-        'portfolio_file = "portfolio.toml"\nfires_list = "fires.md"\n'
-        f'[site.{BUSY}]\nrequirements = "req.md"\n',
-    )
+    add_top_level(config, 'portfolio_file = "portfolio.toml"\nfires_list = "fires.md"\n')
+    append_bytes(config, f'[site.{BUSY}]\nrequirements = "req.md"\n')
     assert main(["build", "--config", str(config)]) == 0
     captured = capsys.readouterr()
     assert captured.out == plain

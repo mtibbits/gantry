@@ -3,6 +3,7 @@
 docs/requirements-format.md states the rules these tests pin.
 """
 
+import re
 import time
 from pathlib import Path
 
@@ -21,6 +22,7 @@ from gantry.requirements import (
 )
 from gantry.sites import SiteWarning, load_sites
 from helpers_config import write_site_tree
+from test_samples import GANTRY_SAMPLE
 
 # A fictional mixed-case namespace (operator decision Q3); the format doc's
 # case rule uses the same name.
@@ -459,3 +461,70 @@ def test_in_trace_sites_invalid_name(tmp_path):
             "match [A-Za-z0-9][A-Za-z0-9_.-]*, so it cannot be in the trace",
         )
     ]
+
+
+# --- the samples ---------------------------------------------------------------
+
+
+def _sample_trace():
+    c = cfg.load_config(GANTRY_SAMPLE)
+    sites = load_sites(c)[0]
+    return c, sites, in_trace_sites(c, sites)
+
+
+def test_sample_trace_in_and_out():
+    _, sites, (traced, warnings) = _sample_trace()
+    assert warnings == []
+    assert len(traced) >= 1
+    assert [site.name for site in sites if site.name not in traced] != []
+
+
+def test_sample_requirements_read_clean():
+    c, _, (traced, _) = _sample_trace()
+    assert traced
+    for name, path in traced.items():
+        s = read_requirements(path, name, layers=PROJECT_LAYERS, br_namespace=c.requirements.br_namespace)
+        assert s.report == []
+        reqs = s.requirements.values()
+        assert {"UC", "SR", "FR", "QA", "CON"} <= {r.layer for r in reqs}
+        assert any(r.layer == "UC" and r.needs for r in reqs)
+        assert any(r.layer == "FR" and r.refines is not None and r.refines.code == "SR"
+                   and str(r.refines) in s.requirements for r in reqs)
+
+
+# How each fixture is read: (namespace, layers, br_namespace). Total: a fixture
+# missing here fails the test below.
+DEFAULT_READ = ("alpha", PROJECT_LAYERS, "life")
+FIXTURE_READS = {
+    "layers.md": ("alpha", ALL, "life"),
+    "empty.md": DEFAULT_READ,
+    "candidates.md": DEFAULT_READ,
+    **{f"report/{name}": DEFAULT_READ for name in REPORT_CASES if name != "fr-in-br.md"},
+    "report/fr-in-br.md": ("life", {"BR"}, "life"),
+    "report/other-site.md": DEFAULT_READ,
+}
+# mtibbits/devagent#888's ID_TOKEN_RE, typed here rather than imported.
+DEVAGENT_TOKEN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
+
+
+def test_ids_fit_devagent_888_shape():
+    found = sorted(p.relative_to(FIXTURES).as_posix() for p in FIXTURES.rglob("*.md"))
+    assert [name for name in found if name not in FIXTURE_READS] == []
+    sets = []
+    for name in found:
+        namespace, layers, br = FIXTURE_READS[name]
+        sets.append(read(name, namespace, layers=layers, br=br))
+    c, _, (traced, _) = _sample_trace()
+    for site, path in traced.items():
+        sets.append(read_requirements(path, site, layers=PROJECT_LAYERS,
+                                      br_namespace=c.requirements.br_namespace))
+    ids = []
+    for s in sets:
+        for r in s.requirements.values():
+            ids += [r.id, *r.needs] + ([r.refines] if r.refines is not None else [])
+    for one in ids:
+        text = str(one)
+        assert text.count(":") == 1, text
+        namespace, _, rest = text.partition(":")
+        assert DEVAGENT_TOKEN.fullmatch(namespace) and DEVAGENT_TOKEN.fullmatch(rest), text
+    assert len(ids) > 30

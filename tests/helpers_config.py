@@ -73,3 +73,14 @@ def append_bytes(path, text):
     after = before + text.encode("utf-8")
     assert after != before
     path.write_bytes(after)
+
+
+def add_top_level(path, text):
+    """Insert top-level TOML keys before the first table header (or append
+    when there is none), so they never land inside a table."""
+    before = path.read_bytes().decode("utf-8")
+    lines = before.splitlines(keepends=True)
+    at = next((i for i, line in enumerate(lines) if line.startswith("[")), len(lines))
+    after = "".join(lines[:at]) + text + "".join(lines[at:])
+    assert after != before
+    path.write_bytes(after.encode("utf-8"))
