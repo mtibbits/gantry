@@ -313,7 +313,9 @@ def test_estimates_key_has_no_effect_on_listing(tmp_path, capsys):
     assert capsys.readouterr().out == plain
 
 
-def test_reserved_keys_have_no_effect_on_build(tmp_path, capsys):
+# portfolio_file and fires_list are not read yet; a live requirements key on a
+# site that can be in the trace does not change the listing or warn (#15).
+def test_unread_keys_and_requirements_do_not_change_listing(tmp_path, capsys):
     copy = copy_samples(tmp_path)
     config = copy / "gantry.sample.toml"
     assert main(["build", "--config", str(config)]) == 0

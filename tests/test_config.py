@@ -227,7 +227,9 @@ def test_rooted_output_dir_is_error_on_windows(tmp_path, capsys):
     assert "'output_dir'" in err and str(p) in err
 
 
-def test_reserved_keys_load_and_resolve(tmp_path):
+# portfolio_file and fires_list are not read yet; requirements (#15) and
+# estimates (#10) are live. Every path key resolves alike.
+def test_path_keys_load_and_resolve(tmp_path):
     folder = tmp_path / "cfg"
     p = write_config(
         folder,
@@ -420,3 +422,15 @@ def test_config_doc_estimates_key():
     assert "`false` turns discovery off" in row
     assert "read whatever its name" in row
     assert "no effect on the build" not in row
+
+
+def test_config_doc_requirements_rows():
+    doc = (ROOT / "docs" / "config.md").read_bytes().decode("utf-8")
+    lines = doc.splitlines()
+    row = next(line for line in lines if line.startswith("| `requirements` |"))
+    assert "requirements-format.md" in row and "in the trace" in row
+    row = next(line for line in lines if line.startswith("| `br_namespace` |"))
+    assert "`life`" in row
+    sites = " ".join(doc.split("## Sites", 1)[1].split("\n## ", 1)[0].split())
+    assert "cannot be in the trace" in sites
+    assert "[site.lighthouse]" in doc

@@ -14,6 +14,7 @@ from gantry import requirements as req
 from gantry.requirements import (
     LAYERS,
     PROJECT_LAYERS,
+    REPORT_KINDS,
     ReqId,
     parse_id,
     in_trace_sites,
@@ -22,7 +23,7 @@ from gantry.requirements import (
 )
 from gantry.sites import SiteWarning, load_sites
 from helpers_config import write_site_tree
-from test_samples import GANTRY_SAMPLE
+from test_samples import GANTRY_SAMPLE, ROOT
 
 # A fictional mixed-case namespace (operator decision Q3); the format doc's
 # case rule uses the same name.
@@ -528,3 +529,58 @@ def test_ids_fit_devagent_888_shape():
         namespace, _, rest = text.partition(":")
         assert DEVAGENT_TOKEN.fullmatch(namespace) and DEVAGENT_TOKEN.fullmatch(rest), text
     assert len(ids) > 30
+
+
+# --- docs/requirements-format.md -------------------------------------------------
+
+FORMAT_DOC = ROOT / "docs" / "requirements-format.md"
+DOC_FENCE_RE = re.compile(r"[ \t]*(`{3,}|~{3,})(.*)")
+
+
+def doc_blocks(text):
+    """[(info, body)] for each top-level fenced block, paired by character and
+    run length, so an outer four-backtick fence holds a three-backtick one."""
+    lines = text.split("\n")
+    blocks, i = [], 0
+    while i < len(lines):
+        m = DOC_FENCE_RE.fullmatch(lines[i])
+        if m:
+            run, info = m.groups()
+            for j in range(i + 1, len(lines)):
+                c = DOC_FENCE_RE.fullmatch(lines[j])
+                if c and c[1][0] == run[0] and len(c[1]) >= len(run) and c[2].strip() == "":
+                    blocks.append((info.strip(), "\n".join(lines[i + 1 : j]) + "\n"))
+                    i = j
+                    break
+        i += 1
+    return blocks
+
+
+def test_format_doc_states_rules():
+    text = FORMAT_DOC.read_bytes().decode("utf-8")
+    doc = " ".join(text.split())
+    rows = [line for line in text.splitlines() if line.startswith("|")]
+    assert [code for code in LAYERS if not any(line.startswith(f"| `{code}` |") for line in rows)] == []
+    wanted = list(REPORT_KINDS) + [
+        cfg.ID_TOKEN_RE.pattern, "`life`", "UTF-8", "byte-order mark", "renumbered", "reused",
+        "Step-1:", "Q3:", "v2:", "R1:", "refines:", "needs:", "in the trace", "br_namespace", "fenced",
+        MIXED_NS, MIXED_NS.lower(), "9 digits", "requirements are not nested", "mtibbits/devagent#888",
+        "withdrawn", "reword",
+    ]
+    assert [w for w in wanted if w not in doc] == []
+
+
+def test_format_doc_examples_read_clean():
+    blocks = doc_blocks(FORMAT_DOC.read_bytes().decode("utf-8"))
+    project = [body for info, body in blocks if info == "markdown"]
+    portfolio = [body for info, body in blocks if info == "markdown portfolio"]
+    assert len(project) >= 2 and len(portfolio) >= 1
+    for body in project:
+        s = parse(body, "gantry", layers=PROJECT_LAYERS, br="life")
+        assert s.report == [], body
+    for body in portfolio:
+        s = parse(body, "life", layers={"BR"}, br="life")
+        assert s.report == [], body
+    assert parse(project[0], "gantry").requirements != {}
+    assert parse(project[-1], "gantry").requirements == {}
+    assert all(parse(body, "life", layers={"BR"}).requirements for body in portfolio)

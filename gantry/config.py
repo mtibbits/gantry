@@ -1,9 +1,9 @@
 """The installation config: one TOML file that says where an installation's
 data lives (#7). docs/config.md is its reference.
 
-Every key is a row of KEYS or SITE_KEYS. A later issue adds a key by adding a
-row here, a field that load_config fills, a row in docs/config.md (tests
-enforce both) and a sample entry.
+Every key is a row of KEYS, SITE_KEYS or REQUIREMENTS_KEYS. A later issue
+adds a key by adding a row here, a field that load_config fills, a row in
+docs/config.md (tests enforce both) and a sample entry.
 """
 
 import math
