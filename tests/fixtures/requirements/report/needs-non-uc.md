@@ -1,0 +1,3 @@
+- FR-1: x {needs: [SR-1]}
+- SR-1: y
+- FR-9: still read

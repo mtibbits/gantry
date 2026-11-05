@@ -229,17 +229,24 @@ def _unquote(item):
 
 
 def _block_entries(block):
-    """[(key, value)] from a meta block, a value being a str or a list of str."""
+    """([(key, value)], None) from a meta block, a value being a str or a list
+    of str; or (None, why) when the block cannot be read."""
+    parts = _split(block[1:-1], ",")
+    if parts is None:
+        return None, "an unclosed [ or quote"
     entries = []
-    for entry in _split(block[1:-1], ",") or []:
-        key, _, value = entry.partition(":")
+    for entry in parts:
+        key, colon, value = entry.partition(":")
+        key = key.strip()
+        if not colon or not _KEY_RE.fullmatch(key):
+            return None, "an entry with no key"
         value = value.strip()
         if value.startswith("[") and value.endswith("]"):
             items = [_unquote(item) for item in _split(value[1:-1], ",") or []]
-            entries.append((key.strip(), [item for item in items if item]))
+            entries.append((key, [item for item in items if item]))
         else:
-            entries.append((key.strip(), _unquote(value)))
-    return entries
+            entries.append((key, _unquote(value)))
+    return entries, None
 
 
 class _Reader:
@@ -278,27 +285,129 @@ class _Reader:
         if c is None:
             return
         rid = parse_id(c["code"] + c["dash"] + c["digits"] + c["suffix"], self.namespace)
+        # A misplaced or duplicate item is dropped before its block is read.
+        if rid.code not in self.layers:
+            allowed = ", ".join(code for code in LAYERS if code in self.layers)
+            self.add(line, "misplaced", f"{rid} is a {rid.code} item, a layer this file does not hold ({allowed})")
+            return
+        first = self.requirements.get(str(rid))
+        if first is not None:
+            self.add(line, "duplicate_id",
+                     f"{rid} is also defined on line {first.line}; the first definition is kept")
+            return
+        # The block closes the first line, or else the joined text.
         head = m["rest"][c.end() :].strip()
         block = _ending_block(head)
         if block is not None:
             head = head[: block.start()].rstrip()
         parts = [head] + [text.strip() for _, text in continuation]
         text = " ".join(part for part in parts if part)
+        second = None
         if block is None:
             block = _ending_block(text)
             if block is not None:
                 text = text[: block.start()].rstrip()
-        refines, needs = None, []
-        if block is not None:
-            for key, value in _block_entries(block.group(0)):
-                if key == "refines":
-                    refines = parse_id(value, self.namespace)
-                elif key == "needs":
-                    targets = value if isinstance(value, list) else [value]
-                    needs = [parse_id(target, self.namespace) for target in targets]
+        else:
+            second = _ending_block(text)
+        for other in BLOCK_RE.finditer(text):
+            if second is not None and other.start() == second.start():
+                self.add(line, "malformed_meta",
+                         "a second meta block on one item; it stays in the text and is not read")
+            else:
+                self.add(line, "malformed_meta",
+                         "a meta block inside the text; it stays in the text and is not read")
+        refines, needs = self.links(line, rid, block)
         self.requirements[str(rid)] = Requirement(rid, rid.code, text, refines, needs, self.source, line)
 
+    def links(self, line, rid, block):
+        """(refines, needs) read from an item's meta block."""
+        refines, needs = None, []
+        if block is None:
+            return refines, needs
+        entries, why = _block_entries(block.group(0))
+        if why is not None:
+            self.add(line, "malformed_meta", f"the meta block {block.group(0)!r} cannot be read: {why}")
+            return refines, needs
+        seen = set()
+        for key, value in entries:
+            if key not in ("refines", "needs"):
+                self.add(line, "malformed_meta",
+                         f"unknown key {key!r} in the meta block (a requirement's keys are refines and needs)")
+            elif key in seen:
+                self.add(line, "malformed_meta", f"key {key!r} is repeated in the meta block; the first is kept")
+            elif key == "refines":
+                seen.add(key)
+                if isinstance(value, list):
+                    self.add(line, "malformed_meta", "refines: takes one target, not a list; it is not read")
+                else:
+                    refines = self.target(line, key, value)
+            else:
+                seen.add(key)
+                targets = value if isinstance(value, list) else [value]
+                if rid.code != "UC":
+                    self.add(line, "misplaced", f"needs: on {rid}, which is not a use case; it is not read")
+                elif not targets:
+                    self.add(line, "malformed_meta", "needs: [] names no target")
+                else:
+                    needs = [t for t in (self.target(line, key, v) for v in targets) if t is not None]
+        return refines, needs
+
+    def target(self, line, key, value):
+        """A link target as a ReqId, or None (reported) when it cannot be read."""
+        t = parse_id(value, self.namespace)
+        if t is None:
+            self.add(line, "malformed_link", f"{key}: {value!r} is not a requirement ID")
+            return None
+        if t.namespace == self.br_namespace and self.namespace != self.br_namespace:
+            self.add(line, "misplaced", f"{key}: {t} is in the installation namespace {self.br_namespace!r}, "
+                                        "which only the portfolio file may link to; it is not read")
+            return None
+        return t
+
+    def own(self, t):
+        """`t`'s key when it names a requirement of this file's namespace, else None."""
+        return str(t) if t is not None and t.namespace == self.namespace else None
+
+    def check_links(self):
+        """Report own-namespace targets that are undefined. Another site's
+        targets are returned unresolved, for the cross-file reader."""
+        for r in self.requirements.values():
+            for key, targets in (("refines", [r.refines]), ("needs", r.needs)):
+                for t in targets:
+                    if self.own(t) is not None and str(t) not in self.requirements:
+                        self.add(r.line, "undefined_link", f"{key}: {t} is not defined in this file")
+
+    def check_cycles(self):
+        """Report each refines: cycle once, at its earliest-line member. Each
+        requirement refines at most one other: walk the paths in file order."""
+        reqs = self.requirements
+
+        def follow(key):
+            nxt = self.own(reqs[key].refines)
+            return nxt if nxt in reqs else None
+
+        state = {}  # key -> "path" while on the current walk, then "done"
+        for start in reqs:
+            path, node = [], start
+            while node is not None and node not in state:
+                state[node] = "path"
+                path.append(node)
+                node = follow(node)
+            if node is not None and state[node] == "path":
+                cycle = path[path.index(node) :]
+                first = cycle.index(min(cycle, key=lambda k: reqs[k].line))
+                cycle = cycle[first:] + cycle[:first]
+                head = reqs[cycle[0]]
+                if len(cycle) == 1:
+                    self.add(head.line, "refines_cycle", f"{head.id} refines itself")
+                else:
+                    self.add(head.line, "refines_cycle", "refines cycle: " + " -> ".join(cycle + cycle[:1]))
+            for key in path:
+                state[key] = "done"
+
     def result(self):
+        self.check_links()
+        self.check_cycles()
         self.report.sort(key=lambda e: (e.line is not None, e.line or 0, _KIND_ORDER[e.kind]))
         return RequirementSet(self.namespace, self.requirements, self.report)
 

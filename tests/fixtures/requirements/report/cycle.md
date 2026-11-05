@@ -1,0 +1,3 @@
+- FR-1: a {refines: FR-2}
+- FR-2: b {refines: FR-1}
+- FR-9: still read

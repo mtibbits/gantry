@@ -298,3 +298,115 @@ def test_programmer_errors_raise(namespace, layers, br):
         parse_requirements("- FR-1: x\n", namespace, source="t", layers=layers, br_namespace=br)
     with pytest.raises(ValueError):
         read_requirements(FIXTURES / "empty.md", namespace, layers=layers, br_namespace=br)
+
+
+# --- links and the whole-set report ------------------------------------------------
+
+BR_SECTION = {"namespace": "life", "layers": {"BR"}, "br": "life"}
+
+
+def _fr1(s):
+    return s.requirements["alpha:FR-1"]
+
+
+REPORT_CASES = {
+    # fixture: (kind, line, fragment, check of the set)
+    "duplicate.md": ("duplicate_id", 2, "alpha:FR-1 is also defined on line 1; the first definition is kept",
+                     lambda s: _fr1(s).text == "first"),
+    "undefined.md": ("undefined_link", 1, "refines: alpha:SR-7 is not defined in this file",
+                     lambda s: _fr1(s).refines == rid("SR-7")),
+    "needs-non-uc.md": ("misplaced", 1, "needs: on alpha:FR-1, which is not a use case; it is not read",
+                        lambda s: _fr1(s).needs == []),
+    "unknown-key.md": ("malformed_meta", 1, "unknown key 'owner' in the meta block",
+                       lambda s: _fr1(s).refines == rid("SR-1")),
+    "refines-list.md": ("malformed_meta", 1, "refines: takes one target, not a list",
+                        lambda s: _fr1(s).refines is None),
+    "needs-empty.md": ("malformed_meta", 1, "needs: [] names no target",
+                       lambda s: s.requirements["alpha:UC-1"].needs == []),
+    "repeated-key.md": ("malformed_meta", 1, "key 'refines' is repeated in the meta block; the first is kept",
+                        lambda s: _fr1(s).refines == rid("SR-1")),
+    "second-block.md": ("malformed_meta", 1, "a second meta block on one item",
+                        lambda s: _fr1(s).text == "x more {refines: SR-1}" and _fr1(s).refines == rid("SR-1")),
+    "mid-text.md": ("malformed_meta", 1, "a meta block inside the text",
+                    lambda s: _fr1(s).refines is None and _fr1(s).text == "a {refines: SR-2} b"),
+    "self-refines.md": ("refines_cycle", 1, "alpha:FR-1 refines itself",
+                        lambda s: _fr1(s).refines == rid("FR-1")),
+    "cycle.md": ("refines_cycle", 1, "refines cycle: alpha:FR-1 -> alpha:FR-2 -> alpha:FR-1",
+                 lambda s: _fr1(s).refines == rid("FR-2")),
+    "br-in-project.md": ("misplaced", 1,
+                         "alpha:BR-1 is a BR item, a layer this file does not hold (BRule, UC, SR, FR, QA, EI, CON)",
+                         lambda s: "alpha:BR-1" not in s.requirements),
+    "fr-in-br.md": ("misplaced", 1, "life:FR-1 is a FR item, a layer this file does not hold (BR)",
+                    lambda s: "life:FR-1" not in s.requirements),
+    "installation-link.md": ("misplaced", 1,
+                             "refines: life:BR-1 is in the installation namespace 'life', "
+                             "which only the portfolio file may link to; it is not read",
+                             lambda s: _fr1(s).refines is None),
+    "malformed-link.md": ("malformed_link", 1, "needs: 'fr-2' is not a requirement ID",
+                          lambda s: s.requirements["alpha:UC-1"].needs == [rid("FR-1")]),
+    "unreadable-block.md": ("malformed_meta", 1,
+                            "the meta block '{refines: [SR-1}' cannot be read: an unclosed [ or quote",
+                            lambda s: _fr1(s).refines is None),
+}
+
+
+@pytest.mark.parametrize("name", sorted(REPORT_CASES))
+def test_report_case(name):
+    kind, line, fragment, check = REPORT_CASES[name]
+    if name == "fr-in-br.md":
+        s, control = read("report/" + name, **BR_SECTION), "life:BR-9"
+    else:
+        s, control = read("report/" + name), "alpha:FR-9"
+    (entry,) = s.report
+    assert (entry.kind, entry.line) == (kind, line), entry
+    assert fragment in entry.message, entry
+    assert entry.source == str(FIXTURES / "report" / name)
+    assert control in s.requirements  # the read did not stop
+    assert check(s)
+
+
+def test_other_site_link_unreported():
+    s = read("report/other-site.md")
+    assert s.report == []
+    assert _fr1(s).refines == ReqId("ferry", "SR", 2)
+
+
+def test_installation_link_legal_in_br_section():
+    s = parse("- BR-1: a\n- BR-2: x {refines: BR-1}\n", "life", layers={"BR"}, br="life")
+    assert s.report == []
+    assert s.requirements["life:BR-2"].refines == ReqId("life", "BR", 1)
+
+
+def test_section_line_numbers():
+    s = parse_requirements("- BR-1: a\n- BR-1: b\n", "life", source="portfolio", first_line=40, layers={"BR"},
+                           br_namespace="life")
+    assert s.requirements["life:BR-1"].line == 40
+    assert s.requirements["life:BR-1"].source == "portfolio"
+    (entry,) = s.report
+    assert (entry.kind, entry.line, entry.source) == ("duplicate_id", 41, "portfolio")
+    assert "on line 40;" in entry.message
+
+
+def test_report_order():
+    s = parse("- FR-1: x {refines: SR-7, owner: y}\n- FR12: bad\n- FR-2: y {refines: FR-2}\n")
+    got = [(e.line, e.kind) for e in s.report]
+    assert got == [(1, "malformed_meta"), (1, "undefined_link"), (2, "malformed_item"), (3, "refines_cycle")]
+
+
+def test_meta_entry_with_no_key():
+    (entry,) = parse("- FR-1: x {refines: SR-1, SR-2}\n- SR-1: y\n").report
+    assert entry.message == "the meta block '{refines: SR-1, SR-2}' cannot be read: an entry with no key"
+
+
+def test_misplaced_item_is_dropped_before_its_block():
+    # The wrong-layer item's own block is never read, so no further entry.
+    s = parse("- BR-1: x {owner: y}\n- FR-1: z {refines: BR-1}\n")
+    assert [(e.line, e.kind) for e in s.report] == [(1, "misplaced"), (2, "undefined_link")]
+
+
+def test_cycle_reported_once_at_its_earliest_member():
+    s = parse("- FR-3: c {refines: FR-1}\n- FR-1: a {refines: FR-2}\n- FR-2: b {refines: FR-3}\n"
+              "- FR-4: d {refines: FR-1}\n")
+    (entry,) = s.report
+    assert entry.line == 1
+    assert entry.message == "refines cycle: alpha:FR-3 -> alpha:FR-1 -> alpha:FR-2 -> alpha:FR-3"

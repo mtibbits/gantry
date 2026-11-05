@@ -1,0 +1,4 @@
+- FR-1: x {refines: SR-1, refines: SR-2}
+- SR-1: y
+- SR-2: z
+- FR-9: still read
