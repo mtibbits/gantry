@@ -771,6 +771,20 @@ def test_two_limits_labels():
     assert " The total " + INCLUDES.format(n=m["unestimated"]["site"]) + "." in text_of(t, caption)
 
 
+def test_two_limits_values_stay_in_the_figure(tmp_path):
+    # Every leaf on the chain: the chain bar reaches the axis end, where a value after it would be clipped.
+    inputs = inputs_for(tmp_path / "chain", "- [ ] A {issue: Issue-1, est: 10h, depends_on: [Issue-2]}\n"
+                                            "- [ ] B {issue: Issue-2, est: 200.5h}\n")
+    t = tree(page_with(inputs))
+    values = find(t, "text", ["lim-val"])
+    assert [text_of(t, i) for i in values] == ["210.5–210.5 h", "210.5–210.5 h"]
+    for i in values:
+        attrs = t.elements[i]["attrs"]
+        # 13px monospace: about 7.8 units a character; an end-anchored value ends at its x.
+        right = float(attrs["x"]) + (0 if attrs.get("text-anchor") == "end" else 7.8 * len(text_of(t, i)))
+        assert right <= 760
+
+
 def test_two_limits_empty_site_draws_no_width():
     t = tree(page_for("empty"))
     widths = {t.elements[i]["attrs"]["width"] for i in find(t, "rect", ["bar-crit"]) + find(t, "rect", ["bar-open"])}

@@ -377,6 +377,8 @@ def page_model(site, data, *, default_unit_hours, inputs=None) -> dict:
 ELLIPSIS = "\u2026"
 DASH = "\u2013"
 DOT = " \u00b7 "
+# A .lim-val character's width in viewBox units (13px monospace), to keep a value inside the figure.
+VAL_CHAR_WIDTH = 7.8
 ARROW = " \u2192 "
 # The network's geometry, in SVG units: the label gutter, a column, a box, a
 # row, a lane's padding, the header and the model band.
@@ -627,20 +629,26 @@ def _limits_svg(m):
     tot_lo, tot_hi = tot["hours_lo"], tot["hours_hi"]
     scale = 560 / tot_hi if tot_hi > 0 else 0
     unest = m["unestimated"]
+    dy = 0
     if path:
         out = [_text("lim-label", 0, 30, f"Critical chain ({_count_line(len(path), '{n} leaves', '1 leaf')})"),
                f'<rect class="bar-crit" x="190" y="16" width="{_n(ch_lo * scale)}" height="20"/>',
                f'<rect class="bar-crit span" x="{_n(190 + ch_lo * scale)}" y="16" '
                f'width="{_n((ch_hi - ch_lo) * scale)}" height="20"/>',
-               f'<g data-unestimated="{unest["path"]}">',
-               _text("lim-val", 190 + ch_hi * scale + 8, 31, f"{ch_lo:g}{DASH}{ch_hi:g} h")]
+               f'<g data-unestimated="{unest["path"]}">']
+        value, x = f"{ch_lo:g}{DASH}{ch_hi:g} h", 190 + ch_hi * scale + 8
+        if x + VAL_CHAR_WIDTH * len(value) <= 760:
+            out.append(_text("lim-val", x, 31, value))
+        else:
+            # Past the figure's edge (a chain near the whole total): under the bar's end, as the total row's.
+            out.append(_text("lim-val", 750, 52, value, "end"))
+            dy += 16
     else:
         # No chain: the row says so and draws no bar.
         out = [_text("lim-label", 0, 30, "Critical chain"), '<g data-unestimated="0">',
                _text("lim-val", 190, 31, NO_CHAIN)]
-    dy = 0
     if unest["path"]:
-        out.append(_text("lim-note", 190, 52, _includes(unest["path"])))
+        out.append(_text("lim-note", 190, 52 + dy, _includes(unest["path"])))
         dy += 16
     out.append("</g>")
     n = len(m["schedule"]["items"])
