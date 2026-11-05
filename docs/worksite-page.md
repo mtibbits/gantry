@@ -304,6 +304,38 @@ through the page-script harness. `tools/check_schedulers.py --config FILE
 --out DIR` runs the same comparison on real sites; it refuses a `DIR` inside
 the repository and prints only counts.
 
+### Two limits, the summary and the marks
+
+These figures come back from the prototype (#10).
+
+**Two limits on the finish date** sits above the network. One bar sums the
+low and high hours of the named critical chain, labelled
+`Critical chain ({n} leaves)`; the other sums the scheduled leaves' totals
+(`hours_lo` to `hours_hi`), labelled `All {n} scheduled leaves`. Both share
+one scale, 560 units for the larger total. Each value carries its N: the
+chain's unestimated leaves, and the site's. The caption reads
+`At {hpd} agent-hours a day, the critical chain is {a} to {b} working days and all open work is {c} to {d}. With one operator, the total sets the finish date. The chain decides order: its first leaf has to start early enough that the chain is not the last thing left.`
+and, when the site's N is above 0, adds ` The total includes {n} unestimated leaves.`
+
+**The schedule summary**, beside the limit line, reads
+`With {lanes}, all open work ends around working day {end} and the critical chain around day {crit}. The chain alone needs {chain} days; the work spread evenly across the lanes needs {even}. The lanes are busy {busy}% of the time.`
+"Critical chain" here means the named chain, the same one the network
+draws. When the site's N is above 0 it adds ` The plan ` followed by
+`includes {n} unestimated leaves ({m} on the critical chain)` (or
+`includes 1 unestimated leaf ({m} on the critical chain)`) and a full stop.
+It carries `data-unestimated` (the site's N) and `data-unestimated-chain`
+(the chain's). The server writes it for the default lanes and the script
+rewrites it on every change; both sum in the same order and round half up,
+so the two texts agree.
+
+**The finish marks.** The schedule draws `mk-end` at the day all work ends
+and `mk-crit` at the day the critical chain ends, each carrying the site's
+N and a tooltip that names it.
+
+**Priority marks.** A bar whose leaf's own priority is P1 or P2 carries a
+dot (`pr-hi`); one whose own priority is P0 carries a ringed dot (`pr-p0`).
+The schedule's legend names both, `P0` beside `P1 or P2`.
+
 ### Unestimated leaves and their labels
 
 A leaf with no time `est:` and no estimates-file hours is scheduled at the

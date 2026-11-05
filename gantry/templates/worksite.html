@@ -76,6 +76,18 @@ figcaption { color: var(--muted); font-size: 14px; max-width: 72ch; }
 .ln.crit { border-top: 3px solid var(--crit); }
 .ln.cross { border-top: 2px dashed var(--cross); }
 
+/* two limits (the prototype's, #10) */
+.limits { background: var(--sheet); border: 1px solid var(--rule); border-radius: 4px; padding: 20px; max-width: 820px; }
+.limits svg { width: 100%; height: auto; display: block; }
+.lim-label { font-family: var(--f-body); font-size: 13px; fill: var(--ink); }
+.lim-val { font-family: var(--f-mono); font-size: 13px; fill: var(--ink); font-variant-numeric: tabular-nums; }
+.lim-note { font-family: var(--f-body); font-size: 12px; fill: var(--muted); }
+.bar-crit { fill: var(--crit); }
+.bar-crit.span { opacity: .35; }
+.bar-open { fill: var(--muted); opacity: .55; }
+.bar-open.span { opacity: .22; }
+.lim-axis { stroke: var(--rule); stroke-width: 1; }
+
 /* network plate */
 .plate { background: var(--sheet); border: 1px solid var(--rule); border-radius: 4px; overflow-x: auto; }
 .net { display: block; font-family: var(--f-body); }
@@ -184,6 +196,11 @@ figcaption { color: var(--muted); font-size: 14px; max-width: 72ch; }
 .seg.st-stuck, .seg.st-blocked, .seg.st-parked { stroke: var(--held); stroke-width: 2; stroke-dasharray: 4 2; }
 .seg.hot { stroke: var(--cross); stroke-width: 2; }
 .mk-end { stroke: var(--ink); stroke-width: 1.5; stroke-dasharray: 4 3; }
+.mk-crit { stroke: var(--crit); stroke-width: 1.5; stroke-dasharray: 4 3; }
+.summary { margin: 0; font-size: 15px; max-width: 76ch; }
+/* A leaf's own priority: P1 or P2 a dot, P0 a ringed dot. */
+.pmark.pr-hi { fill: var(--crit); }
+.pmark.pr-p0 { fill: var(--sheet); stroke: var(--crit); stroke-width: 1.6; }
 
 .detail { background: var(--sheet); border: 1px solid var(--rule); border-radius: 4px; padding: 14px 16px; font-size: 14px; min-height: 96px; display: grid; gap: 4px; overflow-wrap: anywhere; }
 .detail .k { color: var(--muted); }
@@ -202,6 +219,14 @@ figcaption { color: var(--muted); font-size: 14px; max-width: 72ch; }
   </header>
 
   <div class="{{WORK_CLASS}}">
+  <section>
+    <h2>Two limits on the finish date</h2>
+    <figure class="limits">
+      {{LIMITS_SVG}}
+      <figcaption data-unestimated="{{SITE_UNEST}}">{{LIMITS_CAPTION}}</figcaption>
+    </figure>
+  </section>
+
   <section>
     <h2>Dependency network</h2>
     <div class="controls" role="group" aria-label="Network detail">
@@ -270,7 +295,14 @@ figcaption { color: var(--muted); font-size: 14px; max-width: 72ch; }
       <button type="button" data-control="expand" data-value="all">Expand all epics</button>
       <button type="button" data-control="expand" data-value="none">Collapse all</button>
     </div>
+    <div class="legend" aria-hidden="true">
+      <span><i class="sw m-sonnet"></i><i class="sw m-opus"></i><i class="sw m-fable"></i>bar shade: thinking model</span>
+      <span><i class="sw crit"></i>critical chain</span>
+      <span><svg width="12" height="12" viewBox="0 0 12 12"><circle class="pmark pr-hi" cx="6" cy="6" r="3"/></svg>P1 or P2</span>
+      <span><svg width="12" height="12" viewBox="0 0 12 12"><circle class="pmark pr-p0" cx="6" cy="6" r="3"/></svg>P0</span>
+    </div>
     <p id="g-limit" aria-live="polite"></p>
+    <p class="summary" id="g-sum" data-unestimated="{{SITE_UNEST}}" data-unestimated-chain="{{PATH_UNEST}}">{{SUMMARY}}</p>
     <figure>
       <p id="g-dates" class="label" data-unestimated="{{SITE_UNEST}}">{{DATES}}</p>
       <div class="plate" id="gantt" data-control="schedule-detail" data-control-items></div>

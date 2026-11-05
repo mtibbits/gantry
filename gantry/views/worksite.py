@@ -34,6 +34,14 @@ ESTIMATES_UNDATED = "Estimates read from {name} (no date)."
 NON_TIME_LINE = "Not in any hour figure: {parts}"
 UNESTIMATED_LINE = "{n} leaves with {what} and no estimates-file hours are unestimated: {keys}"
 UNESTIMATED_LINE_ONE = "1 leaf with {what} and no estimates-file hours is unestimated: {keys}"
+SUMMARY = ("With {lanes}, all open work ends around working day {end} and the critical chain around day {crit}. "
+           "The chain alone needs {chain} days; the work spread evenly across the lanes needs {even}. "
+           "The lanes are busy {busy}% of the time.")
+SUMMARY_UNEST = "includes {n} unestimated leaves ({m} on the critical chain)"
+SUMMARY_UNEST_ONE = "includes 1 unestimated leaf ({m} on the critical chain)"
+LIMITS_CAPTION = ("At {hpd} agent-hours a day, the critical chain is {a} to {b} working days and all open work is "
+                  "{c} to {d}. With one operator, the total sets the finish date. The chain decides order: its "
+                  "first leaf has to start early enough that the chain is not the last thing left.")
 P0_NOTE = ("devagent's wbs order does not know P0 yet (mtibbits/devagent#889), so it ranks these leaves "
            "differently: ")
 NO_LEAVES = "This site has no leaves."
@@ -110,6 +118,41 @@ def _count_line(n, many, one):
 
 def _includes(n):
     return _count_line(n, INCLUDES, INCLUDES_ONE)
+
+
+def _lanes_text(k):
+    return "1 lane" if k == 1 else f"{k} lanes"
+
+
+def _round(x):
+    """Half up, as the page script's Math.round; round() is half to even (U6)."""
+    return math.floor(x + 0.5)
+
+
+def summary_text(items, p, path, lanes, unest_site, unest_path):
+    """The schedule summary for plan `p`: worksite.js's compute(), step for step.
+
+    Plain loops, not sum(): Python's float sum is compensated, the script's is
+    not, and the two must round the same values.
+    """
+    if not items:
+        return ""
+    on_path = set(path)
+    end = busy = chain = crit = 0
+    for item in items:
+        start, finish, _ = p[item["key"]]
+        a, b = start / HOURS_PER_DAY, finish / HOURS_PER_DAY
+        end = max(end, b)
+        busy += b - a
+        if item["key"] in on_path:
+            chain += b - a
+            crit = max(crit, b)
+    text = SUMMARY.format(lanes=_lanes_text(lanes), end=_round(end), crit=_round(crit), chain=_round(chain),
+                          even=_round(busy / lanes), busy=_round(busy / (lanes * end) * 100))
+    if unest_site:
+        form = SUMMARY_UNEST_ONE if unest_site == 1 else SUMMARY_UNEST
+        text += " The plan " + form.format(n=unest_site, m=unest_path) + "."
+    return text
 
 
 def _panel(data):
@@ -201,7 +244,8 @@ def page_model(site, data, *, default_unit_hours, inputs=None) -> dict:
         preds[b].append(a)
     items = [{"key": k, "hours": hours[k][0], "preds": preds[k], "eff_priority": eff[k],
               "wbs_index": wbs_index[k]} for k in keys]
-    starts = {k: v[0] for k, v in schedule.plan(items, LANES_DEFAULT).items()}
+    planned = schedule.plan(items, LANES_DEFAULT)
+    starts = {k: v[0] for k, v in planned.items()}
 
     row_at = {row.outline: row for row in data.rows}
     leaves = []
@@ -291,6 +335,8 @@ def page_model(site, data, *, default_unit_hours, inputs=None) -> dict:
             "heaviest": {"keys": list(chain), "hours": chain_total, "same": bool(path) and chain_total == sum(hours[k][0] for k in path)},
         },
         "panel": _panel(data),
+        "summary": summary_text(items, planned, path, LANES_DEFAULT, totals.unestimated_count,
+                                sum(k in unest for k in path)),
         "unestimated": {"site": totals.unestimated_count, "heaviest": sum(k in unest for k in chain),
                         "path": sum(k in unest for k in path)},
         "totals": {"hours": totals.hours, "hours_lo": totals.hours_lo, "hours_hi": totals.hours_hi,
@@ -307,7 +353,8 @@ def page_model(site, data, *, default_unit_hours, inputs=None) -> dict:
             "p0": [k for k in keys if eff[k] == 0] or None,
         },
         "texts": {"label": SCHEDULE_LABEL, "chain": CHAIN_LINE, "capacity": CAPACITY_LINE,
-                  "includes": INCLUDES, "includes_one": INCLUDES_ONE, "dates": DATES, "dates_one": DATES_ONE},
+                  "includes": INCLUDES, "includes_one": INCLUDES_ONE, "dates": DATES, "dates_one": DATES_ONE,
+                  "summary": SUMMARY, "summary_unest": SUMMARY_UNEST, "summary_unest_one": SUMMARY_UNEST_ONE},
     }
 
 
@@ -552,6 +599,54 @@ def _network_svg(m):
     return Markup("\n".join(out))
 
 
+def _limits_svg(m):
+    """(svg, caption) of the Two-limits figure, the prototype's geometry (#10).
+
+    The chain row sums the named critical chain, the total row the scheduled
+    leaves; each row's value carries its N and, above 0, a note below its bar.
+    """
+    leaves = {leaf["key"]: leaf for leaf in m["leaves"]}
+    path = m["network"]["path"]
+    ch_lo = sum(leaves[k]["lo"] for k in path)
+    ch_hi = sum(leaves[k]["hi"] for k in path)
+    tot = m["totals"]
+    tot_lo, tot_hi = tot["hours_lo"], tot["hours_hi"]
+    scale = 560 / tot_hi if tot_hi > 0 else 0
+    unest = m["unestimated"]
+    out = [_text("lim-label", 0, 30, f"Critical chain ({_count_line(len(path), '{n} leaves', '1 leaf')})"),
+           f'<rect class="bar-crit" x="190" y="16" width="{_n(ch_lo * scale)}" height="20"/>',
+           f'<rect class="bar-crit span" x="{_n(190 + ch_lo * scale)}" y="16" width="{_n((ch_hi - ch_lo) * scale)}" '
+           'height="20"/>',
+           f'<g data-unestimated="{unest["path"]}">',
+           _text("lim-val", 190 + ch_hi * scale + 8, 31, f"{ch_lo:g}{DASH}{ch_hi:g} h")]
+    dy = 0
+    if unest["path"]:
+        out.append(_text("lim-note", 190, 52, _includes(unest["path"])))
+        dy += 16
+    out.append("</g>")
+    n = len(m["schedule"]["items"])
+    out += [_text("lim-label", 0, 78 + dy, _count_line(n, "All {n} scheduled leaves", "The 1 scheduled leaf")),
+            f'<rect class="bar-open" x="190" y="{64 + dy}" width="{_n(tot_lo * scale)}" height="20"/>',
+            f'<rect class="bar-open span" x="{_n(190 + tot_lo * scale)}" y="{64 + dy}" '
+            f'width="{_n((tot_hi - tot_lo) * scale)}" height="20"/>',
+            f'<g data-unestimated="{unest["site"]}">',
+            _text("lim-val", 750, 102 + dy, f"{tot_lo:g}{DASH}{tot_hi:g} h", "end")]
+    if unest["site"]:
+        out.append(_text("lim-note", 750, 118 + dy, _includes(unest["site"]), "end"))
+        dy += 16
+    out += ["</g>",
+            f'<line class="lim-axis" x1="190" y1="{110 + dy}" x2="750" y2="{110 + dy}"/>',
+            _text("lim-note", 190, 128 + dy, "agent-hours; solid to the low estimate, pale to the high one")]
+    label = (f"The critical chain is {ch_lo:g} to {ch_hi:g} agent-hours; all open work is {tot_lo:g} to "
+             f"{tot_hi:g} agent-hours.")
+    svg = (f'<svg viewBox="0 0 760 {136 + dy}" role="img" aria-label="{esc(label)}">' + "".join(out) + "</svg>")
+    caption = LIMITS_CAPTION.format(hpd=HOURS_PER_DAY, a=_round(ch_lo / HOURS_PER_DAY), b=_round(ch_hi / HOURS_PER_DAY),
+                                    c=_round(tot_lo / HOURS_PER_DAY), d=_round(tot_hi / HOURS_PER_DAY))
+    if unest["site"]:
+        caption += f" The total {_includes(unest['site'])}."
+    return Markup(svg), caption
+
+
 def _note(text):
     return Markup(f'<p class="note">{esc(text)}</p>') if text else Markup("")
 
@@ -587,6 +682,7 @@ def render_model(m) -> str:
     options = "".join(f'<option value="{i}"{" selected" if i == LANES_DEFAULT else ""}>{i}</option>'
                       for i in range(1, LANES_MAX + 1))
     panel = m["panel"] or [NOTHING_MISSING]
+    limits_svg, limits_caption = _limits_svg(m)
     return fill(
         _asset("templates/worksite.html"),
         SITE=site,
@@ -604,6 +700,10 @@ def render_model(m) -> str:
         HOURS_NOTE=hours_note,
         HOURS_UNEST=unest["heaviest"],
         SITE_UNEST=unest["site"],
+        PATH_UNEST=unest["path"],
+        SUMMARY=m["summary"],
+        LIMITS_SVG=limits_svg,
+        LIMITS_CAPTION=limits_caption,
         DATES=_count_line(unest["site"], DATES, DATES_ONE) if unest["site"] else "",
         COUNTS=(f"{linked} of the {len(items)} open leaves have an open link and appear in the network; the other "
                 f"{len(items) - linked} appear only in the schedule. WBS.md gives {net['links']} links between "

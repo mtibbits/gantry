@@ -223,6 +223,9 @@ STRUCTURAL = {
     "lit", "ln", "mk-end", "mode-wave", "mono", "mt-h", "mt-m", "mt-row", "mt-rule", "mt-sw",
     "mt-v", "net", "nid", "nmeta", "node", "note", "ntitle", "outline", "panel", "plate", "prose",
     "seg", "sw", "tracing", "work", "wrap", "zero",
+    # The re-ported prototype figures (#10).
+    "limits", "lim-label", "lim-val", "lim-note", "lim-axis", "bar-crit", "bar-open", "span", "summary",
+    "mk-crit", "pmark",
 }
 VOID = {"meta", "br", "img", "input", "link", "hr"}
 
@@ -680,6 +683,133 @@ def test_no_p0_no_note():
     assert "does not know P0" not in visible_text(page_for())
 
 
+# --- the re-ported prototype figures (#10) ----------------------------------------------
+
+
+def limits(t):
+    """(chain group, total group, figcaption) of the Two-limits figure."""
+    (fig,) = find(t, "figure", ["limits"])
+    groups = [i for i in find(t, "g", within=fig) if "data-unestimated" in t.elements[i]["attrs"]]
+    (caption,) = find(t, "figcaption", within=fig)
+    return groups[0], groups[1], caption
+
+
+def test_two_limits_figure():
+    data = fixture("page")
+    path = model(data=data, unit=6)["network"]["path"]
+    data = with_leaf(data, path[0], estimate=Estimate(2, 10, "estimates_file", "absent", None))
+    m = model(data=data, unit=6)
+    t = tree(page_for(data=data))
+    chain, total, caption = limits(t)
+    ch_lo, ch_hi = 2 + 6 * (len(path) - 1), 10 + 6 * (len(path) - 1)
+    tot = m["totals"]
+    assert (tot["hours_lo"], tot["hours_hi"]) == (2 + 6 * (len(m["leaves"]) - 1), 10 + 6 * (len(m["leaves"]) - 1))
+    assert f"{ch_lo:g}–{ch_hi:g} h" in text_of(t, chain)
+    assert f"{tot['hours_lo']:g}–{tot['hours_hi']:g} h" in text_of(t, total)
+    labels = [text_of(t, i) for i in find(t, "text", ["lim-label"])]
+    assert labels == [f"Critical chain ({len(path)} leaves)", f"All {len(m['leaves'])} scheduled leaves"]
+    scale = 560 / tot["hours_hi"]
+    widths = [float(t.elements[i]["attrs"]["width"]) for i in find(t, "rect", ["bar-crit"])]
+    assert widths == pytest.approx([ch_lo * scale, (ch_hi - ch_lo) * scale], abs=0.06)
+    widths = [float(t.elements[i]["attrs"]["width"]) for i in find(t, "rect", ["bar-open"])]
+    assert widths == pytest.approx([tot["hours_lo"] * scale, (tot["hours_hi"] - tot["hours_lo"]) * scale], abs=0.06)
+    assert int(t.elements[caption]["attrs"]["data-unestimated"]) == m["unestimated"]["site"]
+
+
+def test_two_limits_labels():
+    inputs = sample_inputs(UNESTIMATED)
+    m = model_with(inputs, UNESTIMATED)
+    t = tree(page_with(inputs, UNESTIMATED))
+    assert_labels_follow_n(t)
+    chain, total, caption = limits(t)
+    found = labelled(t)
+    assert (found[chain], found[total], found[caption]) == (
+        m["unestimated"]["path"], m["unestimated"]["site"], m["unestimated"]["site"])
+    assert m["unestimated"]["site"] > 0
+    assert " The total " + INCLUDES.format(n=m["unestimated"]["site"]) + "." in text_of(t, caption)
+
+
+def test_two_limits_empty_site_draws_no_width():
+    t = tree(page_for("empty"))
+    widths = {t.elements[i]["attrs"]["width"] for i in find(t, "rect", ["bar-crit"]) + find(t, "rect", ["bar-open"])}
+    assert widths == {"0"}
+
+
+def test_summary_static_labels():
+    inputs = sample_inputs(UNESTIMATED)
+    m = model_with(inputs, UNESTIMATED)
+    t = tree(page_with(inputs, UNESTIMATED))
+    i = by_id(t, "g-sum")
+    attrs = t.elements[i]["attrs"]
+    assert (int(attrs["data-unestimated"]), int(attrs["data-unestimated-chain"])) == (
+        m["unestimated"]["site"], m["unestimated"]["path"])
+    n, chain = m["unestimated"]["site"], m["unestimated"]["path"]
+    unest = worksite.SUMMARY_UNEST_ONE if n == 1 else worksite.SUMMARY_UNEST
+    assert text_of(t, i).endswith(" The plan " + unest.format(n=n, m=chain) + ".")
+
+
+def test_summary_rounds_half_up():
+    # One 15 h leaf ends on day 2.5: Python's round() would say 2, the script says 3 (U6).
+    data = parse_wbs("- [ ] Long {issue: Issue-1}\n", "alpha")
+    data = with_leaf(data, "Issue-1", estimate=Estimate(15, 15, "est", "time", None))
+    t = tree(page_for(data=data))
+    assert text_of(t, by_id(t, "g-sum")).startswith("With 4 lanes, all open work ends around working day 3 ")
+
+
+def summary_cases(tmp_path):
+    data = parse_wbs("- [ ] Long {issue: Issue-1}\n", "alpha")
+    half = with_leaf(data, "Issue-1", estimate=Estimate(15, 15, "est", "time", None))
+    return {"half": page_for(data=half), "page": page_for(), "est": page_with(est_inputs(tmp_path)),
+            "quarry": page_with(sample_inputs(UNESTIMATED), UNESTIMATED)}
+
+
+def test_summary_static_matches_script(node, tmp_path):
+    for name, html in summary_cases(tmp_path).items():
+        t = tree(html)
+        static = text_of(t, by_id(t, "g-sum"))
+        assert static, name
+        with open_page(write(tmp_path, html, f"{name}.html")) as page:
+            (summary,) = page.query("#g-sum")
+            assert summary.text == static, name
+
+
+def test_summary_and_marks_after_redraw(node, tmp_path):
+    inputs = est_inputs(tmp_path)
+    m = model_with(inputs)
+    site, chain = str(m["unestimated"]["site"]), str(m["unestimated"]["path"])
+    with open_page(write(tmp_path, page_with(inputs))) as page:
+        for control, value in (("lanes", "2"), ("group", "lane"), ("group", "epic")):
+            page.drive(control, value)
+            (summary,) = page.query("#g-sum")
+            assert (summary.attrs["data-unestimated"], summary.attrs["data-unestimated-chain"]) == (site, chain)
+            assert summary.text.startswith("With 2 lanes, ")
+            for cls in ("mk-crit", "mk-end"):
+                (mark,) = page.query("line." + cls)
+                assert mark.attrs["data-unestimated"] == site
+                assert INCLUDES.format(n=int(site)) in mark.text
+            (svg,) = page.query("svg.gantt")
+            assert "The critical chain finishes around working day " in svg.attrs["aria-label"]
+
+
+def test_priority_markers_in_both_groupings(node, tmp_path):
+    with open_page(write(tmp_path, page_with(est_inputs(tmp_path)))) as page:
+        for group in ("lane", "epic"):
+            page.drive("group", group)
+            if group == "epic":
+                page.drive("expand", "all")
+            assert keys_of(page.query("#gantt circle.pr-p0")) == {"Issue-20"}
+            assert keys_of(page.query("#gantt circle.pr-hi")) == {"Issue-22", "Issue-23"}
+            assert all("pmark" in c.classes for c in page.query("#gantt circle.pr-p0") + page.query("#gantt circle.pr-hi"))
+
+
+def test_schedule_legend_names_p0_beside_p1_p2():
+    t = tree(page_for())
+    (legend,) = [i for i in find(t, "div", ["legend"]) if "P1 or P2" in text_of(t, i)]
+    spans = [text_of(t, i).strip() for i in find(t, "span", within=legend)]
+    assert spans[-2:] == ["P1 or P2", "P0"]
+    assert spans[:2] == ["bar shade: thinking model", "critical chain"]
+
+
 # --- the page under the harness ----------------------------------------------------
 
 
@@ -871,7 +1001,8 @@ PAGE_TEXTS = [getattr(worksite, name) for name in (
     "SCHEDULE_LABEL", "STUCK_LINE", "STUCK_LINE_ONE", "NO_TIERS", "NO_LEAVES", "NO_OPEN", "ALL_HELD",
     "NOTHING_MISSING", "NO_ISSUE_LINE", "NO_ISSUE_LINE_ONE", "WAITS_LINE", "FOREIGN", "CHAIN_LINE",
     "CAPACITY_LINE", "INCLUDES", "INCLUDES_ONE", "DATES", "DATES_ONE", "ESTIMATES_LINE", "ESTIMATES_UNDATED",
-    "NON_TIME_LINE", "UNESTIMATED_LINE", "UNESTIMATED_LINE_ONE", "P0_NOTE")] + list(worksite.STATE_MARKS.values())
+    "NON_TIME_LINE", "UNESTIMATED_LINE", "UNESTIMATED_LINE_ONE", "P0_NOTE", "SUMMARY", "SUMMARY_UNEST",
+    "SUMMARY_UNEST_ONE", "LIMITS_CAPTION")] + list(worksite.STATE_MARKS.values())
 
 
 def test_doc_states_page_texts():
