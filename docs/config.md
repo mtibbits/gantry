@@ -35,7 +35,7 @@ Keys of a `[site.<name>]` table:
 | Key | Type | Required | Default | Meaning | Owner |
 |---|---|---|---|---|---|
 | `requirements` | path | no | none | the site's requirements file | #15 |
-| `estimates` | path, or `false` | no | discovery | the site's estimates file; `false` turns discovery off | #10 |
+| `estimates` | path, or `false` | no | discovery | the site's estimates file, read whatever its name and never replaced by discovery; `false` turns discovery off; absent, the planning directory's latest `estimates-YYYY-MM-DD*.md` is read ([the rules](worksite-page.md#the-estimates-file)) | #10 |
 
 A path is a TOML string. The **Owner** column names the issue that reads the
 key. Every key is type-checked, accepted and resolved now; a key whose owner

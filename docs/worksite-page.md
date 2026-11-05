@@ -193,6 +193,94 @@ in this table's order.
 | `no_priority` | open leaves have no `priority:` (one entry for the file) | counts them as P3 |
 | `no_model_tiers` | no open leaf has a model tier | shows "no per-leaf model tiers recorded" |
 
+## The optional inputs
+
+`gantry/inputs.py` (`apply_inputs`) gives every open leaf an estimate,
+model tiers and flags from what its site records, and computes the site's
+totals (#10). Missing data is the normal case: no missing or bad input stops
+a build, and each is a report entry.
+
+### Which estimate a leaf uses
+
+1. A *time* `est:` on the leaf (`source` `est`).
+2. Else the leaf's row in the estimates file, if its `hours` cell reads
+   (`estimates_file`).
+3. Else the default unit, `default_unit_hours` (`default`): the leaf is
+   **unestimated** and listed in the panel.
+
+A placeholder, non-time or unparseable `est:` does not stop the row from
+applying. Model tiers, the effort bucket and flags come from the leaf's row
+whenever it has one. Each leaf's details name the source of its hours.
+
+### The `est:` classes
+
+A stopgap for mtibbits/devagent#737; #13 deletes these rules. The value is
+read as devagent reads metadata (quotes stripped; a list is unparseable),
+and the classes are tried in this order, each a full match:
+
+| Class | Pattern | Meaning |
+|---|---|---|
+| absent | no `est:` | |
+| time | `[0-9]{1,9}(\.[0-9]{1,9})?[hdw]` | `h` hours, `d` 6 agent-hours, `w` 5 days; the number must be above 0 |
+| placeholder | `\?[A-Za-z]*` | `?` or `?w` |
+| non-time | `[0-9]{1,9}(\.[0-9]{1,9})?[A-Za-z]+` | a quantity in a unit of the site's own, such as `48pr`; the unit is not `h`, `d` or `w` in any case, and the number is above 0 |
+| unparseable | anything else | `?3d`, `2-3d`, `0h`, `3H` (units are case-sensitive), `3 h`, free text; listed as `est_unparseable` |
+
+An `est:` on a row with children is never read. A non-time quantity enters
+no hour figure: the page sums it per unit in its header.
+
+### The estimates file
+
+A site's `[site.<name>] estimates` key (docs/config.md) names its file, read
+whatever its name and never replaced by discovery, or, set to `false`,
+turns discovery off. Otherwise Gantry lists the top level of the planning
+directory (never below it) for regular files whose names match
+`estimates-YYYY-MM-DD*.md`, case-sensitively. The latest date is read; among
+files of that date, the name that sorts last. Every other match, and every
+`estimates-*.md` whose name holds no valid date, is listed as
+`estimates_ignored`. With none, the panel says `no estimates file`.
+
+A configured path that does not exist, a file that cannot be opened, and one
+that is not valid UTF-8 are each `estimates_unreadable`, naming the config
+key or the file's name, never a path; the site then continues as if it had
+no file.
+
+The file is read as bytes, decoded as strict UTF-8 (one leading byte-order
+mark dropped) and split on line feeds only. A line starting with `|` is a
+table line: its outer pipes are dropped, it is split on `|` (a `\|` is not
+an escape) and each cell is trimmed. A table whose first header cell is `#`
+is read until the first line that does not start with `|`; only its `#`,
+`effort`, `hours`, `thinking`, `checking` and `flags` columns are read, so
+`P`, `tier` (a checklist tier, not a model tier) and the rest are not. A row
+whose first cell is `#N` joins the leaf whose key is `Issue-N`:
+
+- a row naming a row with children or a finished leaf is ignored;
+- a row naming no `WBS.md` line is `estimates_row_unmatched`;
+- a second row for the same `#N` is `estimates_row_duplicate`, and the
+  first is used;
+- a read column missing from a table is `estimates_column_missing`, once
+  per file and column;
+- an `hours` cell that is empty or not a number or a `lo-hi` range above 0
+  is `estimates_cell_bad`; that row gives no hours.
+
+`effort` and `flags` are kept as written.
+
+### The totals
+
+The totals cover the leaves the schedule plans: open, and not held out by a
+cycle. They are the contract #11 and the portfolio pages read:
+
+- `hours`: the sum of each leaf's midpoint, the value the schedule uses;
+  unestimated leaves count at the default unit;
+- `hours_lo` and `hours_hi`: the sums of the low and high ends;
+- `unestimated_count`: the leaves on the default unit;
+- `non_time`: per unit, `{"quantity": sum, "leaves": count}`, in no hour
+  figure.
+
+The panel also counts the open leaves with no priority (`no_priority`, held
+out leaves included: it reports input quality, not the schedule) and says
+when no leaf records a model tier (`no_model_tiers`).
+
 ## The page
 
 `gantry/views/worksite.py` turns a parsed site into the page's data
@@ -268,10 +356,12 @@ one, in `WBS.md` order. A site with no such leaf shows no note.
 
 ### The model band and table
 
-Where a site records a leaf's model tiers (#10 reads them), the bottom band
+Where a site records a leaf's model tiers (its estimates file's `thinking`
+and `checking` columns, #10), the bottom band
 of its box names its thinking tier (left) and checking tier (right), each
 shaded by a class from a fixed set (`m-haiku`, `m-sonnet`, `m-opus`,
-`m-fable`, and `m-other` for any other value). Each lane's label carries a
+`m-fable`, and `m-other`, a lavender tint, for any other value, such as
+`inherit`, which is shown as text). Each lane's label carries a
 table of how many of its open leaves use each tier, linked or not. When no
 leaf records a tier, there is no band and no table, and one line says
 `no per-leaf model tiers recorded`.
