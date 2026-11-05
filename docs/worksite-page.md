@@ -252,10 +252,19 @@ waits on and unblocks) and to trace everything upstream and downstream.
 ### Rolling wave
 
 A leaf keeps its full box when its slack is 0, its own priority as written
-is P1 (not its effective priority), it is in progress (`~`), or the schedule
+is P0 or P1 (not its effective priority), it is in progress (`~`), or the schedule
 starts it within 10 working days (60 agent-hours at 6 a day) at the default
 4 lanes. Every other leaf is a circle whose area is its hours. "Every leaf
 as a box" shows them all as boxes; "Rolling wave" returns.
+
+### P0 and devagent's `wbs order`
+
+devagent's `wbs order` counts `P0` as P3 until mtibbits/devagent#889 lands,
+so a site with an open P0 leaf ranks some leaves differently from Gantry.
+The schedule section then carries one note,
+`devagent's wbs order does not know P0 yet (mtibbits/devagent#889), so it ranks these leaves differently: `,
+followed by each P0 leaf and each leaf whose effective priority comes from
+one, in `WBS.md` order. A site with no such leaf shows no note.
 
 ### The model band and table
 

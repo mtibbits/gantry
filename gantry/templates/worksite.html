@@ -208,7 +208,7 @@ figcaption { color: var(--muted); font-size: 14px; max-width: 72ch; }
       <button type="button" data-control="zoom" data-value="wave" aria-pressed="true">Rolling wave</button>
       <button type="button" data-control="zoom" data-value="all" aria-pressed="false">Every leaf as a box</button>
     </div>
-    <p class="prose">Rolling wave keeps full boxes for the critical path, every leaf whose own priority is P1, work in progress, and anything the schedule below starts within {{HORIZON}} working days on its default {{LANES}} lanes. The rest shrink to circles whose area is their hours.</p>
+    <p class="prose">Rolling wave keeps full boxes for the critical path, every leaf whose own priority is P0 or P1, work in progress, and anything the schedule below starts within {{HORIZON}} working days on its default {{LANES}} lanes. The rest shrink to circles whose area is their hours.</p>
     <div class="legend-row" aria-hidden="true">
       <div class="legend">
         <span><i class="sw crit"></i>critical, slack 0</span>
@@ -258,6 +258,7 @@ figcaption { color: var(--muted); font-size: 14px; max-width: 72ch; }
       <p>All open leaves, linked or not, spread across parallel agent lanes. Each lane is one agent session working {{HOURS_PER_DAY}} agent-hours a day, and each leaf takes the midpoint of its estimate, or the default unit when it has none. When a lane comes free it takes the most urgent leaf that is ready; a leaf takes the priority of anything it unblocks, and WBS order breaks ties. This is one plausible plan, not a forecast.</p>
       <p class="label">{{LABEL}}</p>
       {{STUCK}}
+      {{P0}}
     </div>
     <div class="controls">
       <label for="g-lanes">Agent lanes</label>

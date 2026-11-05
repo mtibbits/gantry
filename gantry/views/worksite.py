@@ -34,6 +34,8 @@ ESTIMATES_UNDATED = "Estimates read from {name} (no date)."
 NON_TIME_LINE = "Not in any hour figure: {parts}"
 UNESTIMATED_LINE = "{n} leaves with {what} and no estimates-file hours are unestimated: {keys}"
 UNESTIMATED_LINE_ONE = "1 leaf with {what} and no estimates-file hours is unestimated: {keys}"
+P0_NOTE = ("devagent's wbs order does not know P0 yet (mtibbits/devagent#889), so it ranks these leaves "
+           "differently: ")
 NO_LEAVES = "This site has no leaves."
 NO_OPEN = "This site has no open leaves."
 ALL_HELD = "Every open leaf waits on a dependency cycle, so nothing can be scheduled; the panel lists them."
@@ -207,7 +209,7 @@ def page_model(site, data, *, default_unit_hours, inputs=None) -> dict:
         k = leaf.key
         linked = k in net.slack
         tiers = _tiers(leaf)
-        wave_full = linked and (net.slack[k] == 0 or meta_scalar(leaf.priority) == "P1"
+        wave_full = linked and (net.slack[k] == 0 or meta_scalar(leaf.priority) in ("P0", "P1")
                                 or leaf.state == "in_progress"
                                 or starts[k] < HORIZON_DAYS * HOURS_PER_DAY)
         leaves.append({
@@ -301,6 +303,8 @@ def page_model(site, data, *, default_unit_hours, inputs=None) -> dict:
             "non_time": NON_TIME_LINE.format(parts="; ".join(parts)) if parts else None,
             "no_tiers": None if any(leaf["models"] for leaf in leaves) else NO_TIERS,
             "stuck": _count_line(held, STUCK_LINE, STUCK_LINE_ONE) if held else None,
+            # Each P0 leaf and each leaf whose effective priority comes from one, in WBS order.
+            "p0": [k for k in keys if eff[k] == 0] or None,
         },
         "texts": {"label": SCHEDULE_LABEL, "chain": CHAIN_LINE, "capacity": CAPACITY_LINE,
                   "includes": INCLUDES, "includes_one": INCLUDES_ONE, "dates": DATES, "dates_one": DATES_ONE},
@@ -607,6 +611,7 @@ def render_model(m) -> str:
         HOURS_PER_DAY=HOURS_PER_DAY,
         LABEL=SCHEDULE_LABEL,
         STUCK=_note(m["notes"]["stuck"]),
+        P0=Markup(f'<p class="note">{esc(P0_NOTE)}{_mono(m["notes"]["p0"])}</p>') if m["notes"]["p0"] else "",
         LANE_OPTIONS=Markup(options),
         PANEL=Markup("".join(f"<li>{esc(line)}</li>" for line in panel)),
         DATA=embed_json(m),

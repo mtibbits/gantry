@@ -655,6 +655,31 @@ def test_interim_note_gone():
         assert "no estimates are read yet" not in page
 
 
+# --- P0 on the page (#10) -------------------------------------------------------------
+
+
+def test_p0_keeps_full_box():
+    # Issue-13 is the page fixture's only circle at unit 24 (test_rolling_wave_set).
+    m = model(data=with_leaf(fixture("page"), "Issue-13", priority="P0"))
+    assert by_key(m)["Issue-13"]["wave_full"] is True
+    assert by_key(model())["Issue-13"]["wave_full"] is False
+
+
+def test_wave_caption_names_p0():
+    assert "every leaf whose own priority is P0 or P1" in visible_text(page_for())
+
+
+def test_p0_note_lists_leaf_and_inheritor(tmp_path):
+    inputs = est_inputs(tmp_path)
+    assert model_with(inputs)["notes"]["p0"] == ["Issue-20", "Issue-21"]
+    assert worksite.P0_NOTE + "Issue-20, Issue-21" in visible_text(page_with(inputs))
+
+
+def test_no_p0_no_note():
+    assert model()["notes"]["p0"] is None
+    assert "does not know P0" not in visible_text(page_for())
+
+
 # --- the page under the harness ----------------------------------------------------
 
 
@@ -781,7 +806,7 @@ PAGE_TEXTS = [getattr(worksite, name) for name in (
     "SCHEDULE_LABEL", "STUCK_LINE", "STUCK_LINE_ONE", "NO_TIERS", "NO_LEAVES", "NO_OPEN", "ALL_HELD",
     "NOTHING_MISSING", "NO_ISSUE_LINE", "NO_ISSUE_LINE_ONE", "WAITS_LINE", "FOREIGN", "CHAIN_LINE",
     "CAPACITY_LINE", "INCLUDES", "INCLUDES_ONE", "DATES", "DATES_ONE", "ESTIMATES_LINE", "ESTIMATES_UNDATED",
-    "NON_TIME_LINE", "UNESTIMATED_LINE", "UNESTIMATED_LINE_ONE")] + list(worksite.STATE_MARKS.values())
+    "NON_TIME_LINE", "UNESTIMATED_LINE", "UNESTIMATED_LINE_ONE", "P0_NOTE")] + list(worksite.STATE_MARKS.values())
 
 
 def test_doc_states_page_texts():
