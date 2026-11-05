@@ -23,6 +23,13 @@ REPORT_KINDS = (
     "estimates_row_duplicate", "est_unparseable", "unestimated", "no_priority",
     "no_model_tiers",
 )
+
+
+def report_order(entry):
+    """A report's order: whole-file entries first, then by line, then by kind."""
+    return entry.line is not None, entry.line or 0, REPORT_KINDS.index(entry.kind)
+
+
 # Agent hours in a working day and working days in a week (#10): est: units,
 # the page's day figures and its schedule all convert with these.
 HOURS_PER_DAY = 6

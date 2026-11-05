@@ -108,11 +108,11 @@ def find_estimates_file(site, config) -> Found:
         reason = error_reason(e) or "unknown error"
         return Found(None, None, None, (
             _entry(site.name, "estimates_unreadable", MESSAGES["unlisted"].format(reason=reason)),))
-    dated = [(d, n) for n in names if (d := _name_date(n)) is not None]
+    dates = {n: _name_date(n) for n in names}
+    dated = [(d, n) for n, d in dates.items() if d is not None]
     report = []
     read = max(dated) if dated else None
-    for n in names:
-        d = _name_date(n)
+    for n, d in dates.items():
         if read is not None and n == read[1]:
             continue
         if d is None:

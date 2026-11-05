@@ -17,7 +17,7 @@ from datetime import date
 
 from gantry.est_rules import classify_est
 from gantry.estimates_file import find_estimates_file, read_estimates_file
-from gantry.model import REPORT_KINDS, Estimate, Leaf, Models, ReportEntry, SiteData, Totals
+from gantry.model import Estimate, Leaf, Models, ReportEntry, SiteData, Totals, report_order
 
 NO_TIERS = "no per-leaf model tiers recorded"
 UNEST_WHAT = {"absent": "no est:", "placeholder": "a placeholder est:", "non_time": "a non-time est:",
@@ -77,11 +77,6 @@ def site_totals(leaves, unit) -> Totals:
     return Totals(hours, lo, hi, unestimated, non_time)
 
 
-def _sort_key(entry):
-    """parse_wbs's order: whole-file entries first, then by line, then by kind."""
-    return entry.line is not None, entry.line or 0, REPORT_KINDS.index(entry.kind)
-
-
 def apply_inputs(site, data, config) -> Inputs:
     """`data` with each open leaf's inputs filled in, its totals and the file read."""
     found = find_estimates_file(site, config)
@@ -136,5 +131,5 @@ def apply_inputs(site, data, config) -> Inputs:
     if not has_tiers(work):
         report.append(ReportEntry(site.name, None, "no_model_tiers", NO_TIERS))
     report = data.report + tuple(report)
-    data = replace(data, report=tuple(sorted(report, key=_sort_key)))
+    data = replace(data, report=tuple(sorted(report, key=report_order)))
     return Inputs(data, site_totals(work, unit), source)

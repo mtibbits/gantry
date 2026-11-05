@@ -14,8 +14,8 @@ from importlib import resources
 from gantry import network, priority, schedule
 from gantry.deps import refs
 from gantry.est_rules import classify_est
-from gantry.inputs import NO_TIERS, UNEST_WHAT, site_totals
-from gantry.model import FINISHED_GLYPHS, HOURS_PER_DAY, Estimate, Models, meta_scalar
+from gantry.inputs import NO_TIERS, UNEST_WHAT, has_tiers, scheduled, site_totals
+from gantry.model import FINISHED_GLYPHS, HOURS_PER_DAY, Estimate, Models
 from gantry.render import MODEL_CLASSES, Markup, embed_json, esc, fill, model_class, slack_class, state_class
 
 LANES_DEFAULT = 4
@@ -103,8 +103,8 @@ def _non_time(leaf):
 
 def _prio_mark(leaf):
     """The schedule's marker class for the leaf's own priority as written."""
-    own = meta_scalar(leaf.priority)
-    return "pr-p0" if own == "P0" else "pr-hi" if own in ("P1", "P2") else None
+    own = priority.rank(leaf.priority)
+    return "pr-p0" if own == 0 else "pr-hi" if own in (1, 2) else None
 
 
 def _flags(leaf):
@@ -234,7 +234,7 @@ def page_model(site, data, *, default_unit_hours, inputs=None) -> dict:
     if inputs is not None:
         data = inputs.data
     source = inputs.estimates if inputs is not None else None
-    work = [leaf for leaf in data.leaves if leaf.open and leaf.key not in data.held_out]
+    work = scheduled(data)
     keys = [leaf.key for leaf in work]
     keyset = set(keys)
     links = [(a, b) for a, b in data.links if a in keyset and b in keyset]
@@ -265,7 +265,7 @@ def page_model(site, data, *, default_unit_hours, inputs=None) -> dict:
         k = leaf.key
         linked = k in net.slack
         tiers = _tiers(leaf)
-        wave_full = linked and (net.slack[k] == 0 or meta_scalar(leaf.priority) in ("P0", "P1")
+        wave_full = linked and (net.slack[k] == 0 or priority.rank(leaf.priority) <= 1
                                 or leaf.state == "in_progress"
                                 or starts[k] < HORIZON_DAYS * HOURS_PER_DAY)
         leaves.append({
@@ -309,6 +309,7 @@ def page_model(site, data, *, default_unit_hours, inputs=None) -> dict:
             near.setdefault(net.slack[k], []).append(k)
     held = sum(leaf.state in HELD_STATES for leaf in work)
     unest = {k for k in keys if hours[k][1]}
+    unest_path = sum(k in unest for k in path)
     if source is None:
         estimates_line = None
     elif source.date is None:
@@ -348,9 +349,9 @@ def page_model(site, data, *, default_unit_hours, inputs=None) -> dict:
         },
         "panel": _panel(data),
         "summary": summary_text(items, planned, path, LANES_DEFAULT, totals.unestimated_count,
-                                sum(k in unest for k in path)),
+                                unest_path),
         "unestimated": {"site": totals.unestimated_count, "heaviest": sum(k in unest for k in chain),
-                        "path": sum(k in unest for k in path)},
+                        "path": unest_path},
         "totals": {"hours": totals.hours, "hours_lo": totals.hours_lo, "hours_hi": totals.hours_hi,
                    "unestimated_count": totals.unestimated_count,
                    "non_time": [[unit, e["quantity"], e["leaves"]] for unit, e in totals.non_time.items()]},
@@ -359,7 +360,7 @@ def page_model(site, data, *, default_unit_hours, inputs=None) -> dict:
         "notes": {
             "estimates": estimates_line,
             "non_time": NON_TIME_LINE.format(parts="; ".join(parts)) if parts else None,
-            "no_tiers": None if any(leaf["models"] for leaf in leaves) else NO_TIERS,
+            "no_tiers": None if has_tiers(work) else NO_TIERS,
             "stuck": _count_line(held, STUCK_LINE, STUCK_LINE_ONE) if held else None,
             # Each P0 leaf and each leaf whose effective priority comes from one, in WBS order.
             "p0": [k for k in keys if eff[k] == 0] or None,
