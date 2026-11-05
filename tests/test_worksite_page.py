@@ -795,14 +795,34 @@ def test_summary_rounds_half_up():
     data = parse_wbs("- [ ] Long {issue: Issue-1}\n", "alpha")
     data = with_leaf(data, "Issue-1", estimate=Estimate(15, 15, "est", "time", None))
     t = tree(page_for(data=data))
-    assert text_of(t, by_id(t, "g-sum")).startswith("With 4 lanes, all open work ends around working day 3 ")
+    assert text_of(t, by_id(t, "g-sum")).startswith("With 4 lanes, all open work ends around working day 3. ")
+
+
+NO_LINKS = "- [ ] A {issue: Issue-1}\n- [ ] B {issue: Issue-2, est: 9h}\n"
+
+
+def test_no_chain_summary_and_limits():
+    # No leaf waits on another: no chain figures are stated (final review).
+    data = parse_wbs(NO_LINKS, "alpha")
+    data = with_leaf(data, "Issue-2", estimate=Estimate(9, 9, "est", "time", None))
+    t = tree(page_for(data=data))
+    summary = text_of(t, by_id(t, "g-sum"))
+    assert summary == (worksite.SUMMARY_NO_CHAIN.format(lanes="4 lanes", end=2, even=1, busy=42)
+                       + " The plan " + INCLUDES_ONE + ".")
+    assert "critical chain around" not in summary
+    chain, total, caption = limits(t)
+    assert text_of(t, chain) == worksite.NO_CHAIN
+    assert find(t, "rect", ["bar-crit"]) == []
+    assert text_of(t, caption).startswith(worksite.LIMITS_CAPTION_NO_CHAIN.format(hpd=6, c=3, d=3))
+    assert "The chain decides order" not in text_of(t, caption)
 
 
 def summary_cases(tmp_path):
     data = parse_wbs("- [ ] Long {issue: Issue-1}\n", "alpha")
     half = with_leaf(data, "Issue-1", estimate=Estimate(15, 15, "est", "time", None))
     return {"half": page_for(data=half), "page": page_for(), "est": page_with(est_inputs(tmp_path)),
-            "quarry": page_with(sample_inputs(UNESTIMATED), UNESTIMATED)}
+            "quarry": page_with(sample_inputs(UNESTIMATED), UNESTIMATED),
+            "nochain": page_for(data=parse_wbs(NO_LINKS, "alpha"))}
 
 
 def test_summary_static_matches_script(node, tmp_path):
@@ -1098,7 +1118,9 @@ def test_detail_shows_est_default_and_non_time(node, tmp_path):
     inputs = est_inputs(tmp_path)
     with open_page(write(tmp_path, page_with(inputs))) as page:
         page.drive("schedule-detail", "Issue-2")
-        assert "(from its est: value)" in page.query("#gdetail")[0].text
+        text = page.query("#gdetail")[0].text
+        # Its hours come from est:, its effort bucket still from its row (final review).
+        assert "(from its est: value)" in text and "effort M" in text
         page.drive("schedule-detail", "Issue-10")
         text = page.query("#gdetail")[0].text
         assert "(unestimated: the default unit)" in text and "Not in the hours: 48 pr" in text
@@ -1134,7 +1156,7 @@ PAGE_TEXTS = [getattr(worksite, name) for name in (
     "NOTHING_MISSING", "NO_ISSUE_LINE", "NO_ISSUE_LINE_ONE", "WAITS_LINE", "FOREIGN", "CHAIN_LINE",
     "CAPACITY_LINE", "INCLUDES", "INCLUDES_ONE", "DATES", "DATES_ONE", "ESTIMATES_LINE", "ESTIMATES_UNDATED",
     "NON_TIME_LINE", "UNESTIMATED_LINE", "UNESTIMATED_LINE_ONE", "P0_NOTE", "SUMMARY", "SUMMARY_UNEST",
-    "SUMMARY_UNEST_ONE", "LIMITS_CAPTION")] + list(worksite.STATE_MARKS.values())
+    "SUMMARY_UNEST_ONE", "LIMITS_CAPTION", "SUMMARY_NO_CHAIN", "LIMITS_CAPTION_NO_CHAIN", "NO_CHAIN")] + list(worksite.STATE_MARKS.values())
 
 
 def test_doc_states_page_texts():

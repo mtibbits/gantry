@@ -37,11 +37,18 @@ UNESTIMATED_LINE_ONE = "1 leaf with {what} and no estimates-file hours is unesti
 SUMMARY = ("With {lanes}, all open work ends around working day {end} and the critical chain around day {crit}. "
            "The chain alone needs {chain} days; the work spread evenly across the lanes needs {even}. "
            "The lanes are busy {busy}% of the time.")
+SUMMARY_NO_CHAIN = ("With {lanes}, all open work ends around working day {end}. No open leaf waits on another, "
+                    "so there is no critical chain; the work spread evenly across the lanes needs {even}. "
+                    "The lanes are busy {busy}% of the time.")
 SUMMARY_UNEST = "includes {n} unestimated leaves ({m} on the critical chain)"
 SUMMARY_UNEST_ONE = "includes 1 unestimated leaf ({m} on the critical chain)"
 LIMITS_CAPTION = ("At {hpd} agent-hours a day, the critical chain is {a} to {b} working days and all open work is "
                   "{c} to {d}. With one operator, the total sets the finish date. The chain decides order: its "
                   "first leaf has to start early enough that the chain is not the last thing left.")
+LIMITS_CAPTION_NO_CHAIN = ("At {hpd} agent-hours a day, all open work is {c} to {d} working days. No open leaf "
+                           "waits on another, so there is no critical chain, and with one operator the total sets "
+                           "the finish date.")
+NO_CHAIN = "none: no open leaf waits on another"
 P0_NOTE = ("devagent's wbs order does not know P0 yet (mtibbits/devagent#889), so it ranks these leaves "
            "differently: ")
 NO_LEAVES = "This site has no leaves."
@@ -147,8 +154,13 @@ def summary_text(items, p, path, lanes, unest_site, unest_path):
         if item["key"] in on_path:
             chain += b - a
             crit = max(crit, b)
-    text = SUMMARY.format(lanes=_lanes_text(lanes), end=_round(end), crit=_round(crit), chain=_round(chain),
-                          even=_round(busy / lanes), busy=_round(busy / (lanes * end) * 100))
+    figures = {"lanes": _lanes_text(lanes), "end": _round(end), "even": _round(busy / lanes),
+               "busy": _round(busy / (lanes * end) * 100)}
+    if not on_path:
+        # No chain: no chain figures (the script's same branch).
+        text = SUMMARY_NO_CHAIN.format(**figures)
+        return text + (f" The plan {_includes(unest_site)}." if unest_site else "")
+    text = SUMMARY.format(crit=_round(crit), chain=_round(chain), **figures)
     if unest_site:
         form = SUMMARY_UNEST_ONE if unest_site == 1 else SUMMARY_UNEST
         text += " The plan " + form.format(n=unest_site, m=unest_path) + "."
@@ -354,7 +366,8 @@ def page_model(site, data, *, default_unit_hours, inputs=None) -> dict:
         },
         "texts": {"label": SCHEDULE_LABEL, "chain": CHAIN_LINE, "capacity": CAPACITY_LINE,
                   "includes": INCLUDES, "includes_one": INCLUDES_ONE, "dates": DATES, "dates_one": DATES_ONE,
-                  "summary": SUMMARY, "summary_unest": SUMMARY_UNEST, "summary_unest_one": SUMMARY_UNEST_ONE},
+                  "summary": SUMMARY, "summary_no_chain": SUMMARY_NO_CHAIN, "summary_unest": SUMMARY_UNEST,
+                  "summary_unest_one": SUMMARY_UNEST_ONE},
     }
 
 
@@ -613,12 +626,17 @@ def _limits_svg(m):
     tot_lo, tot_hi = tot["hours_lo"], tot["hours_hi"]
     scale = 560 / tot_hi if tot_hi > 0 else 0
     unest = m["unestimated"]
-    out = [_text("lim-label", 0, 30, f"Critical chain ({_count_line(len(path), '{n} leaves', '1 leaf')})"),
-           f'<rect class="bar-crit" x="190" y="16" width="{_n(ch_lo * scale)}" height="20"/>',
-           f'<rect class="bar-crit span" x="{_n(190 + ch_lo * scale)}" y="16" width="{_n((ch_hi - ch_lo) * scale)}" '
-           'height="20"/>',
-           f'<g data-unestimated="{unest["path"]}">',
-           _text("lim-val", 190 + ch_hi * scale + 8, 31, f"{ch_lo:g}{DASH}{ch_hi:g} h")]
+    if path:
+        out = [_text("lim-label", 0, 30, f"Critical chain ({_count_line(len(path), '{n} leaves', '1 leaf')})"),
+               f'<rect class="bar-crit" x="190" y="16" width="{_n(ch_lo * scale)}" height="20"/>',
+               f'<rect class="bar-crit span" x="{_n(190 + ch_lo * scale)}" y="16" '
+               f'width="{_n((ch_hi - ch_lo) * scale)}" height="20"/>',
+               f'<g data-unestimated="{unest["path"]}">',
+               _text("lim-val", 190 + ch_hi * scale + 8, 31, f"{ch_lo:g}{DASH}{ch_hi:g} h")]
+    else:
+        # No chain: the row says so and draws no bar.
+        out = [_text("lim-label", 0, 30, "Critical chain"), '<g data-unestimated="0">',
+               _text("lim-val", 190, 31, NO_CHAIN)]
     dy = 0
     if unest["path"]:
         out.append(_text("lim-note", 190, 52, _includes(unest["path"])))
@@ -638,10 +656,14 @@ def _limits_svg(m):
             f'<line class="lim-axis" x1="190" y1="{110 + dy}" x2="750" y2="{110 + dy}"/>',
             _text("lim-note", 190, 128 + dy, "agent-hours; solid to the low estimate, pale to the high one")]
     label = (f"The critical chain is {ch_lo:g} to {ch_hi:g} agent-hours; all open work is {tot_lo:g} to "
-             f"{tot_hi:g} agent-hours.")
+             f"{tot_hi:g} agent-hours." if path else
+             f"There is no critical chain; all open work is {tot_lo:g} to {tot_hi:g} agent-hours.")
     svg = (f'<svg viewBox="0 0 760 {136 + dy}" role="img" aria-label="{esc(label)}">' + "".join(out) + "</svg>")
-    caption = LIMITS_CAPTION.format(hpd=HOURS_PER_DAY, a=_round(ch_lo / HOURS_PER_DAY), b=_round(ch_hi / HOURS_PER_DAY),
-                                    c=_round(tot_lo / HOURS_PER_DAY), d=_round(tot_hi / HOURS_PER_DAY))
+    days = {"hpd": HOURS_PER_DAY, "c": _round(tot_lo / HOURS_PER_DAY), "d": _round(tot_hi / HOURS_PER_DAY)}
+    if path:
+        caption = LIMITS_CAPTION.format(a=_round(ch_lo / HOURS_PER_DAY), b=_round(ch_hi / HOURS_PER_DAY), **days)
+    else:
+        caption = LIMITS_CAPTION_NO_CHAIN.format(**days)
     if unest["site"]:
         caption += f" The total {_includes(unest['site'])}."
     return Markup(svg), caption

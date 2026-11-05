@@ -64,7 +64,9 @@
     box.append(title);
     line(box, [["Epic:", laneText(leaf.lane)], ["priority", leaf.priority === null ? "none" : leaf.priority],
       ["scheduled as", "P" + leaf.eff]]);
+    // The effort bucket comes from the leaf's row whatever gave its hours.
     line(box, [["Hours:", num(leaf.hours) + sourceText(leaf)]]
+      .concat(leaf.effort === null || leaf.source === "estimates_file" ? [] : [["effort", leaf.effort]])
       .concat(leaf.non_time === null ? [] : [["Not in the hours:", leaf.non_time]])
       .concat(leaf.mark === null ? [] : [["state", leaf.mark]]));
     if (leaf.models !== null) {
@@ -199,12 +201,17 @@
       summaryLine.setAttribute("data-unestimated-chain", String(u.path));
       let text = "";
       if (rows.length) {
-        text = fillIn(DATA.texts.summary, [["lanes", lanesText(k)], ["end", Math.round(end)],
-          ["crit", Math.round(critEnd)], ["chain", Math.round(chain)], ["even", Math.round(busy / k)],
-          ["busy", Math.round(busy / (k * end) * 100)]]);
-        if (u.site) {
-          const form = u.site === 1 ? DATA.texts.summary_unest_one : DATA.texts.summary_unest;
-          text += " The plan " + fillIn(form, [["n", u.site], ["m", u.path]]) + ".";
+        const figures = [["lanes", lanesText(k)], ["end", Math.round(end)], ["even", Math.round(busy / k)],
+          ["busy", Math.round(busy / (k * end) * 100)]];
+        if (onPath.size === 0) {
+          // No chain: no chain figures (summary_text's same branch).
+          text = fillIn(DATA.texts.summary_no_chain, figures) + (u.site ? " The plan " + includes(u.site) + "." : "");
+        } else {
+          text = fillIn(DATA.texts.summary, figures.concat([["crit", Math.round(critEnd)], ["chain", Math.round(chain)]]));
+          if (u.site) {
+            const form = u.site === 1 ? DATA.texts.summary_unest_one : DATA.texts.summary_unest;
+            text += " The plan " + fillIn(form, [["n", u.site], ["m", u.path]]) + ".";
+          }
         }
       }
       summaryLine.textContent = text;

@@ -410,7 +410,12 @@ and, when the site's N is above 0, adds ` The total includes {n} unestimated lea
 **The schedule summary**, beside the limit line, reads
 `With {lanes}, all open work ends around working day {end} and the critical chain around day {crit}. The chain alone needs {chain} days; the work spread evenly across the lanes needs {even}. The lanes are busy {busy}% of the time.`
 "Critical chain" here means the named chain, the same one the network
-draws. When the site's N is above 0 it adds ` The plan ` followed by
+draws. A site where no open leaf waits on another has no chain: the summary
+reads
+`With {lanes}, all open work ends around working day {end}. No open leaf waits on another, so there is no critical chain; the work spread evenly across the lanes needs {even}. The lanes are busy {busy}% of the time.`,
+the chain row of Two limits says `none: no open leaf waits on another` and
+draws no bar, and its caption reads
+`At {hpd} agent-hours a day, all open work is {c} to {d} working days. No open leaf waits on another, so there is no critical chain, and with one operator the total sets the finish date.` When the site's N is above 0 it adds ` The plan ` followed by
 `includes {n} unestimated leaves ({m} on the critical chain)` (or
 `includes 1 unestimated leaf ({m} on the critical chain)`) and a full stop.
 It carries `data-unestimated` (the site's N) and `data-unestimated-chain`
