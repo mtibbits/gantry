@@ -399,6 +399,31 @@ def test_report_order():
     assert got == [(1, "malformed_meta"), (1, "undefined_link"), (2, "malformed_item"), (3, "refines_cycle")]
 
 
+def test_parse_requirements_skips_a_leading_bom():
+    # A caller that passes a file's first section passes its byte-order mark too (#22).
+    s = parse(chr(0xFEFF) + "- FR-1: x\n")
+    assert s.report == []
+    assert s.requirements["alpha:FR-1"].line == 1
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["- FR-1: a {refines: SR-1, note: {x}}\n", "- FR-1: a {refines: SR-1\n", "- FR-1: a {refines: SR-1 {b:c\n"],
+)
+def test_unclosed_or_nested_brace_block_is_reported(text):
+    s = parse(text + "- SR-1: y\n")
+    (entry,) = s.report
+    assert (entry.line, entry.kind) == (1, "malformed_meta")
+    assert entry.message == "the meta block starting '{refines:' cannot be read: an unclosed or nested brace"
+    assert s.requirements["alpha:FR-1"].refines is None
+
+
+def test_broken_opener_beside_a_block_leaves_the_block_read():
+    s = parse("- FR-1: a {note: x {refines: SR-1}\n- SR-1: y\n")
+    assert [e.kind for e in s.report] == ["malformed_meta"]
+    assert s.requirements["alpha:FR-1"].refines == rid("SR-1")
+
+
 def test_meta_entry_with_no_key():
     (entry,) = parse("- FR-1: x {refines: SR-1, SR-2}\n- SR-1: y\n").report
     assert entry.message == "the meta block '{refines: SR-1, SR-2}' cannot be read: an entry with no key"

@@ -43,6 +43,7 @@ CANDIDATE_RE = re.compile(  # .match on an item's rest
 )
 FENCE_RE = re.compile(r"[ \t]*(?P<run>`{3,}|~{3,})(?P<info>.*)")  # fullmatch
 BLOCK_RE = re.compile(r"\{[ \t]*[A-Za-z_][A-Za-z0-9_]*[ \t]*:[^{}]*\}")  # finditer
+_OPENER_RE = re.compile(r"\{[ \t]*[A-Za-z_][A-Za-z0-9_]*[ \t]*:")  # a block's start, closed or not
 _KEY_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _BOM = "\N{BYTE ORDER MARK}"
 
@@ -310,13 +311,21 @@ class _Reader:
                 text = text[: block.start()].rstrip()
         else:
             second = _ending_block(text)
+        spans = []
         for other in BLOCK_RE.finditer(text):
+            spans.append(other.span())
             if second is not None and other.start() == second.start():
                 self.add(line, "malformed_meta",
                          "a second meta block on one item; it stays in the text and is not read")
             else:
                 self.add(line, "malformed_meta",
                          "a meta block inside the text; it stays in the text and is not read")
+        # A block opener no match consumed has no closing brace, or holds one: once per item.
+        for opener in _OPENER_RE.finditer(text):
+            if not any(start <= opener.start() < end for start, end in spans):
+                self.add(line, "malformed_meta", f"the meta block starting {opener.group(0)!r} cannot be "
+                                                 "read: an unclosed or nested brace")
+                break
         refines, needs = self.links(line, rid, block)
         self.requirements[str(rid)] = Requirement(rid, rid.code, text, refines, needs, self.source, line)
 
@@ -420,6 +429,8 @@ def parse_requirements(text, namespace, *, source, first_line=1, layers, br_name
     _check_args(namespace, layers, br_namespace)
     reader = _Reader(namespace, source, first_line, frozenset(layers), br_namespace)
     # split("\n"), never splitlines(), which also breaks at U+2028 and others.
+    # A leading byte-order mark is skipped, also when a caller passes a file's first section.
+    text = text.removeprefix(_BOM)
     lines = [line[:-1] if line.endswith("\r") else line for line in text.split("\n")]
     fenced = _fenced(lines)
     i = 0
@@ -457,7 +468,7 @@ def read_requirements(path, namespace, *, layers, br_namespace) -> RequirementSe
         text = data.decode("utf-8")
     except UnicodeDecodeError as e:
         return unreadable(f"the requirements file is not valid UTF-8 at byte {e.start}")
-    return parse_requirements(text.removeprefix(_BOM), namespace, source=source, first_line=1,
+    return parse_requirements(text, namespace, source=source, first_line=1,
                               layers=layers, br_namespace=br_namespace)
 
 

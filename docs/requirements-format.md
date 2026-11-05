@@ -153,8 +153,9 @@ reader stores the trace and does not judge it.
 
 Reported, with the requirement still read:
 
-- `malformed_meta`: a block that cannot be read (an entry with no key, or an
-  unclosed `[` or quote), any key other than `refines` and `needs`, a key
+- `malformed_meta`: a block that cannot be read (an entry with no key, an
+  unclosed `[` or quote, or a block with no closing `}` or with a brace
+  inside it), any key other than `refines` and `needs`, a key
   repeated in one block (the first is kept), a list given to `refines:`,
   `needs: []`, a second meta block on one item, and a block that starts with
   a word and a colon anywhere else in the text. A second or mid-text block
