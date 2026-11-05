@@ -15,10 +15,13 @@ from types import SimpleNamespace
 import pytest
 
 from commit_check import path_form_hits
+from gantry.cli import site_data
 from gantry.config import SiteOverride
+from gantry.config import load_config as load_installation
 from gantry.inputs import apply_inputs
 from gantry.model import Estimate, Leaf, Models, Row, SiteData
-from gantry.sites import SiteEntry
+from gantry.estimates_file import find_estimates_file, read_estimates_file
+from gantry.sites import SiteEntry, load_sites
 from gantry.render import CLASS_TOKENS
 from gantry.schedule import limit, plan
 from gantry.views import worksite
@@ -39,7 +42,7 @@ from gantry.views.worksite import (
 from gantry.wbs_stopgap import parse_wbs, read_wbs
 from page_safety import CSP_CONTENT, HOSTILE, assert_no_external_resources, assert_page_safe
 from page_script.harness import Planted, open_page, run_function
-from sample_roles import BUSY, READABLE, UNESTIMATED
+from sample_roles import BUSY, OWN_UNIT, READABLE, UNESTIMATED
 from test_samples import ROOT, SAMPLES
 from test_source_scan import code_files
 
@@ -808,6 +811,78 @@ def test_schedule_legend_names_p0_beside_p1_p2():
     spans = [text_of(t, i).strip() for i in find(t, "span", within=legend)]
     assert spans[-2:] == ["P1 or P2", "P0"]
     assert spans[:2] == ["bar shade: thinking model", "critical chain"]
+
+
+# --- the sample sites, built as the CLI builds them (#10) ---------------------------------
+
+
+def inputs_page(site):
+    """(inputs, page) of a sample site: the sample config, load_sites, then apply_inputs."""
+    config = load_installation(SAMPLES / "gantry.sample.toml")
+    sites, _ = load_sites(config)
+    entry = next(s for s in sites if s.name == site)
+    data, problem = site_data(entry)
+    assert problem is None, problem
+    inputs = apply_inputs(entry, data, config)
+    return inputs, render_page(site, inputs.data, default_unit_hours=config.default_unit_hours, inputs=inputs)
+
+
+def test_non_time_sample_site():
+    inputs, page = inputs_page(OWN_UNIT)
+    assert "Not in any hour figure: 13 pt (2 leaves)" in visible_text(page)
+    assert (inputs.totals.hours, inputs.totals.unestimated_count) == (90, 5)
+    assert inputs.totals.non_time == {"pt": {"quantity": 13, "leaves": 2}}
+    m = model_with(inputs, OWN_UNIT)
+    pt = [leaf for leaf in m["leaves"] if leaf["non_time"] is not None]
+    assert len(pt) == 2 and all(leaf["hours"] == 6 and leaf["unestimated"] for leaf in pt)
+    t = tree(page)
+    unest = {t.elements[i]["attrs"]["data-item"] for i in find(t, "g", ["node", "unest"])}
+    assert {leaf["key"] for leaf in pt if leaf["linked"]} <= unest
+    assert "6 open leaves have no priority and count as P3" in m["panel"]
+
+
+def test_model_tier_sample_site():
+    inputs, page = inputs_page(BUSY)
+    found = find_estimates_file(SiteEntry(BUSY, SAMPLES / BUSY, None), SimpleNamespace(sites={}))
+    rows = read_estimates_file(found.path, BUSY, found.name).rows
+    m = model_with(inputs, BUSY)
+    assert m["leaves"]
+    for leaf in m["leaves"]:
+        assert leaf["models"] == [rows[leaf["key"]].thinking, rows[leaf["key"]].checking], leaf["key"]
+    t = tree(page)
+    for i in find(t, "g", ["node"]):
+        leaf = by_key(m)[t.elements[i]["attrs"]["data-item"]]
+        assert bands(t, i) == [{"band", c} for c in leaf["mc"]]
+    labels = find(t, "g", ["lane-label"])
+    assert labels and all(find(t, "g", ["mt-row"], within=i) for i in labels)
+    assert NO_TIERS not in visible_text(page)
+    assert not [e for e in inputs.data.report if e.kind == "no_model_tiers"]
+
+
+def test_p0_sample_site(node, tmp_path):
+    inputs, page = inputs_page(UNESTIMATED)
+    m = model_with(inputs, UNESTIMATED)
+    assert by_key(m)["Issue-8"]["wave_full"] is True
+    assert m["notes"]["p0"] == ["Issue-8", "Issue-9"]
+    assert worksite.P0_NOTE + "Issue-8, Issue-9" in visible_text(page)
+    with open_page(write(tmp_path, page)) as live:
+        assert keys_of(live.query("#gantt circle.pr-p0")) == {"Issue-8"}
+
+
+def test_every_sample_page_labelled():
+    for site in sorted(READABLE):
+        inputs, page = inputs_page(site)
+        assert_page_safe(page, [])
+        t = tree(page)
+        found = assert_labels_follow_n(t)
+        m = model_with(inputs, site)
+        assert found[by_id(t, "g-dates")] == found[by_id(t, "g-sum")] == m["unestimated"]["site"], site
+        assert int(t.elements[by_id(t, "g-sum")]["attrs"]["data-unestimated-chain"]) == m["unestimated"]["path"]
+        assert found[by_id(t, "hours-note")] == m["unestimated"]["heaviest"], site
+        assert [found[i] for i in find(t, "g", ["lane-label"])] == [lane["unestimated"] for lane in m["lanes"]]
+        chain, total, caption = limits(t)
+        assert (found[chain], found[total], found[caption]) == (
+            m["unestimated"]["path"], m["unestimated"]["site"], m["unestimated"]["site"]), site
 
 
 # --- the page under the harness ----------------------------------------------------

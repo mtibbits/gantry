@@ -69,7 +69,7 @@ SAMPLE_CONFIG = "samples/gantry.sample.toml"
 EXPECTED_STATUS = {
     BUSY: "open 8, finished 6",
     OWN_UNIT: "open 6, finished 3; no_issue 3, unresolved_ref 1",
-    UNESTIMATED: "open 3, finished 3; unresolved_ref 1",
+    UNESTIMATED: "open 5, finished 3; unresolved_ref 1",
     SMALL: "open 2, finished 3",
     UNREADABLE: "cannot read: WBS.md is not valid UTF-8 at byte 88",
     NO_WBS: "cannot read: no WBS.md in the planning directory",

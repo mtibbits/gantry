@@ -351,6 +351,11 @@ def test_quarry_shapes():
         ISSUE_ID_RE.match(dep) and dep not in ids
         for n in nodes for dep in n.deps()
     )
+    # An open P0 leaf and the open leaf it depends on (#10, decision D7).
+    p0 = [n for n in leaves if n.is_open and n.meta.get("priority") == "P0"]
+    assert len(p0) == 1
+    open_ids = {n.meta.get("issue") for n in leaves if n.is_open}
+    assert [dep for dep in p0[0].deps() if dep in open_ids]
 
 
 def test_lighthouse_shapes():
