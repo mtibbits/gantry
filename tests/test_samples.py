@@ -24,6 +24,7 @@ import pytest
 
 import sample_roles
 # One form list for the samples check, the source scan and the commit check (#44).
+from gantry.estimates_file import DATED_RE
 from commit_check import ABSOLUTE_START_RE, PATH_FORMS, decode_bytes, walk_strings, path_form_hits
 from sample_roles import (
     BUSY,
@@ -401,7 +402,8 @@ def test_depends_on_prefixes_not_public_tools():
 
 # --- harbor's estimates -------------------------------------------------------
 
-ESTIMATES_RE = re.compile(r"^estimates-(\d{4}-\d{2}-\d{2}).*\.md$")
+# The reader's own pattern (#10): one home for the file-name rule.
+ESTIMATES_RE = DATED_RE
 ORDER_EPIC = ["#", "P", "title", "effort", "hours", "LOC", "thinking", "checking", "tier", "flags", "note"]
 ORDER_ADDENDUM = ["#", "title", "type", "effort", "hours", "LOC", "thinking", "checking", "tier", "flags", "note"]
 TIERS = {"sonnet", "opus", "fable"}
@@ -449,8 +451,8 @@ def md_tables(text):
 
 
 def estimates_files(site_dir):
-    found = [p for p in Path(site_dir).iterdir() if p.is_file() and ESTIMATES_RE.match(p.name)]
-    return sorted(found, key=lambda p: ESTIMATES_RE.match(p.name).group(1))
+    found = [p for p in Path(site_dir).iterdir() if p.is_file() and ESTIMATES_RE.fullmatch(p.name)]
+    return sorted(found, key=lambda p: ESTIMATES_RE.fullmatch(p.name).group("date"))
 
 
 def estimates_file(site_dir):
@@ -460,7 +462,7 @@ def estimates_file(site_dir):
 
 
 def estimates_date(path):
-    return date.fromisoformat(ESTIMATES_RE.match(Path(path).name).group(1))
+    return date.fromisoformat(ESTIMATES_RE.fullmatch(Path(path).name).group("date"))
 
 
 def id_tables():
