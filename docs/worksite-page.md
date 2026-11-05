@@ -191,7 +191,7 @@ in this table's order.
 | `est_unparseable` | an open leaf's `est:` is in none of the other classes | lists it; the leaf may still get hours from its estimates-file row |
 | `unestimated` | a scheduled leaf has no time `est:` and no estimates-file hours | schedules it at the default unit and labels every figure that counts it |
 | `no_priority` | open leaves have no `priority:` (one entry for the file) | counts them as P3 |
-| `no_model_tiers` | no open leaf has a model tier | shows "no per-leaf model tiers recorded" |
+| `no_model_tiers` | no scheduled leaf has a model tier | shows "no per-leaf model tiers recorded" |
 
 ## The optional inputs
 
@@ -415,9 +415,12 @@ reads
 `With {lanes}, all open work ends around working day {end}. No open leaf waits on another, so there is no critical chain; the work spread evenly across the lanes needs {even}. The lanes are busy {busy}% of the time.`,
 the chain row of Two limits says `none: no open leaf waits on another` and
 draws no bar, and its caption reads
-`At {hpd} agent-hours a day, all open work is {c} to {d} working days. No open leaf waits on another, so there is no critical chain, and with one operator the total sets the finish date.` When the site's N is above 0 it adds ` The plan ` followed by
+`At {hpd} agent-hours a day, all open work is {c} to {d} working days. No open leaf waits on another, so there is no critical chain, and with one operator the total sets the finish date.` When the site's N is above 0 the summary
+adds ` The plan ` followed by
 `includes {n} unestimated leaves ({m} on the critical chain)` (or
-`includes 1 unestimated leaf ({m} on the critical chain)`) and a full stop.
+`includes 1 unestimated leaf ({m} on the critical chain)`) and a full stop;
+the no-chain summary adds the plain `includes {n} unestimated leaves` (or
+`includes 1 unestimated leaf`) instead.
 It carries `data-unestimated` (the site's N) and `data-unestimated-chain`
 (the chain's). The server writes it for the default lanes and the script
 rewrites it on every change; both sum in the same order and round half up,

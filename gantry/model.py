@@ -98,7 +98,7 @@ class Totals:
     hours_lo: float
     hours_hi: float
     unestimated_count: int
-    non_time: dict[str, dict[str, float]]
+    non_time: dict[str, dict[str, int | float]]
 
 
 @dataclass(frozen=True)

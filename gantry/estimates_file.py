@@ -163,7 +163,7 @@ def read_estimates_file(path, site: str, name: str) -> EstimatesFile:
         return EstimatesFile({}, (_entry(site, "estimates_unreadable",
                                          MESSAGES["not_utf8"].format(name=name, at=e.start)),))
     text = text.removeprefix("\ufeff")
-    rows, first_line, report, missing = {}, {}, [], set()
+    rows, report, missing = {}, [], set()
     columns = None  # {column: index} while inside a # table
     # Split on "\n" only: str.splitlines() would also split inside a cell (U2).
     for number, line in enumerate(text.split("\n"), 1):
@@ -189,7 +189,7 @@ def read_estimates_file(path, site: str, name: str) -> EstimatesFile:
         key = f"Issue-{n}"
         if key in rows:
             report.append(_entry(site, "estimates_row_duplicate", MESSAGES["duplicate"].format(
-                name=name, line=number, n=n, first=first_line[key])))
+                name=name, line=number, n=n, first=rows[key].line)))
             continue
 
         def cell(column):
@@ -204,5 +204,4 @@ def read_estimates_file(path, site: str, name: str) -> EstimatesFile:
                     name=name, line=number, cell=cell("hours") or "", n=n)))
         lo, hi = hours if hours is not None else (None, None)
         rows[key] = EstimatesRow(number, cell("effort"), lo, hi, cell("thinking"), cell("checking"), cell("flags"))
-        first_line[key] = number
     return EstimatesFile(rows, tuple(report))

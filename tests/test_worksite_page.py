@@ -853,6 +853,19 @@ def test_summary_and_marks_after_redraw(node, tmp_path):
             assert "The critical chain finishes around working day " in svg.attrs["aria-label"]
 
 
+def test_all_estimated_marks_and_epic_rows_after_redraw(node, tmp_path):
+    with open_page(write(tmp_path, page_with(all_estimated_inputs(tmp_path)))) as page:
+        for control, value in (("lanes", "2"), ("group", "lane"), ("group", "epic")):
+            page.drive(control, value)
+            for cls in ("mk-crit", "mk-end"):
+                (mark,) = page.query("line." + cls)
+                assert mark.attrs["data-unestimated"] == "0"
+                assert "unestimated lea" not in mark.text
+        rows = page.query(".g-toggle")
+        assert len(rows) == 2
+        assert all(row.attrs["data-unestimated"] == "0" and "unestimated lea" not in row.text for row in rows)
+
+
 def test_priority_markers_in_both_groupings(node, tmp_path):
     with open_page(write(tmp_path, page_with(est_inputs(tmp_path)))) as page:
         for group in ("lane", "epic"):
