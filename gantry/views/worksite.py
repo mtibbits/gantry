@@ -13,13 +13,12 @@ from importlib import resources
 
 from gantry import network, priority, schedule
 from gantry.deps import refs
-from gantry.model import FINISHED_GLYPHS, meta_scalar
+from gantry.model import FINISHED_GLYPHS, HOURS_PER_DAY, meta_scalar
 from gantry.render import MODEL_CLASSES, Markup, embed_json, esc, fill, model_class, slack_class, state_class
 
 LANES_DEFAULT = 4
 LANES_MAX = 8
 HORIZON_DAYS = 10
-HOURS_PER_DAY = 6
 
 SCHEDULE_LABEL = "agent capacity only; ignores operator attention; the week view is the plan"
 STUCK_LINE = "{n} stuck, blocked or parked leaves are scheduled as if an agent could start them"

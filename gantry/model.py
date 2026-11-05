@@ -18,6 +18,10 @@ REPORT_KINDS = (
     "malformed_ref", "bad_priority", "cycle", "waits_on_cycle",
     "skipped_line", "no_nodes", "site_unreadable",
 )
+# Agent hours in a working day and working days in a week (#10): est: units,
+# the page's day figures and its schedule all convert with these.
+HOURS_PER_DAY = 6
+DAYS_PER_WEEK = 5
 # devagent's STATE_GLYPHS (scripts/lib/wbs-parser.py).
 STATE_GLYPHS = {" ": "pending", "x": "done", "-": "skipped", "!": "stuck",
                 "~": "in_progress", "?": "blocked_external", "P": "parked"}
