@@ -18,7 +18,7 @@ from commit_check import path_form_hits
 from gantry.cli import site_data
 from gantry.config import SiteOverride
 from gantry.config import load_config as load_installation
-from gantry.inputs import apply_inputs
+from gantry.inputs import EstimatesSource, apply_inputs
 from gantry.model import Estimate, Leaf, Models, Row, SiteData
 from gantry.estimates_file import find_estimates_file, read_estimates_file
 from gantry.sites import SiteEntry, load_sites
@@ -332,17 +332,21 @@ def hostile_site():
         _leaf(h[7], h[7], "1.1", h[0], EPIC, 2, priority=h[5], meta={"issue": h[7], "note": h[6]}, flags=[h[9]]),
         _leaf(h[1], h[1], "1.2", h[8], EPIC, 3, models=Models(h[3], None, "estimates_file")),
         _leaf(h[2], None, "1.3", h[10], EPIC, 4),
-        _leaf("Issue-4", "Issue-4", "2", "Plain", None, 5),
+        _leaf("Issue-4", "Issue-4", "2", "Plain", None, 5, meta={"est": h[2]}),
     )
     rows = (Row(EPIC, EPIC, "1", h[4], " ", "pending", 1, None, {}),)
     links = ((h[7], h[1]), (h[1], h[2]), (h[2], "Issue-4"))
     return SiteData(leaves, rows, links, (), ())
 
 
-# Shown on the base page: the keys, titles, epic name, priority and tier.
+# Shown on the base page: the keys, titles, epic name, priority and tier;
+# with hostile_inputs also the estimates file's name (1) and a thinking tier (0).
 ALWAYS = [HOSTILE[i] for i in (7, 1, 2, 0, 8, 10, 4, 5, 3)]
-# Shown only in the detail of the leaf that holds them: its metadata and flag.
-DETAIL = {HOSTILE[7]: [HOSTILE[6], HOSTILE[9]]}
+# Shown only in the detail of the leaf that holds them: its metadata and flag,
+# and Issue-4's est:.
+DETAIL = {HOSTILE[7]: [HOSTILE[6], HOSTILE[9]], "Issue-4": [HOSTILE[2]]}
+# With hostile_inputs, Issue-4's detail also shows its effort, checking tier and flags.
+INPUT_DETAIL = {**DETAIL, "Issue-4": [HOSTILE[2], HOSTILE[8], HOSTILE[6], HOSTILE[10]]}
 
 
 def test_hostile_data_page_is_safe():
@@ -356,6 +360,41 @@ def test_hostile_data_page_is_safe():
     assert leaves[HOSTILE[1]]["models"] == [HOSTILE[3], None]
     assert (leaves[HOSTILE[2]]["issue"], leaves[HOSTILE[2]]["title"]) == (None, HOSTILE[10])
     assert data["lanes"][0]["name"] == HOSTILE[4]
+
+
+def hostile_inputs(tmp_path):
+    """apply_inputs over hostile_site, with HOSTILE values in Issue-4's estimates row.
+
+    The file name is planted in the EstimatesSource, never on disk: Windows
+    refuses <>"| in a file name.
+    """
+    h = HOSTILE
+    folder = tmp_path / "hostile"
+    folder.mkdir()
+    row = f"| #4 | {h[8]} | 1-2 | {h[0]} | {h[6]} | {h[10]} |"
+    text = "| # | effort | hours | thinking | checking | flags |\n|---|---|---|---|---|---|\n" + row + "\n"
+    (folder / "estimates-2026-01-01.md").write_bytes(text.encode("utf-8"))
+    config = SimpleNamespace(sites={}, default_unit_hours=6)
+    site = hostile_site()
+    inputs = apply_inputs(SiteEntry("alpha", folder, None), site, config)
+    # No row can name the other leaves (their keys are no Issue-N), so their
+    # hand-set tier and flag are put back: every HOSTILE value stays planted.
+    leaves = tuple(new if new.key == "Issue-4" else dataclasses.replace(new, models=old.models, flags=old.flags)
+                   for new, old in zip(inputs.data.leaves, site.leaves))
+    inputs = dataclasses.replace(inputs, data=dataclasses.replace(inputs.data, leaves=leaves))
+    assert inputs.data.leaves[3].models == Models(h[0], h[6], "estimates_file")
+    assert (inputs.data.leaves[3].estimate.effort, inputs.data.leaves[3].flags) == (h[8], h[10])
+    return dataclasses.replace(inputs, estimates=EstimatesSource(h[1], None))
+
+
+def test_hostile_inputs_page_is_safe(tmp_path):
+    inputs = hostile_inputs(tmp_path)
+    data = assert_page_safe(page_with(inputs), HOSTILE)
+    four = {leaf["key"]: leaf for leaf in data["leaves"]}["Issue-4"]
+    assert (four["effort"], four["models"], four["flags"]) == (HOSTILE[8], [HOSTILE[0], HOSTILE[6]], [HOSTILE[10]])
+    assert ["est", HOSTILE[2]] in four["meta"]
+    assert data["notes"]["estimates"] == ESTIMATES_UNDATED.format(name=HOSTILE[1])
+    assert any(repr(HOSTILE[2]) in line for line in data["panel"])
 
 
 def built_pages():
@@ -1063,6 +1102,24 @@ def test_detail_shows_est_default_and_non_time(node, tmp_path):
         page.drive("schedule-detail", "Issue-10")
         text = page.query("#gdetail")[0].text
         assert "(unestimated: the default unit)" in text and "Not in the hours: 48 pr" in text
+
+
+def test_hostile_inputs_under_harness(node, tmp_path):
+    path = write(tmp_path, page_with(hostile_inputs(tmp_path)))
+    keys = [HOSTILE[7], HOSTILE[1], HOSTILE[2], "Issue-4"]
+    with open_page(path) as page:
+        assert page.planted_nodes(ALWAYS) == Planted([], [], [])
+        for key in keys:
+            page.drive("network-detail", key)
+            assert page.planted_nodes(ALWAYS + INPUT_DETAIL.get(key, [])) == Planted([], [], []), ("net", key)
+        for group in ("epic", "lane"):
+            page.drive("group", group)
+            for key in keys:
+                page.drive("schedule-detail", key)
+                assert page.planted_nodes(ALWAYS + INPUT_DETAIL.get(key, [])) == Planted([], [], []), ("sched", key)
+        page.drive("schedule-detail", "Issue-4")
+        (detail,) = page.query("#gdetail")
+        assert f"(from the estimates file, effort {HOSTILE[8]})" in detail.text
 
 
 def test_js_class_tokens_match_render(node, tmp_path):
