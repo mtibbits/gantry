@@ -1,0 +1,24 @@
+# Est
+
+- [ ] Estimated work {issue: Issue-1, est: 100h}
+  - [ ] A {issue: Issue-2, est: 3h}
+  - [ ] B {issue: Issue-3, est: 1.5d}
+  - [ ] C {issue: Issue-4, est: 2.5pr}
+  - [ ] D {issue: Issue-5, est: 2-3d}
+  - [x] K {issue: Issue-13}
+  - [ ] P {issue: Issue-20, priority: P0, depends_on: [Issue-21]}
+  - [ ] Q {issue: Issue-21}
+  - [ ] Hi one {issue: Issue-22, priority: P1}
+  - [ ] Hi two {issue: Issue-23, priority: P2}
+  - [ ] Odd {issue: Issue-24, priority: P5}
+  - [ ] Odder {issue: Issue-25, priority: P-1}
+- [ ] Unestimated work {issue: Issue-6}
+  - [ ] E {issue: Issue-7, est: ?3d}
+  - [ ] F {issue: Issue-8, est: 0h}
+  - [ ] G {issue: Issue-9, est: 3H}
+  - [ ] H {issue: Issue-10, est: 48pr}
+  - [ ] I {issue: Issue-11, est: ?w}
+  - [ ] J {issue: Issue-12}
+  - [ ] Loop one {issue: Issue-30, est: 5h, depends_on: [Issue-31]}
+  - [ ] Loop two {issue: Issue-31, est: 5h, depends_on: [Issue-30]}
+  - [ ] Waiter {issue: Issue-32, est: 5h, depends_on: [Issue-30]}
