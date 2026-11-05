@@ -122,7 +122,7 @@ def test_status_text_forms():
     ids = (ROOT / "tests" / "fixtures" / "wbs" / "ids.md").read_bytes().decode("utf-8")
     assert status_text(parse_wbs(ids, "alpha")) == (
         "open 7, finished 0; no_issue 2, duplicate_issue 1, key_collision 1, "
-        "unresolved_ref 2, bad_priority 2, skipped_line 2"
+        "unresolved_ref 2, bad_priority 1, skipped_line 2"
     )
     assert status_text(parse_wbs("- [ ] One {issue: Issue-1}\n", "alpha")) == "open 1, finished 0"
 

@@ -38,7 +38,7 @@ MESSAGES = {
                        "references resolve to line {first}, and this node is named {key!r}",
     "key_collision": "WBS.md line {line}: outline position {outline!r} is the issue: id on "
                      "line {other}; this node is named {key!r}",
-    "bad_priority": "WBS.md line {line}: priority {raw!r} is not P1, P2, P3 or P4; it counts as P3",
+    "bad_priority": "WBS.md line {line}: priority {raw!r} is not P0, P1, P2, P3 or P4; it counts as P3",
 }
 
 

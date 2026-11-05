@@ -143,8 +143,8 @@ when it comes from a row and names that row or a node inside it.
 
 ### Priority
 
-`priority:` is `P1` (most urgent) to `P4`. Anything else, `P0` included, is
-reported `bad_priority` and counts as P3. A missing priority counts as P3
+`priority:` is `P0` (most urgent) to `P4` (#10). Anything else, such as `P5`
+or `P-1`, is reported `bad_priority` and counts as P3. A missing priority counts as P3
 and is not reported. A row's priority is checked but given to no leaf. A
 leaf's effective priority is the most urgent of its own and that of every
 open leaf that waits on it, directly or through other open leaves; it does
@@ -175,7 +175,7 @@ in this table's order.
 | `key_collision` | an outline key equals an `issue:` id | shows the node under its `~<line>` key |
 | `unresolved_ref` | a local `depends_on` entry names no `issue:` id in the file | draws no link and lists the entry |
 | `malformed_ref` | a `depends_on` entry is neither an id nor `<site>:<id>` | draws no link and lists the entry |
-| `bad_priority` | a node's `priority:` is not `P1`–`P4` | treats it as P3 and lists the value |
+| `bad_priority` | a node's `priority:` is not `P0`–`P4` | treats it as P3 and lists the value |
 | `cycle` | open leaves depend on each other in a loop | lists the members |
 | `waits_on_cycle` | an open leaf is in, or waits on, a cycle | shows the leaf as held out, with no effective priority |
 | `skipped_line` | `- [X] text`, `- [] text`, `- [ ]`, `- [ ] ` or `- [x]text`: a node-shaped line that is not a node (`- [xx] text`, `-[x] text`, `* [ ] text` and a link item with two or more characters of text are not reported; `- [1](url)` is) | lists the line |
