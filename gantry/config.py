@@ -1,13 +1,14 @@
 """The installation config: one TOML file that says where an installation's
 data lives (#7). docs/config.md is its reference.
 
-Every key is a row of KEYS or SITE_KEYS. A later issue adds a key by adding a
-row here, a field that load_config fills, a row in docs/config.md (tests
-enforce both) and a sample entry.
+Every key is a row of KEYS, SITE_KEYS or REQUIREMENTS_KEYS. A later issue
+adds a key by adding a row here, a field that load_config fills, a row in
+docs/config.md (tests enforce both) and a sample entry.
 """
 
 import math
 import os
+import re
 import tomllib
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -15,6 +16,10 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Literal
 
 CONFIG_VERSION = 1
+DEFAULT_BR_NAMESPACE = "life"
+
+# devagent's ID_TOKEN_RE (scripts/lib/wbs-parser.py); used with fullmatch.
+ID_TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
 
 
 class ConfigError(Exception):
@@ -43,12 +48,17 @@ KEYS = (
     Key("default_unit_hours", "positive_number", False, 6, "#9", "`default_unit_hours`"),
     Key("portfolio_file", "path", False, None, "#22", "`portfolio_file`"),
     Key("fires_list", "path", False, None, "#30", "`fires_list`"),
+    Key("requirements", "table", False, None, "#15", "`[requirements]`"),
     Key("site", "table", False, None, "#7", "`[site.<name>]`"),
 )
 
 SITE_KEYS = (
     Key("requirements", "path", False, None, "#15", "`requirements`"),
     Key("estimates", "path_or_false", False, None, "#10", "`estimates`"),
+)
+
+REQUIREMENTS_KEYS = (
+    Key("br_namespace", "id_token", False, DEFAULT_BR_NAMESPACE, "#15", "`br_namespace`"),
 )
 
 _KEYS_BY_NAME = {key.name: key for key in KEYS}
@@ -61,6 +71,11 @@ class SiteOverride:
 
 
 @dataclass(frozen=True)
+class RequirementsSettings:
+    br_namespace: str
+
+
+@dataclass(frozen=True)
 class Config:
     path: Path
     config_version: int
@@ -70,6 +85,7 @@ class Config:
     default_unit_hours: int | float
     portfolio_file: Path | None
     fires_list: Path | None
+    requirements: RequirementsSettings
     sites: dict[str, SiteOverride]
 
 
@@ -137,6 +153,7 @@ _KIND_TEXT = {
     "positive_number": "a positive number",
     "path_or_false": "a path string or false",
     "table": "a table",
+    "id_token": f"a name matching {ID_TOKEN_RE.pattern}",
 }
 
 
@@ -179,6 +196,8 @@ def _kind_ok(kind: str, value) -> bool:
         return value is False or (isinstance(value, str) and value != "")
     if kind == "table":
         return isinstance(value, dict)
+    if kind == "id_token":
+        return isinstance(value, str) and ID_TOKEN_RE.fullmatch(value) is not None
     raise ValueError(f"unknown key kind {kind!r}")
 
 
@@ -271,6 +290,11 @@ def load_config(path) -> Config:
     if problem:
         raise fail(problem)
 
+    requirements_table = raw.get("requirements", {})
+    problem = _table_problem(requirements_table, REQUIREMENTS_KEYS, "requirements.")
+    if problem:
+        raise fail(problem)
+
     site_tables = raw.get("site", {})
     for name, table in site_tables.items():
         dotted = f"site.{name}"
@@ -315,5 +339,8 @@ def load_config(path) -> Config:
         default_unit_hours=raw.get("default_unit_hours", _KEYS_BY_NAME["default_unit_hours"].default),
         portfolio_file=portfolio_file,
         fires_list=fires_list,
+        requirements=RequirementsSettings(
+            br_namespace=requirements_table.get("br_namespace", DEFAULT_BR_NAMESPACE),
+        ),
         sites=sites,
     )

@@ -1,0 +1,3 @@
+- UC-1: x {needs: [FR-1, fr-2]}
+- FR-1: y
+- FR-9: still read

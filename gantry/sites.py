@@ -7,15 +7,11 @@ reason and does not stop the others.
 """
 
 import os
-import re
 import stat
 from dataclasses import dataclass
 from pathlib import Path
 
-from gantry.config import ConfigError, PathError, error_reason, read_toml, resolve_path
-
-# devagent's ID_TOKEN_RE (scripts/lib/wbs-parser.py); used with fullmatch.
-ID_TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
+from gantry.config import ID_TOKEN_RE, ConfigError, PathError, error_reason, read_toml, resolve_path
 
 
 @dataclass(frozen=True)
@@ -29,6 +25,12 @@ class SiteEntry:
 class SiteWarning:
     key: str
     message: str
+
+
+def shown(name: str) -> str:
+    """A site name as printed: an invalid name may hold a tab, newline or ESC,
+    so it is escaped, and a line stays one line."""
+    return name if ID_TOKEN_RE.fullmatch(name) else ascii(name)[1:-1]
 
 
 def _read_devagent(dfile):

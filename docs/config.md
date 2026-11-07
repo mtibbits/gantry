@@ -28,27 +28,41 @@ error (exit 2) naming the flag.
 | `default_unit_hours` | positive number, integer or float (0, a negative, infinity or a boolean is refused) | no | `6` | the agent-hours given to a leaf with no estimate | #9 |
 | `portfolio_file` | path | no | none | the installation's portfolio file of shares and capacity | #22 |
 | `fires_list` | path | no | none | the installation's list of things that need the operator now | #30 |
+| `[requirements]` | table | no | none | settings for requirements files | #15 |
 | `[site.<name>]` | table | no | none | per-site overrides, keyed by the devagent `[project.<name>]` table name | #7 |
 
 Keys of a `[site.<name>]` table:
 
 | Key | Type | Required | Default | Meaning | Owner |
 |---|---|---|---|---|---|
-| `requirements` | path | no | none | the site's requirements file | #15 |
+| `requirements` | path | no | none | the site's requirements file ([format](requirements-format.md)); the site is in the trace only when this is set | #15 |
 | `estimates` | path, or `false` | no | discovery | the site's estimates file, read whatever its name and never replaced by discovery; `false` turns discovery off; absent, the planning directory's latest `estimates-YYYY-MM-DD*.md` is read ([the rules](worksite-page.md#the-estimates-file)) | #10 |
+
+Keys of the `[requirements]` table:
+
+| Key | Type | Required | Default | Meaning | Owner |
+|---|---|---|---|---|---|
+| `br_namespace` | name matching `[A-Za-z0-9][A-Za-z0-9_.-]*` (any other value is refused) | no | `life` | the installation namespace: the namespace of the operator's business requirements, which live only in the portfolio file ([format](requirements-format.md#namespaces)) | #15 |
 
 A path is a TOML string. The **Owner** column names the issue that reads the
 key. Every key is type-checked, accepted and resolved now; a key whose owner
 has not landed yet has no effect on the build.
 
-An example: the repository's sample (`samples/gantry.sample.toml`) plus an
-optional site table.
+An example: the repository's sample (`samples/gantry.sample.toml`), which
+puts lighthouse in the trace, plus an optional site table and the
+`[requirements]` table at its default.
 
 ```toml
 config_version = 1
 devagent_config = "devagent/config.toml"
 output_dir = "out"
 as_of = 2026-01-20
+
+[requirements]
+br_namespace = "life"
+
+[site.lighthouse]
+requirements = "lighthouse/requirements.md"
 
 [site.harbor]
 estimates = false
@@ -133,8 +147,19 @@ others, when:
 
 A `[site.<name>]` table naming no devagent project is a **warning**: it is
 printed on stderr and also returned as data with the sites, for later pages
-to list. A missing or invalid devagent config, or one with no `project`
-table or an empty one, is an error: a build with no sites almost always means
+to list.
+
+A site is in the trace only when its `requirements` key is set. Two kinds of
+site cannot be in the trace, because their name cannot be a requirements
+namespace: a site named like `br_namespace` (exactly, case included), and a
+site whose name fails the pattern above. Each is still listed; if its
+`requirements` key is set, the key is not read and a warning on stderr
+names the site and the key (`key 'site.<name>.requirements' is not read:
+... so it cannot be in the trace`). With no key set there is no warning.
+The rules are in [requirements-format.md](requirements-format.md#in-the-trace).
+
+A missing or invalid devagent config, or one with no `project` table or an
+empty one, is an error: a build with no sites almost always means
 a wrong path.
 
 `gantry build` prints one tab-separated line per site: the name, the planning
@@ -204,11 +229,13 @@ settings.
 
 A later issue that needs a key adds it, in its own change, to:
 
-1. the key registry in `gantry/config.py` (`KEYS`, or `SITE_KEYS` for a
-   per-site key), with its type, whether it is required, its default and its
+1. the key registry in `gantry/config.py` (`KEYS`, `SITE_KEYS` for a
+   per-site key, or `REQUIREMENTS_KEYS` for a key of the `[requirements]`
+   table), with its type, whether it is required, its default and its
    owning issue;
 2. a field of the same name on `Config` (or `SiteOverride` for a per-site
-   key) that `load_config` fills; a path key is resolved there like the
+   key, or `RequirementsSettings` for a `[requirements]` key) that
+   `load_config` fills; a path key is resolved there like the
    others (a test checks every registry key has its field);
 3. a row in the tables above, whose Owner cell is the registry's owner
    exactly (a test checks every registry key has its row);

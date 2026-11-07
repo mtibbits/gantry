@@ -55,6 +55,7 @@ def _raw(tail="", **raw):
 
 
 HARBOR = "\n[site.harbor]\n"
+REQ = "\n[requirements]\n"
 
 ERROR_CASES = {
     "missing": (_missing, ["cannot read the config"]),
@@ -80,6 +81,12 @@ ERROR_CASES = {
     "unit-inf": (_raw(default_unit_hours="inf"), ["'default_unit_hours'"]),
     "estimates-true": (_raw(tail=HARBOR + "estimates = true\n"), ["'site.harbor.estimates'"]),
     "estimates-int": (_raw(tail=HARBOR + "estimates = 3\n"), ["'site.harbor.estimates'"]),
+    "br-space": (_raw(tail=REQ + 'br_namespace = "life x"\n'), ["'requirements.br_namespace'"]),
+    "br-colon": (_raw(tail=REQ + 'br_namespace = "a:b"\n'), ["'requirements.br_namespace'"]),
+    "br-empty": (_raw(tail=REQ + 'br_namespace = ""\n'), ["'requirements.br_namespace'"]),
+    "br-int": (_raw(tail=REQ + "br_namespace = 3\n"), ["'requirements.br_namespace'"]),
+    "requirements-not-table": (_raw(requirements='"x"'), ["'requirements'"]),
+    "unknown-requirements-key": (_raw(tail=REQ + "foo = 1\n"), ["'requirements.foo'"]),
 }
 
 
@@ -168,6 +175,23 @@ def test_estimates_false_loads(tmp_path):
     assert c.sites["harbor"].estimates is False
 
 
+def test_br_namespace_default_and_set(tmp_path):
+    c = cfg.load_config(write_config(tmp_path / "a"))
+    assert c.requirements.br_namespace == "life" == cfg.DEFAULT_BR_NAMESPACE
+    c = cfg.load_config(write_config(tmp_path / "b", tail=REQ + 'br_namespace = "biz"\n'))
+    assert c.requirements.br_namespace == "biz"
+    c = cfg.load_config(write_config(tmp_path / "c", tail=REQ))
+    assert c.requirements.br_namespace == "life"
+
+
+def test_neither_new_key_no_trace(tmp_path):
+    from gantry.requirements import in_trace_sites
+
+    c = cfg.load_config(write_config(tmp_path))
+    assert in_trace_sites(c, load_sites(c)[0]) == ({}, [])
+    assert c.requirements.br_namespace == "life"
+
+
 def test_as_of_absent_is_today(tmp_path):
     p = write_config(tmp_path)
     before = date.today()
@@ -203,7 +227,9 @@ def test_rooted_output_dir_is_error_on_windows(tmp_path, capsys):
     assert "'output_dir'" in err and str(p) in err
 
 
-def test_reserved_keys_load_and_resolve(tmp_path):
+# portfolio_file and fires_list are not read yet; requirements (#15) and
+# estimates (#10) are live. Every path key resolves alike.
+def test_path_keys_load_and_resolve(tmp_path):
     folder = tmp_path / "cfg"
     p = write_config(
         folder,
@@ -362,7 +388,7 @@ def test_docs_list_every_key():
     rows = [row for table in md_tables(text) for row in table.rows]
     missing = [
         key.name
-        for key in cfg.KEYS + cfg.SITE_KEYS
+        for key in cfg.KEYS + cfg.SITE_KEYS + cfg.REQUIREMENTS_KEYS
         if not any(row[0] == key.doc_name and key.owner in row for row in rows)
     ]
     assert missing == []
@@ -376,7 +402,18 @@ def test_every_key_has_a_field():
     site_fields = {f.name for f in dataclasses.fields(cfg.SiteOverride)}
     missing = [key.name for key in cfg.KEYS if {"site": "sites"}.get(key.name, key.name) not in fields]
     missing += [key.name for key in cfg.SITE_KEYS if key.name not in site_fields]
+    requirements_fields = {f.name for f in dataclasses.fields(cfg.RequirementsSettings)}
+    missing += [key.name for key in cfg.REQUIREMENTS_KEYS if key.name not in requirements_fields]
     assert missing == []
+
+
+def test_id_token_re_has_one_home():
+    import gantry.cli
+    import gantry.sites
+
+    assert gantry.sites.ID_TOKEN_RE is cfg.ID_TOKEN_RE
+    assert cfg.ID_TOKEN_RE.pattern == "[A-Za-z0-9][A-Za-z0-9_.-]*"
+    assert gantry.cli.shown is gantry.sites.shown
 
 
 def test_config_doc_estimates_key():
@@ -385,3 +422,15 @@ def test_config_doc_estimates_key():
     assert "`false` turns discovery off" in row
     assert "read whatever its name" in row
     assert "no effect on the build" not in row
+
+
+def test_config_doc_requirements_rows():
+    doc = (ROOT / "docs" / "config.md").read_bytes().decode("utf-8")
+    lines = doc.splitlines()
+    row = next(line for line in lines if line.startswith("| `requirements` |"))
+    assert "requirements-format.md" in row and "in the trace" in row
+    row = next(line for line in lines if line.startswith("| `br_namespace` |"))
+    assert "`life`" in row
+    sites = " ".join(doc.split("## Sites", 1)[1].split("\n## ", 1)[0].split())
+    assert "cannot be in the trace" in sites
+    assert "[site.lighthouse]" in doc
