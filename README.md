@@ -33,6 +33,9 @@ page shows: [docs/worksite-page.md](docs/worksite-page.md).
 The requirements file format, its IDs and what its reader reports:
 [docs/requirements-format.md](docs/requirements-format.md).
 
+Gantry's own requirements, in that format:
+[docs/requirements.md](docs/requirements.md).
+
 A commit check keeps real pages, configs, local paths and private names out of
 this repository: [docs/commit-check.md](docs/commit-check.md).
 
