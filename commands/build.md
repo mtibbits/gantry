@@ -48,5 +48,6 @@ each `'` inside it as `'\''`, and change nothing else.
 Relay the output (stdout and stderr) and the exit status to the user
 unchanged: exit 0 is success, the index and at least one site page were
 written (sites not built and warnings do not change it); 1 is a config
-error, no site page was written, or the output folder cannot be written;
+error, no site page was written, or the index or the output folder cannot
+be written;
 2 is a usage error.

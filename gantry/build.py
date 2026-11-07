@@ -193,12 +193,13 @@ def write_all(result):
     Returns (result, written paths, index error). A page that cannot be
     written turns its site into a not-built one in the returned result,
     which the index is rendered from. When the output folder itself cannot
-    be made, nothing is written and the index error says why.
+    be made, nothing is written and the index error says why; when only
+    sites/ cannot be, each page fails on its own and the index is written.
     """
     out = result.config.output_dir
     folder = out / "sites"
     try:
-        folder.mkdir(parents=True, exist_ok=True)
+        out.mkdir(parents=True, exist_ok=True)
     except OSError as e:
         return result, [], _why(e)
     written, pages, failed = [], {}, {}

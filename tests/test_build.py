@@ -424,6 +424,21 @@ def test_unwritable_output_still_reports_not_built(tmp_path, monkeypatch):
     assert out.read_bytes() == b"a file, not a folder"
 
 
+def test_unwritable_sites_folder_still_writes_index(tmp_path, monkeypatch):
+    copy = copy_samples(tmp_path)
+    (copy / "out").mkdir()
+    (copy / "out" / "sites").write_bytes(b"a file, not a folder")
+    code, out, stdout, stderr = demo_build(tmp_path, monkeypatch, copy=copy)
+    assert (code, stdout) == (1, f"{out / 'index.html'}\n")
+    lines = stderr.splitlines()
+    for name in READABLE:
+        assert any(line.startswith(f"gantry: warning: site {name} is not built: cannot write sites/{name}.html: ")
+                   for line in lines)
+    assert lines[-1] == "gantry: error: no site page was written"
+    assert "index.html" not in stderr
+    assert (out / "sites").read_bytes() == b"a file, not a folder"
+
+
 def test_parse_error_isolated(tmp_path, monkeypatch):
     real = build.read_wbs
 
