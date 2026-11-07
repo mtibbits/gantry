@@ -46,8 +46,7 @@ ID here is in another namespace.
   finish without the operator, marked by one configurable leaf.
 - **build machine:** the machine that builds an installation's pages.
 - **priority (P0 to P4):** a leaf's WBS priority key, where a lower number
-  is more urgent; devagent accepts P1 to P4 today, and P0 is the new level
-  above P1.
+  is more urgent and P0 sits above P1.
 - **`est`:** a leaf's WBS estimate key.
 - **`h:`:** a WBS key scoring how much of the operator's attention a leaf
   needs, an integer from 0 (none) to 4 (the most).
