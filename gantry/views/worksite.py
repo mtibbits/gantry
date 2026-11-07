@@ -9,12 +9,12 @@ template. docs/worksite-page.md describes the page.
 
 import math
 import re
-from importlib import resources
 
-from gantry import network, priority, schedule
+from gantry import network, priority, render, schedule
 from gantry.deps import refs
 from gantry.est_rules import classify_est
 from gantry.inputs import NO_TIERS, UNEST_WHAT, has_tiers, scheduled, site_totals
+from gantry.links import leaf_anchor
 from gantry.model import FINISHED_GLYPHS, HOURS_PER_DAY, Estimate, Models
 from gantry.render import MODEL_CLASSES, Markup, embed_json, esc, fill, model_class, slack_class, state_class
 
@@ -63,6 +63,9 @@ CHAIN_LINE = "With {lanes}, the dependency chain sets the finish."
 CAPACITY_LINE = "With {lanes}, capacity sets the finish."
 STATE_MARKS = {"in_progress": "in progress", "stuck": "stuck", "blocked_external": "blocked", "parked": "parked"}
 NO_EPIC = "no epic"
+FINISHED_HEADING = "Finished leaves"
+NO_ISSUE_ID = "no issue id"
+NO_FINISHED = "No leaf is finished yet."
 # The states a page schedules as if an agent could start them.
 HELD_STATES = ("stuck", "blocked_external", "parked")
 
@@ -134,6 +137,19 @@ def _lanes_text(k):
 def _round(x):
     """Half up, as the page script's Math.round; round() is half to even (U6)."""
     return math.floor(x + 0.5)
+
+
+def plan_finish_day(items, p):
+    """The working day the plan `p` ends in, counting from 1: its latest finish
+    over HOURS_PER_DAY, rounded up, so 8 hours at 6 a day ends in day 2; or
+    None with no items. The index dates a finish by it (#11)."""
+    if not items:
+        return None
+    end = 0
+    for item in items:
+        end = max(end, p[item["key"]][1] / HOURS_PER_DAY)
+    # round() first, so a float a hair over a whole day is not a day later.
+    return max(1, math.ceil(round(end, 9)))
 
 
 def summary_text(items, p, path, lanes, unest_site, unest_path):
@@ -269,7 +285,7 @@ def page_model(site, data, *, default_unit_hours, inputs=None) -> dict:
                                 or leaf.state == "in_progress"
                                 or starts[k] < HORIZON_DAYS * HOURS_PER_DAY)
         leaves.append({
-            "key": k, "issue": leaf.issue, "outline": leaf.outline, "title": leaf.title,
+            "key": k, "anchor": leaf_anchor(k), "issue": leaf.issue, "outline": leaf.outline, "title": leaf.title,
             "lane": lane_of[leaf.epic], "state": leaf.state, "sc": state_class(leaf.state),
             "mark": STATE_MARKS.get(leaf.state), "priority": leaf.priority, "eff": eff[k],
             "prio_mark": _prio_mark(leaf),
@@ -319,6 +335,13 @@ def page_model(site, data, *, default_unit_hours, inputs=None) -> dict:
     parts = [f"{e['quantity']:g} {unit} ({_count_line(e['leaves'], '{n} leaves', '1 leaf')})"
              for unit, e in totals.non_time.items()]
     empty = not data.leaves and not data.rows
+    held_out = set(data.held_out)
+    drawn = set(net.nodes)
+    # Each leaf the network does not draw anchors on an element of its own, in WBS order.
+    anchors = {"schedule": [leaf_anchor(k) for k in keys if k not in drawn],
+               "held": [leaf_anchor(leaf.key) for leaf in data.leaves if leaf.open and leaf.key in held_out]}
+    finished = [{"key": leaf.key, "issue": leaf.issue, "title": leaf.title, "anchor": leaf_anchor(leaf.key)}
+                for leaf in data.leaves if not leaf.open]
     if items:
         status = None
     elif empty:
@@ -335,6 +358,9 @@ def page_model(site, data, *, default_unit_hours, inputs=None) -> dict:
         "lanes_max": LANES_MAX,
         "hours_per_day": HOURS_PER_DAY,
         "leaves": leaves,
+        "anchors": anchors,
+        "finished": finished,
+        "finish_day": plan_finish_day(items, planned),
         "schedule": {"items": items},
         "network": {
             "nodes": list(net.nodes),
@@ -387,13 +413,8 @@ TITLE_MAX = 40
 UNSAFE_SCRIPT_RE = re.compile(r"</script|<!--", re.IGNORECASE)
 
 
-def _asset(name):
-    """A packaged page asset's text, read as UTF-8 bytes."""
-    return resources.files("gantry").joinpath(name).read_bytes().decode("utf-8")
-
-
 def _script(name):
-    text = _asset(name)
+    text = render.asset(name)
     # Either would end or bend the inline script that holds it.
     if UNSAFE_SCRIPT_RE.search(text):
         raise ValueError(f"{name} must not hold </script or <!--")
@@ -577,7 +598,7 @@ def _network_svg(m):
         leaf, (x, yy) = leaves[n], pos[n]
         classes = (["node", leaf["sclass"], leaf["sc"]] + (["compact"] if n in compact else [])
                    + (["unest"] if leaf["unestimated"] else []))
-        out.append(f'<g class="{" ".join(classes)}" data-item="{esc(n)}" tabindex="0">')
+        out.append(f'<g class="{" ".join(classes)}" id="{esc(leaf["anchor"])}" data-item="{esc(n)}" tabindex="0">')
         tip = f"{n} {leaf['title']}"
         if leaf["priority"] is not None:
             tip += f"{DOT}priority {leaf['priority']}"
@@ -686,13 +707,27 @@ def _mono(keys, sep=", "):
     return Markup(sep.join(f'<span class="mono">{esc(k)}</span>' for k in keys))
 
 
-def render_page(site, data, *, default_unit_hours, inputs=None) -> str:
+def _anchors(anchors):
+    """Empty static spans, one per anchor: a link lands on the heading that holds them."""
+    return Markup("".join(f'<span class="anchor" id="{esc(a)}"></span>' for a in anchors))
+
+
+def _finished(m):
+    if not m["finished"]:
+        return Markup(f"<p>{esc(NO_FINISHED)}</p>")
+    lines = "".join(f'<li id="{esc(f["anchor"])}">{_mono([f["key"]])}{DOT}'
+                    f'{esc(f["issue"] if f["issue"] is not None else NO_ISSUE_ID)}{DOT}{esc(f["title"])}</li>'
+                    for f in m["finished"])
+    return Markup(f'<ul class="panel finished">{lines}</ul>')
+
+
+def render_page(site, data, *, default_unit_hours, inputs=None, stamp="") -> str:
     """The worksite page for one site's parsed WBS.md, as one HTML text."""
-    return render_model(page_model(site, data, default_unit_hours=default_unit_hours, inputs=inputs))
+    return render_model(page_model(site, data, default_unit_hours=default_unit_hours, inputs=inputs), stamp=stamp)
 
 
-def render_model(m) -> str:
-    """The worksite page for a page_model result, as one HTML text."""
+def render_model(m, *, stamp="") -> str:
+    """The worksite page for a page_model result, as one HTML text; `stamp` is the build stamp, if any."""
     site = m["site"]
     net = m["network"]
     items = m["schedule"]["items"]
@@ -715,8 +750,9 @@ def render_model(m) -> str:
     panel = m["panel"] or [NOTHING_MISSING]
     limits_svg, limits_caption = _limits_svg(m)
     return fill(
-        _asset("templates/worksite.html"),
+        render.asset("templates/worksite.html"),
         SITE=site,
+        STAMP=render.stamp_html(stamp),
         STATUS=_note(status),
         ESTIMATES=Markup(f'<p class="label">{esc(m["notes"]["estimates"])}</p>') if m["notes"]["estimates"] else "",
         NON_TIME=_note(m["notes"]["non_time"]),
@@ -745,6 +781,10 @@ def render_model(m) -> str:
         P0=Markup(f'<p class="note">{esc(P0_NOTE)}{_mono(m["notes"]["p0"])}</p>') if m["notes"]["p0"] else "",
         LANE_OPTIONS=Markup(options),
         PANEL=Markup("".join(f"<li>{esc(line)}</li>" for line in panel)),
+        SCHEDULE_ANCHORS=_anchors(m["anchors"]["schedule"]),
+        HELD_ANCHORS=_anchors(m["anchors"]["held"]),
+        FINISHED_HEADING=FINISHED_HEADING,
+        FINISHED=_finished(m),
         DATA=embed_json(m),
         SCHEDULE_JS=_script("static/schedule.js"),
         PAGE_JS=_script("static/worksite.js"),

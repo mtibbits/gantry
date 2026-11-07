@@ -82,11 +82,12 @@ def test_problem_sites_listed_run_exits_0(tmp_path, capsys):
     assert problems[BAD_NAME] == "name does not match [A-Za-z0-9][A-Za-z0-9_.-]*"
     capsys.readouterr()
     assert main(["build", "--config", str(gantry_config)]) == 0
-    lines = capsys.readouterr().out.splitlines()
-    fields = {line.split("\t")[0]: line.split("\t") for line in lines}
-    assert fields[NODIR][2].startswith("cannot read: ")
-    assert fields[BAD_NAME][2].startswith("cannot read: ")
-    assert len(lines) == len(sample_projects()) + 2
+    captured = capsys.readouterr()
+    # The problem sites are not built and say why; the readable ones are built.
+    err = captured.err.splitlines()
+    assert f"gantry: warning: site {NODIR} is not built: no devdoc_dir" in err
+    assert f"gantry: warning: site {BAD_NAME} is not built: name does not match [A-Za-z0-9][A-Za-z0-9_.-]*" in err
+    assert len(captured.out.splitlines()) == len(READABLE) + 1
 
 
 def test_control_character_names_print_escaped(tmp_path, capsys):
@@ -105,16 +106,14 @@ def test_control_character_names_print_escaped(tmp_path, capsys):
     assert [s.name for s in sites][-4:] == ["a\tb", "c\nd", "e\x1bf", "g\x1bh"]
     capsys.readouterr()
     assert main(["build", "--config", str(gantry_config)]) == 0
-    out = capsys.readouterr().out
-    assert "\x1b" not in out
-    lines = out.split("\n")
+    captured = capsys.readouterr()
+    assert "\x1b" not in captured.out + captured.err
+    lines = captured.err.split("\n")
     assert lines.pop() == ""
-    assert len(lines) == len(sites)
-    fields = [line.split("\t") for line in lines]
-    assert all(len(f) == 3 for f in fields), fields
-    assert [f[0] for f in fields] == sample_projects() + ["a\\tb", "c\\nd", "e\\x1bf", "g\\x1bh"]
-    for name, _, status in fields[-4:]:
-        assert status == "cannot read: name does not match [A-Za-z0-9][A-Za-z0-9_.-]*", (name, status)
+    # One line per site not built: the two unreadable samples, then the four names.
+    assert len(lines) == len(sites) - len(READABLE)
+    prefix, reason = "gantry: warning: site ", " is not built: name does not match [A-Za-z0-9][A-Za-z0-9_.-]*"
+    assert lines[-4:] == [prefix + name + reason for name in ("a\\tb", "c\\nd", "e\\x1bf", "g\\x1bh")]
 
 
 def test_unmatched_site_table_warns(tmp_path, capsys):
@@ -131,7 +130,8 @@ def test_unmatched_site_table_warns(tmp_path, capsys):
     captured = capsys.readouterr()
     assert "gantry: warning:" in captured.err
     assert f"site.{FERRY}" in captured.err
-    assert len(captured.out.splitlines()) == len(sample_projects())
+    # Every readable site's page, then the index.
+    assert len(captured.out.splitlines()) == len(READABLE) + 1
 
 
 def test_sample_site_problems():

@@ -162,27 +162,27 @@ A missing or invalid devagent config, or one with no `project` table or an
 empty one, is an error: a build with no sites almost always means
 a wrong path.
 
-`gantry build` prints one tab-separated line per site: the name, the planning
-directory (`-` when it cannot be resolved), and either `cannot read: <reason>`
-or the counts from its `WBS.md`: `open N, finished M` (leaf counts), then
-`; ` and `<kind> <count>` for each reported kind with a count, joined by `, `
-(for example `open 6, finished 3; no_issue 3, unresolved_ref 1`; with nothing
-reported, just `open 8, finished 6`). The kinds and the reading rules are in
-[worksite-page.md](worksite-page.md#reading-wbsmd). A name that fails the pattern above is printed
-escaped (a tab as `\t`, an ESC as `\x1b`), so each site stays one line of
-three fields. The listing writes nothing.
+`gantry build` builds every site: each site's worksite page to
+`<output_dir>/sites/<name>.html`, then `<output_dir>/index.html`, which
+lists every site with its open leaves, finish and report count, or why it
+was not built. It prints one absolute path per file written. A site that
+cannot be built is listed on the index and on stderr with its reason, and
+does not stop the others; a name that fails the pattern above is printed
+escaped (a tab as `\t`, an ESC as `\x1b`). The reading rules are in
+[worksite-page.md](worksite-page.md#reading-wbsmd).
 
-`gantry build --site NAME` writes that site's worksite page to
-`<output_dir>/sites/<NAME>.html` instead, creating `<output_dir>/sites/`
-when it is missing; [worksite-page.md](worksite-page.md#on-the-command-line)
-has the page and the errors. The page's durations use `default_unit_hours`.
+`gantry build --site NAME` writes only that site's worksite page, and no
+index, creating `<output_dir>/sites/` when it is missing;
+[worksite-page.md](worksite-page.md#every-site-and-the-index) has the
+pages, the index, the reasons and the errors. The page's durations use
+`default_unit_hours`.
 
 ## Exit codes
 
 | Code | Meaning |
 |---|---|
-| 0 | the config is valid and at least one site is listed (site problems and warnings do not change it), or `--site` wrote its page |
-| 1 | a config or data error: the installation config or devagent's config is missing, unreadable, invalid or refused; or, with `--site`, a site that is not configured or cannot be built, a render error, or a page that cannot be written |
+| 0 | the index was written and at least one site page was written (sites not built and warnings do not change it), or `--site` wrote its page |
+| 1 | a config error: the installation config or devagent's config is missing, unreadable, invalid or refused; no site page was written (the index is still written); the index or the output folder cannot be written; or, with `--site`, a site that is not configured, clashes in case with an earlier site or cannot be built, a render error, or a page that cannot be written |
 | 2 | a usage error, such as a missing `--config` |
 
 ## Supported platforms

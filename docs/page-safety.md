@@ -124,7 +124,9 @@ every problem, or returns `None`.
 A valueless attribute counts as empty. Each candidate in `srcset` is judged
 by its first token. An `href` on an `a` may also be a relative link: no
 scheme, no leading slash or backslash, no query, and no space or control
-character inside.
+character inside. The page rules allow `a` and `href` for exactly that: the
+index links each site page, and a view links a leaf's anchor, only by
+relative links.
 
 | Passes | Fails |
 |---|---|

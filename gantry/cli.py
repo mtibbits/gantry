@@ -1,20 +1,35 @@
 """The gantry command line: `gantry build --config FILE [--site NAME]`.
 
-There is no default config location: `--config` is required, and nothing here
-reads the environment or the home folder to find one. Exit codes: 0 success,
-1 a config, data, render or write error, 2 a usage error (argparse's own).
+`gantry build` builds every configured site's page and the index; with
+`--site` it builds that one page and no index. There is no default config
+location: `--config` is required, and nothing here reads the environment or
+the home folder to find one. Exit codes:
+
+- 0: the full build wrote the index and at least one site page; `--site`
+  wrote its page;
+- 1: a config error; the full build wrote no site page (the index is still
+  written) or cannot write the index or the output folder; `--site` names no
+  site, a case clash, a site that cannot be built, a render error or a page
+  that cannot be written;
+- 2: a usage error (argparse's own).
 """
 
 import argparse
-import os
 import sys
-import tempfile
 
+from gantry.build import (
+    build_all,
+    clashes,
+    read_site,
+    render_reason,
+    render_site,
+    site_list,
+    write_all,
+    write_page,
+)
 from gantry.config import ConfigError, error_reason, load_config
-from gantry.model import REPORT_KINDS, SiteData
-from gantry.requirements import in_trace_sites
-from gantry.sites import load_sites, shown
-from gantry.wbs_stopgap import read_wbs
+from gantry.sites import shown
+from gantry.stamp import config_roots, stamp_text
 
 
 def _parser():
@@ -25,10 +40,11 @@ def _parser():
     commands = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
     build = commands.add_parser(
         "build",
-        help="list the sites an installation config names, or write one site's worksite page",
-        description="List the sites an installation config names, with each WBS.md's "
-        "leaf and report counts; with --site, write that site's worksite page to "
-        "<output_dir>/sites/<name>.html instead.",
+        help="build every site's worksite page and the index, or one site's page",
+        description="Build every site an installation config names: each site's page to "
+        "<output_dir>/sites/<name>.html, then <output_dir>/index.html. A site that cannot be "
+        "built is listed on the index with its reason. With --site, build only that site's "
+        "page and no index.",
     )
     build.add_argument(
         "--config",
@@ -39,7 +55,7 @@ def _parser():
     build.add_argument(
         "--site",
         metavar="NAME",
-        help="write that site's worksite page instead of listing",
+        help="build only that site's worksite page, and no index",
     )
     return parser
 
@@ -52,50 +68,6 @@ def _utf8_streams():
             stream.reconfigure(encoding="utf-8", errors="backslashreplace", newline="\n")
 
 
-def status_text(data: SiteData) -> str:
-    """A read site's third field: leaf counts, then each reported kind's count."""
-    unreadable = [e for e in data.report if e.kind == "site_unreadable"]
-    if unreadable:
-        return f"cannot read: {unreadable[0].message}"
-    n_open = sum(leaf.open for leaf in data.leaves)
-    text = f"open {n_open}, finished {len(data.leaves) - n_open}"
-    counts = {kind: 0 for kind in REPORT_KINDS}
-    for entry in data.report:
-        counts[entry.kind] += 1
-    found = [f"{kind} {count}" for kind, count in counts.items() if count]
-    return f"{text}; {', '.join(found)}" if found else text
-
-
-def _write_page(folder, name, text):
-    """Write <folder>/<name>.html through a temporary file and a rename: no partial page."""
-    folder.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=folder, prefix=f".{name}.", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(text.encode("utf-8"))
-        # mkstemp makes the file 0600; a page gets the mode any new file
-        # gets, so a server on the private network can read it.
-        umask = os.umask(0)
-        os.umask(umask)
-        os.chmod(tmp, 0o666 & ~umask)
-        os.replace(tmp, folder / f"{name}.html")
-    except BaseException:
-        # fdopen closed the descriptor, on success or failure.
-        os.unlink(tmp)
-        raise
-
-
-def site_data(site):
-    """(data, None) for a site a page can be built from, else (None, why not)."""
-    if site.problem is not None:
-        return None, site.problem
-    data = read_wbs(site.planning_dir / "WBS.md", site.name)
-    unreadable = [e for e in data.report if e.kind == "site_unreadable"]
-    if unreadable:
-        return None, unreadable[0].message
-    return data, None
-
-
 def _build_site(config, sites, name):
     def fail(message):
         print(f"gantry: error: --site {shown(name)}: {message}", file=sys.stderr)
@@ -104,27 +76,53 @@ def _build_site(config, sites, name):
     site = next((s for s in sites if s.name == name), None)
     if site is None:
         return fail(f"no such site in {config.devagent_config}")
-    data, problem = site_data(site)
+    roots = config_roots(config, sites)
+    # The full build's read: its case-clash rule, and a parse error stops only this site.
+    inputs, problem = read_site(site, config, clashes(sites).get(site.name), roots=roots)
     if problem is not None:
         return fail(f"cannot build: {problem}")
-    # The view and the inputs are imported only here: listing sites never loads them.
-    from gantry.inputs import apply_inputs
-    from gantry.views import worksite
-
     try:
-        inputs = apply_inputs(site, data, config)
-        text = worksite.render_page(site.name, inputs.data, default_unit_hours=config.default_unit_hours,
-                                    inputs=inputs)
+        text, _ = render_site(site.name, inputs, config, stamp_text(config, sites))
     except Exception as e:
-        # The text may quote a record value: escape it so the message stays one line.
-        return fail(f"render error: {type(e).__name__}: {ascii(str(e))[1:-1]}")
+        # One line, naming no configured root by its path.
+        return fail(render_reason(e, roots))
     folder = config.output_dir / "sites"
     page = folder / f"{site.name}.html"
     try:
-        _write_page(folder, site.name, text)
+        write_page(folder, site.name, text)
     except OSError as e:
         return fail(f"cannot write {page}: {error_reason(e)}")
     print(page)
+    return 0
+
+
+def _warn(warnings):
+    # In this issue the build only warns; reading the files is the trace's (#19).
+    for warning in warnings:
+        print(f"gantry: warning: {warning.message}", file=sys.stderr)
+
+
+def _build_all(config):
+    try:
+        result = build_all(config)
+    except ConfigError as e:
+        print(f"gantry: error: {e}", file=sys.stderr)
+        return 1
+    _warn(result.warnings)
+    result, written, index_error = write_all(result)
+    index = config.output_dir / "index.html"
+    for path in written:
+        print(path)
+    for s in result.summaries:
+        if s.status != "built":
+            print(f"gantry: warning: site {shown(s.name)} is not built: {s.reason}", file=sys.stderr)
+    if index_error is not None:
+        # The index, or the output folder itself, cannot be written.
+        print(f"gantry: error: cannot write {index}: {index_error}", file=sys.stderr)
+        return 1
+    if not result.pages:
+        print("gantry: error: no site page was written", file=sys.stderr)
+        return 1
     return 0
 
 
@@ -132,26 +130,14 @@ def _build(args):
     _utf8_streams()
     try:
         config = load_config(args.config)
-        sites, warnings = load_sites(config)
+        if args.site is None:
+            return _build_all(config)
+        sites, warnings = site_list(config)
     except ConfigError as e:
         print(f"gantry: error: {e}", file=sys.stderr)
         return 1
-    # In this issue the build only warns; reading the files is the trace's (#19).
-    warnings += in_trace_sites(config, sites)[1]
-    for warning in warnings:
-        print(f"gantry: warning: {warning.message}", file=sys.stderr)
-    if args.site is not None:
-        return _build_site(config, sites, args.site)
-    # One tab-separated line per site; the listing writes nothing to disk.
-    for site in sites:
-        name = shown(site.name)
-        where = str(site.planning_dir) if site.planning_dir is not None else "-"
-        if site.problem is None:
-            status = status_text(read_wbs(site.planning_dir / "WBS.md", site.name))
-        else:
-            status = f"cannot read: {site.problem}"
-        print(f"{name}\t{where}\t{status}")
-    return 0
+    _warn(warnings)
+    return _build_site(config, sites, args.site)
 
 
 def main(argv=None):

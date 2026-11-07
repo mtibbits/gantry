@@ -14,9 +14,9 @@ three kinds of planning page:
 - a **daily screen** for your phone: anything on fire, then today's tasks to
   start warming up on.
 
-Status: the worksite page for one site is built
-(`gantry build --config FILE --site NAME`); every site at once, the index and
-the other pages are not built yet.
+Status: `gantry build --config FILE` builds every site's worksite page and
+the index that links them (`--site NAME` builds one site's page); the other
+pages are not built yet.
 
 ## Your data stays private
 

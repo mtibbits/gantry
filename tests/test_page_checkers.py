@@ -71,6 +71,17 @@ def test_page_rules_well_formed():
     assert not [a for a in checked["allowed_attrs"] if a.startswith("on")]
 
 
+def test_page_rules_allow_relative_links():
+    # The index links each site page, and each leaf has an anchor (#11).
+    assert "a" in RULES["allowed_tags"]
+    assert "href" in RULES["allowed_attrs"]
+    assert page_findings(ext_page(body='<a href="sites/x.html#leaf-1">x</a>')) == []
+    # Allowed as a tag, an a still loads nothing: the resource check refuses
+    # every href that is not relative (the *_link cases below stay red).
+    for href in ("https://example.invalid/x.html", "/x", "/" + "/example.invalid/x", "javascript:x"):
+        assert any("href on <a>" in line for line in external_lines(_link(href))), href
+
+
 def _with(key, value):
     rules = copy.deepcopy(RULES)
     rules[key] = value

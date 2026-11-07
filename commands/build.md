@@ -1,5 +1,5 @@
 ---
-description: List the worksites a Gantry installation config names, with each WBS.md's leaf and report counts (this command writes no page; gantry build --site writes one site's page)
+description: Build every worksite page a Gantry installation config names, and the index that links them
 argument-hint: "<installation config>"
 allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/tools/gantry-build.sh"), Bash(bash "${CLAUDE_PLUGIN_ROOT}/tools/gantry-build.sh" *)
 ---
@@ -8,11 +8,13 @@ allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/tools/gantry-build.sh"), Bash(ba
 
 **Usage:** `/gantry:build <installation config>`
 
-Loads the installation config, checks it, and prints one line per site that
-devagent's config names: the site, its planning directory, and either its
-`WBS.md`'s open and finished leaf counts with the count of each reported
-problem, or why the site cannot be read. It writes nothing: building one
-site's page is `gantry build --site`, which this command does not pass yet.
+Loads the installation config, checks it, and builds every site that
+devagent's config names: each site's worksite page under
+`<output_dir>/sites/`, then `<output_dir>/index.html`, which links them. It
+prints one absolute path per file written. A site that cannot be built is
+listed on the index and on stderr with its reason, and does not stop the
+others. Building one site's page alone is `gantry build --site`, which this
+command does not pass.
 
 The argument the user gave, verbatim, is between the two marker lines:
 
@@ -44,5 +46,8 @@ each `'` inside it as `'\''`, and change nothing else.
 - Do not chain other commands before or after it.
 
 Relay the output (stdout and stderr) and the exit status to the user
-unchanged: exit 0 is success (site problems and warnings do not change it),
-1 is a config or data error, 2 is a usage error.
+unchanged: exit 0 is success, the index and at least one site page were
+written (sites not built and warnings do not change it); 1 is a config
+error, no site page was written, or the index or the output folder cannot
+be written;
+2 is a usage error.

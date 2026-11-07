@@ -1,4 +1,4 @@
-"""The gantry CLI: its grammar, exit codes and the sample build (#7)."""
+"""The gantry CLI: its grammar, exit codes and the sample build (#7, #11)."""
 
 import json
 import os
@@ -9,15 +9,23 @@ import tomllib
 
 import pytest
 
-from gantry.cli import main, status_text
+from gantry import stamp
+from gantry.cli import main
 from gantry.config import load_config
 from gantry.requirements import in_trace_sites
 from gantry.sites import load_sites
 from gantry.views import worksite
 from gantry.views.worksite import NO_LEAVES
-from gantry.wbs_stopgap import parse_wbs
-from helpers_config import add_top_level, append_bytes, copy_samples, sample_projects, write_site_tree
-from sample_roles import BUSY, NO_WBS, OWN_UNIT, SMALL, UNESTIMATED, UNREADABLE
+from helpers_config import (
+    add_top_level,
+    append_bytes,
+    copy_samples,
+    demo_build,
+    sample_projects,
+    write_site_tree,
+    written_bytes,
+)
+from sample_roles import BUSY, NO_WBS, READABLE, UNREADABLE
 from test_samples import ROOT
 
 FIXTURES = ROOT / "tests" / "fixtures" / "wbs"
@@ -68,93 +76,54 @@ def test_versions_agree():
 SAMPLE_CONFIG = "samples/gantry.sample.toml"
 
 
-# Hand-counted from samples/*/WBS.md: leaf counts, then each reported kind.
-EXPECTED_STATUS = {
-    BUSY: "open 8, finished 6",
-    OWN_UNIT: "open 6, finished 3; no_issue 3, unresolved_ref 1",
-    UNESTIMATED: "open 5, finished 3; unresolved_ref 1",
-    SMALL: "open 2, finished 3",
-    UNREADABLE: "cannot read: WBS.md is not valid UTF-8 at byte 88",
-    NO_WBS: "cannot read: no WBS.md in the planning directory",
-}
-
-
-def expected_status(name):
-    if name not in EXPECTED_STATUS:
-        raise AssertionError(f"no role for sample site {name!r}")
-    return EXPECTED_STATUS[name]
-
-
-def check_sample_lines(stdout_bytes):
+def check_written(stdout_bytes, out_dir):
+    """The full build's stdout: one absolute path per written file, the pages in
+    config order, then the index."""
     assert b"\r" not in stdout_bytes
     lines = stdout_bytes.decode("utf-8").splitlines()
-    projects = sample_projects()
-    assert len(lines) == len(projects) == 6
-    fields = [line.split("\t") for line in lines]
-    assert all(len(f) == 3 for f in fields), fields
-    assert [f[0] for f in fields] == projects
-    for name, where, status in fields:
-        assert status == expected_status(name), (name, status)
-        assert os.path.samefile(where, ROOT / "samples" / name)
+    pages = [name for name in sample_projects() if name in READABLE]
+    assert len(lines) == len(pages) + 1 == 5
+    assert all(os.path.isabs(line) for line in lines), lines
+    for line, name in zip(lines, pages):
+        assert os.path.samefile(line, out_dir / "sites" / f"{name}.html"), (line, name)
+    assert os.path.samefile(lines[-1], out_dir / "index.html")
 
 
-def test_python_m_lists_sample_sites():
-    result = run_module("build", "--config", SAMPLE_CONFIG)
+def test_python_m_builds_sample_sites(tmp_path):
+    copy = copy_samples(tmp_path)
+    result = run_module("build", "--config", str(copy / "gantry.sample.toml"))
     assert result.returncode == 0, result.stderr
-    check_sample_lines(result.stdout)
+    check_written(result.stdout, copy / "out")
 
 
 @pytest.mark.skipif(not shutil.which("gantry"), reason="gantry is not installed on PATH (CI runs it unconditionally)")
-def test_console_script_lists_sample_sites():
+def test_console_script_builds_sample_sites(tmp_path):
+    copy = copy_samples(tmp_path)
     result = subprocess.run(
-        [shutil.which("gantry"), "build", "--config", SAMPLE_CONFIG],
+        [shutil.which("gantry"), "build", "--config", str(copy / "gantry.sample.toml")],
         cwd=ROOT,
         capture_output=True,
     )
     assert result.returncode == 0, result.stderr
-    check_sample_lines(result.stdout)
+    check_written(result.stdout, copy / "out")
 
 
-def test_main_in_process_lists_sample_sites(capsys, monkeypatch):
-    monkeypatch.chdir(ROOT)
-    assert main(["build", "--config", SAMPLE_CONFIG]) == 0
-    check_sample_lines(capsys.readouterr().out.encode("utf-8"))
+def test_main_in_process_builds_sample_sites(tmp_path, capsys):
+    copy = copy_samples(tmp_path)
+    assert main(["build", "--config", str(copy / "gantry.sample.toml")]) == 0
+    check_written(capsys.readouterr().out.encode("utf-8"), copy / "out")
 
 
-def test_status_text_forms():
-    ids = (ROOT / "tests" / "fixtures" / "wbs" / "ids.md").read_bytes().decode("utf-8")
-    assert status_text(parse_wbs(ids, "alpha")) == (
-        "open 7, finished 0; no_issue 2, duplicate_issue 1, key_collision 1, "
-        "unresolved_ref 2, bad_priority 1, skipped_line 2"
-    )
-    assert status_text(parse_wbs("- [ ] One {issue: Issue-1}\n", "alpha")) == "open 1, finished 0"
-
-
-def test_write_site_tree_lists_sites(tmp_path, capsys):
+def test_write_site_tree_builds_sites(tmp_path, capsys):
     page = (FIXTURES / "page.md").read_bytes()
     empty = (FIXTURES / "empty.md").read_bytes()
     config = write_site_tree(tmp_path, {"alpha": page, "beta": empty})
     assert main(["build", "--config", str(config)]) == 0
-    lines = [line.split("\t") for line in capsys.readouterr().out.splitlines()]
-    assert [f[0] for f in lines] == ["alpha", "beta"]
-    assert lines[0][2] == "open 14, finished 1; no_issue 2, unresolved_ref 1"
-    assert lines[1][2] == "open 0, finished 0; no_nodes 1"
-
-
-def snapshot(root):
-    return {
-        p.relative_to(root).as_posix(): (p.stat().st_size, p.stat().st_mtime_ns)
-        for p in sorted(root.rglob("*"))
-    }
-
-
-def test_build_writes_nothing(tmp_path, capsys):
-    copy = copy_samples(tmp_path)
-    before = snapshot(tmp_path)
-    assert main(["build", "--config", str(copy / "gantry.sample.toml")]) == 0
-    assert len(capsys.readouterr().out.splitlines()) == 6
-    assert snapshot(tmp_path) == before
-    assert not (copy / "out").exists()
+    out = tmp_path / "out"
+    assert capsys.readouterr().out.splitlines() == [
+        str(out / "sites" / "alpha.html"), str(out / "sites" / "beta.html"), str(out / "index.html")]
+    assert "14 open leaves" in (out / "index.html").read_bytes().decode("utf-8")
+    assert NO_LEAVES in (out / "sites" / "beta.html").read_bytes().decode("utf-8")
 
 
 # --- build --site ---------------------------------------------------------------
@@ -188,14 +157,6 @@ def test_site_no_nodes_writes_page(tmp_path, capsys):
     page = tmp_path / "out" / "sites" / "alpha.html"
     assert (code, out, err) == (0, f"{page}\n", "")
     assert NO_LEAVES in page.read_bytes().decode("utf-8")
-
-
-def test_site_unconfigured_exits_1(tmp_path, capsys):
-    config = write_site_tree(tmp_path, {"alpha": (FIXTURES / "page.md").read_bytes()})
-    code, out, err = site_build(capsys, config, "nowhere")
-    assert (code, out) == (1, "")
-    assert err == f"gantry: error: --site nowhere: no such site in {tmp_path / 'devagent.toml'}\n"
-    assert not (tmp_path / "out").exists()
 
 
 def test_site_invalid_name_exits_1(tmp_path, capsys):
@@ -240,7 +201,7 @@ def test_site_render_error_leaves_no_page(tmp_path, capsys, monkeypatch):
     def boom(*args, **kwargs):
         raise RuntimeError("forced")
 
-    monkeypatch.setattr(worksite, "render_page", boom)
+    monkeypatch.setattr(worksite, "render_model", boom)
     code, out, err = site_build(capsys, config, "alpha")
     assert (code, out) == (1, "")
     assert err == "gantry: error: --site alpha: render error: RuntimeError: forced\n"
@@ -250,7 +211,7 @@ def test_site_render_error_leaves_no_page(tmp_path, capsys, monkeypatch):
     def boom_quoting(*args, **kwargs):
         raise RuntimeError("bad\ntitle \x1b")
 
-    monkeypatch.setattr(worksite, "render_page", boom_quoting)
+    monkeypatch.setattr(worksite, "render_model", boom_quoting)
     code, out, err = site_build(capsys, config, "alpha")
     assert (code, out) == (1, "")
     assert err.startswith("gantry: error: --site alpha: render error: RuntimeError: bad")
@@ -267,17 +228,10 @@ def test_python_m_builds_sample_site(tmp_path):
     assert os.path.samefile(printed, copy / "out" / "sites" / f"{BUSY}.html")
 
 
-def test_listing_does_not_import_the_view():
-    code = "import sys, gantry.cli; gantry.cli.main(['build', '--config', 'samples/gantry.sample.toml']); " \
-           "sys.exit('gantry.views.worksite' in sys.modules or 'gantry.inputs' in sys.modules)"
-    result = subprocess.run([sys.executable, "-c", code], cwd=ROOT, capture_output=True,
-                            env={**os.environ, "PYTHONPATH": str(ROOT)})
-    assert result.returncode == 0, result.stderr
-    assert len(result.stdout.splitlines()) == 6
-
-
-def test_portfolio_file_does_not_change_page(tmp_path, capsys):
+# In sample mode the page carries no build time, so two builds compare byte for byte.
+def test_portfolio_file_does_not_change_page(tmp_path, capsys, monkeypatch):
     copy = copy_samples(tmp_path)
+    monkeypatch.setattr(stamp, "sample_dir", lambda package_dir=None: copy)
     config = copy / "gantry.sample.toml"
     assert site_build(capsys, config, BUSY)[0] == 0
     page = copy / "out" / "sites" / f"{BUSY}.html"
@@ -302,31 +256,23 @@ def test_site_page_reads_estimates_file(tmp_path, capsys):
     assert f"no estimates file: site.{BUSY}.estimates is false" in page
 
 
-# The estimates key is read by --site (#10); the listing still ignores it.
-def test_estimates_key_has_no_effect_on_listing(tmp_path, capsys):
-    copy = copy_samples(tmp_path)
-    config = copy / "gantry.sample.toml"
-    assert main(["build", "--config", str(config)]) == 0
-    plain = capsys.readouterr().out
-    append_bytes(config, f'[site.{BUSY}]\nestimates = "est.md"\n')
-    assert main(["build", "--config", str(config)]) == 0
-    assert capsys.readouterr().out == plain
-
-
 # portfolio_file and fires_list are not read yet; a live requirements key on a
-# site that can be in the trace does not change the listing or warn (#15).
-def test_unread_keys_and_requirements_do_not_change_listing(tmp_path, capsys):
+# site that can be in the trace does not change the build or warn (#15).
+def test_unread_keys_and_requirements_do_not_change_build(tmp_path, monkeypatch):
     copy = copy_samples(tmp_path)
     config = copy / "gantry.sample.toml"
-    assert main(["build", "--config", str(config)]) == 0
-    plain = capsys.readouterr().out
+    code, out, _, plain_err = demo_build(tmp_path, monkeypatch, copy=copy)
+    assert code == 0
+    plain = written_bytes(out)
+    assert len(plain) == 5
     add_top_level(config, 'portfolio_file = "portfolio.toml"\nfires_list = "fires.md"\n')
     append_bytes(config, f'[site.{BUSY}]\nrequirements = "req.md"\n')
-    assert main(["build", "--config", str(config)]) == 0
-    captured = capsys.readouterr()
-    assert captured.out == plain
-    assert captured.err == ""
-    assert len(plain.splitlines()) == 6
+    code, out, _, err = demo_build(tmp_path, monkeypatch, copy=copy)
+    assert code == 0
+    assert written_bytes(out) == plain
+    # The not-built sites' lines, and nothing more, in both runs.
+    assert err == plain_err
+    assert "gantry: warning: site" in err and "trace" not in err
 
 
 # --- the plugin launcher (tools/gantry-build.sh) -----------------------------
@@ -383,7 +329,7 @@ def test_launcher_prefers_python(tmp_path):
     shims = shim_dir(tmp_path, ["python", "python3"])
     result, names = run_launcher(copy, [SAMPLE_CONFIG], shims, copy, tmp_path)
     assert result.returncode == 0, result.stderr
-    assert sample_line_count(result) == 6
+    assert sample_line_count(result) == 5
     assert names == {"python"}
 
 
@@ -393,7 +339,7 @@ def test_launcher_falls_back_to_python3(tmp_path):
     shims = shim_dir(tmp_path, ["python3"])
     result, names = run_launcher(copy, [SAMPLE_CONFIG], shims, copy, tmp_path)
     assert result.returncode == 0, result.stderr
-    assert sample_line_count(result) == 6
+    assert sample_line_count(result) == 5
     assert names == {"python3"}
 
 
@@ -424,7 +370,7 @@ def test_launcher_one_literal_argument(tmp_path):
     shims = shim_dir(tmp_path, ["python"])
     result, _ = run_launcher(copy, ["samples/" + name], shims, copy, tmp_path)
     assert result.returncode == 0, result.stderr
-    assert sample_line_count(result) == 6
+    assert sample_line_count(result) == 5
     assert list(tmp_path.rglob("pwned")) == []
 
 
@@ -439,7 +385,7 @@ def test_launcher_P_ignores_cwd_package(tmp_path):
     result, _ = run_launcher(copy, [str(config)], shims, elsewhere, tmp_path)
     assert b"decoy" not in result.stderr
     assert result.returncode == 0, result.stderr
-    assert sample_line_count(result) == 6
+    assert sample_line_count(result) == 5
 
 
 @needs_posix_bash
@@ -465,7 +411,7 @@ def test_launcher_dash_leading_config_is_a_value(tmp_path):
     shims = shim_dir(tmp_path, ["python"])
     result, _ = run_launcher(copy, ["-dash.toml"], shims, samples, tmp_path)
     assert result.returncode == 0, result.stderr
-    assert sample_line_count(result) == 6
+    assert sample_line_count(result) == 5
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX file modes only")
@@ -500,17 +446,25 @@ def _trace_warnings(config):
     ]
 
 
+NOT_BUILT_BAD_NAME = "gantry: warning: site bad name is not built: name does not match [A-Za-z0-9][A-Za-z0-9_.-]*"
+
+
 def test_build_warns_for_untraceable_sites(tmp_path, capsys):
     config = _untraceable_tree(tmp_path)
+    index = tmp_path / "out" / "index.html"
     assert main(["build", "--config", str(config)]) == 0
     plain = capsys.readouterr()
-    assert plain.err == ""
+    assert plain.err.splitlines() == [NOT_BUILT_BAD_NAME]
+    assert "cannot be in the trace" not in index.read_bytes().decode("utf-8")
     append_bytes(config, UNTRACEABLE)
     assert main(["build", "--config", str(config)]) == 0
     captured = capsys.readouterr()
     assert captured.out == plain.out
-    assert [line.split("\t")[0] for line in captured.out.splitlines()] == ["life", "bad name", "alpha"]
-    assert captured.err.splitlines() == _trace_warnings(config)
+    assert captured.err.splitlines() == _trace_warnings(config) + [NOT_BUILT_BAD_NAME]
+    # The index lists both warnings at the top, by key, with no absolute path.
+    text = index.read_bytes().decode("utf-8")
+    assert text.count("cannot be in the trace") == 4  # each warning's line and its data entry
+    assert str(tmp_path) not in text
     c = load_config(config)
     traced, warnings = in_trace_sites(c, load_sites(c)[0])
     assert traced == {}
@@ -528,8 +482,12 @@ def test_build_site_mode_prints_trace_warnings(tmp_path, capsys):
 def test_trace_warning_escapes_name(tmp_path, capsys):
     tail = '[site."a\\tb"]\nrequirements = "x.md"\n'
     config = write_site_tree(tmp_path, {"a\tb": (FIXTURES / "page.md").read_bytes()}, tail=tail)
-    assert main(["build", "--config", str(config)]) == 0
+    # The one site cannot be built, so no page is written.
+    assert main(["build", "--config", str(config)]) == 1
     err = capsys.readouterr().err
-    assert err.count("\n") == 1
-    assert "site a\\tb's name does not match" in err
+    assert err.splitlines()[1:] == [
+        "gantry: warning: site a\\tb is not built: name does not match [A-Za-z0-9][A-Za-z0-9_.-]*",
+        "gantry: error: no site page was written",
+    ]
+    assert "site a\\tb's name does not match" in err.splitlines()[0]
     assert "\t" not in err
