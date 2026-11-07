@@ -16,7 +16,7 @@ from gantry.build import build_all, write_all
 from gantry.config import load_config
 from gantry.sites import load_sites
 from gantry.stamp import BUILT_STAMP, SAMPLE_STAMP, outside, sample_dir, sample_mode, stamp_text
-from helpers_config import append_bytes, copy_samples, demo_build
+from helpers_config import append_bytes, copy_samples, demo_build, written_bytes
 from sample_roles import BUSY, SMALL
 from test_samples import ROOT
 
@@ -150,15 +150,11 @@ def test_stamp_doc():
 # --- repeatability --------------------------------------------------------------------
 
 
-def written(out):
-    return {p.relative_to(out).as_posix(): p.read_bytes() for p in sorted(out.rglob("*")) if p.is_file()}
-
-
 def test_demo_builds_byte_identical(tmp_path, monkeypatch):
     first = demo_build(tmp_path / "a", monkeypatch, copy=copy_samples(tmp_path / "a"))
     second = demo_build(tmp_path / "b", monkeypatch, copy=copy_samples(tmp_path / "b"))
     assert first[0] == second[0] == 0
-    one, two = written(first[1]), written(second[1])
+    one, two = written_bytes(first[1]), written_bytes(second[1])
     assert len(one) == 5
     assert one == two
     for rel, data in one.items():

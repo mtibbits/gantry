@@ -12,9 +12,8 @@ from gantry import render
 from gantry.links import page_href
 from gantry.render import Markup, embed_json, esc, fill
 from gantry.sites import shown
-from gantry.stamp import config_roots
-from gantry.build import public_text
-from gantry.views.worksite import DOT, LANES_DEFAULT, SCHEDULE_LABEL, _includes
+from gantry.stamp import config_roots, public_text
+from gantry.views.worksite import DOT, LANES_DEFAULT, SCHEDULE_LABEL, _count_line, _includes
 
 TITLE = "Worksites"
 FINISH_LABEL = "Finishes at {lanes} agent lanes: {label}"
@@ -46,7 +45,7 @@ def _site_line(s, extra):
     if s.status != "built":
         parts = [_part("name", shown(s.name)), _part("reason", NOT_BUILT.format(reason=s.reason))]
     else:
-        opened = OPEN_LEAVES_ONE if s.open_leaves == 1 else OPEN_LEAVES.format(n=s.open_leaves)
+        opened = _count_line(s.open_leaves, OPEN_LEAVES, OPEN_LEAVES_ONE)
         report = REPORT.format(n=s.report_count) if s.report_count else REPORT_NONE
         parts = [f'<a href="{esc(page_href(s.name, from_top=True))}">{esc(s.name)}</a>',
                  _part("open", opened), _part("finish", _finish(s)), _part("report", report)]
@@ -66,7 +65,7 @@ def _data(result, warnings):
     }
 
 
-def render_index(result, *, headline=None, extra=None, view_links=None) -> str:
+def render_index(result, *, headline="", extra=None, view_links=None) -> str:
     """The index page for a BuildResult, as one HTML text.
 
     `headline` and each `extra` value are text, or Markup a view built from
@@ -76,12 +75,10 @@ def render_index(result, *, headline=None, extra=None, view_links=None) -> str:
     roots = config_roots(result.config, result.sites)
     # A warning names a path by its config key or file kind, as a reason does.
     warnings = [(w.key, public_text(w.message, roots)) for w in result.warnings]
-    if headline is None:
-        headline = ""
     return fill(
         render.asset("templates/index.html"),
         TITLE=TITLE,
-        STAMP=Markup(f'<p class="label stamp">{esc(result.stamp)}</p>') if result.stamp else "",
+        STAMP=render.stamp_html(result.stamp),
         HEADLINE=headline,
         WARNINGS=Markup("".join(f"<li>{esc(text)}</li>" for _, text in warnings)),
         FINISH_LABEL=FINISH_LABEL.format(lanes=LANES_DEFAULT, label=SCHEDULE_LABEL),

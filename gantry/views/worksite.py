@@ -139,17 +139,6 @@ def _round(x):
     return math.floor(x + 0.5)
 
 
-def plan_end_days(items, p):
-    """The working day the plan `p` ends in: its latest finish over HOURS_PER_DAY,
-    rounded half up, or None with no items. Plain loops, as summary_text."""
-    if not items:
-        return None
-    end = 0
-    for item in items:
-        end = max(end, p[item["key"]][1] / HOURS_PER_DAY)
-    return _round(end)
-
-
 def plan_finish_day(items, p):
     """The working day the plan `p` ends in, counting from 1: its latest finish
     over HOURS_PER_DAY, rounded up, so 8 hours at 6 a day ends in day 2; or
@@ -181,7 +170,7 @@ def summary_text(items, p, path, lanes, unest_site, unest_path):
         if item["key"] in on_path:
             chain += b - a
             crit = max(crit, b)
-    figures = {"lanes": _lanes_text(lanes), "end": plan_end_days(items, p), "even": _round(busy / lanes),
+    figures = {"lanes": _lanes_text(lanes), "end": _round(end), "even": _round(busy / lanes),
                "busy": _round(busy / (lanes * end) * 100)}
     if not on_path:
         # No chain: no chain figures (the script's same branch).
@@ -726,7 +715,7 @@ def _anchors(anchors):
 def _finished(m):
     if not m["finished"]:
         return Markup(f"<p>{esc(NO_FINISHED)}</p>")
-    lines = "".join(f'<li id="{esc(f["anchor"])}"><span class="mono">{esc(f["key"])}</span>{DOT}'
+    lines = "".join(f'<li id="{esc(f["anchor"])}">{_mono([f["key"]])}{DOT}'
                     f'{esc(f["issue"] if f["issue"] is not None else NO_ISSUE_ID)}{DOT}{esc(f["title"])}</li>'
                     for f in m["finished"])
     return Markup(f'<ul class="panel finished">{lines}</ul>')
@@ -763,7 +752,7 @@ def render_model(m, *, stamp="") -> str:
     return fill(
         render.asset("templates/worksite.html"),
         SITE=site,
-        STAMP=Markup(f'<p class="label stamp">{esc(stamp)}</p>') if stamp else "",
+        STAMP=render.stamp_html(stamp),
         STATUS=_note(status),
         ESTIMATES=Markup(f'<p class="label">{esc(m["notes"]["estimates"])}</p>') if m["notes"]["estimates"] else "",
         NON_TIME=_note(m["notes"]["non_time"]),

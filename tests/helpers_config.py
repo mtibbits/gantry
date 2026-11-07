@@ -147,6 +147,30 @@ def snapshot(root):
     }
 
 
+def written_bytes(out):
+    """{relative path: bytes} for every file under out."""
+    return {p.relative_to(out).as_posix(): p.read_bytes() for p in sorted(out.rglob("*")) if p.is_file()}
+
+
+def run_main(*args):
+    """`gantry build ARGS...` in process: (exit code, stdout, stderr)."""
+    from gantry.cli import main
+
+    out, err = io.StringIO(), io.StringIO()
+    with redirect_stdout(out), redirect_stderr(err):
+        code = main(["build", *args])
+    return code, out.getvalue(), err.getvalue()
+
+
+def sample_build(tmp_path, **kw):
+    """build_all on a samples copy that is its own sample directory."""
+    from gantry.build import build_all
+    from gantry.config import load_config as load_gantry_config
+
+    copy = copy_samples(tmp_path)
+    return build_all(load_gantry_config(copy / "gantry.sample.toml"), samples=copy, **kw)
+
+
 def demo_build(tmp_path, monkeypatch, *args, copy=None):
     """`gantry build` on a samples copy in sample mode: (exit code, out folder, stdout, stderr).
 
@@ -154,15 +178,12 @@ def demo_build(tmp_path, monkeypatch, *args, copy=None):
     sample directory and the stamp carries no build time.
     """
     from gantry import stamp
-    from gantry.cli import main
 
     if copy is None:
         copy = copy_samples(tmp_path)
     monkeypatch.setattr(stamp, "sample_dir", lambda package_dir=None: copy)
-    out, err = io.StringIO(), io.StringIO()
-    with redirect_stdout(out), redirect_stderr(err):
-        code = main(["build", "--config", str(copy / "gantry.sample.toml"), *args])
-    return code, copy / "out", out.getvalue(), err.getvalue()
+    code, out, err = run_main("--config", str(copy / "gantry.sample.toml"), *args)
+    return code, copy / "out", out, err
 
 
 def lands(out_dir, page_rel, href):

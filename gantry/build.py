@@ -16,8 +16,9 @@ from gantry.config import Config, error_reason
 from gantry.inputs import Inputs, apply_inputs
 from gantry.requirements import in_trace_sites
 from gantry.sites import SiteEntry, SiteWarning, load_sites
-from gantry.stamp import config_roots, stamp_text
+from gantry.stamp import config_roots, public_text, stamp_text
 from gantry.views import worksite
+from gantry.views.index import render_index
 from gantry.wbs_stopgap import read_wbs
 
 CLASH = "name clashes with {earlier} on a case-insensitive file system"
@@ -32,14 +33,14 @@ class SiteSummary:
 
     name: str
     status: str  # "built" or "not_built"
-    reason: str | None
-    open_leaves: int | None
-    finish_day: int | None  # the working day the plan ends in, at the default lanes
-    finish_date: date | None
-    unestimated_count: int | None
-    report_count: int | None
-    hours: float | None  # not on the index; carried for Epic #3
-    non_time: dict | None
+    reason: str | None = None
+    open_leaves: int | None = None
+    finish_day: int | None = None  # the working day the plan ends in, at the default lanes
+    finish_date: date | None = None
+    unestimated_count: int | None = None
+    report_count: int | None = None
+    hours: float | None = None  # not on the index; carried for Epic #3
+    non_time: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -71,13 +72,6 @@ def clashes(sites) -> dict[str, str]:
     return found
 
 
-def public_text(text: str, roots) -> str:
-    """`text` with each root's path replaced by its label, the longest path first."""
-    for label, path in sorted(roots, key=lambda root: len(str(root[1])), reverse=True):
-        text = text.replace(str(path), label)
-    return text
-
-
 def render_reason(e: Exception, roots) -> str:
     """A render error's one-line reason, naming no root by its path."""
     message = error_reason(e) if isinstance(e, OSError) else str(e)
@@ -99,10 +93,8 @@ def site_data(site):
     return data, None
 
 
-def read_site(site, config, earlier=None, *, roots=None):
+def read_site(site, config, earlier, *, roots):
     """(inputs, None) for a site that can be rendered, else (None, reason)."""
-    if roots is None:
-        roots = config_roots(config, [site])
     if earlier is not None:
         return None, CLASH.format(earlier=earlier)
     # Parsing too is per site: a parser that throws on one WBS.md stops only that site.
@@ -170,7 +162,7 @@ def _summary(name, inputs, m, as_of):
 
 
 def not_built(name, reason) -> SiteSummary:
-    return SiteSummary(name, "not_built", reason, None, None, None, None, None, None, None)
+    return SiteSummary(name, "not_built", reason)
 
 
 def build_all(config, *, now=None, samples=None) -> BuildResult:
@@ -203,8 +195,6 @@ def write_all(result):
     which the index is rendered from. When the output folder itself cannot
     be made, nothing is written and the index error says why.
     """
-    from gantry.views.index import render_index
-
     out = result.config.output_dir
     folder = out / "sites"
     try:

@@ -7,14 +7,16 @@ class name is never built from a record value: it is looked up in a fixed set,
 with a fallback. docs/worksite-page.md states the rules.
 """
 
+import functools
 import html
 import json
 import re
 from importlib import resources
 
 
+@functools.cache
 def asset(name: str) -> str:
-    """A packaged page asset's text (a template or a script), read as UTF-8 bytes."""
+    """A packaged page asset's text (a template or a script), read as UTF-8 bytes, once per process."""
     return resources.files("gantry").joinpath(name).read_bytes().decode("utf-8")
 
 
@@ -25,6 +27,11 @@ class Markup(str):
 def esc(x) -> str:
     """Text for element content or a double-quoted attribute value."""
     return html.escape(str(x), quote=True)
+
+
+def stamp_html(stamp: str):
+    """The build stamp's paragraph, or nothing when there is no stamp."""
+    return Markup(f'<p class="label stamp">{esc(stamp)}</p>') if stamp else ""
 
 
 PLACEHOLDER_RE = re.compile(r"\{\{([A-Z][A-Z0-9_]*)\}\}")

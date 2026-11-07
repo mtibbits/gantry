@@ -1,17 +1,14 @@
 """The full build: anchors and hrefs, reading and rendering every site, and
 writing the pages and the index (#11)."""
 
-import io
 import os
 import re
-from contextlib import redirect_stderr, redirect_stdout
 from datetime import date
 
 import pytest
 
 from gantry import build
 from gantry.build import CLASH, build_all, working_day
-from gantry.cli import main
 from gantry.config import load_config
 from gantry.links import leaf_anchor, leaf_href, page_href
 from gantry.views import worksite
@@ -22,6 +19,8 @@ from helpers_config import (
     lands,
     page_ids,
     page_links,
+    run_main,
+    sample_build,
     sample_projects,
     snapshot,
     write_site_tree,
@@ -71,11 +70,6 @@ def test_working_day():
     assert working_day(sat, 0) == sat
     assert working_day(sat, 1) == sat
     assert working_day(sat, 2) == date(2026, 1, 26)
-
-
-def sample_build(tmp_path, **kw):
-    copy = copy_samples(tmp_path)
-    return build_all(load_config(copy / "gantry.sample.toml"), samples=copy, **kw)
 
 
 def test_summaries_on_samples(tmp_path):
@@ -214,13 +208,6 @@ def test_not_built_sites_listed_exit_0(tmp_path, monkeypatch):
         assert f"not built: {reason}" in index
         assert f"gantry: warning: site {name} is not built: {reason}" in stderr.splitlines()
     assert len(list((out / "sites").iterdir())) == 4
-
-
-def run_main(*args):
-    out, err = io.StringIO(), io.StringIO()
-    with redirect_stdout(out), redirect_stderr(err):
-        code = main(["build", *args])
-    return code, out.getvalue(), err.getvalue()
 
 
 def test_all_fail_writes_index_exit_1(tmp_path):
@@ -450,6 +437,18 @@ def test_parse_error_isolated(tmp_path, monkeypatch):
     summaries = {s.name: s for s in result.summaries}
     assert summaries["alpha"].status == "built"
     assert (summaries["beta"].status, summaries["beta"].reason) == ("not_built", "render error: RuntimeError: parser broke")
+
+
+def test_site_mode_parse_error_is_one_line(tmp_path, monkeypatch):
+    def read_wbs(path, name):
+        raise RuntimeError("parser broke")
+
+    monkeypatch.setattr(build, "read_wbs", read_wbs)
+    config = write_site_tree(tmp_path, {"alpha": (FIXTURES / "page.md").read_bytes()})
+    code, stdout, stderr = run_main("--config", str(config), "--site", "alpha")
+    assert (code, stdout) == (1, "")
+    assert stderr.endswith("gantry: error: --site alpha: cannot build: render error: RuntimeError: parser broke\n")
+    assert not (tmp_path / "out" / "sites" / "alpha.html").exists()
 
 
 @pytest.mark.parametrize("est, day, when", [

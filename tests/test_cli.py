@@ -16,7 +16,15 @@ from gantry.requirements import in_trace_sites
 from gantry.sites import load_sites
 from gantry.views import worksite
 from gantry.views.worksite import NO_LEAVES
-from helpers_config import add_top_level, append_bytes, copy_samples, demo_build, sample_projects, write_site_tree
+from helpers_config import (
+    add_top_level,
+    append_bytes,
+    copy_samples,
+    demo_build,
+    sample_projects,
+    write_site_tree,
+    written_bytes,
+)
 from sample_roles import BUSY, NO_WBS, READABLE, UNREADABLE
 from test_samples import ROOT
 
@@ -116,10 +124,6 @@ def test_write_site_tree_builds_sites(tmp_path, capsys):
         str(out / "sites" / "alpha.html"), str(out / "sites" / "beta.html"), str(out / "index.html")]
     assert "14 open leaves" in (out / "index.html").read_bytes().decode("utf-8")
     assert NO_LEAVES in (out / "sites" / "beta.html").read_bytes().decode("utf-8")
-
-
-def written_bytes(out):
-    return {p.relative_to(out).as_posix(): p.read_bytes() for p in sorted(out.rglob("*")) if p.is_file()}
 
 
 # --- build --site ---------------------------------------------------------------

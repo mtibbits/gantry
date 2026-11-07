@@ -683,10 +683,13 @@ with the reason and writes no page (an existing page is kept as it was):
 - `--site NAME: no such site in <devagent config>`;
 - `--site NAME: cannot build: <reason>`: the site has a problem (an invalid
   name, no planning directory, no `WBS.md`), its `WBS.md` cannot be read,
-  or its name clashes with an earlier site's:
-  `--site NAME: cannot build: name clashes with {earlier} on a case-insensitive file system`;
-- `--site NAME: render error: <type>: <message>`: reading the inputs,
-  building the page's data or filling its template failed;
+  its name clashes with an earlier site's
+  (`--site NAME: cannot build: name clashes with {earlier} on a case-insensitive file system`),
+  or parsing `WBS.md` or reading the inputs failed
+  (`--site NAME: cannot build: render error: <type>: <message>`); the
+  reason names no absolute path, as in the full build;
+- `--site NAME: render error: <type>: <message>`: building the page's
+  data or filling its template failed;
 - `--site NAME: cannot write <page>: <reason>`.
 
 An invalid name is printed escaped, as on stderr in the full build.

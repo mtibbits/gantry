@@ -23,24 +23,14 @@ from gantry.views.index import (
     render_index,
 )
 from gantry.views.worksite import INCLUDES, LANES_DEFAULT, SCHEDULE_LABEL
-from helpers_config import append_bytes, copy_samples, toml_key, write_site_tree
+from helpers_config import append_bytes, copy_samples, sample_build, toml_key, write_site_tree
 from page_safety import HOSTILE, assert_no_external_resources, assert_page_safe
 from page_script.harness import open_page
 from sample_roles import BUSY, NO_WBS, READABLE, UNESTIMATED, UNREADABLE
 from test_samples import ROOT
-from test_worksite_page import find, text_of, tree
+from test_worksite_page import by_id, find, text_of, tree
 
 FIXTURES = ROOT / "tests" / "fixtures" / "wbs"
-
-
-def sample_result(tmp_path):
-    copy = copy_samples(tmp_path)
-    return build_all(load_config(copy / "gantry.sample.toml"), samples=copy)
-
-
-def by_id(t, ident):
-    (i,) = [i for i, el in enumerate(t.elements) if el["attrs"].get("id") == ident]
-    return i
 
 
 def site_lines(t):
@@ -53,7 +43,7 @@ def site_lines(t):
 
 
 def test_index_label(tmp_path):
-    page = render_index(sample_result(tmp_path))
+    page = render_index(sample_build(tmp_path))
     label = FINISH_LABEL.format(lanes=LANES_DEFAULT, label=SCHEDULE_LABEL)
     assert LANES_DEFAULT == 4
     assert page.count(label) == 1
@@ -61,7 +51,7 @@ def test_index_label(tmp_path):
 
 
 def test_site_line_fields(tmp_path):
-    result = sample_result(tmp_path)
+    result = sample_build(tmp_path)
     t = tree(render_index(result))
     lines = site_lines(t)
     assert list(lines) == [s.name for s in result.summaries]
@@ -100,7 +90,7 @@ def test_no_finish_line(tmp_path):
 
 
 def test_not_built_lines_show_reason(tmp_path):
-    t = tree(render_index(sample_result(tmp_path)))
+    t = tree(render_index(sample_build(tmp_path)))
     lines = site_lines(t)
     for name, reason in ((NO_WBS, "no WBS.md in the planning directory"),
                          (UNREADABLE, "WBS.md is not valid UTF-8 at byte 88")):
@@ -112,7 +102,7 @@ def test_not_built_lines_show_reason(tmp_path):
 
 
 def test_slots_present_and_empty(tmp_path):
-    result = sample_result(tmp_path)
+    result = sample_build(tmp_path)
     t = tree(render_index(result))
     assert t.elements[by_id(t, "headline")]["text"] == []
     assert find(t, None, within=by_id(t, "headline")) == []
@@ -123,7 +113,7 @@ def test_slots_present_and_empty(tmp_path):
 
 
 def test_slots_filled(tmp_path):
-    result = sample_result(tmp_path)
+    result = sample_build(tmp_path)
     page = render_index(result, headline="<b>Plan</b>", extra={BUSY: Markup("<b>40%</b>"), NO_WBS: "<i>x</i>"},
                         view_links=[("Week", "week.html"), ("Strategy", "strategy.html")])
     t = tree(page)
@@ -158,7 +148,7 @@ def test_warnings_listed_at_top(tmp_path):
 
 
 def test_index_data_and_stamp(tmp_path):
-    result = sample_result(tmp_path)
+    result = sample_build(tmp_path)
     page = render_index(result)
     data = assert_page_safe(page, [])
     assert data["stamp"] == result.stamp == "sample data as of 2026-01-20"

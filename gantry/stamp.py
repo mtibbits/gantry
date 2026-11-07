@@ -47,6 +47,13 @@ def config_roots(config, sites) -> list[tuple[str, Path]]:
     return roots
 
 
+def public_text(text: str, roots) -> str:
+    """`text` with each root's path replaced by its label, the longest path first."""
+    for label, path in sorted(roots, key=lambda root: len(str(root[1])), reverse=True):
+        text = text.replace(str(path), label)
+    return text
+
+
 def _canonical(path) -> str:
     return os.path.normcase(os.path.realpath(path))
 

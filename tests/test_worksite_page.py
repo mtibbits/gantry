@@ -1353,7 +1353,7 @@ def test_finished_leaf_hostile(node, tmp_path):
     t = tree(page)
     target = "leaf-a%20b%3Cc%3E%26%C3%A9"
     assert leaf_anchor(FINISHED_KEY) == target
-    (i,) = [i for i, el in enumerate(t.elements) if el["attrs"].get("id") == target]
+    i = by_id(t, target)
     assert t.elements[i]["tag"] == "li"
     assert placement(t, i) == "finished"
     with open_page(write(tmp_path, page)) as live:
