@@ -289,9 +289,9 @@ when no leaf records a model tier (`no_model_tiers`).
 the schedule and the details. The page is one self-contained file: it works
 when opened from a local file, with no server and no network.
 
-The page shows **open work**: every leaf whose glyph is open and that no
-cycle holds out. Finished leaves are left out (a link to one is already
-satisfied).
+The network and the schedule show **open work**: every leaf whose glyph is
+open and that no cycle holds out. Finished leaves are listed at the foot of
+the page instead ([Finished leaves](#finished-leaves)).
 
 ### Lanes and states
 
@@ -481,6 +481,14 @@ with leaves but none open shows `This site has no open leaves.`, and one
 whose open leaves all wait on a cycle shows
 `Every open leaf waits on a dependency cycle, so nothing can be scheduled; the panel lists them.`;
 none of them draws a network or a schedule.
+
+### Finished leaves
+
+Below the panel, a plain list headed `Finished leaves` has one line per
+finished leaf, in `WBS.md` order: its key, then its issue id or
+`no issue id`, then its title, joined by ` · `. It is always shown and never
+collapsed, so a link into it lands in every browser. With no finished leaf
+it says `No leaf is finished yet.`
 
 ### Foreign entries
 

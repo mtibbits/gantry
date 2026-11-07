@@ -5,6 +5,7 @@ resolves like sample_roles (see its import contract).
 """
 
 import shutil
+from html.parser import HTMLParser
 from pathlib import Path
 
 from test_samples import CONFIG, SAMPLES, load_config
@@ -84,3 +85,46 @@ def add_top_level(path, text):
     after = "".join(lines[:at]) + text + "".join(lines[at:])
     assert after != before
     path.write_bytes(after.encode("utf-8"))
+
+
+class _Ids(HTMLParser):
+    """Every element id and every a's href, in HTML and SVG, in document order."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.ids, self.links, self.foreign = [], [], 0
+
+    def set_cdata_mode(self, elem, *args, **kwargs):
+        # Inside svg nothing is raw text, as in a browser.
+        if not self.foreign:
+            super().set_cdata_mode(elem, *args, **kwargs)
+
+    def handle_starttag(self, tag, attrs):
+        self.foreign += tag == "svg"
+        attrs = dict(attrs)
+        if attrs.get("id") is not None:
+            self.ids.append(attrs["id"])
+        if tag == "a" and attrs.get("href") is not None:
+            self.links.append(attrs["href"])
+
+    handle_startendtag = handle_starttag
+
+    def handle_endtag(self, tag):
+        self.foreign -= tag == "svg" and self.foreign > 0
+
+
+def _scan_ids(html):
+    parser = _Ids()
+    parser.feed(html)
+    parser.close()
+    return parser
+
+
+def page_ids(html):
+    """Every id on the page, in document order (a repeat is kept)."""
+    return _scan_ids(html).ids
+
+
+def page_links(html):
+    """Every a[href] on the page, in document order."""
+    return _scan_ids(html).links

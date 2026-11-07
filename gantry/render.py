@@ -10,6 +10,12 @@ with a fallback. docs/worksite-page.md states the rules.
 import html
 import json
 import re
+from importlib import resources
+
+
+def asset(name: str) -> str:
+    """A packaged page asset's text (a template or a script), read as UTF-8 bytes."""
+    return resources.files("gantry").joinpath(name).read_bytes().decode("utf-8")
 
 
 class Markup(str):

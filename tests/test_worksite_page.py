@@ -19,9 +19,11 @@ from gantry.cli import site_data
 from gantry.config import SiteOverride
 from gantry.config import load_config as load_installation
 from gantry.inputs import EstimatesSource, apply_inputs
+from gantry.links import leaf_anchor
 from gantry.model import Estimate, Leaf, Models, Row, SiteData
 from gantry.estimates_file import find_estimates_file, read_estimates_file
 from gantry.sites import SiteEntry, load_sites
+from gantry import render
 from gantry.render import CLASS_TOKENS
 from gantry.schedule import limit, plan
 from gantry.views import worksite
@@ -41,6 +43,7 @@ from gantry.views.worksite import (
 )
 from gantry.wbs_stopgap import parse_wbs, read_wbs
 from page_safety import CSP_CONTENT, HOSTILE, assert_no_external_resources, assert_page_safe
+from helpers_config import page_ids
 from page_script.harness import Planted, open_page, run_function
 from sample_roles import BUSY, OWN_UNIT, READABLE, UNESTIMATED
 from test_samples import ROOT, SAMPLES
@@ -229,6 +232,8 @@ STRUCTURAL = {
     # The re-ported prototype figures (#10).
     "limits", "lim-label", "lim-val", "lim-note", "lim-axis", "bar-crit", "bar-open", "span", "summary",
     "mk-crit", "pmark",
+    # The leaf anchors, the finished list and the build stamp (#11).
+    "anchor", "finished", "stamp",
 }
 VOID = {"meta", "br", "img", "input", "link", "hr"}
 
@@ -528,8 +533,8 @@ def test_page_assets_are_package_data():
 
 @pytest.mark.parametrize("bad", ["x </SCRIPT> y", "x <!-- y"])
 def test_render_refuses_unsafe_asset(monkeypatch, bad):
-    real = worksite._asset
-    monkeypatch.setattr(worksite, "_asset", lambda name: bad if name.endswith(".js") else real(name))
+    real = render.asset
+    monkeypatch.setattr(render, "asset", lambda name: bad if name.endswith(".js") else real(name))
     with pytest.raises(ValueError, match="must not hold"):
         page_for()
 
@@ -1183,7 +1188,8 @@ PAGE_TEXTS = [getattr(worksite, name) for name in (
     "NOTHING_MISSING", "NO_ISSUE_LINE", "NO_ISSUE_LINE_ONE", "WAITS_LINE", "FOREIGN", "CHAIN_LINE",
     "CAPACITY_LINE", "INCLUDES", "INCLUDES_ONE", "DATES", "DATES_ONE", "ESTIMATES_LINE", "ESTIMATES_UNDATED",
     "NON_TIME_LINE", "UNESTIMATED_LINE", "UNESTIMATED_LINE_ONE", "P0_NOTE", "SUMMARY", "SUMMARY_UNEST",
-    "SUMMARY_UNEST_ONE", "LIMITS_CAPTION", "SUMMARY_NO_CHAIN", "LIMITS_CAPTION_NO_CHAIN", "NO_CHAIN")] + list(worksite.STATE_MARKS.values())
+    "SUMMARY_UNEST_ONE", "LIMITS_CAPTION", "SUMMARY_NO_CHAIN", "LIMITS_CAPTION_NO_CHAIN", "NO_CHAIN",
+    "FINISHED_HEADING", "NO_ISSUE_ID", "NO_FINISHED")] + list(worksite.STATE_MARKS.values())
 
 
 def test_doc_states_page_texts():
@@ -1234,3 +1240,97 @@ def test_critical_cross_link_stays_dashed():
     crit = style.index(".edge.crit {")
     both = re.search(r"\.edge\.crit\.cross \{[^}]*stroke-dasharray: 5 4", style)
     assert both is not None and both.start() > crit
+
+
+# --- leaf anchors, the finished list and the stamp (#11) ------------------------------
+
+
+def leaf_ids(t):
+    return [i for i, el in enumerate(t.elements) if (el["attrs"].get("id") or "").startswith("leaf-")]
+
+
+def placement(t, i):
+    """Where a leaf anchor sits: on a drawn node, in the schedule or panel heading, or in the finished list."""
+    el = t.elements[i]
+    if el["tag"] == "g" and "node" in el["classes"]:
+        return "node"
+    if el["tag"] == "li" and t.elements[el["parent"]]["classes"] == ["panel", "finished"]:
+        return "finished"
+    parent = t.elements[el["parent"]]
+    if el["tag"] == "span" and el["classes"] == ["anchor"] and parent["tag"] == "h2":
+        return {"Schedule across agent lanes": "schedule", "Missing or unreadable": "held"}.get(text_of(t, el["parent"]))
+    return None
+
+
+def expected_placement(leaf, data, nodes):
+    if not leaf.open:
+        return "finished"
+    if leaf.key in data.held_out:
+        return "held"
+    return "node" if leaf.key in nodes else "schedule"
+
+
+def test_every_leaf_has_one_anchor():
+    pages = {site: (sample_page(site), read_wbs(SAMPLES / site / "WBS.md", site)) for site in sorted(READABLE)}
+    pages["cycle"] = (page_for("cycle"), fixture("cycle"))
+    seen = set()
+    for name, (page, data) in pages.items():
+        nodes = set(assert_page_safe(page, [])["network"]["nodes"])
+        t = tree(page)
+        ids = leaf_ids(t)
+        assert len(ids) == len(data.leaves), name
+        for leaf in data.leaves:
+            (i,) = [i for i in ids if t.elements[i]["attrs"]["id"] == leaf_anchor(leaf.key)]
+            where = placement(t, i)
+            assert where == expected_placement(leaf, data, nodes), (name, leaf.key, where)
+            seen.add(where)
+    assert seen == {"node", "schedule", "held", "finished"}
+
+
+def finished_list(t):
+    (ul,) = find(t, "ul", ("finished",))
+    return ul, find(t, "li", within=ul)
+
+
+def test_finished_list_lines():
+    data = read_wbs(SAMPLES / BUSY / "WBS.md", BUSY)
+    done = [leaf for leaf in data.leaves if not leaf.open]
+    assert len(done) == 6
+    t = tree(sample_page(BUSY))
+    ul, items = finished_list(t)
+    assert [text_of(t, i) for i in items] == [f"{leaf.key} · {leaf.issue} · {leaf.title}" for leaf in done]
+    assert [t.elements[i]["attrs"]["id"] for i in items] == [leaf_anchor(leaf.key) for leaf in done]
+    assert not any("gone" in t.elements[a]["classes"] for a in ancestors(t, ul))
+    assert find(t, "details") == []
+    no_issue = parse_wbs("- [x] Done untracked\n- [ ] Open {issue: Issue-1}\n", "alpha")
+    t = tree(page_for(data=no_issue))
+    _, items = finished_list(t)
+    assert [text_of(t, i) for i in items] == [f"1 · {worksite.NO_ISSUE_ID} · Done untracked"]
+    # A site with nothing open hides its work, never its finished list.
+    t = tree(page_for(data=parse_wbs("- [x] Done {issue: Issue-1}\n", "alpha")))
+    ul, items = finished_list(t)
+    assert len(items) == 1
+    assert find(t, "div", ("gone",)) and not any("gone" in t.elements[a]["classes"] for a in ancestors(t, ul))
+
+
+def test_no_finished_leaves_says_so():
+    page = page_for(data=parse_wbs("- [ ] A {issue: Issue-1}\n", "alpha"))
+    assert worksite.FINISHED_HEADING in visible_text(page)
+    assert worksite.NO_FINISHED in visible_text(page)
+    assert find(tree(page), "ul", ("finished",)) == []
+
+
+def test_stamp_slot():
+    t = tree(render_page("alpha", fixture("page"), default_unit_hours=6, stamp="X"))
+    (stamp,) = find(t, "p", ("stamp",))
+    assert text_of(t, stamp) == "X"
+    assert find(tree(page_for()), "p", ("stamp",)) == []
+
+
+def test_anchors_not_script_built(node, tmp_path):
+    text = sample_page(BUSY)
+    static = [i for i in page_ids(text) if i.startswith("leaf-")]
+    assert len(static) == len(read_wbs(SAMPLES / BUSY / "WBS.md", BUSY).leaves)
+    with open_page(write(tmp_path, text)) as page:
+        assert len(page.query('[id^="leaf-"]')) == len(static)
+        assert page.query('#gantt [id^="leaf-"]') == []
