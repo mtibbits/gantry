@@ -377,3 +377,45 @@ def test_demo_pages_load_nothing_external(tmp_path, monkeypatch):
     for rel, text in pages.items():
         assert_no_external_resources(text)
         assert_page_safe(text, [])
+
+
+# --- the docs ---------------------------------------------------------------------------
+
+STDERR_FORMS = (
+    "gantry: warning: site <name> is not built: <reason>",
+    "gantry: error: cannot write <index path>: <reason>",
+    "gantry: error: no site page was written",
+)
+LISTING_TEXTS = {
+    "docs/worksite-page.md": "lists the sites and writes nothing",
+    "docs/config.md": "The listing writes nothing",
+    "commands/build.md": "List the worksites",
+    "README.md": "every site at once, the index and",
+}
+
+
+def heading_slugs(text):
+    """GitHub's anchor for each heading: lower case, punctuation dropped, spaces to hyphens."""
+    slugs = set()
+    for line in text.splitlines():
+        if line.startswith("#"):
+            title = line.lstrip("#").strip().replace("`", "").lower()
+            slugs.add(re.sub(r"\s", "-", re.sub(r"[^\w\s-]", "", title)))
+    return slugs
+
+
+def test_build_doc_pins():
+    doc = (ROOT / "docs" / "worksite-page.md").read_bytes().decode("utf-8")
+    for text in (build.CLASH, build.WRITE_ERROR, build.RENDER_ERROR, *STDERR_FORMS, "leaf-<key>",
+                 "<name>.html#leaf-<key>", "sites/<name>.html#leaf-<key>"):
+        assert f"`{text}`" in doc, text
+    for code in ("0", "1", "2"):
+        assert re.search(rf"^\| {code} \|", doc, re.M), code
+    for rel, text in LISTING_TEXTS.items():
+        assert text not in (ROOT / rel).read_bytes().decode("utf-8"), rel
+    # Every in-document link to a heading of this doc, or of config.md, resolves.
+    docs = {name: (ROOT / "docs" / name).read_bytes().decode("utf-8") for name in ("worksite-page.md", "config.md")}
+    for name, text in docs.items():
+        for target, anchor in re.findall(r"\]\(([\w.-]*)#([\w-]+)\)", text):
+            if target in ("", *docs):
+                assert anchor in heading_slugs(docs[target or name]), (name, target, anchor)

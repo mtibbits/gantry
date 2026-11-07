@@ -2,8 +2,9 @@
 
 A worksite page shows one site's work: its leaves, the links between them,
 their priorities, a schedule across agent lanes, and what Gantry could not
-use. `gantry build --config FILE --site NAME` writes it
-([On the command line](#on-the-command-line)). This document fixes what the
+use. `gantry build --config FILE` writes every site's page and the index,
+and `--site NAME` writes one site's page
+([Every site and the index](#every-site-and-the-index)). This document fixes what the
 page is built from ([Reading `WBS.md`](#reading-wbsmd)), what it shows
 ([The page](#the-page)) and how it keeps record values inert
 ([Page safety](#page-safety)). Every Gantry view reads the same parsed data
@@ -492,10 +493,36 @@ it says `No leaf is finished yet.`
 
 ### Foreign entries
 
-A one-site page does not resolve another site's leaves (#11 does). A
-leaf's foreign `depends_on` entries, then those of each open row above it,
+A worksite page does not resolve another site's leaves yet (#68 does): a
+full build and `--site` alike keep each foreign entry as text. A leaf's
+foreign `depends_on` entries, then those of each open row above it,
 top-down, are listed in its details as `{raw} (on another site)`, such as
 `beta:Issue-3 (on another site)`.
+
+### Anchors and links
+
+Each leaf on a worksite page, open or finished, has the anchor `leaf-<key>`
+exactly once. The key is percent-encoded with nothing kept but letters,
+digits and `_.-~`, so an anchor holds no whitespace or markup: `Issue-7`
+gives `leaf-Issue-7`, and `a b<c>` gives `leaf-a%20b%3Cc%3E`. The anchor
+sits on an element in the page's own HTML, never on one a script builds:
+
+- a leaf the network draws: its node (`g.node`) in the network figure;
+- an open leaf only the schedule shows: an empty `span.anchor` at the start
+  of the "Schedule across agent lanes" heading;
+- a leaf held out by a cycle: an empty `span.anchor` at the start of the
+  "Missing or unreadable" heading;
+- a finished leaf: its line in the finished list
+  ([Finished leaves](#finished-leaves)).
+
+A site's page is `sites/<name>.html` under the output folder, and every
+href is relative to the page that holds it. Between pages in `sites/` (a
+cross-site link, or another view's link from a worksite page), a leaf's
+href is `<name>.html#leaf-<key>`; from a page at the output folder's top
+level, such as the index, it is `sites/<name>.html#leaf-<key>`. A browser
+matches the fragment, as written, to the id. `gantry/links.py` builds the
+anchor and both hrefs, so every view uses the same encoding, and the folder
+works opened from disk and under any path prefix.
 
 ### The build stamp and sample mode
 
@@ -599,34 +626,64 @@ and a list of links to other views (`#view-links`). The index has no
 script; its data block holds the stamp, the as-of date, each site's
 summary and the warnings, as shown.
 
-## On the command line
+## Every site and the index
 
-`gantry build --config FILE` lists the sites and writes nothing. Each site's
-line gives its counts as the third field: `open N, finished M` (leaf counts),
-then `; ` and `<kind> <count>` for each kind with a count, joined by `, ` in
-the table's order. With no entries there is no `;` part:
+`gantry build --config FILE` builds every site devagent's config names, in
+its config order. It first reads every site, then renders each site it
+read, each in its own `try`, and writes `<output_dir>/sites/<name>.html` for
+each, then `<output_dir>/index.html` ([The index](#the-index)). It prints
+one absolute path per file it wrote: the pages in config order, then the
+index. Each file is written to a temporary file in its folder, then renamed
+into place, so no partial page is ever left; it gets the mode any new file
+gets. The build deletes nothing in the output folder: a page an earlier run
+wrote for a site that is no longer built stays until the output folder is
+replaced (#35 swaps it in whole).
 
-```text
-harbor	<planning directory>	open 8, finished 6
-orchard	<planning directory>	open 6, finished 3; no_issue 3, unresolved_ref 1
-marsh	<planning directory>	cannot read: WBS.md is not valid UTF-8 at byte 88
-```
+A site that cannot be built does not stop the others. It is listed on the
+index with its reason and on stderr as
+`gantry: warning: site <name> is not built: <reason>`. The reasons are:
 
-A site Gantry cannot read prints `cannot read: <reason>` instead; the reasons
-are in [config.md](config.md#sites).
+- the site list's and the parser's: an invalid name, no usable
+  `devdoc_dir`, no planning directory, no `WBS.md`, or a `WBS.md` that
+  cannot be read or is not valid UTF-8 ([config.md](config.md#sites));
+- a name that differs only in case from an earlier site's, whatever that
+  site's own status:
+  `name clashes with {earlier} on a case-insensitive file system`;
+- `render error: {type}: {message}` (or `render error: {type}` when the
+  message is empty): reading the optional inputs, building the page's data
+  or filling its template failed;
+- `cannot write sites/{name}.html: {why}`.
 
-With `--site`, `gantry build --config FILE --site NAME` writes that site's page to
-`<output_dir>/sites/<NAME>.html` and prints the page's absolute path. It
-creates `<output_dir>/sites/` when it is missing, and writes the page to a
-temporary file in that folder, then renames it into place, so no partial
-page is ever left. Each of these exits 1 with the reason and writes no page
-(an existing page is kept as it was):
+A reason names the site and a config key or file kind, never an absolute
+path. Two more lines can follow on stderr:
+
+- `gantry: error: cannot write <index path>: <reason>`: the index cannot be
+  written. When the output folder itself cannot be made (`output_dir` is a
+  file), this is the only line, and nothing is written;
+- `gantry: error: no site page was written`.
+
+| Exit | When |
+|---|---|
+| 0 | the index was written and at least one site page was written (sites not built and warnings do not change it); with `--site`, its page was written |
+| 1 | a config error; no site page was written (the index is still written); the index or the output folder cannot be written; with `--site`, any of the errors below |
+| 2 | a usage error, such as a missing `--config` |
+
+### One site: `--site`
+
+`gantry build --config FILE --site NAME` writes only that site's page to
+`<output_dir>/sites/<NAME>.html`, and no index, and prints the page's
+absolute path. It reads only that site's `WBS.md` and inputs (the site list
+still checks each planning directory). It creates `<output_dir>/sites/`
+when it is missing and writes the page the same way. Each of these exits 1
+with the reason and writes no page (an existing page is kept as it was):
 
 - `--site NAME: no such site in <devagent config>`;
 - `--site NAME: cannot build: <reason>`: the site has a problem (an invalid
-  name, no planning directory, no `WBS.md`) or its `WBS.md` cannot be read;
-- `--site NAME: render error: <type>: <message>`: building the page's data
-  or filling its template failed;
+  name, no planning directory, no `WBS.md`), its `WBS.md` cannot be read,
+  or its name clashes with an earlier site's:
+  `--site NAME: cannot build: name clashes with {earlier} on a case-insensitive file system`;
+- `--site NAME: render error: <type>: <message>`: reading the inputs,
+  building the page's data or filling its template failed;
 - `--site NAME: cannot write <page>: <reason>`.
 
-An invalid name is printed escaped, as in the listing.
+An invalid name is printed escaped, as on stderr in the full build.
