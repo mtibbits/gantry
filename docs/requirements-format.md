@@ -105,7 +105,9 @@ reason that applies:
 1. FR-3: an ordered list item
 ```
 
-So an ID-shaped typo is never silently lost. The rule also catches prose
+So a typo of the shape letters, an optional `-`, digits, then a colon is never
+silently lost. A typo outside that shape, such as `FR_1:` or `FR.1:`, is
+prose and is not reported. The rule also catches prose
 bullets that begin like an ID, such as `Step-1:`, `Q3:` and `v2:`, and
 finding labels such as `R1:`, `N2:` and `B1:`. They are reported malformed:
 reword them (`Step 1:`, `In Q3,`) so that they no longer start like an ID.
