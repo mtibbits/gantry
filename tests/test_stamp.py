@@ -12,10 +12,11 @@ from datetime import datetime, timezone
 import pytest
 
 from gantry import stamp
+from gantry.build import build_all, write_all
 from gantry.config import load_config
 from gantry.sites import load_sites
 from gantry.stamp import BUILT_STAMP, SAMPLE_STAMP, outside, sample_dir, sample_mode, stamp_text
-from helpers_config import append_bytes, copy_samples
+from helpers_config import append_bytes, copy_samples, demo_build
 from sample_roles import BUSY, SMALL
 from test_samples import ROOT
 
@@ -144,3 +145,36 @@ def test_stamp_doc():
     doc = (ROOT / "docs" / "worksite-page.md").read_bytes().decode("utf-8")
     assert f"`{SAMPLE_STAMP}`" in doc
     assert f"`{BUILT_STAMP}`" in doc
+
+
+# --- repeatability --------------------------------------------------------------------
+
+
+def written(out):
+    return {p.relative_to(out).as_posix(): p.read_bytes() for p in sorted(out.rglob("*")) if p.is_file()}
+
+
+def test_demo_builds_byte_identical(tmp_path, monkeypatch):
+    first = demo_build(tmp_path / "a", monkeypatch, copy=copy_samples(tmp_path / "a"))
+    second = demo_build(tmp_path / "b", monkeypatch, copy=copy_samples(tmp_path / "b"))
+    assert first[0] == second[0] == 0
+    one, two = written(first[1]), written(second[1])
+    assert len(one) == 5
+    assert one == two
+    for rel, data in one.items():
+        text = data.decode("utf-8")
+        assert "sample data as of 2026-01-20" in text, rel
+        assert " UTC" not in text, rel
+
+
+def test_outside_root_stamp_has_time(tmp_path):
+    copy = copy_samples(tmp_path)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    config = load_config(_move_output(copy, elsewhere))
+    result = build_all(config, now=NOW, samples=copy)
+    expected = BUILT_STAMP.format(when="2026-11-07 14:03 UTC", date="2026-01-20")
+    assert result.stamp == expected
+    result, paths, error = write_all(result)
+    assert error is None and len(paths) == 5
+    assert all(expected in path.read_bytes().decode("utf-8") for path in paths)

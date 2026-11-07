@@ -1335,3 +1335,26 @@ def test_anchors_not_script_built(node, tmp_path):
     with open_page(write(tmp_path, text)) as page:
         assert len(page.query('[id^="leaf-"]')) == len(static)
         assert page.query('#gantt [id^="leaf-"]') == []
+
+
+def finished_hostile_text():
+    # The lighthouse sample's own text, plus one finished leaf with a hostile title and key.
+    text = (SAMPLES / "lighthouse" / "WBS.md").read_bytes().decode("utf-8")
+    return text + f"- [x] {HOSTILE[0]} {{issue: {FINISHED_KEY}}}\n"
+
+
+FINISHED_KEY = "a b<c>&\u00e9"
+
+
+def test_finished_leaf_hostile(node, tmp_path):
+    data = parse_wbs(finished_hostile_text(), "lighthouse")
+    page = render_page("lighthouse", data, default_unit_hours=6)
+    assert_page_safe(page, [HOSTILE[0], FINISHED_KEY])
+    t = tree(page)
+    target = "leaf-a%20b%3Cc%3E%26%C3%A9"
+    assert leaf_anchor(FINISHED_KEY) == target
+    (i,) = [i for i, el in enumerate(t.elements) if el["attrs"].get("id") == target]
+    assert t.elements[i]["tag"] == "li"
+    assert placement(t, i) == "finished"
+    with open_page(write(tmp_path, page)) as live:
+        assert live.planted_nodes([HOSTILE[0]]).created == []

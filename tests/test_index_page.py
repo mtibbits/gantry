@@ -4,12 +4,14 @@ Every literal is hand-derived from samples/ (see test_build's harbor note).
 """
 
 import dataclasses
+import json
 from datetime import date
 
-from gantry.build import build_all
+from commit_check import path_form_hits
+from gantry.build import build_all, write_all
 from gantry.config import load_config
 from gantry.render import Markup
-from gantry.views import index
+from gantry.views import index, worksite
 from gantry.views.index import (
     FINISH,
     FINISH_LABEL,
@@ -21,8 +23,9 @@ from gantry.views.index import (
     render_index,
 )
 from gantry.views.worksite import INCLUDES, LANES_DEFAULT, SCHEDULE_LABEL
-from helpers_config import copy_samples, write_site_tree
-from page_safety import assert_no_external_resources, assert_page_safe
+from helpers_config import append_bytes, copy_samples, toml_key, write_site_tree
+from page_safety import HOSTILE, assert_no_external_resources, assert_page_safe
+from page_script.harness import open_page
 from sample_roles import BUSY, NO_WBS, READABLE, UNESTIMATED, UNREADABLE
 from test_samples import ROOT
 from test_worksite_page import find, text_of, tree
@@ -177,3 +180,64 @@ def test_index_doc_states_texts():
     missing = [name for name in INDEX_TEXTS if f"`{getattr(index, name)}`" not in doc]
     assert missing == []
     assert OPEN_LEAVES.format(n=2) == "2 open leaves"
+
+
+# --- page safety on the index -----------------------------------------------------------
+
+
+def test_index_hostile(node, tmp_path, monkeypatch):
+    page = (FIXTURES / "page.md").read_bytes()
+    tail = f"[site.{toml_key(HOSTILE[0])}]\n"
+    config = load_config(write_site_tree(tmp_path, {"alpha": page, HOSTILE[3]: page, "beta": page}, tail=tail))
+    render_model = worksite.render_model
+
+    def failing(m, **kw):
+        if m["site"] == "beta":
+            raise ValueError(HOSTILE[10])
+        return render_model(m, **kw)
+
+    monkeypatch.setattr(worksite, "render_model", failing)
+    result, _, error = write_all(build_all(config))
+    assert error is None
+    summaries = {s.name: s for s in result.summaries}
+    reason = summaries["beta"].reason
+    assert reason == "render error: ValueError: " + HOSTILE[10]
+    assert summaries[HOSTILE[3]].status == "not_built"
+    (warning,) = result.warnings
+    text = (tmp_path / "out" / "index.html").read_bytes().decode("utf-8")
+    shown_warning = f"the Gantry config: [site.{HOSTILE[0]}] names no project in the devagent config"
+    assert warning.message.endswith(f"[site.{HOSTILE[0]}] names no project in {config.devagent_config}")
+    assert_page_safe(text, [HOSTILE[3], shown_warning, reason])
+    assert_no_external_resources(text)
+    with open_page(tmp_path / "out" / "index.html") as live:
+        planted = live.planted_nodes([HOSTILE[0], HOSTILE[3], HOSTILE[10]])
+    assert planted.created == [] and planted.unrendered == []
+
+
+def data_strings(node):
+    if isinstance(node, dict):
+        for key, value in node.items():
+            yield key
+            yield from data_strings(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from data_strings(value)
+    elif isinstance(node, str):
+        yield node
+
+
+def test_index_names_no_absolute_path(tmp_path):
+    copy = copy_samples(tmp_path)
+    config = copy / "gantry.sample.toml"
+    # A site-list warning, and a trace warning: the namespace is a site that has requirements.
+    append_bytes(config, '[site.ghost]\n[requirements]\nbr_namespace = "lighthouse"\n')
+    result = build_all(load_config(config), samples=copy)
+    assert {w.key for w in result.warnings} == {"site.ghost", "site.lighthouse.requirements"}
+    assert {s.name for s in result.summaries if s.status != "built"} == {NO_WBS, UNREADABLE}
+    page = render_index(result)
+    data = assert_page_safe(page, [])
+    texts = [page, *data_strings(data)]
+    for text in texts:
+        assert path_form_hits(text) == [], text[:80]
+        assert str(tmp_path) not in text and tmp_path.as_posix() not in text
+    assert len(data["warnings"]) == 2 and json.dumps(data)

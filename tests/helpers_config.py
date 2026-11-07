@@ -5,10 +5,12 @@ import contract).
 """
 
 import io
+import posixpath
 import shutil
 from contextlib import redirect_stderr, redirect_stdout
 from html.parser import HTMLParser
 from pathlib import Path
+from urllib.parse import unquote
 
 from test_samples import CONFIG, SAMPLES, load_config
 
@@ -161,3 +163,16 @@ def demo_build(tmp_path, monkeypatch, *args, copy=None):
     with redirect_stdout(out), redirect_stderr(err):
         code = main(["build", "--config", str(copy / "gantry.sample.toml"), *args])
     return code, copy / "out", out.getvalue(), err.getvalue()
+
+
+def lands(out_dir, page_rel, href):
+    """Whether a relative href on the page at `page_rel` lands on a written file
+    and, with a fragment, on an id in it. The raw fragment is matched (U1)."""
+    path, _, fragment = href.partition("#")
+    target = posixpath.normpath(posixpath.join(posixpath.dirname(page_rel), unquote(path)))
+    if target == ".." or target.startswith("../"):
+        return False
+    file = Path(out_dir) / target
+    if not file.is_file():
+        return False
+    return not fragment or fragment in page_ids(file.read_bytes().decode("utf-8"))

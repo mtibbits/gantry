@@ -15,8 +15,18 @@ from gantry.cli import main
 from gantry.config import load_config
 from gantry.links import leaf_anchor, leaf_href, page_href
 from gantry.views import worksite
-from helpers_config import append_bytes, copy_samples, demo_build, page_links, sample_projects, snapshot, write_site_tree
-from page_safety import HOSTILE
+from helpers_config import (
+    append_bytes,
+    copy_samples,
+    demo_build,
+    lands,
+    page_ids,
+    page_links,
+    sample_projects,
+    snapshot,
+    write_site_tree,
+)
+from page_safety import HOSTILE, assert_no_external_resources, assert_page_safe
 from sample_roles import BUSY, NO_WBS, READABLE, UNESTIMATED, UNREADABLE
 from test_samples import ROOT
 
@@ -317,3 +327,53 @@ def test_added_project_appears(tmp_path, monkeypatch):
     assert "sites/dunes.html" in page_links((out / "index.html").read_bytes().decode("utf-8"))
     assert (out / "sites" / "dunes.html").is_file()
     assert (copy / "gantry.sample.toml").read_bytes() == before
+
+
+# --- link integrity and the Pages demo ------------------------------------------------
+
+
+def written_pages(out):
+    return {p.relative_to(out).as_posix(): p.read_bytes().decode("utf-8") for p in sorted(out.rglob("*.html"))}
+
+
+def test_every_link_lands(tmp_path, monkeypatch):
+    _, out, _, _ = demo_build(tmp_path, monkeypatch)
+    pages = written_pages(out)
+    counts = {}
+    for rel, text in pages.items():
+        links = page_links(text)
+        counts[rel] = len(links)
+        assert all(lands(out, rel, href) for href in links), rel
+    # The subject set cannot quietly empty: the index links 4 pages, and a
+    # worksite page links nothing until #68.
+    assert counts.pop("index.html") == 4
+    assert len(counts) == 4 and set(counts.values()) == {0}
+
+
+def test_encoded_key_anchor_and_href_land(tmp_path):
+    hostile = "a b<c>&\u00e9"
+    wbs = f"- [x] Done {{issue: {hostile}}}\n- [ ] Open {{issue: x y}}\n".encode("utf-8")
+    other = (FIXTURES / "page.md").read_bytes()
+    config = write_site_tree(tmp_path, {"alpha": wbs, "other": other})
+    code, _, stderr = run_main("--config", str(config))
+    assert code == 0, stderr
+    out = tmp_path / "out"
+    ids = page_ids((out / "sites" / "alpha.html").read_bytes().decode("utf-8"))
+    for key in (hostile, "x y"):
+        anchor = leaf_anchor(key)
+        assert ids.count(anchor) == 1, key
+        assert re.fullmatch(r"leaf-[A-Za-z0-9_.~%-]+", anchor)
+        assert lands(out, "index.html", leaf_href("alpha", key, from_top=True))
+        assert lands(out, "sites/other.html", leaf_href("alpha", key, from_top=False))
+    # A link to a leaf that is not there does not land.
+    assert not lands(out, "index.html", leaf_href("alpha", "nowhere", from_top=True))
+    assert not lands(out, "index.html", leaf_href("absent", "x y", from_top=True))
+
+
+def test_demo_pages_load_nothing_external(tmp_path, monkeypatch):
+    _, out, _, _ = demo_build(tmp_path, monkeypatch)
+    pages = written_pages(out)
+    assert len(pages) == 5
+    for rel, text in pages.items():
+        assert_no_external_resources(text)
+        assert_page_safe(text, [])
