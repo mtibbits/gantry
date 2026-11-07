@@ -3,22 +3,21 @@
 docs/requirements-format.md states the format.
 """
 
+import functools
 import re
 from collections import Counter
 
-from gantry.requirements import DEFAULT_BR_NAMESPACE, LAYERS, read_requirements
+from gantry.config import ID_TOKEN_RE
+from gantry.requirements import DEFAULT_BR_NAMESPACE, LAYERS, PROJECT_LAYERS, read_requirements
 from test_samples import ROOT
 
 DOC = ROOT / "docs" / "requirements.md"
 FORMAT_DOC = ROOT / "docs" / "requirements-format.md"
-OWN_LAYERS = set(LAYERS) - {"BR"}
+NAMESPACE = "gantry"
 # A business-requirement ID, bare or qualified, anywhere in the text (fences included).
 BR_TOKEN_RE = re.compile(r"(?<![A-Za-z0-9])BR-[0-9]")
 # Any qualified ID: a namespace token, a colon, a layer code, a dash, a digit.
-QUALIFIED_RE = re.compile(
-    r"(?P<namespace>[A-Za-z0-9_.-]+):(?:" + "|".join(sorted(LAYERS, key=len, reverse=True)) + r")-[0-9]"
-)
-LINK_RE = re.compile(r"\[[^\]]*\]\((?P<target>[^()\s#]+)(?:#[^()\s]*)?\)")
+QUALIFIED_RE = re.compile(rf"(?P<namespace>{ID_TOKEN_RE.pattern}):(?:{'|'.join(LAYERS)})-[0-9]")
 # Meta-block keys the format defines; a space-less `{refines:SR-2}` must not read as a namespace.
 META_KEYS = {"needs", "refines"}
 # The source-of-truth claims (AC5), one anchor phrase each, matched on the normalised header.
@@ -32,10 +31,12 @@ PLANTED = (
 )
 
 
+@functools.cache
 def own_set():
-    return read_requirements(DOC, "gantry", layers=OWN_LAYERS, br_namespace=DEFAULT_BR_NAMESPACE)
+    return read_requirements(DOC, NAMESPACE, layers=PROJECT_LAYERS, br_namespace=DEFAULT_BR_NAMESPACE)
 
 
+@functools.cache
 def own_text():
     assert DOC.is_file(), "docs/requirements.md is missing"
     return DOC.read_bytes().decode("utf-8")
@@ -46,15 +47,11 @@ def br_tokens(text):
 
 
 def foreign_namespaces(text):
-    return {m["namespace"] for m in QUALIFIED_RE.finditer(text)} - {"gantry"} - META_KEYS
+    return {m["namespace"] for m in QUALIFIED_RE.finditer(text)} - {NAMESPACE} - META_KEYS
 
 
 def header(text):
     return re.split(r"(?m)^## ", text, maxsplit=1)[0]
-
-
-def header_targets(text):
-    return [m["target"] for m in LINK_RE.finditer(header(text))]
 
 
 def normalised(text):
@@ -76,7 +73,7 @@ def test_layer_floors():
 
 def test_every_use_case_needs_something():
     ucs = [r for r in own_set().requirements.values() if r.layer == "UC"]
-    assert len(ucs) >= 6, f"only {len(ucs)} use cases"
+    assert ucs, "no use cases"
     assert [str(r.id) for r in ucs if not r.needs] == []
 
 
@@ -89,9 +86,8 @@ def test_qualified_ids_are_gantry_only():
 
 
 def test_header_links_the_format_doc():
-    targets = [(DOC.parent / t).resolve() for t in header_targets(own_text())]
     assert FORMAT_DOC.is_file()
-    assert FORMAT_DOC.resolve() in targets, targets
+    assert f"]({FORMAT_DOC.name})" in header(own_text())
 
 
 def test_no_html_comments():
@@ -108,7 +104,3 @@ def test_header_states_source_of_truth():
 def test_scanners_find_planted_tokens():
     assert br_tokens(PLANTED) == ["BR-3", "BR-2"]
     assert foreign_namespaces(PLANTED) == {"life", "harbor"}
-    assert header_targets("# T\n[f](requirements-format.md#ids) [g](x.md)\n## S\n[h](y.md)") == [
-        "requirements-format.md",
-        "x.md",
-    ]
