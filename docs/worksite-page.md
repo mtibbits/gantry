@@ -654,15 +654,17 @@ index with its reason and on stderr as
 - `render error: {type}: {message}` (or `render error: {type}` when the
   message is empty): parsing `WBS.md`, reading the optional inputs,
   building the page's data or filling its template failed;
-- `cannot write sites/{name}.html: {why}`.
+- `cannot write sites/{name}.html: {why}`, where `{why}` is
+  `sites/ is not a folder` when a file stands in its place; each page
+  then fails on its own and the index is still written.
 
 A reason names the site and a config key or file kind, never an absolute
 path. Two more lines can follow on stderr:
 
 - `gantry: error: cannot write <index path>: <reason>`: the index cannot be
-  written. When the output folder itself cannot be made (`output_dir` is a
-  file), this is the only error line (the not-built lines still come first),
-  and nothing is written;
+  written. When the output folder itself cannot be made, this is the only
+  error line (the not-built lines still come first), and nothing is written;
+  when `output_dir` is a file, the reason is `output_dir is not a folder`;
 - `gantry: error: no site page was written`.
 
 | Exit | When |

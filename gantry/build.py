@@ -25,6 +25,7 @@ CLASH = "name clashes with {earlier} on a case-insensitive file system"
 RENDER_ERROR = "render error: {type}: {message}"
 RENDER_ERROR_BARE = "render error: {type}"
 WRITE_ERROR = "cannot write sites/{name}.html: {why}"
+NOT_A_FOLDER = "{what} is not a folder"
 
 
 @dataclass(frozen=True)
@@ -183,7 +184,10 @@ def build_all(config, *, now=None, samples=None) -> BuildResult:
     return BuildResult(config, tuple(sites), tuple(warnings), inputs, pages, summaries, stamp)
 
 
-def _why(e: OSError) -> str:
+def _why(e: OSError, folder=None, what=None) -> str:
+    # mkdir on a file says "File exists", which names neither the file nor the fix.
+    if folder is not None and folder.exists() and not folder.is_dir():
+        return NOT_A_FOLDER.format(what=what)
     return error_reason(e) or "unknown error"
 
 
@@ -201,13 +205,13 @@ def write_all(result):
     try:
         out.mkdir(parents=True, exist_ok=True)
     except OSError as e:
-        return result, [], _why(e)
+        return result, [], _why(e, out, "output_dir")
     written, pages, failed = [], {}, {}
     for name, text in result.pages.items():
         try:
             write_page(folder, name, text)
         except OSError as e:
-            failed[name] = WRITE_ERROR.format(name=name, why=_why(e))
+            failed[name] = WRITE_ERROR.format(name=name, why=_why(e, folder, "sites/"))
             continue
         pages[name] = text
         written.append(folder / f"{name}.html")

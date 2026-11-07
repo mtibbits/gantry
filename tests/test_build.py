@@ -419,7 +419,7 @@ def test_unwritable_output_still_reports_not_built(tmp_path, monkeypatch):
     lines = stderr.splitlines()
     assert f"gantry: warning: site {NO_WBS} is not built: no WBS.md in the planning directory" in lines
     assert f"gantry: warning: site {UNREADABLE} is not built: WBS.md is not valid UTF-8 at byte 88" in lines
-    assert lines[-1].startswith(f"gantry: error: cannot write {out / 'index.html'}: ")
+    assert lines[-1] == f"gantry: error: cannot write {out / 'index.html'}: output_dir is not a folder"
     assert sum("gantry: error:" in line for line in lines) == 1
     assert out.read_bytes() == b"a file, not a folder"
 
@@ -432,8 +432,7 @@ def test_unwritable_sites_folder_still_writes_index(tmp_path, monkeypatch):
     assert (code, stdout) == (1, f"{out / 'index.html'}\n")
     lines = stderr.splitlines()
     for name in READABLE:
-        assert any(line.startswith(f"gantry: warning: site {name} is not built: cannot write sites/{name}.html: ")
-                   for line in lines)
+        assert f"gantry: warning: site {name} is not built: cannot write sites/{name}.html: sites/ is not a folder" in lines
     assert lines[-1] == "gantry: error: no site page was written"
     assert "index.html" not in stderr
     assert (out / "sites").read_bytes() == b"a file, not a folder"
