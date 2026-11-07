@@ -5,8 +5,9 @@ of the `<namespace>:<id>` shape mtibbits/devagent#888 checks in `satisfies:`.
 A requirements file is Markdown; a requirement is an unordered list item whose
 text starts with a bare ID and a colon (`- FR-12: <text>`). Every other line is
 prose, except an ID-shaped item that is not a requirement, which is reported.
-The module has its own meta-block reader and shares no code with
-gantry/wbs_stopgap.py. docs/requirements-format.md states the rules.
+The module has its own meta-block reader and fence pairing and shares no code
+with gantry/wbs_stopgap.py or gantry/model.py, so #12 can delete the stopgap
+freely. docs/requirements-format.md states the rules.
 """
 
 import re
@@ -286,7 +287,7 @@ class _Reader:
         c = self.candidate(line, m, nested=False)
         if c is None:
             return
-        rid = parse_id(c["code"] + c["dash"] + c["digits"] + c["suffix"], self.namespace)
+        rid = ReqId(self.namespace, c["code"], int(c["digits"]))  # _reasons found no fault
         # A misplaced or duplicate item is dropped before its block is read.
         if rid.code not in self.layers:
             allowed = ", ".join(code for code in LAYERS if code in self.layers)
@@ -343,16 +344,17 @@ class _Reader:
             if key not in ("refines", "needs"):
                 self.add(line, "malformed_meta",
                          f"unknown key {key!r} in the meta block (a requirement's keys are refines and needs)")
-            elif key in seen:
+                continue
+            if key in seen:
                 self.add(line, "malformed_meta", f"key {key!r} is repeated in the meta block; the first is kept")
-            elif key == "refines":
-                seen.add(key)
+                continue
+            seen.add(key)
+            if key == "refines":
                 if isinstance(value, list):
                     self.add(line, "malformed_meta", "refines: takes one target, not a list; it is not read")
                 else:
                     refines = self.target(line, key, value)
             else:
-                seen.add(key)
                 targets = value if isinstance(value, list) else [value]
                 if rid.code != "UC":
                     self.add(line, "misplaced", f"needs: on {rid}, which is not a use case; it is not read")
@@ -384,7 +386,8 @@ class _Reader:
         for r in self.requirements.values():
             for key, targets in (("refines", [r.refines]), ("needs", r.needs)):
                 for t in targets:
-                    if self.own(t) is not None and str(t) not in self.requirements:
+                    own = self.own(t)
+                    if own is not None and own not in self.requirements:
                         self.add(r.line, "undefined_link", f"{key}: {t} is not defined in this file")
 
     def check_cycles(self):

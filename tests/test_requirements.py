@@ -23,7 +23,7 @@ from gantry.requirements import (
 )
 from gantry.sites import SiteWarning, load_sites
 from helpers_config import write_site_tree
-from test_samples import GANTRY_SAMPLE, ROOT
+from test_samples import GANTRY_SAMPLE, ROOT, md_tables
 
 # A fictional mixed-case namespace (operator decision Q3); the format doc's
 # case rule uses the same name.
@@ -498,6 +498,13 @@ def _sample_trace():
     return c, sites, in_trace_sites(c, sites)
 
 
+def _sample_sets():
+    """{site name: its RequirementSet} for each site in the sample trace."""
+    c, _, (traced, _) = _sample_trace()
+    return {name: read_requirements(path, name, layers=PROJECT_LAYERS, br_namespace=c.requirements.br_namespace)
+            for name, path in traced.items()}
+
+
 def test_sample_trace_in_and_out():
     _, sites, (traced, warnings) = _sample_trace()
     assert warnings == []
@@ -506,10 +513,9 @@ def test_sample_trace_in_and_out():
 
 
 def test_sample_requirements_read_clean():
-    c, _, (traced, _) = _sample_trace()
-    assert traced
-    for name, path in traced.items():
-        s = read_requirements(path, name, layers=PROJECT_LAYERS, br_namespace=c.requirements.br_namespace)
+    sets = _sample_sets()
+    assert sets
+    for s in sets.values():
         assert s.report == []
         reqs = s.requirements.values()
         assert {"UC", "SR", "FR", "QA", "CON"} <= {r.layer for r in reqs}
@@ -540,10 +546,7 @@ def test_ids_fit_devagent_888_shape():
     for name in found:
         namespace, layers, br = FIXTURE_READS[name]
         sets.append(read(name, namespace, layers=layers, br=br))
-    c, _, (traced, _) = _sample_trace()
-    for site, path in traced.items():
-        sets.append(read_requirements(path, site, layers=PROJECT_LAYERS,
-                                      br_namespace=c.requirements.br_namespace))
+    sets += _sample_sets().values()
     ids = []
     for s in sets:
         for r in s.requirements.values():
@@ -584,8 +587,8 @@ def doc_blocks(text):
 def test_format_doc_states_rules():
     text = FORMAT_DOC.read_bytes().decode("utf-8")
     doc = " ".join(text.split())
-    rows = [line for line in text.splitlines() if line.startswith("|")]
-    assert [code for code in LAYERS if not any(line.startswith(f"| `{code}` |") for line in rows)] == []
+    firsts = {row[0] for table in md_tables(text) for row in table.rows}
+    assert [code for code in LAYERS if f"`{code}`" not in firsts] == []
     wanted = list(REPORT_KINDS) + [
         cfg.ID_TOKEN_RE.pattern, "`life`", "UTF-8", "byte-order mark", "renumbered", "reused",
         "Step-1:", "Q3:", "v2:", "R1:", "refines:", "needs:", "in the trace", "br_namespace", "fenced",

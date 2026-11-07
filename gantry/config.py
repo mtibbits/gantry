@@ -153,7 +153,7 @@ _KIND_TEXT = {
     "positive_number": "a positive number",
     "path_or_false": "a path string or false",
     "table": "a table",
-    "id_token": "a name matching [A-Za-z0-9][A-Za-z0-9_.-]*",
+    "id_token": f"a name matching {ID_TOKEN_RE.pattern}",
 }
 
 
