@@ -419,3 +419,46 @@ def test_build_doc_pins():
         for target, anchor in re.findall(r"\]\(([\w.-]*)#([\w-]+)\)", text):
             if target in ("", *docs):
                 assert anchor in heading_slugs(docs[target or name]), (name, target, anchor)
+
+
+# --- final-review fixes ----------------------------------------------------------------
+
+
+def test_unwritable_output_still_reports_not_built(tmp_path, monkeypatch):
+    copy = copy_samples(tmp_path)
+    (copy / "out").write_bytes(b"a file, not a folder")
+    code, out, stdout, stderr = demo_build(tmp_path, monkeypatch, copy=copy)
+    assert (code, stdout) == (1, "")
+    lines = stderr.splitlines()
+    assert f"gantry: warning: site {NO_WBS} is not built: no WBS.md in the planning directory" in lines
+    assert f"gantry: warning: site {UNREADABLE} is not built: WBS.md is not valid UTF-8 at byte 88" in lines
+    assert lines[-1].startswith(f"gantry: error: cannot write {out / 'index.html'}: ")
+    assert sum("gantry: error:" in line for line in lines) == 1
+    assert out.read_bytes() == b"a file, not a folder"
+
+
+def test_parse_error_isolated(tmp_path, monkeypatch):
+    real = build.read_wbs
+
+    def read_wbs(path, name):
+        if name == "beta":
+            raise RuntimeError("parser broke")
+        return real(path, name)
+
+    monkeypatch.setattr(build, "read_wbs", read_wbs)
+    result = build_all(page_tree(tmp_path, ["alpha", "beta"]))
+    summaries = {s.name: s for s in result.summaries}
+    assert summaries["alpha"].status == "built"
+    assert (summaries["beta"].status, summaries["beta"].reason) == ("not_built", "render error: RuntimeError: parser broke")
+
+
+@pytest.mark.parametrize("est, day, when", [
+    ("8h", 2, date(2026, 1, 21)),   # 1.33 days: the work runs into the second working day
+    ("2h", 1, date(2026, 1, 20)),   # under half a day: day 1, the as-of date, never day 0
+    ("12h", 2, date(2026, 1, 21)),  # exactly two days
+])
+def test_finish_day_is_the_day_the_plan_ends_in(tmp_path, est, day, when):
+    wbs = f"- [ ] A {{issue: Issue-1, est: {est}}}\n".encode("utf-8")
+    config = load_config(write_site_tree(tmp_path, {"alpha": wbs}, as_of="2026-01-20"))
+    (summary,) = build_all(config).summaries
+    assert (summary.finish_day, summary.finish_date) == (day, when)

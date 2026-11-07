@@ -116,15 +116,15 @@ def _build_all(config):
     _warn(result.warnings)
     result, written, index_error = write_all(result)
     index = config.output_dir / "index.html"
-    if index_error is not None and not written:
-        # The output folder itself cannot be written: one line, nothing written.
-        print(f"gantry: error: cannot write {index}: {index_error}", file=sys.stderr)
-        return 1
     for path in written:
         print(path)
     for s in result.summaries:
         if s.status != "built":
             print(f"gantry: warning: site {shown(s.name)} is not built: {s.reason}", file=sys.stderr)
+    if index_error is not None and not written:
+        # The output folder itself cannot be written: one error line, nothing written.
+        print(f"gantry: error: cannot write {index}: {index_error}", file=sys.stderr)
+        return 1
     code = 0
     if index_error is not None:
         print(f"gantry: error: cannot write {index}: {index_error}", file=sys.stderr)

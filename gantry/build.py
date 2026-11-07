@@ -105,10 +105,11 @@ def read_site(site, config, earlier=None, *, roots=None):
         roots = config_roots(config, [site])
     if earlier is not None:
         return None, CLASH.format(earlier=earlier)
-    data, problem = site_data(site)
-    if problem is not None:
-        return None, public_text(problem, roots)
+    # Parsing too is per site: a parser that throws on one WBS.md stops only that site.
     try:
+        data, problem = site_data(site)
+        if problem is not None:
+            return None, public_text(problem, roots)
         return apply_inputs(site, data, config), None
     except Exception as e:
         return None, render_reason(e, roots)

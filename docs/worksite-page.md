@@ -614,10 +614,12 @@ gives, joined by ` · `:
 - its report count, the panel's line count: `{n} missing or unreadable`, or
   `nothing missing or unreadable`.
 
-The finish day is the working day the plan ends in, the schedule summary's
-`{end}`. Working days run Monday to Friday, and the as-of date is working
-day 1 (and day 0), even on a weekend; so a plan whose end rounds to day 3
-from Tuesday 2026-01-20 finishes on Thursday 2026-01-22.
+The finish day is the working day the plan ends in: the plan's latest
+finish in working days, rounded up, so a plan that needs 8 agent-hours at 6
+a day ends in day 2. (The page's schedule summary rounds the same end to the
+nearest day, since it says "around".) Working days run Monday to Friday, and
+the as-of date is working day 1, even on a weekend; so a plan that ends in
+day 3 from Tuesday 2026-01-20 finishes on Thursday 2026-01-22.
 
 A site that was not built shows its name and `not built: {reason}` instead,
 and has no link. The index leaves three slots empty for later views: a
@@ -650,8 +652,8 @@ index with its reason and on stderr as
   site's own status:
   `name clashes with {earlier} on a case-insensitive file system`;
 - `render error: {type}: {message}` (or `render error: {type}` when the
-  message is empty): reading the optional inputs, building the page's data
-  or filling its template failed;
+  message is empty): parsing `WBS.md`, reading the optional inputs,
+  building the page's data or filling its template failed;
 - `cannot write sites/{name}.html: {why}`.
 
 A reason names the site and a config key or file kind, never an absolute
@@ -659,7 +661,8 @@ path. Two more lines can follow on stderr:
 
 - `gantry: error: cannot write <index path>: <reason>`: the index cannot be
   written. When the output folder itself cannot be made (`output_dir` is a
-  file), this is the only line, and nothing is written;
+  file), this is the only error line (the not-built lines still come first),
+  and nothing is written;
 - `gantry: error: no site page was written`.
 
 | Exit | When |

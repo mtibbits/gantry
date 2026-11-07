@@ -150,6 +150,19 @@ def plan_end_days(items, p):
     return _round(end)
 
 
+def plan_finish_day(items, p):
+    """The working day the plan `p` ends in, counting from 1: its latest finish
+    over HOURS_PER_DAY, rounded up, so 8 hours at 6 a day ends in day 2; or
+    None with no items. The index dates a finish by it (#11)."""
+    if not items:
+        return None
+    end = 0
+    for item in items:
+        end = max(end, p[item["key"]][1] / HOURS_PER_DAY)
+    # round() first, so a float a hair over a whole day is not a day later.
+    return max(1, math.ceil(round(end, 9)))
+
+
 def summary_text(items, p, path, lanes, unest_site, unest_path):
     """The schedule summary for plan `p`: worksite.js's compute(), step for step.
 
@@ -358,7 +371,7 @@ def page_model(site, data, *, default_unit_hours, inputs=None) -> dict:
         "leaves": leaves,
         "anchors": anchors,
         "finished": finished,
-        "finish_day": plan_end_days(items, planned),
+        "finish_day": plan_finish_day(items, planned),
         "schedule": {"items": items},
         "network": {
             "nodes": list(net.nodes),
