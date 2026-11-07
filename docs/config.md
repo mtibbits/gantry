@@ -156,8 +156,10 @@ site whose name fails the pattern above. Each is still listed; if its
 `requirements` key is set, the key is not read and a warning on stderr
 names the site and the key (`key 'site.<name>.requirements' is not read:
 ... so it cannot be in the trace`). With no key set there is no warning.
-The rules are in [requirements-format.md](requirements-format.md#in-the-trace). A missing or invalid devagent config, or one with no `project`
-table or an empty one, is an error: a build with no sites almost always means
+The rules are in [requirements-format.md](requirements-format.md#in-the-trace).
+
+A missing or invalid devagent config, or one with no `project` table or an
+empty one, is an error: a build with no sites almost always means
 a wrong path.
 
 `gantry build` prints one tab-separated line per site: the name, the planning
