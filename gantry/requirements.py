@@ -53,7 +53,7 @@ _WHY = {
     "marks": "marks around the ID (write it plain)",
     "namespace": "a namespace (a requirement is defined with a bare ID)",
     "space": "a space before the colon",
-    "code": "{code!r} is not a layer code (BR, BRule, UC, SR, FR, QA, EI, CON)",
+    "code": "{code!r} is not a layer code (" + ", ".join(LAYERS) + ")",
     "dash": "no '-' between the code and the number",
     "number": "the number {digits!r} is not a positive integer without a leading zero",
     "long": "the number has more than 9 digits",

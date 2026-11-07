@@ -80,7 +80,8 @@ do not start like an ID. Prose is ignored and never reported.
 Lines inside fenced code blocks are ignored too, so a file can show
 examples. A fence opened by three or more backticks or tildes is closed by
 the first later line of the same character, at least as long, with nothing
-after it. An opener with no closer is ordinary text and hides nothing.
+after it. A backtick opener whose info string holds a backtick is not an
+opener. An opener with no closer is ordinary text and hides nothing.
 
 ### Candidates
 
