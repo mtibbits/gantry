@@ -16,8 +16,10 @@ FORMAT_DOC = ROOT / "docs" / "requirements-format.md"
 NAMESPACE = "gantry"
 # A business-requirement ID, bare or qualified, anywhere in the text (fences included).
 BR_TOKEN_RE = re.compile(r"(?<![A-Za-z0-9])BR-[0-9]")
-# Any qualified ID: a namespace token, a colon, a layer code, a dash, a digit.
-QUALIFIED_RE = re.compile(rf"(?P<namespace>{ID_TOKEN_RE.pattern}):(?:{'|'.join(LAYERS)})-[0-9]")
+# Longest code first, so BRule is never read as BR.
+QUALIFIED_RE = re.compile(
+    rf"(?P<namespace>{ID_TOKEN_RE.pattern}):(?:{'|'.join(sorted(LAYERS, key=len, reverse=True))})-[0-9]"
+)
 # Meta-block keys the format defines; a space-less `{refines:SR-2}` must not read as a namespace.
 META_KEYS = {"needs", "refines"}
 # The source-of-truth claims (AC5), one anchor phrase each, matched on the normalised header.
@@ -68,6 +70,7 @@ def test_layer_floors():
     for layer in ("SR", "FR", "QA", "EI"):
         assert counts[layer] >= 1, f"{layer}: {counts[layer]}"
     assert counts["UC"] >= 6, f"UC: {counts['UC']}"
+    # Exactly the five anti-goals (#16); a change that adds a constraint updates this count.
     assert counts["CON"] == 5, f"CON: {counts['CON']}"
 
 
@@ -87,7 +90,7 @@ def test_qualified_ids_are_gantry_only():
 
 def test_header_links_the_format_doc():
     assert FORMAT_DOC.is_file()
-    assert f"]({FORMAT_DOC.name})" in header(own_text())
+    assert re.search(rf"\]\({re.escape(FORMAT_DOC.name)}[#)]", header(own_text()))
 
 
 def test_no_html_comments():
@@ -104,3 +107,4 @@ def test_header_states_source_of_truth():
 def test_scanners_find_planted_tokens():
     assert br_tokens(PLANTED) == ["BR-3", "BR-2"]
     assert foreign_namespaces(PLANTED) == {"life", "harbor"}
+    assert header("# T\n[f](requirements-format.md)\n## S\n[g](x.md)\n") == "# T\n[f](requirements-format.md)\n"
