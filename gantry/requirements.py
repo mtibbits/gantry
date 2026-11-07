@@ -280,9 +280,11 @@ class _Reader:
 
     def item(self, index, m, continuation):
         line = self.first_line + index
+        has_nested = False
         for k, text in continuation:
             nested = ITEM_RE.fullmatch(text)
             if nested is not None:
+                has_nested = True
                 self.candidate(self.first_line + k, nested, nested=True)
         c = self.candidate(line, m, nested=False)
         if c is None:
@@ -298,7 +300,8 @@ class _Reader:
             self.add(line, "duplicate_id",
                      f"{rid} is also defined on line {first.line}; the first definition is kept")
             return
-        # The block closes the first line, or else the joined text.
+        # The block closes the first line, or else the joined text. With a nested
+        # item in the text, the block that ends it may be that item's: it is not read.
         head = m["rest"][c.end() :].strip()
         block = _ending_block(head)
         if block is not None:
@@ -307,7 +310,7 @@ class _Reader:
         text = " ".join(part for part in parts if part)
         second = None
         if block is None:
-            block = _ending_block(text)
+            block = None if has_nested else _ending_block(text)
             if block is not None:
                 text = text[: block.start()].rstrip()
         else:

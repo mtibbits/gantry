@@ -129,7 +129,10 @@ prose bullet too: write every requirement as a top-level list item.
 
 A requirement may carry one meta block in devagent's brace form, either at
 the end of its first line (where devagent's own `WBS.md` lines put it) or at
-the end of its joined text. The block is removed from the text.
+the end of its joined text. The block is removed from the text. When the text
+holds a nested item, only a block on the first line is read: a block at the
+end of the joined text may belong to the nested item, so it is reported and
+not read.
 
 ```text
 - UC-1: A keeper logs the lamp's nightly check. {needs: [FR-1, QA-1]}

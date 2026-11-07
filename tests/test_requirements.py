@@ -217,6 +217,13 @@ def test_item_under_a_prose_bullet_is_nested():
     assert "requirements are not nested" in entry.message
 
 
+def test_nested_items_block_is_not_the_parents():
+    s = parse("- FR-1: parent\n  - FR-2: child {refines: SR-1}\n- SR-1: y\n")
+    assert s.requirements["alpha:FR-1"].refines is None
+    assert "alpha:FR-2" not in s.requirements
+    assert any(e.line == 2 and "requirements are not nested" in e.message for e in s.report)
+
+
 def test_tab_indent_counts_as_four():
     assert parse("- FR-1: a\n\tb\n").requirements["alpha:FR-1"].text == "a b"
 
