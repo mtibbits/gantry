@@ -497,6 +497,26 @@ leaf's foreign `depends_on` entries, then those of each open row above it,
 top-down, are listed in its details as `{raw} (on another site)`, such as
 `beta:Issue-3 (on another site)`.
 
+### The build stamp and sample mode
+
+Every page and the index carry a stamp under their first line. It reads
+`built {when}; data as of {date}`, where `{when}` is the build time in UTC
+(`2026-11-07 14:03 UTC`) and `{date}` the as-of date. In **sample mode** it
+reads `sample data as of {date}` and carries no build time, so two builds of
+the same sample data on the same as-of date write byte-identical files.
+
+Sample mode holds when every root the config names resolves inside the
+sample directory: the Gantry config itself, the devagent config, every
+planning directory (`devdoc_dir`) it names, `output_dir`, and each other
+configured path (`portfolio_file`, `fires_list`, and each
+`site.<name>.requirements` and `site.<name>.estimates`). The sample
+directory is `samples/` in the Gantry source tree the running package was
+loaded from, when it holds `gantry.sample.toml`; an installation with no
+source tree is never in sample mode. Both sides are compared after links are
+resolved and case is folded as the host folds it, so a folder that does not
+exist yet (`samples/out` before the first build) is inside, and `samples-x`
+or `samples/../x` is not. No flag or config key switches sample mode on.
+
 ## Page safety
 
 Every page follows the rules in [page-safety.md](page-safety.md), and its
