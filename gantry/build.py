@@ -9,7 +9,7 @@ never an absolute path. docs/worksite-page.md states the build.
 
 import os
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, timedelta
 
 from gantry.config import Config, error_reason
@@ -23,6 +23,7 @@ from gantry.wbs_stopgap import read_wbs
 CLASH = "name clashes with {earlier} on a case-insensitive file system"
 RENDER_ERROR = "render error: {type}: {message}"
 RENDER_ERROR_BARE = "render error: {type}"
+WRITE_ERROR = "cannot write sites/{name}.html: {why}"
 
 
 @dataclass(frozen=True)
@@ -187,6 +188,44 @@ def build_all(config, *, now=None, samples=None) -> BuildResult:
     summaries = tuple(_summary(s.name, inputs[s.name], models[s.name], config.as_of) if s.name in pages
                       else not_built(s.name, reasons[s.name]) for s in sites)
     return BuildResult(config, tuple(sites), tuple(warnings), inputs, pages, summaries, stamp)
+
+
+def _why(e: OSError) -> str:
+    return error_reason(e) or "unknown error"
+
+
+def write_all(result):
+    """Write each page, then the index; delete nothing.
+
+    Returns (result, written paths, index error). A page that cannot be
+    written turns its site into a not-built one in the returned result,
+    which the index is rendered from. When the output folder itself cannot
+    be made, nothing is written and the index error says why.
+    """
+    from gantry.views.index import render_index
+
+    out = result.config.output_dir
+    folder = out / "sites"
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        return result, [], _why(e)
+    written, pages, failed = [], {}, {}
+    for name, text in result.pages.items():
+        try:
+            write_page(folder, name, text)
+        except OSError as e:
+            failed[name] = WRITE_ERROR.format(name=name, why=_why(e))
+            continue
+        pages[name] = text
+        written.append(folder / f"{name}.html")
+    summaries = tuple(not_built(s.name, failed[s.name]) if s.name in failed else s for s in result.summaries)
+    result = replace(result, pages=pages, summaries=summaries)
+    try:
+        write_page(out, "index", render_index(result))
+    except OSError as e:
+        return result, written, _why(e)
+    return result, written + [out / "index.html"], None
 
 
 def write_page(folder, name, text):

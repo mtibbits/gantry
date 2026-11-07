@@ -1,17 +1,21 @@
 """The full build: anchors and hrefs, reading and rendering every site, and
 writing the pages and the index (#11)."""
 
+import io
+import os
 import re
+from contextlib import redirect_stderr, redirect_stdout
 from datetime import date
 
 import pytest
 
 from gantry import build
 from gantry.build import CLASH, build_all, working_day
+from gantry.cli import main
 from gantry.config import load_config
 from gantry.links import leaf_anchor, leaf_href, page_href
 from gantry.views import worksite
-from helpers_config import copy_samples, sample_projects, snapshot, write_site_tree
+from helpers_config import append_bytes, copy_samples, demo_build, page_links, sample_projects, snapshot, write_site_tree
 from page_safety import HOSTILE
 from sample_roles import BUSY, NO_WBS, READABLE, UNESTIMATED, UNREADABLE
 from test_samples import ROOT
@@ -166,3 +170,150 @@ def test_build_all_writes_nothing(tmp_path):
     assert snapshot(tmp_path) == before
     assert not (copy / "out").exists()
 
+
+# --- writing: the full build on the command line --------------------------------------
+
+
+def written_files(out):
+    return sorted(p.relative_to(out).as_posix() for p in out.rglob("*") if p.is_file())
+
+
+def test_demo_build_writes_index_and_pages(tmp_path, monkeypatch):
+    code, out, stdout, stderr = demo_build(tmp_path, monkeypatch)
+    assert code == 0, stderr
+    assert written_files(out) == sorted(["index.html", *(f"sites/{s}.html" for s in READABLE)])
+    printed = stdout.splitlines()
+    projects = [p for p in sample_projects() if p in READABLE]
+    assert printed == [str(out / "sites" / f"{s}.html") for s in projects] + [str(out / "index.html")]
+    assert all(os.path.isabs(line) for line in printed)
+
+
+def test_index_links_every_written_page(tmp_path, monkeypatch):
+    _, out, _, _ = demo_build(tmp_path, monkeypatch)
+    links = set(page_links((out / "index.html").read_bytes().decode("utf-8")))
+    assert links == {f"sites/{p.name}" for p in (out / "sites").iterdir()}
+    assert len(links) == 4
+
+
+def test_not_built_sites_listed_exit_0(tmp_path, monkeypatch):
+    code, out, _, stderr = demo_build(tmp_path, monkeypatch)
+    assert code == 0
+    index = (out / "index.html").read_bytes().decode("utf-8")
+    for name, reason in ((NO_WBS, "no WBS.md in the planning directory"),
+                         (UNREADABLE, "WBS.md is not valid UTF-8 at byte 88")):
+        assert f"not built: {reason}" in index
+        assert f"gantry: warning: site {name} is not built: {reason}" in stderr.splitlines()
+    assert len(list((out / "sites").iterdir())) == 4
+
+
+def run_main(*args):
+    out, err = io.StringIO(), io.StringIO()
+    with redirect_stdout(out), redirect_stderr(err):
+        code = main(["build", *args])
+    return code, out.getvalue(), err.getvalue()
+
+
+def test_all_fail_writes_index_exit_1(tmp_path):
+    config = write_site_tree(tmp_path, {"alpha": None, "beta": None})
+    code, stdout, stderr = run_main("--config", str(config))
+    assert code == 1
+    assert (tmp_path / "out" / "index.html").is_file()
+    assert not (tmp_path / "out" / "sites").exists() or not list((tmp_path / "out" / "sites").iterdir())
+    assert stdout.splitlines() == [str(tmp_path / "out" / "index.html")]
+    assert stderr.splitlines()[-1] == "gantry: error: no site page was written"
+
+
+def test_case_clash_cli(tmp_path):
+    page = (FIXTURES / "page.md").read_bytes()
+    config = write_site_tree(tmp_path, {"alpha": page, "Alpha": page})
+    code, stdout, stderr = run_main("--config", str(config))
+    assert code == 0, stderr
+    assert [p.name for p in (tmp_path / "out" / "sites").iterdir()] == ["alpha.html"]
+    clash = CLASH.format(earlier="alpha")
+    assert f"gantry: warning: site Alpha is not built: {clash}" in stderr.splitlines()
+    assert f"not built: {clash}" in (tmp_path / "out" / "index.html").read_bytes().decode("utf-8")
+
+
+def test_site_on_case_clash_exits_1(tmp_path):
+    page = (FIXTURES / "page.md").read_bytes()
+    config = write_site_tree(tmp_path, {"alpha": page, "Alpha": page})
+    code, stdout, stderr = run_main("--config", str(config), "--site", "Alpha")
+    assert (code, stdout) == (1, "")
+    assert stderr == f"gantry: error: --site Alpha: cannot build: {CLASH.format(earlier='alpha')}\n"
+    assert not (tmp_path / "out").exists()
+    assert run_main("--config", str(config), "--site", "alpha")[0] == 0
+
+
+def test_site_writes_one_page_no_index(tmp_path, monkeypatch):
+    code, out, stdout, _ = demo_build(tmp_path, monkeypatch, "--site", BUSY)
+    assert code == 0
+    assert written_files(out) == [f"sites/{BUSY}.html"]
+    assert stdout == f"{out / 'sites' / f'{BUSY}.html'}\n"
+
+
+def test_site_unconfigured_exits_1(tmp_path):
+    config = write_site_tree(tmp_path, {"alpha": (FIXTURES / "page.md").read_bytes()})
+    code, out, err = run_main("--config", str(config), "--site", "nowhere")
+    assert (code, out) == (1, "")
+    assert err == f"gantry: error: --site nowhere: no such site in {tmp_path / 'devagent.toml'}\n"
+    assert not (tmp_path / "out").exists()
+
+
+def test_full_build_deletes_nothing(tmp_path, monkeypatch):
+    copy = copy_samples(tmp_path)
+    seeded = {"sites/stale.html": b"old stale page", f"sites/{NO_WBS}.html": b"old page", "keep.txt": b"keep"}
+    for rel, data in seeded.items():
+        (copy / "out" / rel).parent.mkdir(parents=True, exist_ok=True)
+        (copy / "out" / rel).write_bytes(data)
+    code, out, _, _ = demo_build(tmp_path, monkeypatch, copy=copy)
+    assert code == 0
+    assert {rel: (out / rel).read_bytes() for rel in seeded} == seeded
+
+
+def test_unwritable_output_exits_1(tmp_path):
+    config = write_site_tree(tmp_path, {"alpha": (FIXTURES / "page.md").read_bytes()})
+    (tmp_path / "out").write_bytes(b"a file, not a folder")
+    code, stdout, stderr = run_main("--config", str(config))
+    assert (code, stdout) == (1, "")
+    lines = stderr.splitlines()
+    assert len(lines) == 1
+    assert lines[0].startswith(f"gantry: error: cannot write {tmp_path / 'out' / 'index.html'}: ")
+    assert (tmp_path / "out").read_bytes() == b"a file, not a folder"
+
+
+def test_page_write_error_lists_site(tmp_path):
+    page = (FIXTURES / "page.md").read_bytes()
+    config = write_site_tree(tmp_path, {"alpha": page, "beta": page})
+    (tmp_path / "out" / "sites" / "beta.html").mkdir(parents=True)
+    code, stdout, stderr = run_main("--config", str(config))
+    assert code == 0
+    assert stdout.splitlines() == [str(tmp_path / "out" / "sites" / "alpha.html"), str(tmp_path / "out" / "index.html")]
+    (line,) = [line for line in stderr.splitlines() if "beta" in line]
+    assert line.startswith("gantry: warning: site beta is not built: cannot write sites/beta.html: ")
+    index = (tmp_path / "out" / "index.html").read_bytes().decode("utf-8")
+    assert "not built: cannot write sites/beta.html: " in index
+    assert str(tmp_path) not in index
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX file modes only")
+def test_index_mode_follows_umask(tmp_path):
+    config = write_site_tree(tmp_path, {"alpha": (FIXTURES / "page.md").read_bytes()})
+    old = os.umask(0o022)
+    try:
+        assert run_main("--config", str(config))[0] == 0
+    finally:
+        os.umask(old)
+    assert (tmp_path / "out" / "index.html").stat().st_mode & 0o777 == 0o644
+
+
+def test_added_project_appears(tmp_path, monkeypatch):
+    copy = copy_samples(tmp_path)
+    before = (copy / "gantry.sample.toml").read_bytes()
+    (copy / "dunes").mkdir()
+    (copy / "dunes" / "WBS.md").write_bytes(b"# Dunes\n\n- [ ] Plant the grass {issue: Issue-1}\n")
+    append_bytes(copy / "devagent" / "config.toml", '\n[project.dunes]\ndevdoc_dir = "../dunes"\n')
+    code, out, _, _ = demo_build(tmp_path, monkeypatch, copy=copy)
+    assert code == 0
+    assert "sites/dunes.html" in page_links((out / "index.html").read_bytes().decode("utf-8"))
+    assert (out / "sites" / "dunes.html").is_file()
+    assert (copy / "gantry.sample.toml").read_bytes() == before

@@ -1,10 +1,12 @@
-"""Config fixture helpers shared by the config, site and CLI tests (#7).
+"""Fixture helpers shared by the config, site, CLI and build tests (#7, #11).
 
-A plain module, not a test module, so no test module imports another; it
-resolves like sample_roles (see its import contract).
+A plain module, not a test module; it resolves like sample_roles (see its
+import contract).
 """
 
+import io
 import shutil
+from contextlib import redirect_stderr, redirect_stdout
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -58,9 +60,14 @@ def write_site_tree(folder, sites, tail="", **raw):
         planning.mkdir()
         if wbs is not None:
             (planning / "WBS.md").write_bytes(wbs)
-        tables.append(f'[project."{name}"]\ndevdoc_dir = "{index}"\n')
+        tables.append(f'[project.{toml_key(name)}]\ndevdoc_dir = "{index}"\n')
     (folder / "devagent.toml").write_bytes("\n".join(tables).encode("utf-8"))
     return _write_toml(folder / "gantry.toml", tail, raw)
+
+
+def toml_key(name):
+    """A quoted TOML key for any name: backslash and double quote escaped."""
+    return '"' + name.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
 def copy_samples(tmp_path):
@@ -137,3 +144,20 @@ def snapshot(root):
         for p in sorted(root.rglob("*"))
     }
 
+
+def demo_build(tmp_path, monkeypatch, *args, copy=None):
+    """`gantry build` on a samples copy in sample mode: (exit code, out folder, stdout, stderr).
+
+    gantry.stamp.sample_dir is patched to the copy, so the copy is the
+    sample directory and the stamp carries no build time.
+    """
+    from gantry import stamp
+    from gantry.cli import main
+
+    if copy is None:
+        copy = copy_samples(tmp_path)
+    monkeypatch.setattr(stamp, "sample_dir", lambda package_dir=None: copy)
+    out, err = io.StringIO(), io.StringIO()
+    with redirect_stdout(out), redirect_stderr(err):
+        code = main(["build", "--config", str(copy / "gantry.sample.toml"), *args])
+    return code, copy / "out", out.getvalue(), err.getvalue()

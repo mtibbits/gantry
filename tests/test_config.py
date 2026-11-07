@@ -368,7 +368,8 @@ def test_drive_devdoc_is_site_problem_on_linux(tmp_path, capsys):
     sites, _ = load_sites(cfg.load_config(p))
     assert sites[0].problem.startswith("devdoc_dir is rooted but not absolute")
     assert sites[0].planning_dir is None
-    assert main(["build", "--config", str(p)]) == 0
+    # The only site is not built, so no page is written: a problem, not a crash.
+    assert main(["build", "--config", str(p)]) == 1
 
 
 @pytest.mark.skipif(os.name != "nt", reason="a /-rooted path is absolute on Linux")
@@ -377,7 +378,8 @@ def test_rooted_devdoc_is_site_problem_on_windows(tmp_path, capsys):
     sites, _ = load_sites(cfg.load_config(p))
     assert sites[0].problem.startswith("devdoc_dir is rooted but not absolute")
     assert sites[0].planning_dir is None
-    assert main(["build", "--config", str(p)]) == 0
+    # The only site is not built, so no page is written: a problem, not a crash.
+    assert main(["build", "--config", str(p)]) == 1
 
 
 # --- docs/config.md lists every registry key ---------------------------------------
