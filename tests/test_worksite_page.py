@@ -15,7 +15,7 @@ from types import SimpleNamespace
 import pytest
 
 from commit_check import path_form_hits
-from gantry.cli import site_data
+from gantry.build import site_data
 from gantry.config import SiteOverride
 from gantry.config import load_config as load_installation
 from gantry.inputs import EstimatesSource, apply_inputs

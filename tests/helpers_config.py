@@ -128,3 +128,12 @@ def page_ids(html):
 def page_links(html):
     """Every a[href] on the page, in document order."""
     return _scan_ids(html).links
+
+
+def snapshot(root):
+    """Each file and folder under root, with its size and modification time."""
+    return {
+        p.relative_to(root).as_posix(): (p.stat().st_size, p.stat().st_mtime_ns)
+        for p in sorted(root.rglob("*"))
+    }
+

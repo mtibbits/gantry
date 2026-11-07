@@ -6,10 +6,9 @@ reads the environment or the home folder to find one. Exit codes: 0 success,
 """
 
 import argparse
-import os
 import sys
-import tempfile
 
+from gantry.build import site_data, write_page
 from gantry.config import ConfigError, error_reason, load_config
 from gantry.model import REPORT_KINDS, SiteData
 from gantry.requirements import in_trace_sites
@@ -66,36 +65,6 @@ def status_text(data: SiteData) -> str:
     return f"{text}; {', '.join(found)}" if found else text
 
 
-def _write_page(folder, name, text):
-    """Write <folder>/<name>.html through a temporary file and a rename: no partial page."""
-    folder.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=folder, prefix=f".{name}.", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(text.encode("utf-8"))
-        # mkstemp makes the file 0600; a page gets the mode any new file
-        # gets, so a server on the private network can read it.
-        umask = os.umask(0)
-        os.umask(umask)
-        os.chmod(tmp, 0o666 & ~umask)
-        os.replace(tmp, folder / f"{name}.html")
-    except BaseException:
-        # fdopen closed the descriptor, on success or failure.
-        os.unlink(tmp)
-        raise
-
-
-def site_data(site):
-    """(data, None) for a site a page can be built from, else (None, why not)."""
-    if site.problem is not None:
-        return None, site.problem
-    data = read_wbs(site.planning_dir / "WBS.md", site.name)
-    unreadable = [e for e in data.report if e.kind == "site_unreadable"]
-    if unreadable:
-        return None, unreadable[0].message
-    return data, None
-
-
 def _build_site(config, sites, name):
     def fail(message):
         print(f"gantry: error: --site {shown(name)}: {message}", file=sys.stderr)
@@ -121,7 +90,7 @@ def _build_site(config, sites, name):
     folder = config.output_dir / "sites"
     page = folder / f"{site.name}.html"
     try:
-        _write_page(folder, site.name, text)
+        write_page(folder, site.name, text)
     except OSError as e:
         return fail(f"cannot write {page}: {error_reason(e)}")
     print(page)

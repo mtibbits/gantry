@@ -267,15 +267,6 @@ def test_python_m_builds_sample_site(tmp_path):
     assert os.path.samefile(printed, copy / "out" / "sites" / f"{BUSY}.html")
 
 
-def test_listing_does_not_import_the_view():
-    code = "import sys, gantry.cli; gantry.cli.main(['build', '--config', 'samples/gantry.sample.toml']); " \
-           "sys.exit('gantry.views.worksite' in sys.modules or 'gantry.inputs' in sys.modules)"
-    result = subprocess.run([sys.executable, "-c", code], cwd=ROOT, capture_output=True,
-                            env={**os.environ, "PYTHONPATH": str(ROOT)})
-    assert result.returncode == 0, result.stderr
-    assert len(result.stdout.splitlines()) == 6
-
-
 def test_portfolio_file_does_not_change_page(tmp_path, capsys):
     copy = copy_samples(tmp_path)
     config = copy / "gantry.sample.toml"

@@ -18,11 +18,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / "tests")]
 
-from gantry.cli import shown, site_data  # noqa: E402
+from gantry.build import site_data  # noqa: E402
 from gantry.config import ConfigError, load_config  # noqa: E402
 from gantry.inputs import apply_inputs  # noqa: E402
 from gantry.schedule import plan  # noqa: E402
-from gantry.sites import load_sites  # noqa: E402
+from gantry.sites import load_sites, shown  # noqa: E402
 from gantry.views.worksite import page_model, render_model  # noqa: E402
 from page_script.harness import HarnessError, run_function  # noqa: E402
 
