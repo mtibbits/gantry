@@ -567,6 +567,38 @@ tests use that document's checkers and harness. This page applies them so:
   `</script` or `<!--`. The template and both scripts are package data, LF
   everywhere.
 
+## The index
+
+`<output_dir>/index.html` (`gantry/views/index.py`, `gantry/templates/index.html`)
+is headed `Worksites` and carries the build stamp. At the top it lists every
+warning the build printed on stderr, with each path in it shown by its
+config key or file kind (`the Gantry config`, `the devagent config`,
+`output_dir`, `devdoc_dir of <site>`). A heading line,
+`Finishes at {lanes} agent lanes: {label}`, says what the finishes count:
+at the default 4 lanes, agent capacity only. Then there is one line per
+site, in devagent's config order. A built site's line links its page and
+gives, joined by ` · `:
+
+- its open leaves, held-out leaves included: `{n} open leaves`, or
+  `1 open leaf`;
+- its finish: `finishes working day {day}, {date}`, then `; ` and
+  `includes {n} unestimated leaves` when it has any, or
+  `nothing is scheduled` when no leaf is;
+- its report count, the panel's line count: `{n} missing or unreadable`, or
+  `nothing missing or unreadable`.
+
+The finish day is the working day the plan ends in, the schedule summary's
+`{end}`. Working days run Monday to Friday, and the as-of date is working
+day 1 (and day 0), even on a weekend; so a plan whose end rounds to day 3
+from Tuesday 2026-01-20 finishes on Thursday 2026-01-22.
+
+A site that was not built shows its name and `not built: {reason}` instead,
+and has no link. The index leaves three slots empty for later views: a
+headline at the top (`#headline`), one `span.extra` on each site's line,
+and a list of links to other views (`#view-links`). The index has no
+script; its data block holds the stamp, the as-of date, each site's
+summary and the warnings, as shown.
+
 ## On the command line
 
 `gantry build --config FILE` lists the sites and writes nothing. Each site's
