@@ -312,9 +312,9 @@ class _Reader:
                 text = text[: block.start()].rstrip()
         else:
             second = _ending_block(text)
-        spans = []
+        starts = set()
         for other in BLOCK_RE.finditer(text):
-            spans.append(other.span())
+            starts.add(other.start())
             if second is not None and other.start() == second.start():
                 self.add(line, "malformed_meta",
                          "a second meta block on one item; it stays in the text and is not read")
@@ -322,8 +322,9 @@ class _Reader:
                 self.add(line, "malformed_meta",
                          "a meta block inside the text; it stays in the text and is not read")
         # A block opener no match consumed has no closing brace, or holds one: once per item.
+        # A block's body holds no brace, so a consumed opener is always a block's start.
         for opener in _OPENER_RE.finditer(text):
-            if not any(start <= opener.start() < end for start, end in spans):
+            if opener.start() not in starts:
                 self.add(line, "malformed_meta", f"the meta block starting {opener.group(0)!r} cannot be "
                                                  "read: an unclosed or nested brace")
                 break
