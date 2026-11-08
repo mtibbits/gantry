@@ -156,3 +156,62 @@ def heuristic_need(leaf, data) -> tuple[int, str]:
         why.append("first open leaf of its epic")
     # 1 plus three single steps is at most 4, so this cap cannot fire; kept as the issue states it.
     return min(need, 4), "; ".join(why)
+
+
+@dataclass(frozen=True)
+class SiteRatio:
+    """A site's operator hours per agent hour: measured from history (#40) or declared (#39)."""
+    value: int | float
+    source: str  # "measured" or "declared"
+    n: int | None = None  # how many closed issues a measured ratio is from
+    basis: str = ""
+
+    def __post_init__(self):
+        problem = rate_problem(self.value)
+        if problem is not None:
+            raise ValueError(f"a site ratio must be a number from 0 to {MAX_RATE}; {self.value!r} is {problem}")
+        if self.source not in ("measured", "declared"):
+            raise ValueError(f"a site ratio's source must be 'measured' or 'declared', not {self.source!r}")
+
+
+@dataclass(frozen=True)
+class Attention:
+    need: int | None  # 0 to 4; None when a site ratio gives the rate
+    rate: float  # operator hours per agent hour
+    tag: str  # "scored", "measured", "declared" or "estimated"
+    basis: str  # where it came from, led by the tag
+
+
+def _check_slots(measured, declared):
+    """Refuse a site ratio passed in the other source's slot: the pair must not drift."""
+    for slot, value in (("measured", measured), ("declared", declared)):
+        if value is not None and not (isinstance(value, SiteRatio) and value.source == slot):
+            got = value.source if isinstance(value, SiteRatio) else value
+            raise ValueError(f"{slot}= takes a SiteRatio whose source is {slot!r}, not {got!r}")
+
+
+def _from_ratio(ratio):
+    v = ratio.value
+    basis = f"{ratio.source}: site ratio {v:g}" + (f"; {ratio.basis}" if ratio.basis else "")
+    return Attention(None, float(v), ratio.source, basis)
+
+
+def leaf_attention(leaf, data, mapping, *, measured=None, declared=None) -> Attention:
+    """The leaf's attention from the first source that applies: its h: score, the
+    measured site ratio, the declared site ratio, then the heuristic."""
+    _check_slots(measured, declared)
+    score = read_h(leaf)
+    if score is not None:
+        return Attention(score, mapping.values[score], "scored", f"scored: h: {score}")
+    if measured is not None:
+        return _from_ratio(measured)
+    if declared is not None:
+        return _from_ratio(declared)
+    need, why = heuristic_need(leaf, data)
+    return Attention(need, mapping.values[need], "estimated", "estimated: " + why)
+
+
+def site_ratio_source(*, measured=None, declared=None) -> str:
+    """The site's own source, whatever any leaf's h: says: measured, declared or estimated."""
+    _check_slots(measured, declared)
+    return "measured" if measured is not None else "declared" if declared is not None else "estimated"

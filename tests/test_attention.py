@@ -14,12 +14,16 @@ from gantry.attention import (
     MAX_RATE,
     MESSAGES,
     NO_INPUTS,
+    Attention,
     AttentionMapping,
+    SiteRatio,
     check_h,
     heuristic_need,
+    leaf_attention,
     mapping_in_use,
     rate_problem,
     read_h,
+    site_ratio_source,
 )
 from gantry.model import REPORT_KINDS, Leaf, Models, SiteData, report_order
 from gantry.portfolio_file import read_portfolio_file
@@ -336,3 +340,88 @@ def test_heuristic_every_input_is_4():
 def test_heuristic_tier_source_alike():
     assert (need_of("Issue-10", models=Models("opus", "fable", "wbs"))
             == need_of("Issue-10", models=Models("opus", "fable", "estimates_file")))
+
+
+# --- the four sources -----------------------------------------------------------
+
+
+M = SiteRatio(0.3, "measured", n=12, basis="12 closed issues")
+D = SiteRatio(0.2, "declared")
+
+
+def attention_of(h=None, **slots):
+    data = heuristic_site()
+    leaf = node(data, "Issue-2")
+    if h is not None:
+        leaf = replace(leaf, meta={**leaf.meta, "h": h})
+    return leaf_attention(leaf, data, mapping_in_use(None), **slots)
+
+
+def test_scored_wins():
+    assert attention_of("3", measured=M, declared=D) == Attention(3, 0.5, "scored", "scored: h: 3")
+
+
+def test_scored_zero():
+    assert attention_of("0", measured=M, declared=D) == Attention(0, 0.0, "scored", "scored: h: 0")
+
+
+def test_measured_over_declared():
+    assert attention_of(measured=M, declared=D) == Attention(
+        None, 0.3, "measured", "measured: site ratio 0.3; 12 closed issues")
+
+
+def test_declared_only():
+    assert attention_of(declared=D) == Attention(None, 0.2, "declared", "declared: site ratio 0.2")
+
+
+def test_estimated_without_ratios():
+    found = attention_of()
+    assert (found.need, found.rate, found.tag) == (2, 0.25, "estimated")
+    assert found.basis.startswith("estimated: 1 to start")
+    data = heuristic_site()
+    assert found.basis == "estimated: " + heuristic_need(node(data, "Issue-2"), data)[1]
+
+
+def test_bad_h_takes_next_source():
+    assert attention_of("high", declared=D).tag == "declared"
+    assert attention_of("high").tag == "estimated"
+
+
+def test_site_ratio_source_ignores_h():
+    assert site_ratio_source(measured=M, declared=D) == "measured"
+    assert site_ratio_source(declared=D) == "declared"
+    assert site_ratio_source() == "estimated"
+    # It takes no leaf, so no h: can change it; a scored leaf still reports the site's source.
+    assert attention_of("3", declared=D).tag == "scored"
+
+
+def test_site_ratio_zero():
+    assert attention_of(measured=SiteRatio(0, "measured")).rate == 0.0
+
+
+@pytest.mark.parametrize("value", [float("inf"), float("nan"), -1, 24.01, True, "0.3", None], ids=repr)
+def test_site_ratio_refused(value):
+    with pytest.raises(ValueError, match="a site ratio must be a number from 0 to 24"):
+        SiteRatio(value, "declared")
+
+
+def test_site_ratio_at_max():
+    assert attention_of(declared=SiteRatio(24, "declared")).rate == 24.0
+
+
+def test_site_ratio_bad_source():
+    with pytest.raises(ValueError, match="source must be 'measured' or 'declared'"):
+        SiteRatio(0.3, "history")
+
+
+@pytest.mark.parametrize("fn, slot, value", [
+    ("leaf_attention", "measured", D), ("leaf_attention", "declared", M),
+    ("site_ratio_source", "measured", D), ("site_ratio_source", "declared", M),
+    ("leaf_attention", "measured", 0.3), ("site_ratio_source", "declared", 0.2),
+], ids=lambda v: v if isinstance(v, str) else repr(getattr(v, "source", v)))
+def test_wrong_slot_refused(fn, slot, value):
+    with pytest.raises(ValueError, match=f"{slot}= takes a SiteRatio whose source is '{slot}'"):
+        if fn == "leaf_attention":
+            attention_of(**{slot: value})
+        else:
+            site_ratio_source(**{slot: value})
