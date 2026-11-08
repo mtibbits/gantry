@@ -369,7 +369,6 @@ def test_hostile_data_page_is_safe():
     assert data["lanes"][0]["name"] == HOSTILE[4]
 
 
-
 def test_hostile_h_values_listed_safely():
     """A HOSTILE h: on every leaf: the page stays safe and the panel lists each one.
 
@@ -417,6 +416,7 @@ def test_site_build_panel_lists_bad_h(tmp_path, monkeypatch):
     code, out, _, err = demo_build(tmp_path, monkeypatch, "--site", UNESTIMATED)
     assert code == 0, err
     assert_quarry_lists_bad_h(out.parent, built_panel(out, UNESTIMATED))
+
 
 def hostile_inputs(tmp_path):
     """apply_inputs over hostile_site, with HOSTILE values in Issue-4's estimates row.

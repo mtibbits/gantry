@@ -32,8 +32,9 @@ contract for the key (mtibbits/devagent#888) fixes only its shape, as a
 
 `h:` is the operator's own score of a leaf's need, written in its
 `WBS.md` metadata. It is one ASCII digit from 0 to 4, written as a scalar:
-`h: 3`, `h: "3"` and `h: '3'` are the same score. Anything else is not
-used, and the leaf's need comes from its next source:
+`h: 3`, `h: "3"` and `h: '3'` are the same score. A value the metadata
+reader does not read as exactly one of those digits is not used, and the
+leaf's need comes from its next source:
 
 - a digit outside 0 to 4 (`h: 5`, `h: -1`), a decimal (`h: 2.5`) or a word
   (`h: high`);
@@ -45,6 +46,9 @@ used, and the leaf's need comes from its next source:
 
 The value is read through the same metadata reader as every other key
 (`meta_values`, which #12 replaces), so Gantry has no quote rule of its own.
+That reader decides the edge forms: today it reads an unclosed quote
+(`h: "3`) or text after a closing quote (`h: "3"x`) as the quoted part, so
+both score 3. #12 may change that.
 
 Every `h:` that is not used is a `bad_h` entry in the site's report, listed
 in the worksite page's "missing or unreadable" panel
@@ -123,6 +127,9 @@ A leaf's rate comes from the first of these that applies:
 2. `measured`: its site's measured ratio, when one is passed;
 3. `declared`: its site's declared ratio, when one is passed;
 4. `estimated`: its heuristic need through the mapping.
+
+`docs/requirements.md` FR-18 names three of these; it does not list the
+declared ratio.
 
 A scored or estimated value keeps its need beside its rate; a measured or
 declared value has a rate only. Every value carries a basis led by its

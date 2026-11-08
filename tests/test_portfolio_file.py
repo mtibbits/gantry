@@ -917,13 +917,13 @@ def test_doc_rows_match_registry():
         assert rows[k.path][3] == k.read_by, k.path
 
 
-
 def test_attention_mapping_row_points_to_week_plan():
     (table,) = [t for t in md_tables(doc_text(PORTFOLIO_DOC)) if t.heading == "Settings keys"]
     (row,) = [row for row in table.rows if row[0] == "`capacity.attention_mapping`"]
     assert "week-plan.md#attention-need" in row[1]
     assert row[2] == "not set"
     assert "week-plan.md says what Gantry does with one that is not finite" in " ".join(doc_text(PORTFOLIO_DOC).split())
+
 
 def test_portfolio_doc_states_rules():
     doc = " ".join(doc_text(PORTFOLIO_DOC).split())

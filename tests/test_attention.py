@@ -136,6 +136,12 @@ def test_h_parsed_forms(i, monkeypatch):
         assert repr(parsed) in found[0].message
 
 
+def test_h_edge_forms_follow_meta_values():
+    # #8's reader decides these, not attention.py; if #12 changes them, this says so.
+    for raw in ('"3', "'3", '"3"x', "3	"):
+        assert read_h(make_leaf(meta={"issue": "Issue-1", "h": raw})) == 3, ascii(raw)
+
+
 def test_read_h_calls_meta_values(monkeypatch):
     calls = []
     real = model.meta_values
@@ -471,7 +477,6 @@ def test_demo_inputs():
                   if leaf.flags == word and leaf.models is not None and leaf.models.checking == "fable"]
         assert len(chosen) == 1, word
         assert heuristic_need(chosen[0], harbor)[0] >= 3, word
-
 
 
 # --- the docs -------------------------------------------------------------------
