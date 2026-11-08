@@ -76,7 +76,7 @@ def test_report_kinds():
         "no_estimates_file", "estimates_ignored", "estimates_unreadable",
         "estimates_column_missing", "estimates_cell_bad", "estimates_row_unmatched",
         "estimates_row_duplicate", "est_unparseable", "unestimated", "no_priority",
-        "no_model_tiers",
+        "no_model_tiers", "bad_h",
     )
 
 
