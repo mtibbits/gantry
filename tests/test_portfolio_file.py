@@ -4,6 +4,7 @@ docs/portfolio-file.md states the rules these tests pin. Every line number
 asserted here is a literal read off its fixture, never computed from it.
 """
 
+import os
 import shutil
 import time
 from datetime import date
@@ -12,9 +13,19 @@ from pathlib import Path
 import pytest
 
 import gantry.portfolio_file as pf
-from gantry.portfolio_file import DEFAULTS, PORTFOLIO_LABEL, SETTINGS_KEYS, read_portfolio_file
+from gantry.portfolio_file import (
+    CARRIED_KINDS,
+    DEFAULTS,
+    PORTFOLIO_LABEL,
+    REPORT_KINDS,
+    SETTINGS_KEYS,
+    check_portfolio,
+    format_entry,
+    intended_shares,
+    read_portfolio_file,
+)
 from gantry.requirements import ReqId
-from sample_roles import BUSY, OWN_UNIT, UNESTIMATED
+from sample_roles import BUSY, NOT_BUILT, OWN_UNIT, READABLE, UNESTIMATED
 from test_samples import ROOT, decode_bytes, git, git_work_tree, needs_git
 
 FIXTURES = Path(__file__).parent / "fixtures" / "portfolio_file"
@@ -636,3 +647,150 @@ def test_allocation_not_an_array(tmp_path):
                                      "portfolio_version = 1\nallocation = 3\n"))
     assert bad_values(p) == {"allocation": (14, "must be an array of tables ([[allocation]]), not 3; it is empty")}
     assert p.allocations == []
+
+
+# --- check_portfolio, kind coverage and the no-path guard -------------------------
+
+SITES = READABLE | NOT_BUILT
+
+
+def test_unknown_project():
+    p = read("unknown_project.md")
+    assert p.report == []
+    got = check_portfolio(p, SITES)
+    assert [(e.kind, e.section, e.line, e.key_path) for e in got] == [
+        ("unknown_project", SETTINGS, 21, "allocation[1].shares.nowhere"),
+        ("unknown_project", SETTINGS, 21, "allocation[1].shares.Harbor"),
+        ("unknown_project", SETTINGS, 23, "site.nowhere"),
+        ("unknown_project", SETTINGS, 27, "milestone.project"),
+    ]
+    assert [e.message for e in got] == [
+        "'nowhere' is not a site in the devagent config; its share still counts toward the allocation's 100",
+        "'Harbor' is not a site in the devagent config; its share still counts toward the allocation's 100",
+        "'nowhere' is not a site in the devagent config",
+        "'nowhere' is not a site in the devagent config",
+    ]
+    assert intended_shares(p, date(2026, 1, 5)).shares == {BUSY: 50, "nowhere": 30, "Harbor": 20}
+
+
+@pytest.mark.parametrize(
+    ("issues", "message"),
+    [
+        ({BUSY: {"Issue-1", "Issue-2"}}, "no leaf on harbor has issue 'Issue-99'"),
+        ({BUSY: None}, "site harbor could not be read, so the milestone leaf cannot be found"),
+        ({}, "site harbor could not be read, so the milestone leaf cannot be found"),
+    ],
+)
+def test_milestone_no_leaf(issues, message):
+    p = read("milestone_no_leaf.md")
+    got = check_portfolio(p, SITES, issues)
+    assert [(e.kind, e.section, e.line, e.key_path, e.message) for e in got] == [
+        ("milestone_no_leaf", SETTINGS, 21, "milestone.issue", message)]
+    assert check_portfolio(p, SITES) == []
+    assert check_portfolio(p, SITES, {BUSY: {"Issue-99"}}) == []
+
+
+@pytest.mark.parametrize("name", ["no_settings.md", "settings_invalid.md", "bad_version.md"])
+def test_no_settings_derived_without_settings(name):
+    assert check_portfolio(read(name), ["x"], {}) == []
+
+
+S = SETTINGS
+EVERY_FIXTURE = {
+    "allocations.md": [("bad_allocation", S, 24, "allocation[2].shares"), ("bad_allocation", S, 32, "allocation[4].shares")],
+    "bad_allocation.md": [
+        ("bad_allocation", S, 20, "allocation[1].shares"), ("bad_allocation", S, 26, "allocation[2].shares.orchard"),
+        ("bad_allocation", S, 33, "allocation[3].shares.quarry"), ("bad_allocation", S, 38, "allocation[4].shares.harbor")],
+    "bad_milestone.md": [("bad_milestone", S, 21, "milestone.issue")],
+    "bad_value_range.md": [
+        ("bad_value", S, 16, "capacity.attention_hours.mon"), ("bad_value", S, 17, "capacity.agent_lanes"),
+        ("capacity_missing", S, 17, "capacity.agent_lanes"), ("bad_value", S, 18, "capacity.block_min_hours"),
+        ("bad_value", S, 19, "capacity.block_default_hours"), ("bad_value", S, 20, "capacity.block_start_cost_hours"),
+        ("bad_value", S, 23, "capacity.reserved[1].day"), ("bad_value", S, 24, "capacity.reserved[1].start"),
+        ("bad_value", S, 25, "capacity.reserved[1].hours"), ("bad_value", S, 28, "thresholds.wip_max"),
+        ("bad_value", S, 29, "thresholds.share_gap_points"), ("bad_value", S, 30, "thresholds.neglect_weeks"),
+        ("bad_value", S, 31, "thresholds.effort_window_weeks")],
+    "bad_value_type.md": [
+        ("bad_value", S, 16, "site.harbor.serves"), ("bad_value", S, 19, "capacity.attention_hours"),
+        ("capacity_missing", S, 19, "capacity.attention_hours"), ("bad_value", S, 20, "capacity.agent_lanes"),
+        ("capacity_missing", S, 20, "capacity.agent_lanes"), ("bad_value", S, 21, "capacity.block_min_hours"),
+        ("bad_value", S, 22, "capacity.block_default_hours"), ("bad_value", S, 23, "capacity.block_start_cost_hours"),
+        ("bad_value", S, 24, "capacity.attention_mapping"), ("bad_value", S, 27, "capacity.reserved[1].day"),
+        ("bad_value", S, 28, "capacity.reserved[1].start"), ("bad_value", S, 29, "capacity.reserved[1].hours"),
+        ("bad_value", S, 30, "capacity.reserved[1].label"), ("bad_value", S, 33, "milestone.project"),
+        ("bad_value", S, 34, "milestone.issue"), ("bad_value", S, 35, "milestone.label"),
+        ("bad_value", S, 38, "thresholds.wip_max"), ("bad_value", S, 39, "thresholds.unknown_deps_max"),
+        ("bad_value", S, 40, "thresholds.unplanned_max"), ("bad_value", S, 41, "thresholds.share_gap_points"),
+        ("bad_value", S, 42, "thresholds.neglect_weeks"), ("bad_value", S, 43, "thresholds.effort_window_weeks")],
+    "bad_version.md": [("bad_version", S, 13, "portfolio_version")],
+    "br_cycle.md": [("refines_cycle", BRS, 7, None)],
+    "br_duplicate.md": [("duplicate_id", BRS, 8, None)],
+    "br_malformed.md": [("malformed_item", BRS, 8, None)],
+    "br_misplaced.md": [("misplaced", BRS, 8, None)],
+    "br_undefined.md": [("undefined_link", BRS, 7, None)],
+    "capacity_missing.md": [("capacity_missing", S, None, "capacity.attention_hours"),
+                            ("capacity_missing", S, None, "capacity.agent_lanes")],
+    "duplicate_allocation_date.md": [("duplicate_allocation_date", S, 23, "allocation[2].from")],
+    "duplicate_block.md": [("duplicate_section", S, 19, None)],
+    "duplicate_section.md": [("duplicate_section", BRS, 20, None)],
+    "fences.md": [],
+    "milestone_no_leaf.md": [("milestone_no_leaf", S, 21, "milestone.issue")],
+    "misplaced_priority.md": [("misplaced_priority", S, 20, "site.harbor.serves[1]"),
+                              ("misplaced_priority", S, 20, "site.harbor.serves[2]")],
+    "no_br_section.md": [("no_br_section", BRS, None, None)],
+    "no_settings.md": [("no_settings", S, None, None)],
+    "not_utf8.md": [("portfolio_unreadable", None, None, None)],
+    "reserved_exceeds_capacity.md": [("reserved_exceeds_capacity", S, 19, "capacity.reserved")],
+    "settings_invalid.md": [("settings_invalid", S, 18, None)],
+    "undated_allocation.md": [("undated_allocation", S, 18, "allocation[1].from"),
+                              ("undated_allocation", S, 22, "allocation[2].from"),
+                              ("undated_allocation", S, 26, "allocation[3].from")],
+    "undefined_priority.md": [("undefined_priority", S, 20, "site.harbor.serves[2]")],
+    "unknown_key.md": [("unknown_key", S, 14, "colour"), ("unknown_key", S, 19, "capacity.agent_lane"),
+                       ("unknown_key", S, 23, "site.harbor.serve")],
+    "unknown_project.md": [("unknown_project", S, 21, "allocation[1].shares.nowhere"),
+                           ("unknown_project", S, 21, "allocation[1].shares.Harbor"),
+                           ("unknown_project", S, 23, "site.nowhere"), ("unknown_project", S, 27, "milestone.project")],
+}
+# The two check_portfolio kinds need the installation: the sample sites, and for
+# the milestone each site's issue: values.
+CHECKED = {"unknown_project.md": None, "milestone_no_leaf.md": {BUSY: {"Issue-1", "Issue-2"}}}
+CARRIED_FIXTURE_KINDS = {"malformed_item", "duplicate_id", "misplaced", "undefined_link", "refines_cycle"}
+
+
+def every_entry(folder, name):
+    p = read_portfolio_file(folder / name, br_namespace=NS)
+    checked = check_portfolio(p, SITES, CHECKED[name]) if name in CHECKED else []
+    return p, [*p.report, *checked]
+
+
+def test_every_kind_has_a_fixture():
+    assert sorted(EVERY_FIXTURE) == sorted(os.listdir(FIXTURES))
+    covered = set()
+    for name, expected in EVERY_FIXTURE.items():
+        _, got = every_entry(FIXTURES, name)
+        assert [(e.kind, e.section, e.line, e.key_path) for e in got] == expected, name
+        covered |= {e.kind for e in got}
+    assert covered == set(REPORT_KINDS) | CARRIED_FIXTURE_KINDS
+    assert CARRIED_FIXTURE_KINDS <= set(CARRIED_KINDS)
+
+
+def test_no_entry_holds_a_path(tmp_path):
+    copy = tmp_path / "fixtures"
+    shutil.copytree(FIXTURES, copy)
+    for name in sorted(os.listdir(copy)):
+        p, got = every_entry(copy, name)
+        for entry in [*got, *p.brs.report]:
+            for value in fields_text(entry):
+                assert str(tmp_path) not in value and str(FIXTURES) not in value, (name, value)
+                assert "\n" not in value and "\r" not in value, (name, value)
+
+
+def test_format_entry():
+    p = read("bad_value_type.md")
+    lines = [format_entry(e) for e in p.report]
+    assert lines[0] == "line 16: bad_value: site.harbor.serves: must be an array of business requirement IDs, " \
+                       "not a string; it is empty"
+    assert lines[2] == "line 19: capacity_missing (advisory): capacity.attention_hours: no capacity.attention_hours, " \
+                       "so the week planner has no capacity to plan into"
+    assert format_entry(read("no_settings.md").report[0]).startswith("no_settings: no ```toml block")

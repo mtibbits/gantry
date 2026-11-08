@@ -25,6 +25,7 @@ from datetime import date, datetime
 from gantry import requirements
 from gantry.config import ID_TOKEN_RE, describe, error_reason
 from gantry.requirements import FENCE_RE, RequirementSet, fence_spans, parse_id, parse_requirements
+from gantry.sites import shown
 
 PORTFOLIO_LABEL = "the portfolio file"
 SECTIONS = ("business requirements", "settings")  # section None: the whole file (portfolio_unreadable only)
@@ -255,6 +256,9 @@ class Portfolio:
     settings_read: bool
     report: list
     key_lines: dict  # key path -> file line, for the keys written in standard form
+    # (name, key parts, "share" | "site" | "milestone") for every project the
+    # settings name, set-aside allocations included: check_portfolio's input.
+    project_refs: tuple = ()
 
 
 def _sort_key(e):
@@ -524,6 +528,7 @@ class _Settings:
         self.brs = brs
         self.has_brs = has_brs
         self.br_namespace = br_namespace
+        self.refs = []
 
     def add(self, kind, parts, message):
         self.report.add(kind, SECTIONS[1], _line(self.key_lines, parts), _path(parts), message)
@@ -586,6 +591,7 @@ class _Settings:
                 if not isinstance(table, dict):
                     self.add("bad_value", parts, f"must be a table, not {describe(table)}; it is ignored")
                     continue
+                self.refs.append((project, parts, "site"))
                 serves[project] = self.serves(self.known(table, parts, "site.<project>"), parts)
         return allocations, capacity, milestone, thresholds, serves
 
@@ -638,6 +644,7 @@ class _Settings:
             return None
         ok = True
         for name, share in value.items():
+            self.refs.append((name, parts + (name,), "share"))
             if not (_finite(share) and share >= 0):
                 self.add("bad_allocation", parts + (name,),
                          f"share {_seg(name)} must be a number, 0 or more, not {describe(share)}; "
@@ -738,6 +745,8 @@ class _Settings:
         table = self.table(value, p, "milestone")
         if not isinstance(value, dict):
             return None
+        if isinstance(table.get("project"), str):
+            self.refs.append((table["project"], p + ("project",), "milestone"))
         fields, ok = {}, True
         for name in ("project", "issue"):
             got = self.get(table, p + (name,), f"milestone.{name}", fallback="the milestone is not set")
@@ -803,6 +812,40 @@ def intended_shares(portfolio, day: date) -> Allocation | None:
     return max(applying, key=lambda a: a.from_date) if applying else None
 
 
+def check_portfolio(portfolio, site_names, issues_by_site=None) -> list:
+    """The entries that need the installation: unknown_project against
+    `site_names` (exact and case-sensitive) and, when `issues_by_site` maps a
+    site to its leaves' issue: values (None: the site was not read), the
+    milestone leaf. Nothing when the settings were not read."""
+    if not portfolio.settings_read:
+        return []
+    names = set(site_names)
+    out = []
+
+    def add(kind, parts, message):
+        out.append(PortfolioEntry(kind, SECTIONS[1], _line(portfolio.key_lines, parts), _path(parts), message))
+
+    for name, parts, what in portfolio.project_refs:
+        if name not in names:
+            tail = "; its share still counts toward the allocation's 100" if what == "share" else ""
+            add("unknown_project", parts, f"{name!r} is not a site in the devagent config{tail}")
+    m = portfolio.milestone
+    if issues_by_site is not None and m is not None and m.project in names:
+        issues = issues_by_site.get(m.project)
+        if issues is None:
+            add("milestone_no_leaf", ("milestone", "issue"),
+                f"site {shown(m.project)} could not be read, so the milestone leaf cannot be found")
+        elif m.issue not in issues:
+            add("milestone_no_leaf", ("milestone", "issue"), f"no leaf on {shown(m.project)} has issue {m.issue!r}")
+    return sorted(out, key=_sort_key)
+
+
+def format_entry(e) -> str:
+    """One entry as one line: [line N: ]kind[ (advisory)]: [key path: ]message."""
+    kind = f"{e.kind} (advisory)" if e.kind in ADVISORY_KINDS else e.kind
+    return (f"line {e.line}: " if e.line is not None else "") + f"{kind}: " +         (f"{e.key_path}: " if e.key_path is not None else "") + e.message
+
+
 def _read_text(text, source, br_namespace):
     text = text.removeprefix(_BOM)
     # split("\n"), never splitlines(), as #15's reader.
@@ -817,6 +860,6 @@ def _read_text(text, source, br_namespace):
         settings = _Settings(raw, key_lines, report, brs, BR_HEADING in found, br_namespace)
         allocations, capacity, milestone, thresholds, serves = settings.read()
         p = replace(p, allocations=allocations, capacity=capacity, milestone=milestone, thresholds=thresholds,
-                    serves=serves)
+                    serves=serves, project_refs=tuple(settings.refs))
     return replace(p, brs=brs, settings_read=raw is not None, key_lines=key_lines,
                    report=sorted(report.entries, key=_sort_key))
