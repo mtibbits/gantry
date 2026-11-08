@@ -14,6 +14,7 @@ from gantry.attention import (
     MAX_RATE,
     MESSAGES,
     NO_INPUTS,
+    TOP_TIER,
     Attention,
     AttentionMapping,
     SiteRatio,
@@ -461,3 +462,38 @@ def test_demo_inputs():
         assert len(chosen) == 1, word
         assert heuristic_need(chosen[0], harbor)[0] >= 3, word
 
+
+
+# --- the docs -------------------------------------------------------------------
+
+
+def doc(name):
+    return " ".join((ROOT / "docs" / name).read_bytes().decode("utf-8").split())
+
+
+def default_mapping_text():
+    return ", ".join("0" if v == 0 else str(v) for v in DEFAULT_MAPPING)
+
+
+def test_week_plan_doc_states_rules():
+    text = doc("week-plan.md")
+    wanted = [
+        "# The week plan", "## Attention need",
+        MAPPING_REJECTED, MAPPING_NOT_FINITE, MAPPING_ABOVE_MAX, NO_INPUTS,
+        "`scored`", "`measured`", "`declared`", "`estimated`", "`bad_h`", '`h: "3"`', "`h: '3'`",
+        f"`MAX_RATE`, is {MAX_RATE}", f"`{default_mapping_text()}`", f"`{TOP_TIER}`",
+        "only from the estimates file", "#14", "Gantry's", "capacity.attention_mapping",
+        "worksite-page.md", "`measured=`", "`declared=`", "#38", "#39", "#40",
+    ]
+    assert [w for w in wanted if w not in text] == []
+    assert default_mapping_text() == "0, 0.1, 0.25, 0.5, 1.0"
+
+
+def test_bad_h_row_points_to_week_plan():
+    (row,) = [line for line in (ROOT / "docs" / "worksite-page.md").read_bytes().decode("utf-8").splitlines()
+              if line.startswith("| `bad_h` |")]
+    assert "(week-plan.md#attention-need)" in row
+
+
+def test_readme_points_to_week_plan():
+    assert "[docs/week-plan.md](docs/week-plan.md)" in (ROOT / "README.md").read_bytes().decode("utf-8")

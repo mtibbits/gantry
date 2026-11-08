@@ -126,7 +126,7 @@ Default and its Read by. Change both together. -->
 | `capacity.block_min_hours` | a finite number above 0 | `1` | Epic #5 |
 | `capacity.block_default_hours` | a finite number, at least the `block_min_hours` in use | `2`, or `block_min_hours` when that is larger | Epic #5 |
 | `capacity.block_start_cost_hours` | a finite number, 0 or more: operator hours charged per block | `0.25` | Epic #5 |
-| `capacity.attention_mapping` | array of exactly five numbers, each 0 or more, not decreasing: operator hours per agent hour for attention need 0 to 4. Only its shape is checked here; #36 owns its meaning and its own limits | not set | #36 |
+| `capacity.attention_mapping` | array of exactly five numbers, each 0 or more, not decreasing: operator hours per agent hour for attention need 0 to 4. Only its shape is checked here; [week-plan.md](week-plan.md#attention-need) gives its meaning, Gantry's default and the limits that send it back to that default | not set | #36 |
 | `milestone.project` | non-empty text: a project name | not set | #24 |
 | `milestone.issue` | non-empty text: the milestone leaf's `issue:` value | not set | #24 |
 | `milestone.label` | text | `"autonomy milestone"` | #24 |
@@ -143,7 +143,7 @@ is "not set" where it has none. A wrong value is reported (`bad_value`,
 naming the key and the rule) and its default, or "not set", is used instead.
 A number is an integer or a float and never a boolean, and every number
 except those in `attention_mapping` must be finite: `inf` and `nan` are
-refused. A date-time is never accepted where a date is wanted.
+refused (week-plan.md says what Gantry does with one that is not finite). A date-time is never accepted where a date is wanted.
 
 - A `[milestone]` table names one leaf by project and `issue:` value; it
   needs both. An `issue` that does not match `[A-Za-z0-9][A-Za-z0-9_.-]*`,

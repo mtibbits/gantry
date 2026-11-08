@@ -37,6 +37,9 @@ The requirements file format, its IDs and what its reader reports:
 The portfolio file, the operator's private priorities and capacity, and how
 `gantry portfolio` checks it: [docs/portfolio-file.md](docs/portfolio-file.md).
 
+How Gantry estimates each leaf's attention need, and what an `h:` score
+means: [docs/week-plan.md](docs/week-plan.md).
+
 Gantry's own requirements, in that format:
 [docs/requirements.md](docs/requirements.md).
 
