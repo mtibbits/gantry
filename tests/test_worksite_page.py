@@ -15,6 +15,7 @@ from types import SimpleNamespace
 import pytest
 
 from commit_check import path_form_hits
+from gantry.attention import MESSAGES as H_MESSAGES, check_h
 from gantry.build import site_data
 from gantry.config import SiteOverride
 from gantry.config import load_config as load_installation
@@ -367,6 +368,21 @@ def test_hostile_data_page_is_safe():
     assert (leaves[HOSTILE[2]]["issue"], leaves[HOSTILE[2]]["title"]) == (None, HOSTILE[10])
     assert data["lanes"][0]["name"] == HOSTILE[4]
 
+
+
+def test_hostile_h_values_listed_safely():
+    """A HOSTILE h: on every leaf: the page stays safe and the panel lists each one.
+
+    A new guard, not a fix: the panel already escapes any entry's message. The
+    planted leg is met by the leaf details' metadata; the panel equality is
+    what proves the bad_h message path.
+    """
+    leaves = tuple(_leaf(f"Issue-{n}", f"Issue-{n}", str(n), "Plain", None, n,
+                         meta={"issue": f"Issue-{n}", "h": h}) for n, h in enumerate(HOSTILE, start=1))
+    data = check_h(SiteData(leaves, (), (), (), ()), "alpha")
+    embedded = assert_page_safe(render_page("alpha", data, default_unit_hours=6), HOSTILE)
+    assert embedded["panel"] == [H_MESSAGES["bad_h"].format(line=leaf.line, raw=leaf.meta["h"], key=leaf.key)
+                                 for leaf in leaves]
 
 def hostile_inputs(tmp_path):
     """apply_inputs over hostile_site, with HOSTILE values in Issue-4's estimates row.
