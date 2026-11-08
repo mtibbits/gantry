@@ -25,9 +25,10 @@ from gantry.portfolio_file import (
     intended_shares,
     read_portfolio_file,
 )
-from gantry.requirements import ReqId
+from gantry.cli import MILESTONE_NOTE as MILESTONE_NOTE_TEXT
+from gantry.requirements import FENCE_RE, ReqId, fence_spans
 from sample_roles import BUSY, NOT_BUILT, OWN_UNIT, READABLE, SMALL, UNESTIMATED
-from test_samples import GANTRY_SAMPLE, ROOT, decode_bytes, git, git_work_tree, issue_leaves, needs_git, wbs
+from test_samples import GANTRY_SAMPLE, ROOT, decode_bytes, git, git_work_tree, issue_leaves, md_tables, needs_git, wbs
 
 FIXTURES = Path(__file__).parent / "fixtures" / "portfolio_file"
 NOT_UTF8 = FIXTURES / "not_utf8.md"
@@ -846,3 +847,75 @@ def test_sample_intended_shares():
 def test_sample_roles_on_readable_sites():
     _, p = sample()
     assert {name for name, _, _ in p.project_refs} == READABLE
+
+
+# --- the documentation ---------------------------------------------------------
+
+PORTFOLIO_DOC = ROOT / "docs" / "portfolio-file.md"
+CONFIG_DOC = ROOT / "docs" / "config.md"
+DOC_EXAMPLE_INFO = "markdown portfolio-file"
+
+
+def _doc_default(default):
+    """A registry default as the docs table writes it (typed here, not imported)."""
+    if default == "required":
+        return "required"
+    if default is None:
+        return "not set"
+    if default == ():
+        return "empty"
+    if isinstance(default, str):
+        return f'`"{default}"`'
+    return f"`{default}`"
+
+
+def doc_text(path):
+    return path.read_bytes().decode("utf-8")
+
+
+def test_doc_rows_match_registry():
+    (table,) = [t for t in md_tables(doc_text(PORTFOLIO_DOC)) if t.heading == "Settings keys"]
+    assert table.header == ["Key", "Type and rule", "Default", "Read by"]
+    rows = {row[0].strip("`"): row for row in table.rows}
+    assert len(rows) == len(table.rows) == len(SETTINGS_KEYS) > 0
+    assert set(rows) == {k.path for k in SETTINGS_KEYS}
+    for k in SETTINGS_KEYS:
+        # A cell may go on after its value ("`2`, or `block_min_hours` when that is larger").
+        assert rows[k.path][2].split(",")[0] == _doc_default(k.default), k.path
+        assert rows[k.path][3] == k.read_by, k.path
+
+
+def test_portfolio_doc_states_rules():
+    doc = " ".join(doc_text(PORTFOLIO_DOC).split())
+    wanted = [f"`{kind}`" for kind in REPORT_KINDS + CARRIED_KINDS] + [
+        "never belongs in a public repo", "[site.<project>]", "[site.<name>]", "inside a fence",
+        "gantry portfolio --config", "python -m gantry portfolio --config", "## Default changes", "None yet.",
+        "as-of date", "allocation[2].shares.beta", "capacity.attention_mapping", MILESTONE_NOTE_TEXT,
+        "a finite number", "advisory", "DEFAULTS", "#23 or #61",
+        "`block_min_hours` when that is larger",
+    ]
+    assert [w for w in wanted if w not in doc] == []
+
+
+def doc_blocks(text):
+    """(info, body) of every fenced block, paired by #15's rule."""
+    lines = text.split("\n")
+    return [(FENCE_RE.fullmatch(lines[i])["info"].strip(), "\n".join(lines[i + 1 : j]) + "\n")
+            for i, j in fence_spans(lines)]
+
+
+def test_portfolio_doc_example_reads_clean(tmp_path):
+    examples = [body for info, body in doc_blocks(doc_text(PORTFOLIO_DOC)) if info == DOC_EXAMPLE_INFO]
+    assert len(examples) >= 1
+    for n, body in enumerate(examples):
+        p = write(tmp_path, body, name=f"example-{n}.md")
+        assert p.report == [], body
+        assert p.settings_read and p.brs.requirements
+
+
+def test_config_doc_portfolio_row():
+    doc = doc_text(CONFIG_DOC)
+    row = next(line for line in doc.splitlines() if line.startswith("| `portfolio_file` |"))
+    assert "portfolio-file.md" in row and "gantry portfolio" in row
+    assert "the build does not read it yet" in row and "#23 or #61" in row
+    assert "gantry portfolio --config <file>" in doc
