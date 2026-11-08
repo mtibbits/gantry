@@ -148,10 +148,11 @@ def _closer(lines, i, no_closer):
     return None
 
 
-def _fenced(lines):
-    """Which lines a fence hides, opener through closer. An opener with no
-    closer is plain text, so it never hides the rest of the file."""
-    fenced = [False] * len(lines)
+def fence_spans(lines) -> list[tuple[int, int]]:
+    """The (opener, closer) index pairs of the fenced blocks, 0-based, in order.
+    An opener with no closer is plain text, so it never hides the rest of the
+    file. The portfolio file's reader pairs its fences with this rule too."""
+    spans = []
     no_closer = {}
     i = 0
     while i < len(lines):
@@ -159,8 +160,16 @@ def _fenced(lines):
         if j is None:
             i += 1
         else:
-            fenced[i : j + 1] = [True] * (j + 1 - i)
+            spans.append((i, j))
             i = j + 1
+    return spans
+
+
+def _fenced(lines):
+    """Which lines a fence hides, opener through closer."""
+    fenced = [False] * len(lines)
+    for i, j in fence_spans(lines):
+        fenced[i : j + 1] = [True] * (j + 1 - i)
     return fenced
 
 
