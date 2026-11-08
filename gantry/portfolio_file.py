@@ -614,10 +614,9 @@ class _Settings:
             if first is None:
                 kept.append(a)
             else:
-                self.report.add("duplicate_allocation_date", SECTIONS[1], _line(self.key_lines, ("allocation", n, "from")),
-                                _path(("allocation", n, "from")),
-                                f"another allocation (line {first.line}) has from {a.from_date.isoformat()}; "
-                                "the first is used")
+                where = f" (line {first.line})" if first.line is not None else ""
+                self.add("duplicate_allocation_date", ("allocation", n, "from"),
+                         f"another allocation{where} has from {a.from_date.isoformat()}; the first is used")
         return kept
 
     def from_date(self, member, at):
@@ -745,7 +744,8 @@ class _Settings:
         table = self.table(value, p, "milestone")
         if not isinstance(value, dict):
             return None
-        if isinstance(table.get("project"), str):
+        # Only a valid project name is a reference: one cause, one entry.
+        if _CHECKS["milestone.project"](table.get("project")):
             self.refs.append((table["project"], p + ("project",), "milestone"))
         fields, ok = {}, True
         for name in ("project", "issue"):

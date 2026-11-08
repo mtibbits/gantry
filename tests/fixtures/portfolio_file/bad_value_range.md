@@ -26,6 +26,8 @@ hours = 0
 
 [thresholds]
 wip_max = -1
+unknown_deps_max = -1
+unplanned_max = -2
 share_gap_points = 0
 neglect_weeks = 0
 effort_window_weeks = 0

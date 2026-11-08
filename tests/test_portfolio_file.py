@@ -405,9 +405,11 @@ def test_bad_value_range(tmp_path):
                                            "the reserved block is set aside"),
         "capacity.reserved[1].hours": (25, "a finite number above 0, not 0; the reserved block is set aside"),
         "thresholds.wip_max": (28, "an integer, 0 or more, not -1; the default 3 is used"),
-        "thresholds.share_gap_points": (29, "a finite number above 0, not 0; the default 10 is used"),
-        "thresholds.neglect_weeks": (30, "an integer above 0, not 0; the default 4 is used"),
-        "thresholds.effort_window_weeks": (31, "an integer above 0, not 0; the default 4 is used"),
+        "thresholds.unknown_deps_max": (29, "an integer, 0 or more, not -1; the default 0 is used"),
+        "thresholds.unplanned_max": (30, "an integer, 0 or more, not -2; the default 0 is used"),
+        "thresholds.share_gap_points": (31, "a finite number above 0, not 0; the default 10 is used"),
+        "thresholds.neglect_weeks": (32, "an integer above 0, not 0; the default 4 is used"),
+        "thresholds.effort_window_weeks": (33, "an integer above 0, not 0; the default 4 is used"),
     }
     assert bad_values(p) == {k: (line, "must be " + text) for k, (line, text) in expected.items()}
     assert p.capacity.attention_hours == {"mon": 0, "tue": 4, "wed": 0, "thu": 0, "fri": 0, "sat": 0, "sun": 0}
@@ -640,6 +642,22 @@ def test_duplicate_allocation_date():
     assert pf.intended_shares(p, date(2026, 1, 5)).shares == {BUSY: 50, OWN_UNIT: 30, UNESTIMATED: 20}
 
 
+def test_duplicate_allocation_date_with_no_known_line(tmp_path):
+    # A quoted key is not located: the message names no line rather than "line None".
+    p = write(tmp_path, "## Settings\n\n```toml\nportfolio_version = 1\n"
+                        '"allocation" = [{from = 2026-01-01, shares = {a = 100}}, {from = 2026-01-01, shares = {a = 100}}]\n'
+                        "```\n")
+    (e,) = [e for e in p.report if e.kind == "duplicate_allocation_date"]
+    assert e.message == "another allocation has from 2026-01-01; the first is used"
+
+
+def test_empty_milestone_project_is_one_entry(tmp_path):
+    p = write(tmp_path, fixture_with("bad_milestone.md", 'project = "lighthouse"\nissue = "3.2.1"',
+                                     'project = ""\nissue = "Issue-5"'))
+    assert [(e.kind, e.key_path) for e in p.report] == [("bad_value", "milestone.project")]
+    assert check_portfolio(p, SITES) == []
+
+
 def test_before_every_allocation():
     assert pf.intended_shares(read("allocations.md"), date(2025, 1, 1)) is None
 
@@ -710,8 +728,9 @@ EVERY_FIXTURE = {
         ("bad_value", S, 19, "capacity.block_default_hours"), ("bad_value", S, 20, "capacity.block_start_cost_hours"),
         ("bad_value", S, 23, "capacity.reserved[1].day"), ("bad_value", S, 24, "capacity.reserved[1].start"),
         ("bad_value", S, 25, "capacity.reserved[1].hours"), ("bad_value", S, 28, "thresholds.wip_max"),
-        ("bad_value", S, 29, "thresholds.share_gap_points"), ("bad_value", S, 30, "thresholds.neglect_weeks"),
-        ("bad_value", S, 31, "thresholds.effort_window_weeks")],
+        ("bad_value", S, 29, "thresholds.unknown_deps_max"), ("bad_value", S, 30, "thresholds.unplanned_max"),
+        ("bad_value", S, 31, "thresholds.share_gap_points"), ("bad_value", S, 32, "thresholds.neglect_weeks"),
+        ("bad_value", S, 33, "thresholds.effort_window_weeks")],
     "bad_value_type.md": [
         ("bad_value", S, 16, "site.harbor.serves"), ("bad_value", S, 19, "capacity.attention_hours"),
         ("capacity_missing", S, 19, "capacity.attention_hours"), ("bad_value", S, 20, "capacity.agent_lanes"),
