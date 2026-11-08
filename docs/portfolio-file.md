@@ -143,7 +143,8 @@ is "not set" where it has none. A wrong value is reported (`bad_value`,
 naming the key and the rule) and its default, or "not set", is used instead.
 A number is an integer or a float and never a boolean, and every number
 except those in `attention_mapping` must be finite: `inf` and `nan` are
-refused (week-plan.md says what Gantry does with one that is not finite). A date-time is never accepted where a date is wanted.
+refused (week-plan.md says what Gantry does with one that is not
+finite). A date-time is never accepted where a date is wanted.
 
 - A `[milestone]` table names one leaf by project and `issue:` value; it
   needs both. An `issue` that does not match `[A-Za-z0-9][A-Za-z0-9_.-]*`,

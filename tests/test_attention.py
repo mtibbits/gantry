@@ -235,6 +235,12 @@ def test_mapping_unset():
     assert mapping_in_use(p) == DEFAULT_IN_USE
 
 
+def test_mapping_unreadable_settings():
+    p = portfolio("unreadable")
+    assert "settings_invalid" in {e.kind for e in p.report}
+    assert mapping_in_use(p) == DEFAULT_IN_USE
+
+
 def test_mapping_set():
     m = mapping_in_use(portfolio("set"))
     assert m == AttentionMapping((0, 0.2, 0.4, 0.6, 0.8), "portfolio_file", None)
@@ -454,6 +460,10 @@ def test_demo_inputs():
     (zero,) = [leaf for leaf in quarry.leaves if leaf.meta.get("h") == "0"]
     found = leaf_attention(zero, quarry, m)
     assert (found.rate, found.tag) == (0, "scored")
+    # The sample's mapping, not the default, prices a score: they differ at 2.
+    (two,) = [leaf for leaf in quarry.leaves if leaf.meta.get("h") == '"2"']
+    assert m.values[2] != DEFAULT_MAPPING[2]
+    assert leaf_attention(two, quarry, m).rate == m.values[2]
 
     harbor = inputs(BUSY)
     for word in ("research", "spike"):

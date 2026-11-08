@@ -54,8 +54,8 @@ def check_h(data, site: str):
     """`data` with one `bad_h` entry per unusable `h:`, its report re-sorted.
 
     Every leaf is checked whatever its state, and every row that holds `h:`
-    is reported: `h:` belongs on a leaf. Not idempotent: a second call adds
-    the entries again.
+    is reported: `h:` belongs on a leaf. A key present with no value (None)
+    is reported too. Not idempotent: a second call adds the entries again.
     """
     new = []
     for leaf in data.leaves:

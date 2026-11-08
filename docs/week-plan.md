@@ -15,7 +15,8 @@ hours. Every leaf gets a rate from the first of four sources that applies,
 tagged with that source and a basis naming its inputs.
 
 No page shows needs, rates, tags or bases yet; the week view (#38) will.
-Today only a bad `h:` reaches a page, as a report entry.
+Of what this module works out, only a bad `h:` reaches a page today, as a
+report entry.
 
 ### The scale
 
@@ -82,8 +83,8 @@ The heuristic never gives 0: Gantry does not assume a leaf runs without the
 operator unless the operator scores it so.
 
 Model tiers come from the leaf's recorded tiers, wherever they were read:
-the estimates file today, and whatever source #14 gives them. Flags come only from the
-estimates file, and only while #14 keeps it as their source: a leaf with no
+the estimates file today, and whatever source #14 gives them. Flags come
+only from the estimates file, and only while #14 keeps it as their source: a leaf with no
 estimates-file row has no flags.
 
 ### The mapping
@@ -98,8 +99,8 @@ installation. The portfolio file's own check refuses a mapping that is not
 five numbers, each 0 or more, not decreasing. Gantry then refuses one that
 holds a value that is not finite or is above its limit. That limit,
 `MAX_RATE`, is 24 operator hours per agent hour, which keeps a plan's
-arithmetic finite; no real rate comes near it. In each case the default is in use, with
-one of these reasons:
+arithmetic finite; no real rate comes near it. In each case the default is
+in use, with one of these reasons:
 
 - "the portfolio file's attention_mapping was rejected (see the portfolio
   file's report)": the portfolio file's report holds a `bad_value` entry
@@ -139,8 +140,9 @@ estimated. A ratio passed in the other source's slot is refused
 A site ratio must be a number from 0 to `MAX_RATE`. One that is not is
 refused when it is built (`ValueError`), naming the reason: not a number (a
 boolean is not one), not finite, negative, or above 24. 0 is a valid site
-ratio: a site that runs without the operator. The same rule checks the
-mapping's values.
+ratio: a site that runs without the operator. The mapping's values are
+held to the same finite and `MAX_RATE` limits; the portfolio file's own
+check refuses the rest.
 
 ### The site ratio source
 
