@@ -99,7 +99,7 @@ def _unreadable(tmp_path, case):
     [
         ("missing", "the portfolio file does not exist"),
         ("directory", "the portfolio file is not a file"),
-        ("not_utf8", f"the portfolio file is not valid UTF-8 at byte {NOT_UTF8.read_bytes().index(b'\xe9')}"),
+        ("not_utf8", f"the portfolio file is not valid UTF-8 at byte {NOT_UTF8_AT}"),
     ],
 )
 def test_unreadable(tmp_path, case, message):
@@ -166,3 +166,139 @@ def test_hostile_input_is_fast(tmp_path):
         (tmp_path / name).write_bytes(text.encode("utf-8"))
         read_portfolio_file(tmp_path / name, br_namespace=NS)
     assert time.perf_counter() - start < 2
+
+
+# --- the settings block: TOML, its line, the version, unknown keys -------------
+
+
+def not_set(p):
+    """Every setting is not set: the fields a consumer reads are None or empty."""
+    return (
+        p.allocations == []
+        and p.serves == {}
+        and p.milestone is None
+        and all(v in (None, ()) for v in vars(p.capacity).values())
+        and all(v is None for v in vars(p.thresholds).values())
+    )
+
+
+def test_br_only_file():
+    p = read("no_settings.md")
+    assert entries(p) == [("no_settings", SETTINGS, None, None)]
+    assert p.report[0].message == (
+        "no ```toml block under a '## Settings' heading (level 2, outside a fence); every setting is not set"
+    )
+    assert list(p.brs.requirements) == ["life:BR-1", "life:BR-2", "life:BR-3"]
+    assert p.settings_read is False and not_set(p)
+
+
+def test_settings_invalid_line():
+    # Runs on every CI Python: 3.11 gives the line only in the message, 3.14 also as lineno.
+    p = read("settings_invalid.md")
+    assert entries(p) == [("settings_invalid", SETTINGS, 18, None)]
+    assert p.report[0].message == "the settings block is not valid TOML: Invalid value; every setting is not set"
+    assert p.settings_read is False and not_set(p)
+    assert list(p.brs.requirements) == ["life:BR-1", "life:BR-2"]
+
+
+class _FakeTomlError(ValueError):
+    def __init__(self, text, lineno=None):
+        super().__init__(text)
+        if lineno is not None:
+            self.lineno = lineno
+
+
+def test_toml_error_line_paths():
+    opener, closer = 10, 20  # 0-based; nine inner lines, file lines 12 to 20
+    line = pf._toml_error_line
+    assert line(_FakeTomlError("Invalid value", lineno=2), opener, closer) == opener + 3
+    assert line(ValueError("Invalid value (at line 2, column 5)"), opener, closer) == opener + 3
+    assert line(ValueError("Unterminated string (at end of document)"), opener, closer) == 20
+    assert line(_FakeTomlError("Unterminated string", lineno=10), opener, closer) == 20
+    assert line(ValueError("Exceeds the limit"), opener, closer) is None
+
+
+@pytest.mark.parametrize("value", ["1" * 5_000, "[" * 5_000], ids=["long_int", "deep_nesting"])
+def test_long_int_and_deep_nesting(tmp_path, value):
+    text = "## Settings\n\n```toml\nportfolio_version = 1\nx = " + value + "\n```\n"
+    (tmp_path / "p.md").write_bytes(text.encode("utf-8"))
+    p = read_portfolio_file(tmp_path / "p.md", br_namespace=NS)
+    assert [e.kind for e in p.report if e.section == SETTINGS] == ["settings_invalid"]
+    assert p.settings_read is False
+
+
+@pytest.mark.parametrize(
+    ("line", "at", "message"),
+    [
+        (None, None, "no portfolio_version; this Gantry reads portfolio_version 1, so the settings block is not read"),
+        ("portfolio_version = 2", 13,
+         "portfolio_version 2 is not 1, the version this Gantry reads, so the settings block is not read"),
+        ('portfolio_version = "1"', 13,
+         "portfolio_version a string is not 1, the version this Gantry reads, so the settings block is not read"),
+        ("portfolio_version = true", 13,
+         "portfolio_version a boolean is not 1, the version this Gantry reads, so the settings block is not read"),
+        ("portfolio_version = 1.0", 13,
+         "portfolio_version 1.0 is not 1, the version this Gantry reads, so the settings block is not read"),
+    ],
+)
+def test_bad_version(tmp_path, line, at, message):
+    text = (FIXTURES / "bad_version.md").read_bytes().decode("utf-8")
+    text = text.replace("portfolio_version = 2\n", "" if line is None else line + "\n")
+    (tmp_path / "p.md").write_bytes(text.encode("utf-8"))
+    p = read_portfolio_file(tmp_path / "p.md", br_namespace=NS)
+    # The file also holds an unknown key and shares summing to 99: neither is reported.
+    assert entries(p) == [("bad_version", SETTINGS, at, "portfolio_version")]
+    assert p.report[0].message == message
+    assert list(p.brs.requirements) == ["life:BR-1", "life:BR-2"]
+    assert p.settings_read is False and not_set(p)
+
+
+def test_unknown_key():
+    p = read("unknown_key.md")
+    assert entries(p) == [
+        ("unknown_key", SETTINGS, 14, "colour"),
+        ("unknown_key", SETTINGS, 19, "capacity.agent_lane"),
+        ("unknown_key", SETTINGS, 23, "site.harbor.serve"),
+    ]
+    assert {e.message for e in p.report} == {"unknown key; it is ignored"}
+    assert p.settings_read is True
+
+
+def test_fences_do_not_count():
+    p = read("fences.md")
+    assert p.report == []
+    assert list(p.brs.requirements) == ["life:BR-1", "life:BR-2"]
+    assert p.settings_read is True
+
+
+def test_duplicate_settings(tmp_path):
+    p = read("duplicate_block.md")
+    assert entries(p) == [("duplicate_section", SETTINGS, 19, None)]
+    assert p.report[0].message == "a second toml block under '## Settings'; only the first (line 12) is read"
+    assert p.key_lines["capacity.agent_lanes"] == 17
+    text = (FIXTURES / "fences.md").read_bytes() + b"\n## Settings\n\n```toml\nportfolio_version = 2\n```\n"
+    (tmp_path / "p.md").write_bytes(text)
+    p = read_portfolio_file(tmp_path / "p.md", br_namespace=NS)
+    assert entries(p) == [("duplicate_section", SETTINGS, 41, None)]
+    assert p.report[0].message == "a second '## Settings' heading; only the first (line 17) is read"
+    assert p.settings_read is True
+
+
+def test_key_paths_are_one_line():
+    assert pf._seg("a\nb") == '"a\\nb"'
+    assert pf._seg("a.b") == '"a.b"'
+    assert pf._seg("harbor") == "harbor"
+    assert pf._path(("allocation", 2, "shares", "beta")) == "allocation[2].shares.beta"
+    assert pf._path(("shares", "my.site")) == 'shares."my.site"'
+
+
+def test_key_lines_locator():
+    p = read("fences.md")
+    assert {k: p.key_lines[k] for k in ("portfolio_version", "capacity", "capacity.agent_lanes", "allocation[1]",
+                                        "allocation[1].from", "allocation[1].shares", "site.harbor.serves",
+                                        "milestone.issue")} == {
+        "portfolio_version": 22, "capacity": 24, "capacity.agent_lanes": 26, "allocation[1]": 29,
+        "allocation[1].from": 30, "allocation[1].shares": 31, "site.harbor.serves": 34, "milestone.issue": 38,
+    }
+    assert pf._line(p.key_lines, ("allocation", 1, "shares", "harbor")) == 31
+    assert pf._line(p.key_lines, ("thresholds", "wip_max")) is None
