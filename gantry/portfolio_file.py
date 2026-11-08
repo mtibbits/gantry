@@ -14,15 +14,16 @@ not call this module yet (#23 or #61 adds the read).
 """
 
 import json
+import math
 import os
 import re
 import stat
 import tomllib
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, fields, replace
 
 from gantry import requirements
-from gantry.config import describe, error_reason
-from gantry.requirements import FENCE_RE, RequirementSet, fence_spans, parse_requirements
+from gantry.config import ID_TOKEN_RE, describe, error_reason
+from gantry.requirements import FENCE_RE, RequirementSet, fence_spans, parse_id, parse_requirements
 
 PORTFOLIO_LABEL = "the portfolio file"
 SECTIONS = ("business requirements", "settings")  # section None: the whole file (portfolio_unreadable only)
@@ -38,8 +39,14 @@ PORTFOLIO_VERSION = 1
 BARE_SEGMENT_RE = re.compile(r"[A-Za-z0-9_-]+")  # fullmatch; else the segment is a JSON string
 WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
+HHMM_RE = re.compile(r"(?:[01][0-9]|2[0-3]):[0-5][0-9]")  # fullmatch
+OUTLINE_RE = re.compile(r"[0-9]+(?:\.[0-9]+)+")  # fullmatch: an outline position, such as 3.2.1
+
 REPORT_KINDS = ("portfolio_unreadable", "no_br_section", "no_settings", "duplicate_section", "settings_invalid",
-                "bad_version", "unknown_key")
+                "bad_version", "unknown_key", "undated_allocation", "bad_allocation", "bad_value",
+                "duplicate_allocation_date", "capacity_missing", "reserved_exceeds_capacity",
+                "undefined_priority", "misplaced_priority", "bad_milestone", "unknown_project", "milestone_no_leaf")
+ADVISORY_KINDS = ("capacity_missing",)
 CARRIED_KINDS = tuple(k for k in requirements.REPORT_KINDS if k != "unreadable")
 _KIND_ORDER = {kind: i for i, kind in enumerate(REPORT_KINDS + CARRIED_KINDS)}
 _SECTION_ORDER = {None: 0, SECTIONS[0]: 1, SECTIONS[1]: 2}
@@ -90,6 +97,71 @@ SETTINGS_KEYS = (
 )
 DEFAULTS = {k.path: k.default for k in SETTINGS_KEYS if k.default not in (REQUIRED, None, ())}
 _KEYS = {k.path: k for k in SETTINGS_KEYS}
+_DAY_RULE = "a finite number from 0 to 24"  # each capacity.attention_hours.<day>
+_SERVES_ITEM_RULE = "a business requirement ID"
+
+
+def _number(v):
+    """An int or a float, never a bool."""
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def _finite(v):
+    # An int is always finite; math.isfinite would raise on a 400-digit one.
+    return _number(v) and (isinstance(v, int) or math.isfinite(v))
+
+
+def _int(v):
+    return isinstance(v, int) and not isinstance(v, bool)
+
+
+def _mapping_shape(v):
+    # Shape only: #36 owns finiteness and MAX_RATE. nan fails every comparison.
+    return (isinstance(v, list) and len(v) == 5 and all(_number(x) and x >= 0 for x in v)
+            and all(a <= b for a, b in zip(v, v[1:])))
+
+
+_CHECKS = {
+    "capacity.agent_lanes": lambda v: _int(v) and v >= 0,
+    "capacity.reserved[].day": lambda v: isinstance(v, str) and v in WEEKDAYS,
+    "capacity.reserved[].start": lambda v: isinstance(v, str) and HHMM_RE.fullmatch(v) is not None,
+    "capacity.reserved[].hours": lambda v: _finite(v) and v > 0,
+    "capacity.reserved[].label": lambda v: isinstance(v, str),
+    "capacity.block_min_hours": lambda v: _finite(v) and v > 0,
+    "capacity.block_start_cost_hours": lambda v: _finite(v) and v >= 0,
+    "capacity.attention_mapping": _mapping_shape,
+    "milestone.project": lambda v: isinstance(v, str) and v != "",
+    "milestone.issue": lambda v: isinstance(v, str) and v != "",
+    "milestone.label": lambda v: isinstance(v, str),
+    "thresholds.wip_max": lambda v: _int(v) and v >= 0,
+    "thresholds.unknown_deps_max": lambda v: _int(v) and v >= 0,
+    "thresholds.unplanned_max": lambda v: _int(v) and v >= 0,
+    "thresholds.share_gap_points": lambda v: _finite(v) and v > 0,
+    "thresholds.neglect_weeks": lambda v: _int(v) and v > 0,
+    "thresholds.effort_window_weeks": lambda v: _int(v) and v > 0,
+}
+
+
+def _fallback(default):
+    if default is None:
+        return "it is not set"
+    if default == ():
+        return "it is empty"
+    return f"the default {json.dumps(default) if isinstance(default, str) else repr(default)} is used"
+
+
+def _num(x):
+    """A number for a message; a huge one is named, never formatted."""
+    if (isinstance(x, int) and abs(x) >= 10**15) or (isinstance(x, float) and not math.isfinite(x)):
+        return "a very large number"
+    return f"{x:g}"
+
+
+def _total(values):
+    """A sum that never overflows: inf stands for "too large to matter"."""
+    if any(v > 10**9 for v in values):
+        return math.inf
+    return sum(values)
 
 
 def _allowed(prefix):
@@ -141,6 +213,23 @@ class Thresholds:
     effort_window_weeks: int | None
 
 
+@dataclass(frozen=True)
+class Reserved:
+    day: str
+    start: str
+    hours: int | float
+    label: str | None
+    line: int | None  # its [[capacity.reserved]] header line
+
+
+@dataclass(frozen=True)
+class Milestone:
+    project: str
+    issue: str
+    label: str
+    line: int | None  # its [milestone] header line
+
+
 _NO_CAPACITY = Capacity(None, None, (), None, None, None, None)
 _NO_THRESHOLDS = Thresholds(None, None, None, None, None, None)
 
@@ -151,7 +240,7 @@ class Portfolio:
     allocations: list
     serves: dict  # project name -> [ReqId]
     capacity: Capacity
-    milestone: object
+    milestone: Milestone | None
     thresholds: Thresholds  # every field None when the settings are not read: consumers use DEFAULTS
     settings_read: bool
     report: list
@@ -411,20 +500,30 @@ def _load_settings(lines, block, report):
     return raw, key_lines
 
 
+_ABSENT = object()  # a key that is not written
+_BAD = object()  # a key that is written and reported
+
+
 class _Settings:
     """Checks the settings table against the registry; one entry per problem."""
 
-    def __init__(self, raw, key_lines, report):
+    def __init__(self, raw, key_lines, report, brs, has_brs, br_namespace):
         self.raw = raw
         self.key_lines = key_lines
         self.report = report
+        self.brs = brs
+        self.has_brs = has_brs
+        self.br_namespace = br_namespace
 
     def add(self, kind, parts, message):
         self.report.add(kind, SECTIONS[1], _line(self.key_lines, parts), _path(parts), message)
 
-    def known(self, table, parts, pattern):
+    def bad(self, parts, rule, value, fallback):
+        self.add("bad_value", parts, f"must be {rule}, not {describe(value)}; {fallback}")
+
+    def known(self, table, parts, pattern, allowed=None):
         """`table` without its unknown keys, each reported once."""
-        allowed = _allowed(pattern)
+        allowed = _allowed(pattern) if allowed is None else allowed
         kept = {}
         for name, value in table.items():
             if name in allowed:
@@ -433,30 +532,197 @@ class _Settings:
                 self.add("unknown_key", parts + (name,), "unknown key; it is ignored")
         return kept
 
-    def table(self, value, parts):
-        """A table's value, or None with bad_value when it is not a table."""
+    def table(self, value, parts, pattern):
+        """A table's known keys, or {} with bad_value when it is not a table."""
         if isinstance(value, dict):
-            return value
+            return self.known(value, parts, pattern)
         self.add("bad_value", parts, f"must be a table, not {describe(value)}; it is ignored")
-        return None
+        return {}
+
+    def get(self, table, parts, pattern, fallback=None):
+        """The value of a registry key, _ABSENT, or _BAD (reported)."""
+        name = parts[-1]
+        if name not in table:
+            return _ABSENT
+        value = table[name]
+        if _CHECKS[pattern](value):
+            return value
+        key = _KEYS[pattern]
+        self.bad(parts, key.rule, value, fallback or _fallback(key.default))
+        return _BAD
+
+    def value(self, table, parts, pattern):
+        """A registry key's value, or its default when absent or bad."""
+        value = self.get(table, parts, pattern)
+        default = _KEYS[pattern].default
+        return value if value not in (_ABSENT, _BAD) else (None if default in (REQUIRED, ()) else default)
+
+    # --- the sections ---
 
     def read(self):
-        raw = self.known({k: v for k, v in self.raw.items() if k != "portfolio_version"}, (), "")
-        for name in ("capacity", "milestone", "thresholds"):
-            if name in raw:
-                table = self.table(raw[name], (name,))
-                if table is not None:
-                    self.known(table, (name,), name)
-        if isinstance(raw.get("allocation"), list):
-            for n, member in enumerate(raw["allocation"], 1):
+        root = self.known({k: v for k, v in self.raw.items() if k != "portfolio_version"}, (), "")
+        capacity = self.capacity(self.table(root["capacity"], ("capacity",), "capacity") if "capacity" in root else {})
+        milestone = self.milestone(root["milestone"]) if "milestone" in root else None
+        thresholds = self.thresholds(
+            self.table(root["thresholds"], ("thresholds",), "thresholds") if "thresholds" in root else {})
+        if isinstance(root.get("allocation"), list):
+            for n, member in enumerate(root["allocation"], 1):
                 if isinstance(member, dict):
                     self.known(member, ("allocation", n), "allocation[]")
-        if "site" in raw:
-            sites = self.table(raw["site"], ("site",))
+        serves = {}
+        if "site" in root:
+            sites = root["site"] if isinstance(root["site"], dict) else None  # any project name
+            if sites is None:
+                self.add("bad_value", ("site",), f"must be a table, not {describe(root['site'])}; it is ignored")
             for project, table in (sites or {}).items():
-                table = self.table(table, ("site", project))
-                if table is not None:
-                    self.known(table, ("site", project), "site.<project>")
+                parts = ("site", project)
+                if not isinstance(table, dict):
+                    self.add("bad_value", parts, f"must be a table, not {describe(table)}; it is ignored")
+                    continue
+                serves[project] = self.serves(self.known(table, parts, "site.<project>"), parts)
+        return capacity, milestone, thresholds, serves
+
+    def capacity(self, table):
+        p = ("capacity",)
+        hours = self.attention_hours(table)
+        lanes = self.value(table, p + ("agent_lanes",), "capacity.agent_lanes")
+        reserved = self.reserved(table)
+        minimum = self.value(table, p + ("block_min_hours",), "capacity.block_min_hours")
+        # block_default_hours is at least the minimum in use; so is its default.
+        in_use = minimum if minimum > 2 else 2
+        default = table.get("block_default_hours", _ABSENT)
+        if default is _ABSENT:
+            default = in_use
+        elif not (_finite(default) and default >= minimum):
+            self.bad(p + ("block_default_hours",), _KEYS["capacity.block_default_hours"].rule, default,
+                     f"the default {_num(in_use)} is used")
+            default = in_use
+        cost = self.value(table, p + ("block_start_cost_hours",), "capacity.block_start_cost_hours")
+        mapping = self.value(table, p + ("attention_mapping",), "capacity.attention_mapping")
+        capacity = Capacity(hours, lanes, reserved, minimum, default, cost,
+                            tuple(mapping) if mapping is not None else None)
+        for key in ("attention_hours", "agent_lanes"):
+            if getattr(capacity, key) is None:
+                self.add("capacity_missing", p + (key,),
+                         f"no capacity.{key}, so the week planner has no capacity to plan into")
+        if hours is not None:
+            self.exceeds(hours, reserved)
+        return capacity
+
+    def attention_hours(self, table):
+        parts = ("capacity", "attention_hours")
+        if "attention_hours" not in table:
+            return None
+        value = table["attention_hours"]
+        if not isinstance(value, dict):
+            self.bad(parts, _KEYS["capacity.attention_hours"].rule, value, "it is not set")
+            return None
+        hours = {}
+        for day, h in self.known(value, parts, None, allowed=WEEKDAYS).items():
+            if _finite(h) and 0 <= h <= 24:
+                hours[day] = h
+            else:
+                self.bad(parts + (day,), _DAY_RULE, h, "the day reads 0")
+        return {day: hours.get(day, 0) for day in WEEKDAYS}
+
+    def reserved(self, table):
+        parts = ("capacity", "reserved")
+        value = table.get("reserved", [])
+        if not (isinstance(value, list) and all(isinstance(m, dict) for m in value)):
+            self.bad(parts, _KEYS["capacity.reserved"].rule, value, "it is empty")
+            return ()
+        kept = []
+        for n, member in enumerate(value, 1):
+            at = parts + (n,)
+            member = self.known(member, at, "capacity.reserved[]")
+            fields, ok = {}, True
+            for name in ("day", "start", "hours", "label"):
+                pattern = f"capacity.reserved[].{name}"
+                got = self.get(member, at + (name,), pattern, fallback="the reserved block is set aside")
+                if got is _ABSENT and _KEYS[pattern].default is REQUIRED:
+                    self.add("bad_value", at + (name,),
+                             f"missing; must be {_KEYS[pattern].rule}; the reserved block is set aside")
+                    ok = False
+                elif got is _BAD:
+                    ok = False
+                fields[name] = None if got in (_ABSENT, _BAD) else got
+            if ok:
+                kept.append(Reserved(fields["day"], fields["start"], fields["hours"], fields["label"],
+                                     _line(self.key_lines, at)))
+        return tuple(kept)
+
+    def exceeds(self, hours, reserved):
+        for day in WEEKDAYS:
+            on_day = [r for r in reserved if r.day == day]
+            total = _total([r.hours for r in on_day])
+            if on_day and total > hours[day]:
+                total_text = _num(total)
+                if total_text == "a very large number":
+                    total_text += " of"
+                self.report.add("reserved_exceeds_capacity", SECTIONS[1], on_day[0].line, "capacity.reserved",
+                                f"reserved blocks on {day} total {total_text} hours, more than its "
+                                f"{_num(hours[day])} attention hours")
+
+    def milestone(self, value):
+        p = ("milestone",)
+        table = self.table(value, p, "milestone")
+        if not isinstance(value, dict):
+            return None
+        fields, ok = {}, True
+        for name in ("project", "issue"):
+            got = self.get(table, p + (name,), f"milestone.{name}", fallback="the milestone is not set")
+            if got is _ABSENT:
+                self.add("bad_value", p + (name,),
+                         f"missing; must be {_KEYS['milestone.' + name].rule}; the milestone is not set")
+            if got in (_ABSENT, _BAD):
+                ok = False
+            fields[name] = got
+        issue = fields["issue"]
+        if isinstance(issue, str) and issue:
+            if not ID_TOKEN_RE.fullmatch(issue):
+                self.add("bad_milestone", p + ("issue",),
+                         f"{issue!r} is not an issue id (it must match {ID_TOKEN_RE.pattern})")
+                ok = False
+            elif OUTLINE_RE.fullmatch(issue):
+                self.add("bad_milestone", p + ("issue",),
+                         f"{issue!r} is an outline position: name the leaf by its issue id; "
+                         "outline positions move at wbs update")
+                ok = False
+        label = self.value(table, p + ("label",), "milestone.label")
+        if not ok:
+            return None
+        return Milestone(fields["project"], issue, label, _line(self.key_lines, p))
+
+    def thresholds(self, table):
+        return Thresholds(*(self.value(table, ("thresholds", f.name), f"thresholds.{f.name}")
+                            for f in fields(Thresholds)))
+
+    def serves(self, table, parts):
+        """The resolved BR IDs a site serves, each once; the rest reported."""
+        parts = parts + ("serves",)
+        value = table.get("serves", [])
+        if not isinstance(value, list):
+            self.bad(parts, _KEYS["site.<project>.serves"].rule, value, "it is empty")
+            return []
+        kept = []
+        for n, item in enumerate(value, 1):
+            at = parts + (n,)
+            rid = parse_id(item, self.br_namespace) if isinstance(item, str) else None
+            if rid is None:
+                got = repr(item) if isinstance(item, str) else describe(item)
+                self.add("bad_value", at, f"must be {_SERVES_ITEM_RULE}, not {got}; it is not read")
+            elif not self.has_brs:
+                continue  # one cause, one entry: no_br_section
+            elif rid.namespace != self.br_namespace:
+                self.add("misplaced_priority", at,
+                         f"{rid} is not in the installation namespace {self.br_namespace!r}; it is not read")
+            elif rid.code != "BR":
+                self.add("misplaced_priority", at, f"{rid} is a {rid.code} ID; serves names business requirements (BR)")
+            elif str(rid) not in self.brs.requirements:
+                self.add("undefined_priority", at, f"{rid} names no business requirement in this file")
+            elif rid not in kept:
+                kept.append(rid)
+        return kept
 
 
 def _read_text(text, source, br_namespace):
@@ -468,7 +734,10 @@ def _read_text(text, source, br_namespace):
     brs = _read_brs(lines, found, source, br_namespace, report)
     block = _settings_block(lines, found, report)
     raw, key_lines = (None, {}) if block is None else _load_settings(lines, block, report)
+    p = _empty(br_namespace, [])
     if raw is not None:
-        _Settings(raw, key_lines, report).read()
-    p = _empty(br_namespace, report.entries)
-    return replace(p, brs=brs, settings_read=raw is not None, key_lines=key_lines)
+        settings = _Settings(raw, key_lines, report, brs, BR_HEADING in found, br_namespace)
+        capacity, milestone, thresholds, serves = settings.read()
+        p = replace(p, capacity=capacity, milestone=milestone, thresholds=thresholds, serves=serves)
+    return replace(p, brs=brs, settings_read=raw is not None, key_lines=key_lines,
+                   report=sorted(report.entries, key=_sort_key))

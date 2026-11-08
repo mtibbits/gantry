@@ -11,7 +11,8 @@ from pathlib import Path
 import pytest
 
 import gantry.portfolio_file as pf
-from gantry.portfolio_file import PORTFOLIO_LABEL, read_portfolio_file
+from gantry.portfolio_file import DEFAULTS, PORTFOLIO_LABEL, SETTINGS_KEYS, read_portfolio_file
+from gantry.requirements import ReqId
 from test_samples import ROOT, decode_bytes, git, git_work_tree, needs_git
 
 FIXTURES = Path(__file__).parent / "fixtures" / "portfolio_file"
@@ -302,3 +303,244 @@ def test_key_lines_locator():
     }
     assert pf._line(p.key_lines, ("allocation", 1, "shares", "harbor")) == 31
     assert pf._line(p.key_lines, ("thresholds", "wip_max")) is None
+
+
+# --- the registry and its values -------------------------------------------------
+
+
+def write(tmp_path, text, name="p.md"):
+    (tmp_path / name).write_bytes(text.encode("utf-8"))
+    return read_portfolio_file(tmp_path / name, br_namespace=NS)
+
+
+def fixture_with(name, old, new):
+    text = (FIXTURES / name).read_bytes().decode("utf-8")
+    assert old in text
+    return text.replace(old, new)
+
+
+def bad_values(p):
+    return {e.key_path: (e.line, e.message) for e in p.report if e.kind == "bad_value"}
+
+
+def test_every_default():
+    p = read("capacity_missing.md")
+    assert entries(p) == [
+        ("capacity_missing", SETTINGS, None, "capacity.attention_hours"),
+        ("capacity_missing", SETTINGS, None, "capacity.agent_lanes"),
+    ]
+    assert p.report[1].message == "no capacity.agent_lanes, so the week planner has no capacity to plan into"
+    assert p.settings_read is True
+    c = p.capacity
+    assert (c.attention_hours, c.agent_lanes, c.reserved, c.attention_mapping) == (None, None, (), None)
+    assert (c.block_min_hours, c.block_default_hours, c.block_start_cost_hours) == (1, 2, 0.25)
+    t = p.thresholds
+    assert (t.wip_max, t.unknown_deps_max, t.unplanned_max, t.share_gap_points, t.neglect_weeks,
+            t.effort_window_weeks) == (3, 0, 0, 10, 4, 4)
+    assert p.milestone is None and p.serves == {} and p.allocations == []
+
+
+def test_bad_value_type():
+    p = read("bad_value_type.md")
+    expected = {
+        "site.harbor.serves": (16, "an array of business requirement IDs, not a string; it is empty"),
+        "capacity.attention_hours": (19, "a table of weekday (mon to sun) to hours, not a string; it is not set"),
+        "capacity.agent_lanes": (20, "an integer, 0 or more, not a boolean; it is not set"),
+        "capacity.block_min_hours": (21, "a finite number above 0, not a boolean; the default 1 is used"),
+        "capacity.block_default_hours": (22, "a finite number, at least block_min_hours, not a boolean; "
+                                             "the default 2 is used"),
+        "capacity.block_start_cost_hours": (23, "a finite number, 0 or more, not a boolean; the default 0.25 is used"),
+        "capacity.attention_mapping": (24, "an array of exactly five numbers, each 0 or more, not decreasing, "
+                                           "not a boolean; it is not set"),
+        "capacity.reserved[1].day": (27, "a weekday (mon to sun), not 1; the reserved block is set aside"),
+        "capacity.reserved[1].start": (28, 'a time "HH:MM" from 00:00 to 23:59, not 9; the reserved block is set aside'),
+        "capacity.reserved[1].hours": (29, "a finite number above 0, not a boolean; the reserved block is set aside"),
+        "capacity.reserved[1].label": (30, "a string, not 1; the reserved block is set aside"),
+        "milestone.project": (33, "a non-empty string, not 1; the milestone is not set"),
+        "milestone.issue": (34, "a non-empty string, not 1; the milestone is not set"),
+        "milestone.label": (35, 'a string, not 1; the default "autonomy milestone" is used'),
+        "thresholds.wip_max": (38, "an integer, 0 or more, not a boolean; the default 3 is used"),
+        "thresholds.unknown_deps_max": (39, "an integer, 0 or more, not a boolean; the default 0 is used"),
+        "thresholds.unplanned_max": (40, "an integer, 0 or more, not a boolean; the default 0 is used"),
+        "thresholds.share_gap_points": (41, "a finite number above 0, not a boolean; the default 10 is used"),
+        "thresholds.neglect_weeks": (42, "an integer above 0, not a boolean; the default 4 is used"),
+        "thresholds.effort_window_weeks": (43, "an integer above 0, not a boolean; the default 4 is used"),
+    }
+    assert bad_values(p) == {k: (line, "must be " + text) for k, (line, text) in expected.items()}
+    assert [e.key_path for e in p.report if e.kind != "bad_value"] == [
+        "capacity.attention_hours", "capacity.agent_lanes"]  # capacity_missing, advisory
+    c = p.capacity
+    assert (c.attention_hours, c.agent_lanes, c.reserved, c.attention_mapping) == (None, None, (), None)
+    assert (c.block_min_hours, c.block_default_hours, c.block_start_cost_hours) == (1, 2, 0.25)
+    assert p.thresholds == pf.Thresholds(3, 0, 0, 10, 4, 4)
+    assert p.milestone is None
+    assert p.serves == {"harbor": []}
+
+
+def test_bad_value_range(tmp_path):
+    p = read("bad_value_range.md")
+    expected = {
+        "capacity.attention_hours.mon": (16, "a finite number from 0 to 24, not 25; the day reads 0"),
+        "capacity.agent_lanes": (17, "an integer, 0 or more, not -1; it is not set"),
+        "capacity.block_min_hours": (18, "a finite number above 0, not 0; the default 1 is used"),
+        "capacity.block_default_hours": (19, "a finite number, at least block_min_hours, not 0.5; the default 2 is used"),
+        "capacity.block_start_cost_hours": (20, "a finite number, 0 or more, not -0.5; the default 0.25 is used"),
+        "capacity.reserved[1].day": (23, "a weekday (mon to sun), not a string; the reserved block is set aside"),
+        "capacity.reserved[1].start": (24, 'a time "HH:MM" from 00:00 to 23:59, not a string; '
+                                           "the reserved block is set aside"),
+        "capacity.reserved[1].hours": (25, "a finite number above 0, not 0; the reserved block is set aside"),
+        "thresholds.wip_max": (28, "an integer, 0 or more, not -1; the default 3 is used"),
+        "thresholds.share_gap_points": (29, "a finite number above 0, not 0; the default 10 is used"),
+        "thresholds.neglect_weeks": (30, "an integer above 0, not 0; the default 4 is used"),
+        "thresholds.effort_window_weeks": (31, "an integer above 0, not 0; the default 4 is used"),
+    }
+    assert bad_values(p) == {k: (line, "must be " + text) for k, (line, text) in expected.items()}
+    assert p.capacity.attention_hours == {"mon": 0, "tue": 4, "wed": 0, "thu": 0, "fri": 0, "sat": 0, "sun": 0}
+    assert p.capacity.reserved == ()
+    # Not finite (Q1): each is bad_value and its default is used.
+    p = write(tmp_path, fixture_with("bad_value_range.md", "attention_hours = { mon = 25, tue = 4 }\nagent_lanes = -1\n"
+                                     "block_min_hours = 0\nblock_default_hours = 0.5\nblock_start_cost_hours = -0.5\n",
+                                     "attention_hours = { mon = nan }\nagent_lanes = 1\nblock_min_hours = inf\n"
+                                     "block_default_hours = inf\nblock_start_cost_hours = inf\n")
+              .replace("share_gap_points = 0", "share_gap_points = inf"))
+    bad = bad_values(p)
+    for key in ("capacity.attention_hours.mon", "capacity.block_min_hours", "capacity.block_default_hours",
+                "capacity.block_start_cost_hours", "thresholds.share_gap_points"):
+        assert "a finite number" in bad[key][1], key
+    assert bad["capacity.attention_hours.mon"][1].endswith(" not nan; the day reads 0")
+    assert bad["capacity.block_min_hours"][1].endswith(" not inf; the default 1 is used")
+    c = p.capacity
+    assert (c.block_min_hours, c.block_default_hours, c.block_start_cost_hours) == (1, 2, 0.25)
+    assert p.thresholds.share_gap_points == 10
+    assert c.attention_hours["mon"] == 0
+
+
+def test_block_default_follows_a_larger_minimum(tmp_path):
+    body = "## Settings\n\n```toml\nportfolio_version = 1\n[capacity]\nblock_min_hours = 3\n{}```\n"
+    p = write(tmp_path, body.format(""))
+    assert (p.capacity.block_min_hours, p.capacity.block_default_hours) == (3, 3)
+    p = write(tmp_path, body.format("block_default_hours = 2.5\n"))
+    assert bad_values(p)["capacity.block_default_hours"][1].endswith("not 2.5; the default 3 is used")
+    assert p.capacity.block_default_hours == 3
+
+
+@pytest.mark.parametrize(
+    ("value", "read"),
+    [
+        ("[0, 0.15, 0.3, 0.6, 1.0]", (0, 0.15, 0.3, 0.6, 1.0)),
+        ("[0, 0, 0, 0, 0]", (0, 0, 0, 0, 0)),
+        ("[0, 0.1, 0.25, 0.5, inf]", (0, 0.1, 0.25, 0.5, float("inf"))),
+        ("[0, 0.1, 0.25, 0.5]", None),
+        ("[0, 0.1, 0.25, 0.5, 1, 2]", None),
+        ("[0, 0.5, 0.25, 0.5, 1]", None),
+        ("[0, 0.1, nan, 0.5, 1]", None),
+        ("[0, 0.1, true, 0.5, 1]", None),
+        ("[-1, 0.1, 0.25, 0.5, 1]", None),
+    ],
+)
+def test_attention_mapping_shape(tmp_path, value, read):
+    p = write(tmp_path, fixture_with("capacity_missing.md", "portfolio_version = 1\n",
+                                     f"portfolio_version = 1\n[capacity]\nattention_mapping = {value}\n"))
+    assert p.capacity.attention_mapping == read
+    bad = [e for e in p.report if e.kind == "bad_value"]
+    if read is None:
+        assert [(e.key_path, e.line) for e in bad] == [("capacity.attention_mapping", 15)]
+    else:
+        assert bad == []
+
+
+def test_reserved_exceeds_capacity(tmp_path):
+    p = read("reserved_exceeds_capacity.md")
+    assert entries(p) == [("reserved_exceeds_capacity", SETTINGS, 19, "capacity.reserved")]
+    assert p.report[0].message == "reserved blocks on mon total 5 hours, more than its 4 attention hours"
+    assert [(r.day, r.start, r.hours, r.label, r.line) for r in p.capacity.reserved] == [
+        ("mon", "09:00", 3, None, 19), ("mon", "13:00", 2, "Standing meeting", 24), ("tue", "09:00", 2, None, 30)]
+    # A 400-digit hours value is a valid number: reported, never raised.
+    p = write(tmp_path, fixture_with("reserved_exceeds_capacity.md", "hours = 3\n", "hours = 1" + "0" * 400 + "\n"))
+    assert [e.message for e in p.report] == [
+        "reserved blocks on mon total a very large number of hours, more than its 4 attention hours"]
+
+
+def test_priorities(tmp_path):
+    p = read("undefined_priority.md")
+    assert entries(p) == [("undefined_priority", SETTINGS, 20, "site.harbor.serves[2]")]
+    assert p.report[0].message == "life:BR-7 names no business requirement in this file"
+    assert p.serves == {"harbor": [ReqId("life", "BR", 1), ReqId("life", "BR", 2)]}
+    p = read("misplaced_priority.md")
+    assert entries(p) == [
+        ("misplaced_priority", SETTINGS, 20, "site.harbor.serves[1]"),
+        ("misplaced_priority", SETTINGS, 20, "site.harbor.serves[2]"),
+    ]
+    assert [e.message for e in p.report] == [
+        "other:BR-1 is not in the installation namespace 'life'; it is not read",
+        "life:FR-2 is a FR ID; serves names business requirements (BR)",
+    ]
+    assert p.serves == {"harbor": [ReqId("life", "BR", 1)]}
+    # Not an ID, not a string, and a repeat kept once.
+    p = write(tmp_path, fixture_with("misplaced_priority.md", '"other:BR-1", "FR-2", "BR-1"', '"BR-01", 3, "BR-1", "life:BR-1"'))
+    assert bad_values(p) == {
+        "site.harbor.serves[1]": (20, "must be a business requirement ID, not 'BR-01'; it is not read"),
+        "site.harbor.serves[2]": (20, "must be a business requirement ID, not 3; it is not read"),
+    }
+    assert p.serves == {"harbor": [ReqId("life", "BR", 1)]}
+
+
+def test_priorities_without_a_br_section(tmp_path):
+    # One cause, one entry: no_br_section, and no priority entry.
+    text = "## Settings\n\n```toml\nportfolio_version = 1\n[capacity]\nattention_hours = { mon = 4 }\nagent_lanes = 1\n" \
+           '[site.harbor]\nserves = ["BR-9", "other:BR-1", "FR-2"]\n```\n'
+    p = write(tmp_path, text)
+    assert [e.kind for e in p.report] == ["no_br_section"]
+    assert p.serves == {"harbor": []}
+
+
+@pytest.mark.parametrize(
+    ("toml", "key_path", "line"),
+    [("site = 1\n", "site", 14), ("[site]\nharbor = 1\n", "site.harbor", 15),
+     ("capacity = 1\n", "capacity", 14), ("thresholds = []\n", "thresholds", 14)],
+)
+def test_non_table_is_bad_value(tmp_path, toml, key_path, line):
+    p = write(tmp_path, fixture_with("capacity_missing.md", "portfolio_version = 1\n", "portfolio_version = 1\n" + toml))
+    assert [(e.key_path, e.line) for e in p.report if e.kind == "bad_value"] == [(key_path, line)]
+    assert bad_values(p)[key_path][1].endswith("; it is ignored")
+
+
+@pytest.mark.parametrize(
+    ("issue", "kind", "message"),
+    [
+        ('"3.2.1"', "bad_milestone",
+         "'3.2.1' is an outline position: name the leaf by its issue id; outline positions move at wbs update"),
+        ('"3.2"', "bad_milestone",
+         "'3.2' is an outline position: name the leaf by its issue id; outline positions move at wbs update"),
+        ('"a b"', "bad_milestone", "'a b' is not an issue id (it must match [A-Za-z0-9][A-Za-z0-9_.-]*)"),
+        ('"3"', None, None),
+        ('"Issue-5"', None, None),
+        ("3", "bad_value", "must be a non-empty string, not 3; the milestone is not set"),
+    ],
+)
+def test_bad_milestone(tmp_path, issue, kind, message):
+    p = write(tmp_path, fixture_with("bad_milestone.md", 'issue = "3.2.1"', f"issue = {issue}"))
+    if kind is None:
+        assert p.report == []
+        m = p.milestone
+        assert (m.project, m.issue, m.label, m.line) == ("lighthouse", issue.strip('"'), "autonomy milestone", 19)
+    else:
+        assert entries(p) == [(kind, SETTINGS, 21, "milestone.issue")]
+        assert p.report[0].message == message
+        assert p.milestone is None
+
+
+def test_bad_milestone_fixture():
+    p = read("bad_milestone.md")
+    assert entries(p) == [("bad_milestone", SETTINGS, 21, "milestone.issue")]
+
+
+def test_registry_shape():
+    assert len(SETTINGS_KEYS) == len({k.path for k in SETTINGS_KEYS}) > 0
+    assert DEFAULTS == {
+        "milestone.label": "autonomy milestone", "capacity.block_min_hours": 1, "capacity.block_default_hours": 2,
+        "capacity.block_start_cost_hours": 0.25, "thresholds.wip_max": 3, "thresholds.unknown_deps_max": 0,
+        "thresholds.unplanned_max": 0, "thresholds.share_gap_points": 10, "thresholds.neglect_weeks": 4,
+        "thresholds.effort_window_weeks": 4,
+    }
+    assert all(k.rule.isascii() for k in SETTINGS_KEYS)
