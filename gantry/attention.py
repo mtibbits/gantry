@@ -66,6 +66,8 @@ def check_h(data, site: str):
         if "h" in row.meta:
             new.append(ReportEntry(site, row.line, "bad_h", MESSAGES["h_on_row"].format(
                 line=row.line, raw=row.meta["h"], key=row.key)))
+    if not new:
+        return data
     return replace(data, report=tuple(sorted(data.report + tuple(new), key=report_order)))
 
 
@@ -190,6 +192,12 @@ def _check_slots(measured, declared):
             raise ValueError(f"{slot}= takes a SiteRatio whose source is {slot!r}, not {got!r}")
 
 
+def _site_ratio(measured, declared):
+    """The site ratio in use: measured before declared, or None."""
+    _check_slots(measured, declared)
+    return measured if measured is not None else declared
+
+
 def _from_ratio(ratio):
     v = ratio.value
     basis = f"{ratio.source}: site ratio {v:g}" + (f"; {ratio.basis}" if ratio.basis else "")
@@ -199,19 +207,17 @@ def _from_ratio(ratio):
 def leaf_attention(leaf, data, mapping, *, measured=None, declared=None) -> Attention:
     """The leaf's attention from the first source that applies: its h: score, the
     measured site ratio, the declared site ratio, then the heuristic."""
-    _check_slots(measured, declared)
+    ratio = _site_ratio(measured, declared)
     score = read_h(leaf)
     if score is not None:
         return Attention(score, mapping.values[score], "scored", f"scored: h: {score}")
-    if measured is not None:
-        return _from_ratio(measured)
-    if declared is not None:
-        return _from_ratio(declared)
+    if ratio is not None:
+        return _from_ratio(ratio)
     need, why = heuristic_need(leaf, data)
     return Attention(need, mapping.values[need], "estimated", "estimated: " + why)
 
 
 def site_ratio_source(*, measured=None, declared=None) -> str:
     """The site's own source, whatever any leaf's h: says: measured, declared or estimated."""
-    _check_slots(measured, declared)
-    return "measured" if measured is not None else "declared" if declared is not None else "estimated"
+    ratio = _site_ratio(measured, declared)
+    return ratio.source if ratio is not None else "estimated"
