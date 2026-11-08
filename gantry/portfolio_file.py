@@ -5,8 +5,9 @@ states the rules.
 read_portfolio_file reads and checks the file alone and never raises on its
 content; check_portfolio adds the checks that need the installation (the site
 list and, when given, each site's issue: values). A consumer prints
-Portfolio.report followed by check_portfolio's entries, and nothing else:
-Portfolio.brs.report is a subset of Portfolio.report, relabelled the same way.
+report_entries (Portfolio.report and check_portfolio's entries, in report
+order), and nothing else: Portfolio.brs.report is a subset of
+Portfolio.report, relabelled the same way.
 
 Every `line` is a 1-based file line; fence_spans' indices are 0-based. No
 entry holds a path: the file is always "the portfolio file". gantry build does
@@ -847,6 +848,12 @@ def check_portfolio(portfolio, site_names, issues_by_site=None) -> list:
         elif m.issue not in issues:
             add("milestone_no_leaf", ("milestone", "issue"), f"no leaf on {shown(m.project)} has issue {m.issue!r}")
     return sorted(out, key=_sort_key)
+
+
+def report_entries(portfolio, site_names, issues_by_site=None) -> list:
+    """Every entry a consumer prints: Portfolio.report and check_portfolio's
+    entries, merged in report order."""
+    return sorted(portfolio.report + check_portfolio(portfolio, site_names, issues_by_site), key=_sort_key)
 
 
 def format_entry(e) -> str:

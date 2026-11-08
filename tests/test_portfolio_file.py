@@ -24,6 +24,7 @@ from gantry.portfolio_file import (
     format_entry,
     intended_shares,
     read_portfolio_file,
+    report_entries,
 )
 from gantry.cli import MILESTONE_NOTE as MILESTONE_NOTE_TEXT
 from gantry.requirements import FENCE_RE, ReqId, fence_spans
@@ -691,6 +692,18 @@ def test_unknown_project():
         "'nowhere' is not a site in the devagent config",
     ]
     assert intended_shares(p, date(2026, 1, 5)).shares == {BUSY: 50, "nowhere": 30, "Harbor": 20}
+
+
+def test_report_entries_merge_in_line_order(tmp_path):
+    # A reader entry on a later line than check_portfolio's prints after them.
+    p = write(tmp_path, fixture_with("unknown_project.md", 'issue = "Issue-1"\n', 'issue = "Issue-1"\nlabel = 3\n'))
+    assert [(e.kind, e.line) for e in report_entries(p, SITES)] == [
+        ("unknown_project", 21),
+        ("unknown_project", 21),
+        ("unknown_project", 23),
+        ("unknown_project", 27),
+        ("bad_value", 29),
+    ]
 
 
 @pytest.mark.parametrize(

@@ -67,9 +67,9 @@ as prose, so the operator can keep notes in it:
   `toml` under the heading `## Settings`. Every setting below lives there.
 
 A heading is an ATX heading at the start of a line: one to six `#`, then a
-space or tab, then its text. Trailing spaces and tabs are ignored, and the
-text is matched exactly, so the two headings are level 2 and spelled as
-above. A line inside a fence is never a heading, so a TOML comment such as
+space or tab, then its text, with no closing `#`s. Trailing spaces and tabs
+are ignored, and the text is matched exactly, so the two headings are level 2
+and spelled as above. A line inside a fence is never a heading, so a TOML comment such as
 `## Note` inside the settings block, or a fenced example holding
 `## Example` in the business-requirements section, does not count. Fences
 pair by the requirements format's rule: a fence opened with three or more
@@ -242,9 +242,10 @@ first, and for the second each site's `issue:` values, which come from its
 ### For a view that reads the file
 
 A view reads `read_portfolio_file(path, br_namespace=...)` once per build and
-shows `Portfolio.report` followed by `check_portfolio`'s entries, and nothing
-else: `Portfolio.brs.report` holds the same business-requirements entries
-again. When `settings_read` is false, every setting is not set, the
+shows `report_entries(portfolio, site_names, issues_by_site)`, which merges
+`Portfolio.report` with `check_portfolio`'s entries in report order, and
+nothing else: `Portfolio.brs.report` holds the same business-requirements
+entries again. When `settings_read` is false, every setting is not set, the
 thresholds included; a view that needs a threshold then uses its default
 from `DEFAULTS`. `intended_shares(portfolio, day)` gives the allocation on a
 day.

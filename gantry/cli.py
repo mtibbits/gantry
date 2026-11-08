@@ -31,7 +31,7 @@ from gantry.build import (
     write_page,
 )
 from gantry.config import ConfigError, error_reason, load_config
-from gantry.portfolio_file import PORTFOLIO_LABEL, SECTIONS, check_portfolio, format_entry, read_portfolio_file
+from gantry.portfolio_file import PORTFOLIO_LABEL, SECTIONS, format_entry, read_portfolio_file, report_entries
 from gantry.sites import shown
 from gantry.stamp import config_roots, stamp_text
 
@@ -176,7 +176,7 @@ def _portfolio(args):
         return 1
     portfolio = read_portfolio_file(config.portfolio_file, br_namespace=config.requirements.br_namespace)
     # It reads no WBS.md, so no issues_by_site: the milestone leaf is not checked.
-    entries = portfolio.report + check_portfolio(portfolio, [s.name for s in sites])
+    entries = report_entries(portfolio, [s.name for s in sites])
     for section in (None, *SECTIONS):
         group = [e for e in entries if e.section == section]
         if group:
