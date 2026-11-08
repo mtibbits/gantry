@@ -15,6 +15,7 @@ from types import SimpleNamespace
 import pytest
 
 from commit_check import path_form_hits
+from gantry.attention import MESSAGES as H_MESSAGES, check_h
 from gantry.build import site_data
 from gantry.config import SiteOverride
 from gantry.config import load_config as load_installation
@@ -43,7 +44,7 @@ from gantry.views.worksite import (
 )
 from gantry.wbs_stopgap import parse_wbs, read_wbs
 from page_safety import CSP_CONTENT, HOSTILE, assert_no_external_resources, assert_page_safe
-from helpers_config import page_ids
+from helpers_config import demo_build, page_ids
 from page_script.harness import Planted, open_page, run_function
 from sample_roles import BUSY, OWN_UNIT, READABLE, UNESTIMATED
 from test_samples import ROOT, SAMPLES
@@ -366,6 +367,55 @@ def test_hostile_data_page_is_safe():
     assert leaves[HOSTILE[1]]["models"] == [HOSTILE[3], None]
     assert (leaves[HOSTILE[2]]["issue"], leaves[HOSTILE[2]]["title"]) == (None, HOSTILE[10])
     assert data["lanes"][0]["name"] == HOSTILE[4]
+
+
+def test_hostile_h_values_listed_safely():
+    """A HOSTILE h: on every leaf: the page stays safe and the panel lists each one.
+
+    A new guard, not a fix: the panel already escapes any entry's message. The
+    planted leg is met by the leaf details' metadata; the panel equality is
+    what proves the bad_h message path.
+    """
+    leaves = tuple(_leaf(f"Issue-{n}", f"Issue-{n}", str(n), "Plain", None, n,
+                         meta={"issue": f"Issue-{n}", "h": h}) for n, h in enumerate(HOSTILE, start=1))
+    data = check_h(SiteData(leaves, (), (), (), ()), "alpha")
+    embedded = assert_page_safe(render_page("alpha", data, default_unit_hours=6), HOSTILE)
+    assert embedded["panel"] == [H_MESSAGES["bad_h"].format(line=leaf.line, raw=leaf.meta["h"], key=leaf.key)
+                                 for leaf in leaves]
+
+
+H_LINE_RE = re.compile(r"WBS\.md line \d+: h: ")
+
+
+def built_panel(out, site):
+    return assert_page_safe((out / "sites" / f"{site}.html").read_bytes().decode("utf-8"), [])["panel"]
+
+
+def assert_quarry_lists_bad_h(copy, panel):
+    """Of every bad_h message quarry's h: values could give, the panel lists only Issue-7's."""
+    data = read_wbs(copy / UNESTIMATED / "WBS.md", UNESTIMATED)
+    held = [n for n in (*data.leaves, *data.rows) if "h" in n.meta]
+    assert len(held) == 4
+    possible = {H_MESSAGES[kind].format(line=n.line, raw=n.meta["h"], key=n.key)
+                for n in held for kind in ("bad_h", "h_on_row")}
+    (seven,) = [n for n in held if n.key == "Issue-7"]
+    expected = [H_MESSAGES["bad_h"].format(line=seven.line, raw="high", key="Issue-7")]
+    assert [line for line in panel if line in possible] == expected
+    assert [line for line in panel if H_LINE_RE.match(line)] == expected
+
+
+def test_demo_build_panel_lists_bad_h(tmp_path, monkeypatch):
+    code, out, _, err = demo_build(tmp_path, monkeypatch)
+    assert code == 0, err
+    assert_quarry_lists_bad_h(out.parent, built_panel(out, UNESTIMATED))
+    for site in sorted(READABLE - {UNESTIMATED}):
+        assert [line for line in built_panel(out, site) if H_LINE_RE.match(line)] == [], site
+
+
+def test_site_build_panel_lists_bad_h(tmp_path, monkeypatch):
+    code, out, _, err = demo_build(tmp_path, monkeypatch, "--site", UNESTIMATED)
+    assert code == 0, err
+    assert_quarry_lists_bad_h(out.parent, built_panel(out, UNESTIMATED))
 
 
 def hostile_inputs(tmp_path):

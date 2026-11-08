@@ -193,6 +193,7 @@ in this table's order.
 | `unestimated` | a scheduled leaf has no time `est:` and no estimates-file hours | schedules it at the default unit and labels every figure that counts it |
 | `no_priority` | open leaves have no `priority:` (one entry for the file) | counts them as P3 |
 | `no_model_tiers` | no scheduled leaf has a model tier | shows "no per-leaf model tiers recorded" |
+| `bad_h` | a node's `h:` is not one digit from 0 to 4 written as a scalar, or is on a row with children; any state, finished leaves included | lists the value; the leaf's attention need comes from its next source ([week-plan.md](week-plan.md#attention-need)) |
 
 ## The optional inputs
 

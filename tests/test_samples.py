@@ -358,6 +358,15 @@ def test_quarry_shapes():
     assert [dep for dep in p0[0].deps() if dep in open_ids]
 
 
+def test_quarry_h_values():
+    # Attention need (#36): h: 0, h: 4, a quoted h: "2" and a bad h: high, each
+    # on its own open leaf, and no h: anywhere else.
+    nodes = wbs(UNESTIMATED)
+    held = [n for n in nodes if "h" in n.meta]
+    assert all(n.is_leaf and n.is_open for n in held)
+    assert sorted(n.meta["h"] for n in held) == sorted(["0", "4", '"2"', "high"])
+
+
 def test_lighthouse_shapes():
     assert HOSTILE_SITE == SMALL
     nodes = wbs(HOSTILE_SITE)

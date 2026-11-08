@@ -1,0 +1,14 @@
+# Heuristic
+- [ ] Epic one {issue: Issue-1}
+  - [ ] First {issue: Issue-2}
+  - [ ] Second {issue: Issue-3}
+- [ ] Epic four {issue: Issue-4}
+  - [-] Skipped {issue: Issue-5}
+  - [ ] After a skip {issue: Issue-6}
+- [ ] Epic seven {issue: Issue-7}
+  - [x] Done {issue: Issue-8}
+  - [ ] After a done {issue: Issue-9}
+- [ ] Top-level leaf {issue: Issue-10}
+- [ ] Epic eleven {issue: Issue-11}
+  - [ ] A row {issue: Issue-12}
+    - [ ] Under the row {issue: Issue-13}
