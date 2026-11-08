@@ -1,0 +1,22 @@
+# h values
+- [ ] Epic {issue: Issue-1}
+  - [ ] Case 2 {issue: Issue-2, h: 3}
+  - [ ] Case 3 {issue: Issue-3, h: "3"}
+  - [ ] Case 4 {issue: Issue-4, h: '3'}
+  - [ ] Case 5 {issue: Issue-5, h: 5}
+  - [ ] Case 6 {issue: Issue-6, h: 2.5}
+  - [ ] Case 7 {issue: Issue-7, h: high}
+  - [ ] Case 8 {issue: Issue-8, h: "3 "}
+  - [ ] Case 9 {issue: Issue-9, h: }
+  - [ ] Case 10 {issue: Issue-10, h: +3, priority: P9}
+  - [ ] Case 11 {issue: Issue-11, h: 03}
+  - [ ] Case 12 {issue: Issue-12, h: -1}
+  - [ ] Case 13 {issue: Issue-13, h: ３}
+  - [ ] Case 14 {issue: Issue-14, h: "'3'"}
+  - [ ] Case 15 {issue: Issue-15, h: [3, 4]}
+  - [ ] Case 16 {issue: Issue-16, h: [3]}
+- [ ] Row with h {issue: Issue-17, h: 2}
+  - [ ] Under the row {issue: Issue-18}
+- [x] Done with h {issue: Issue-19, h: high}
+- [-] Skipped with h {issue: Issue-20, h: high}
+- [ ] No h {issue: Issue-21}
