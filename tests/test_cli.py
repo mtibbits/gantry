@@ -228,7 +228,16 @@ def test_python_m_builds_sample_site(tmp_path):
     assert os.path.samefile(printed, copy / "out" / "sites" / f"{BUSY}.html")
 
 
-# In sample mode the page carries no build time, so two builds compare byte for byte.
+def point_portfolio_file_elsewhere(config):
+    """Name a portfolio file that does not exist, inside samples/ so sample mode holds."""
+    before = config.read_bytes()
+    after = before.replace(b'portfolio_file = "portfolio.md"\n', b'portfolio_file = "missing.md"\n')
+    assert after != before
+    config.write_bytes(after)
+
+
+# In sample mode the page carries no build time, so two builds compare byte for
+# byte. The build does not read the portfolio file yet (#23 or #61 adds it).
 def test_portfolio_file_does_not_change_page(tmp_path, capsys, monkeypatch):
     copy = copy_samples(tmp_path)
     monkeypatch.setattr(stamp, "sample_dir", lambda package_dir=None: copy)
@@ -236,7 +245,7 @@ def test_portfolio_file_does_not_change_page(tmp_path, capsys, monkeypatch):
     assert site_build(capsys, config, BUSY)[0] == 0
     page = copy / "out" / "sites" / f"{BUSY}.html"
     plain = page.read_bytes()
-    add_top_level(config, 'portfolio_file = "portfolio.toml"\n')
+    point_portfolio_file_elsewhere(config)
     assert site_build(capsys, config, BUSY)[0] == 0
     assert page.read_bytes() == plain
 
@@ -256,8 +265,9 @@ def test_site_page_reads_estimates_file(tmp_path, capsys):
     assert f"no estimates file: site.{BUSY}.estimates is false" in page
 
 
-# portfolio_file and fires_list are not read yet; a live requirements key on a
-# site that can be in the trace does not change the build or warn (#15).
+# The build reads neither portfolio_file (#23 or #61 adds it) nor fires_list yet;
+# a live requirements key on a site that can be in the trace does not change
+# the build or warn (#15).
 def test_unread_keys_and_requirements_do_not_change_build(tmp_path, monkeypatch):
     copy = copy_samples(tmp_path)
     config = copy / "gantry.sample.toml"
@@ -265,7 +275,8 @@ def test_unread_keys_and_requirements_do_not_change_build(tmp_path, monkeypatch)
     assert code == 0
     plain = written_bytes(out)
     assert len(plain) == 5
-    add_top_level(config, 'portfolio_file = "portfolio.toml"\nfires_list = "fires.md"\n')
+    point_portfolio_file_elsewhere(config)
+    add_top_level(config, 'fires_list = "fires.md"\n')
     append_bytes(config, f'[site.{BUSY}]\nrequirements = "req.md"\n')
     code, out, _, err = demo_build(tmp_path, monkeypatch, copy=copy)
     assert code == 0

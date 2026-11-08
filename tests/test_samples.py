@@ -643,6 +643,7 @@ ISSUE_FILES = [
     "samples/marsh/WBS.md",
     "samples/bakery/README.md",
     "samples/harbor/estimates-2026-01-15-effort-and-model-tiers.md",
+    "samples/portfolio.md",
 ]
 
 HAVE_GIT = shutil.which("git") is not None

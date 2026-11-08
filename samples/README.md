@@ -20,6 +20,12 @@ public tools (in prose, in the `samples/devagent/` folder name and in
   estimates file, giving each open harbor leaf an effort bucket, an hour
   range and model tiers. Its `#N` cells name `Issue-N` on harbor; GitHub
   auto-links them to this repo's issues, which is harmless for a fixture.
+- `portfolio.md`: the sample installation's portfolio file (#22), named by
+  the sample config's `portfolio_file`. Its business requirements are
+  `life:BR-1` to `BR-3`; its settings give the four readable sites four
+  roles: harbor serves two BRs, orchard serves one, quarry has a share and
+  serves none, and lighthouse has neither but holds the milestone leaf
+  (`Issue-5`). It has no `[thresholds]` table, so the defaults apply.
 - `lighthouse/requirements.md`: lighthouse's requirements file (#15). The
   sample config's `[site.lighthouse]` table names it, so lighthouse is the
   one sample site in the trace; the other sites are not.

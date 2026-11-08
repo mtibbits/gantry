@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 import gantry.portfolio_file as pf
+from gantry.config import load_config as load_gantry_config
 from gantry.portfolio_file import (
     CARRIED_KINDS,
     DEFAULTS,
@@ -25,8 +26,8 @@ from gantry.portfolio_file import (
     read_portfolio_file,
 )
 from gantry.requirements import ReqId
-from sample_roles import BUSY, NOT_BUILT, OWN_UNIT, READABLE, UNESTIMATED
-from test_samples import ROOT, decode_bytes, git, git_work_tree, needs_git
+from sample_roles import BUSY, NOT_BUILT, OWN_UNIT, READABLE, SMALL, UNESTIMATED
+from test_samples import GANTRY_SAMPLE, ROOT, decode_bytes, git, git_work_tree, issue_leaves, needs_git, wbs
 
 FIXTURES = Path(__file__).parent / "fixtures" / "portfolio_file"
 NOT_UTF8 = FIXTURES / "not_utf8.md"
@@ -794,3 +795,54 @@ def test_format_entry():
     assert lines[2] == "line 19: capacity_missing (advisory): capacity.attention_hours: no capacity.attention_hours, " \
                        "so the week planner has no capacity to plan into"
     assert format_entry(read("no_settings.md").report[0]).startswith("no_settings: no ```toml block")
+
+
+# --- the sample portfolio file -------------------------------------------------
+
+
+def sample():
+    config = load_gantry_config(GANTRY_SAMPLE)
+    return config, read_portfolio_file(config.portfolio_file, br_namespace=config.requirements.br_namespace)
+
+
+def test_sample_reads_clean():
+    config, p = sample()
+    assert config.portfolio_file.name == "portfolio.md"
+    assert p.report == [] and p.settings_read is True
+    assert list(p.brs.requirements) == ["life:BR-1", "life:BR-2", "life:BR-3"]
+    assert p.serves[BUSY] == [ReqId("life", "BR", 1), ReqId("life", "BR", 2)]
+    assert p.serves[OWN_UNIT] == [ReqId("life", "BR", 3)]
+    assert UNESTIMATED not in p.serves and any(UNESTIMATED in a.shares for a in p.allocations)
+    assert SMALL not in p.serves and not any(SMALL in a.shares for a in p.allocations)
+    c = p.capacity
+    assert c.attention_mapping == (0, 0.15, 0.3, 0.6, 1.0)
+    assert set(c.attention_hours) == {"mon", "tue", "wed", "thu", "fri", "sat", "sun"}
+    assert (c.agent_lanes, c.block_min_hours, c.block_default_hours, c.block_start_cost_hours) == (2, 1, 2, 0.25)
+    assert [(r.day, r.start, r.hours, r.label) for r in c.reserved] == [("wed", "09:00", 2, "Standing meeting")]
+    assert p.thresholds == pf.Thresholds(3, 0, 0, 10, 4, 4)
+    assert (p.milestone.project, p.milestone.issue, p.milestone.label) == (SMALL, "Issue-5", "keeper's door repainted")
+
+
+def test_sample_checks_clean():
+    # Each site's issue: values come from test_samples.wbs(), the sample tree's
+    # own reader; #12's sweep of that helper should find this use.
+    _, p = sample()
+    issues = {site: {n.meta["issue"] for n in issue_leaves(wbs(site))} for site in READABLE}
+    issues |= {site: None for site in NOT_BUILT}
+    assert check_portfolio(p, SITES, issues) == []
+    (leaf,) = [n for n in issue_leaves(wbs(p.milestone.project)) if n.meta["issue"] == p.milestone.issue]
+    assert leaf.is_open
+
+
+def test_sample_intended_shares():
+    config, p = sample()
+    assert config.as_of == date(2026, 1, 20)
+    assert intended_shares(p, config.as_of).from_date == date(2026, 1, 5)
+    assert intended_shares(p, date(2026, 3, 2)).from_date == date(2026, 3, 2)
+    assert intended_shares(p, date(2026, 6, 1)).from_date == date(2026, 3, 2)
+    assert intended_shares(p, date(2025, 11, 30)) is None
+
+
+def test_sample_roles_on_readable_sites():
+    _, p = sample()
+    assert {name for name, _, _ in p.project_refs} == READABLE
