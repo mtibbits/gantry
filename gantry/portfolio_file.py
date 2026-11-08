@@ -20,6 +20,7 @@ import re
 import stat
 import tomllib
 from dataclasses import dataclass, fields, replace
+from datetime import date, datetime
 
 from gantry import requirements
 from gantry.config import ID_TOKEN_RE, describe, error_reason
@@ -230,6 +231,15 @@ class Milestone:
     line: int | None  # its [milestone] header line
 
 
+@dataclass(frozen=True)
+class Allocation:
+    from_date: date
+    shares: dict  # project name -> int | float
+    line: int | None  # its [[allocation]] header line
+
+
+SHARE_TOLERANCE = 0.01
+
 _NO_CAPACITY = Capacity(None, None, (), None, None, None, None)
 _NO_THRESHOLDS = Thresholds(None, None, None, None, None, None)
 
@@ -237,7 +247,7 @@ _NO_THRESHOLDS = Thresholds(None, None, None, None, None, None)
 @dataclass(frozen=True)
 class Portfolio:
     brs: RequirementSet
-    allocations: list
+    allocations: list  # [Allocation], valid ones in file order
     serves: dict  # project name -> [ReqId]
     capacity: Capacity
     milestone: Milestone | None
@@ -565,10 +575,7 @@ class _Settings:
         milestone = self.milestone(root["milestone"]) if "milestone" in root else None
         thresholds = self.thresholds(
             self.table(root["thresholds"], ("thresholds",), "thresholds") if "thresholds" in root else {})
-        if isinstance(root.get("allocation"), list):
-            for n, member in enumerate(root["allocation"], 1):
-                if isinstance(member, dict):
-                    self.known(member, ("allocation", n), "allocation[]")
+        allocations = self.allocations(root["allocation"]) if "allocation" in root else []
         serves = {}
         if "site" in root:
             sites = root["site"] if isinstance(root["site"], dict) else None  # any project name
@@ -580,7 +587,70 @@ class _Settings:
                     self.add("bad_value", parts, f"must be a table, not {describe(table)}; it is ignored")
                     continue
                 serves[project] = self.serves(self.known(table, parts, "site.<project>"), parts)
-        return capacity, milestone, thresholds, serves
+        return allocations, capacity, milestone, thresholds, serves
+
+    def allocations(self, value):
+        """The valid allocations in file order, a repeated from dropped."""
+        if not (isinstance(value, list) and all(isinstance(m, dict) for m in value)):
+            self.bad(("allocation",), _KEYS["allocation"].rule, value, "it is empty")
+            return []
+        valid = []  # (n, Allocation)
+        for n, member in enumerate(value, 1):
+            at = ("allocation", n)
+            member = self.known(member, at, "allocation[]")
+            day = self.from_date(member, at)
+            shares = self.shares(member, at)
+            if day is not None and shares is not None:
+                valid.append((n, Allocation(day, shares, _line(self.key_lines, at))))
+        kept = []
+        for n, a in valid:
+            first = next((k for k in kept if k.from_date == a.from_date), None)
+            if first is None:
+                kept.append(a)
+            else:
+                self.report.add("duplicate_allocation_date", SECTIONS[1], _line(self.key_lines, ("allocation", n, "from")),
+                                _path(("allocation", n, "from")),
+                                f"another allocation (line {first.line}) has from {a.from_date.isoformat()}; "
+                                "the first is used")
+        return kept
+
+    def from_date(self, member, at):
+        parts = at + ("from",)
+        if "from" not in member:
+            self.add("undated_allocation", parts, "no from date; this allocation is not used")
+            return None
+        value = member["from"]
+        if isinstance(value, date) and not isinstance(value, datetime):
+            return value
+        self.add("undated_allocation", parts,
+                 f"from must be a TOML local date (YYYY-MM-DD), not {describe(value)}; this allocation is not used")
+        return None
+
+    def shares(self, member, at):
+        parts = at + ("shares",)
+        if "shares" not in member:
+            self.add("bad_allocation", parts, "no shares table; this allocation is not used")
+            return None
+        value = member["shares"]
+        if not isinstance(value, dict):
+            self.add("bad_allocation", parts,
+                     f"shares must be a table, not {describe(value)}; this allocation is not used")
+            return None
+        ok = True
+        for name, share in value.items():
+            if not (_finite(share) and share >= 0):
+                self.add("bad_allocation", parts + (name,),
+                         f"share {_seg(name)} must be a number, 0 or more, not {describe(share)}; "
+                         "this allocation is not used")
+                ok = False
+        if not ok:
+            return None
+        total = _total(list(value.values()))
+        # A float sum of in-tolerance shares can land a hair outside 0.01.
+        if abs(total - 100) > SHARE_TOLERANCE + 1e-9:
+            self.add("bad_allocation", parts, f"the shares sum to {_num(total)}, not 100; this allocation is not used")
+            return None
+        return dict(value)
 
     def capacity(self, table):
         p = ("capacity",)
@@ -725,6 +795,14 @@ class _Settings:
         return kept
 
 
+def intended_shares(portfolio, day: date) -> Allocation | None:
+    """The allocation that applies on `day`: the valid one with the latest
+    from on or before it, or None. `day` is the build's as-of date, never the
+    clock."""
+    applying = [a for a in portfolio.allocations if a.from_date <= day]
+    return max(applying, key=lambda a: a.from_date) if applying else None
+
+
 def _read_text(text, source, br_namespace):
     text = text.removeprefix(_BOM)
     # split("\n"), never splitlines(), as #15's reader.
@@ -737,7 +815,8 @@ def _read_text(text, source, br_namespace):
     p = _empty(br_namespace, [])
     if raw is not None:
         settings = _Settings(raw, key_lines, report, brs, BR_HEADING in found, br_namespace)
-        capacity, milestone, thresholds, serves = settings.read()
-        p = replace(p, capacity=capacity, milestone=milestone, thresholds=thresholds, serves=serves)
+        allocations, capacity, milestone, thresholds, serves = settings.read()
+        p = replace(p, allocations=allocations, capacity=capacity, milestone=milestone, thresholds=thresholds,
+                    serves=serves)
     return replace(p, brs=brs, settings_read=raw is not None, key_lines=key_lines,
                    report=sorted(report.entries, key=_sort_key))

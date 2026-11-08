@@ -6,6 +6,7 @@ asserted here is a literal read off its fixture, never computed from it.
 
 import shutil
 import time
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,7 @@ import pytest
 import gantry.portfolio_file as pf
 from gantry.portfolio_file import DEFAULTS, PORTFOLIO_LABEL, SETTINGS_KEYS, read_portfolio_file
 from gantry.requirements import ReqId
+from sample_roles import BUSY, OWN_UNIT, UNESTIMATED
 from test_samples import ROOT, decode_bytes, git, git_work_tree, needs_git
 
 FIXTURES = Path(__file__).parent / "fixtures" / "portfolio_file"
@@ -544,3 +546,93 @@ def test_registry_shape():
         "thresholds.effort_window_weeks": 4,
     }
     assert all(k.rule.isascii() for k in SETTINGS_KEYS)
+
+
+# --- allocations and intended_shares --------------------------------------------
+
+
+def test_undated_allocation():
+    p = read("undated_allocation.md")
+    assert entries(p) == [
+        ("undated_allocation", SETTINGS, 18, "allocation[1].from"),
+        ("undated_allocation", SETTINGS, 22, "allocation[2].from"),
+        ("undated_allocation", SETTINGS, 26, "allocation[3].from"),
+    ]
+    assert [e.message for e in p.report] == [
+        "no from date; this allocation is not used",
+        "from must be a TOML local date (YYYY-MM-DD), not a string; this allocation is not used",
+        "from must be a TOML local date (YYYY-MM-DD), not a date-time; this allocation is not used",
+    ]
+    assert p.allocations == []
+
+
+def test_bad_allocation(tmp_path):
+    p = read("bad_allocation.md")
+    assert entries(p) == [
+        ("bad_allocation", SETTINGS, 20, "allocation[1].shares"),
+        ("bad_allocation", SETTINGS, 26, f"allocation[2].shares.{OWN_UNIT}"),
+        ("bad_allocation", SETTINGS, 33, f"allocation[3].shares.{UNESTIMATED}"),
+        ("bad_allocation", SETTINGS, 38, f"allocation[4].shares.{BUSY}"),
+    ]
+    assert [e.message for e in p.report] == [
+        "the shares sum to 99, not 100; this allocation is not used",
+        f"share {OWN_UNIT} must be a number, 0 or more, not -10; this allocation is not used",
+        f"share {UNESTIMATED} must be a number, 0 or more, not a string; this allocation is not used",
+        f"share {BUSY} must be a number, 0 or more, not a boolean; this allocation is not used",
+    ]
+    assert p.allocations == []
+    # A 400-digit share is reported, never raised; a missing shares table is
+    # reported on its allocation's header line.
+    text = fixture_with("bad_allocation.md", "orchard = 49", "orchard = 1" + "0" * 400)
+    text = text.replace("[[allocation]]\nfrom = 2026-04-06\n[allocation.shares]\nharbor = true\norchard = 100\n",
+                        "[[allocation]]\nfrom = 2026-04-06\n")
+    p = write(tmp_path, text)
+    assert [(e.line, e.key_path, e.message) for e in p.report][0] == (
+        20, "allocation[1].shares", "the shares sum to a very large number, not 100; this allocation is not used")
+    assert [(e.line, e.key_path, e.message) for e in p.report][-1] == (
+        35, "allocation[4].shares", "no shares table; this allocation is not used")
+
+
+def test_shares_within_tolerance(tmp_path):
+    text = fixture_with("duplicate_allocation_date.md", "harbor = 50, orchard = 30, quarry = 20",
+                        "harbor = 33.33, orchard = 33.33, quarry = 33.33")
+    p = write(tmp_path, text.replace("from = 2026-01-05\nshares = { harbor = 100 }", "from = 2026-02-02\nshares = []"))
+    assert entries(p) == [("bad_allocation", SETTINGS, 24, "allocation[2].shares")]
+    assert p.report[0].message == "shares must be a table, not an array; this allocation is not used"
+    assert [a.shares for a in p.allocations] == [{BUSY: 33.33, OWN_UNIT: 33.33, UNESTIMATED: 33.33}]
+
+
+def test_bad_between_good():
+    p = read("allocations.md")
+    assert entries(p) == [
+        ("bad_allocation", SETTINGS, 24, "allocation[2].shares"),
+        ("bad_allocation", SETTINGS, 32, "allocation[4].shares"),
+    ]
+    a = pf.intended_shares(p, date(2026, 2, 15))
+    assert (a.from_date, a.shares, a.line) == (date(2026, 1, 5), {BUSY: 50, OWN_UNIT: 30, UNESTIMATED: 20}, 18)
+
+
+def test_same_from_invalid_and_valid():
+    p = read("allocations.md")
+    assert "duplicate_allocation_date" not in [e.kind for e in p.report]
+    a = pf.intended_shares(p, date(2026, 4, 6))
+    assert (a.from_date, a.shares, a.line) == (date(2026, 4, 6), {BUSY: 100}, 34)
+    assert [a.from_date for a in p.allocations] == [date(2026, 1, 5), date(2026, 3, 2), date(2026, 4, 6)]
+
+
+def test_duplicate_allocation_date():
+    p = read("duplicate_allocation_date.md")
+    assert entries(p) == [("duplicate_allocation_date", SETTINGS, 23, "allocation[2].from")]
+    assert p.report[0].message == "another allocation (line 18) has from 2026-01-05; the first is used"
+    assert pf.intended_shares(p, date(2026, 1, 5)).shares == {BUSY: 50, OWN_UNIT: 30, UNESTIMATED: 20}
+
+
+def test_before_every_allocation():
+    assert pf.intended_shares(read("allocations.md"), date(2025, 1, 1)) is None
+
+
+def test_allocation_not_an_array(tmp_path):
+    p = write(tmp_path, fixture_with("capacity_missing.md", "portfolio_version = 1\n",
+                                     "portfolio_version = 1\nallocation = 3\n"))
+    assert bad_values(p) == {"allocation": (14, "must be an array of tables ([[allocation]]), not 3; it is empty")}
+    assert p.allocations == []
