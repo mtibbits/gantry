@@ -2,9 +2,23 @@
 
 import pytest
 
-from gantry import model
-from gantry.attention import MESSAGES, check_h, read_h
+from gantry import model, portfolio_file
+from gantry.attention import (
+    DEFAULT_MAPPING,
+    MAPPING_ABOVE_MAX,
+    MAPPING_KEY_PATH,
+    MAPPING_NOT_FINITE,
+    MAPPING_REJECTED,
+    MAX_RATE,
+    MESSAGES,
+    AttentionMapping,
+    check_h,
+    mapping_in_use,
+    rate_problem,
+    read_h,
+)
 from gantry.model import REPORT_KINDS, Leaf, SiteData, report_order
+from gantry.portfolio_file import read_portfolio_file
 from gantry.wbs_stopgap import parse_wbs
 from test_samples import ROOT
 
@@ -180,3 +194,82 @@ def test_check_h_never_raises():
     data = check_h(site_of(*leaves), SITE)
     for leaf, raw in zip(leaves, (3, {}, None)):
         assert [e.message for e in entries_on(data, leaf.line)] == [bad_h_message(leaf, raw)]
+
+
+# --- the mapping and rate_problem ----------------------------------------------
+
+
+def portfolio(name):
+    return read_portfolio_file(FIXTURES / f"portfolio_{name}.md", br_namespace="life")
+
+
+def report_paths(p, kind):
+    return [e.key_path for e in p.report if e.kind == kind]
+
+
+DEFAULT_IN_USE = AttentionMapping(DEFAULT_MAPPING, "default", None)
+
+
+def test_mapping_constants():
+    assert DEFAULT_MAPPING == (0.0, 0.1, 0.25, 0.5, 1.0)
+    assert MAX_RATE == 24
+    assert MAPPING_KEY_PATH in {k.path for k in portfolio_file.SETTINGS_KEYS}
+
+
+def test_mapping_without_portfolio():
+    assert mapping_in_use(None) == DEFAULT_IN_USE
+
+
+def test_mapping_unset():
+    p = portfolio("unset")
+    assert p.capacity.attention_mapping is None
+    assert mapping_in_use(p) == DEFAULT_IN_USE
+
+
+def test_mapping_set():
+    m = mapping_in_use(portfolio("set"))
+    assert m == AttentionMapping((0, 0.2, 0.4, 0.6, 0.8), "portfolio_file", None)
+    assert all(isinstance(v, float) for v in m.values)
+
+
+def test_mapping_at_max():
+    assert mapping_in_use(portfolio("max")) == AttentionMapping((0, 0.1, 0.25, 0.5, 24), "portfolio_file", None)
+
+
+def test_mapping_rejected():
+    p = portfolio("rejected")
+    assert MAPPING_KEY_PATH in report_paths(p, "bad_value")
+    assert mapping_in_use(p) == AttentionMapping(DEFAULT_MAPPING, "default", MAPPING_REJECTED)
+
+
+def test_mapping_other_bad_value():
+    p = portfolio("other_bad")
+    assert report_paths(p, "bad_value") == ["capacity.block_min_hours"]
+    assert mapping_in_use(p) == DEFAULT_IN_USE
+
+
+def test_mapping_not_finite():
+    p = portfolio("inf")
+    assert report_paths(p, "bad_value") == []
+    assert mapping_in_use(p) == AttentionMapping(DEFAULT_MAPPING, "default", MAPPING_NOT_FINITE)
+
+
+def test_mapping_above_max():
+    p = portfolio("huge")
+    assert report_paths(p, "bad_value") == []
+    assert mapping_in_use(p) == AttentionMapping(DEFAULT_MAPPING, "default", MAPPING_ABOVE_MAX)
+
+
+def test_mapping_reasons_name_the_limit():
+    assert MAPPING_ABOVE_MAX.endswith(f"above {MAX_RATE}")
+
+
+@pytest.mark.parametrize("value, reason", [
+    (0, None), (24, None), (24.0, None), (0.5, None),
+    (24.01, "above 24"), (-0.01, "negative"),
+    (float("inf"), "not finite"), (float("-inf"), "not finite"), (float("nan"), "not finite"),
+    (True, "not a number"), ("1", "not a number"), (None, "not a number"),
+    (10 ** 400, "above 24"),
+], ids=repr)
+def test_rate_problem(value, reason):
+    assert rate_problem(value) == reason
