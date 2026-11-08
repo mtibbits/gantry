@@ -6,11 +6,13 @@ node in any state, as `bad_h`. docs/week-plan.md states the rules.
 """
 
 import math
+import re
 from dataclasses import dataclass, replace
 
 # Calls go through `model.meta_values`, never a name bound at import, so #12's
 # parser change and a test's spy both reach this module.
 from gantry import model
+from gantry.inputs import has_tiers
 from gantry.model import ReportEntry, report_order
 
 H_DIGITS = ("0", "1", "2", "3", "4")
@@ -22,6 +24,12 @@ MAPPING_KEY_PATH = "capacity.attention_mapping"
 MAPPING_REJECTED = "the portfolio file's attention_mapping was rejected (see the portfolio file's report)"
 MAPPING_NOT_FINITE = "the portfolio file's attention_mapping holds a value that is not finite"
 MAPPING_ABOVE_MAX = f"the portfolio file's attention_mapping holds a value above {MAX_RATE}"
+# The heuristic: the checking tier that needs the operator, and the flag words
+# that do, in the order the basis names them. A flag is a whole word, any case.
+TOP_TIER = "fable"
+FLAG_WORDS = ("research", "spike")
+FLAG_SPLIT_RE = re.compile(r"[\s,]+")
+NO_INPUTS = "no model tiers or flags recorded"
 MESSAGES = {
     "bad_h": "WBS.md line {line}: h: {raw!r} on {key!r} is not one digit from 0 to 4; it is not used",
     # A message, not a report kind: the entry's kind is bad_h.
@@ -103,3 +111,48 @@ def mapping_in_use(portfolio) -> AttentionMapping:
     if f"above {MAX_RATE}" in problems:
         return AttentionMapping(DEFAULT_MAPPING, "default", MAPPING_ABOVE_MAX)
     return AttentionMapping(tuple(float(v) for v in values), "portfolio_file", None)
+
+
+def _flag_texts(flags):
+    """A leaf's flags as texts: a string, or a list's string elements (as the page reads them)."""
+    if isinstance(flags, str):
+        return [flags]
+    if isinstance(flags, (list, tuple)):
+        return [f for f in flags if isinstance(f, str)]
+    return []
+
+
+def _first_open_leaf(leaf, data):
+    """Whether `leaf` is its epic's first open leaf, in file order, with nothing in the epic done."""
+    if not leaf.open or leaf.epic is None:
+        return False
+    same = [other for other in data.leaves if other.epic == leaf.epic]
+    if any(other.state == "done" for other in same):
+        return False
+    first = next((other for other in same if other.open), None)
+    return first is not None and first.key == leaf.key
+
+
+def heuristic_need(leaf, data) -> tuple[int, str]:
+    """(need, basis): the estimated need of a leaf with no h: score and no site ratio.
+
+    1 to start, +1 for the top checking tier, +1 for a research or spike
+    flag, +1 for its epic's first open leaf; never 0. Never raises on flags.
+    """
+    need, why = 1, ["1 to start"]
+    if leaf.models is not None and leaf.models.checking == TOP_TIER:
+        need += 1
+        why.append(f"checking tier {TOP_TIER}")
+    texts = _flag_texts(leaf.flags)
+    tokens = {t.lower() for text in texts for t in FLAG_SPLIT_RE.split(text) if t}
+    found = [word for word in FLAG_WORDS if word in tokens]
+    if found:
+        need += 1
+        why.append("flagged " + " and ".join(found))
+    if not has_tiers((leaf,)) and not any(text.strip() for text in texts):
+        why.append(NO_INPUTS)
+    if _first_open_leaf(leaf, data):
+        need += 1
+        why.append("first open leaf of its epic")
+    # 1 plus three single steps is at most 4, so this cap cannot fire; kept as the issue states it.
+    return min(need, 4), "; ".join(why)

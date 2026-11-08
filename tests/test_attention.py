@@ -1,5 +1,7 @@
 """A leaf's attention need and rate (#36): h:, the heuristic, the mapping and the four sources."""
 
+from dataclasses import replace
+
 import pytest
 
 from gantry import model, portfolio_file
@@ -11,13 +13,15 @@ from gantry.attention import (
     MAPPING_REJECTED,
     MAX_RATE,
     MESSAGES,
+    NO_INPUTS,
     AttentionMapping,
     check_h,
+    heuristic_need,
     mapping_in_use,
     rate_problem,
     read_h,
 )
-from gantry.model import REPORT_KINDS, Leaf, SiteData, report_order
+from gantry.model import REPORT_KINDS, Leaf, Models, SiteData, report_order
 from gantry.portfolio_file import read_portfolio_file
 from gantry.wbs_stopgap import parse_wbs
 from test_samples import ROOT
@@ -273,3 +277,62 @@ def test_mapping_reasons_name_the_limit():
 ], ids=repr)
 def test_rate_problem(value, reason):
     assert rate_problem(value) == reason
+
+
+# --- the heuristic --------------------------------------------------------------
+
+
+def heuristic_site():
+    return fixture_data("heuristic.md")
+
+
+def need_of(key, **fields):
+    data = heuristic_site()
+    leaf = replace(node(data, key), **fields)
+    return heuristic_need(leaf, data)
+
+
+def test_heuristic_no_inputs():
+    assert need_of("Issue-10") == (1, "1 to start; no model tiers or flags recorded")
+    assert NO_INPUTS == "no model tiers or flags recorded"
+
+
+def test_heuristic_top_tier():
+    assert need_of("Issue-10", models=Models("opus", "fable", "estimates_file")) == (2, "1 to start; checking tier fable")
+    for checking in ("opus", "inherit", "Fable"):
+        assert need_of("Issue-10", models=Models("opus", checking, "estimates_file")) == (1, "1 to start"), checking
+
+
+@pytest.mark.parametrize("flags, need", [
+    ("research", 2), ("Spike", 2), ("research spike", 2), ("research,spike", 2), ("researcher", 1),
+    (["Research"], 2), (["spike", 3, None], 2), ([3], 1),
+], ids=repr)
+def test_heuristic_flags(flags, need):
+    assert need_of("Issue-10", flags=flags)[0] == need
+
+
+def test_heuristic_flag_basis():
+    assert need_of("Issue-10", flags="Spike")[1] == "1 to start; flagged spike"
+    assert need_of("Issue-10", flags="spike research")[1] == "1 to start; flagged research and spike"
+    assert need_of("Issue-10", flags="researcher")[1] == "1 to start"
+
+
+@pytest.mark.parametrize("flags", [None, "", "  ", [], ["", "  "], [3]], ids=repr)
+def test_heuristic_no_flags_recorded(flags):
+    assert need_of("Issue-10", flags=flags) == (1, "1 to start; no model tiers or flags recorded")
+
+
+def test_heuristic_first_open_leaf():
+    needs = {key: need_of(key)[0] for key in ("Issue-2", "Issue-3", "Issue-6", "Issue-9", "Issue-10", "Issue-13")}
+    assert needs == {"Issue-2": 2, "Issue-3": 1, "Issue-6": 2, "Issue-9": 1, "Issue-10": 1, "Issue-13": 2}
+    assert need_of("Issue-2")[1] == "1 to start; no model tiers or flags recorded; first open leaf of its epic"
+
+
+def test_heuristic_every_input_is_4():
+    assert need_of("Issue-2", models=Models("opus", "fable", "estimates_file"), flags="research spike") == (
+        4, "1 to start; checking tier fable; flagged research and spike; first open leaf of its epic")
+
+
+def test_heuristic_tier_source_alike():
+    assert (need_of("Issue-10", models=Models("opus", "fable", "wbs"))
+            == need_of("Issue-10", models=Models("opus", "fable", "estimates_file")))
