@@ -12,6 +12,7 @@ import tempfile
 from dataclasses import dataclass, replace
 from datetime import date, timedelta
 
+from gantry.attention import check_h
 from gantry.config import Config, error_reason
 from gantry.inputs import Inputs, apply_inputs
 from gantry.requirements import in_trace_sites
@@ -95,7 +96,10 @@ def site_data(site):
 
 
 def read_site(site, config, earlier, *, roots):
-    """(inputs, None) for a site that can be rendered, else (None, reason)."""
+    """(inputs, None) for a site that can be rendered, else (None, reason).
+
+    Its data is read, given its inputs, then checked for bad `h:` values (#36).
+    """
     if earlier is not None:
         return None, CLASH.format(earlier=earlier)
     # Parsing too is per site: a parser that throws on one WBS.md stops only that site.
@@ -103,7 +107,8 @@ def read_site(site, config, earlier, *, roots):
         data, problem = site_data(site)
         if problem is not None:
             return None, public_text(problem, roots)
-        return apply_inputs(site, data, config), None
+        inputs = apply_inputs(site, data, config)
+        return replace(inputs, data=check_h(inputs.data, site.name)), None
     except Exception as e:
         return None, render_reason(e, roots)
 

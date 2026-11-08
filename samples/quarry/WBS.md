@@ -3,10 +3,10 @@
 - [ ] Access road
   - [x] Survey the route {issue: Issue-1, priority: P2}
   - [x] Clear the scrub {issue: Issue-2}
-  - [ ] Grade the road {issue: Issue-3, priority: P1}
+  - [ ] Grade the road {issue: Issue-3, priority: P1, h: 0}
   - [ ] Reopen the weighbridge {issue: Issue-8, priority: P0, depends_on: [Issue-9]}
-  - [ ] Calibrate the weighbridge {issue: Issue-9}
+  - [ ] Calibrate the weighbridge {issue: Issue-9, h: 4}
 - [ ] Extraction
   - [x] Blast the first bench {issue: Issue-4, priority: P3}
-  - [~] Haul the first loads {issue: Issue-5, depends_on: [Issue-3]}
-  - [ ] Crush the aggregate {issue: Issue-7, priority: P2, depends_on: [Issue-99]}
+  - [~] Haul the first loads {issue: Issue-5, depends_on: [Issue-3], h: "2"}
+  - [ ] Crush the aggregate {issue: Issue-7, priority: P2, depends_on: [Issue-99], h: high}

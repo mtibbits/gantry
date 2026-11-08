@@ -44,7 +44,7 @@ from gantry.views.worksite import (
 )
 from gantry.wbs_stopgap import parse_wbs, read_wbs
 from page_safety import CSP_CONTENT, HOSTILE, assert_no_external_resources, assert_page_safe
-from helpers_config import page_ids
+from helpers_config import demo_build, page_ids
 from page_script.harness import Planted, open_page, run_function
 from sample_roles import BUSY, OWN_UNIT, READABLE, UNESTIMATED
 from test_samples import ROOT, SAMPLES
@@ -383,6 +383,40 @@ def test_hostile_h_values_listed_safely():
     embedded = assert_page_safe(render_page("alpha", data, default_unit_hours=6), HOSTILE)
     assert embedded["panel"] == [H_MESSAGES["bad_h"].format(line=leaf.line, raw=leaf.meta["h"], key=leaf.key)
                                  for leaf in leaves]
+
+
+H_LINE_RE = re.compile(r"WBS\.md line \d+: h: ")
+
+
+def built_panel(out, site):
+    return assert_page_safe((out / "sites" / f"{site}.html").read_bytes().decode("utf-8"), [])["panel"]
+
+
+def assert_quarry_lists_bad_h(copy, panel):
+    """Of every bad_h message quarry's h: values could give, the panel lists only Issue-7's."""
+    data = read_wbs(copy / UNESTIMATED / "WBS.md", UNESTIMATED)
+    held = [n for n in (*data.leaves, *data.rows) if "h" in n.meta]
+    assert len(held) == 4
+    possible = {H_MESSAGES[kind].format(line=n.line, raw=n.meta["h"], key=n.key)
+                for n in held for kind in ("bad_h", "h_on_row")}
+    (seven,) = [n for n in held if n.key == "Issue-7"]
+    expected = [H_MESSAGES["bad_h"].format(line=seven.line, raw="high", key="Issue-7")]
+    assert [line for line in panel if line in possible] == expected
+    assert [line for line in panel if H_LINE_RE.match(line)] == expected
+
+
+def test_demo_build_panel_lists_bad_h(tmp_path, monkeypatch):
+    code, out, _, err = demo_build(tmp_path, monkeypatch)
+    assert code == 0, err
+    assert_quarry_lists_bad_h(out.parent, built_panel(out, UNESTIMATED))
+    for site in sorted(READABLE - {UNESTIMATED}):
+        assert [line for line in built_panel(out, site) if H_LINE_RE.match(line)] == [], site
+
+
+def test_site_build_panel_lists_bad_h(tmp_path, monkeypatch):
+    code, out, _, err = demo_build(tmp_path, monkeypatch, "--site", UNESTIMATED)
+    assert code == 0, err
+    assert_quarry_lists_bad_h(out.parent, built_panel(out, UNESTIMATED))
 
 def hostile_inputs(tmp_path):
     """apply_inputs over hostile_site, with HOSTILE values in Issue-4's estimates row.

@@ -425,3 +425,39 @@ def test_wrong_slot_refused(fn, slot, value):
             attention_of(**{slot: value})
         else:
             site_ratio_source(**{slot: value})
+
+
+# --- the samples ----------------------------------------------------------------
+
+
+def test_demo_inputs():
+    from gantry.build import site_data
+    from gantry.config import load_config
+    from gantry.inputs import apply_inputs
+    from gantry.sites import load_sites
+    from sample_roles import BUSY, UNESTIMATED
+    from test_samples import SAMPLES
+
+    config = load_config(SAMPLES / "gantry.sample.toml")
+    p = read_portfolio_file(config.portfolio_file, br_namespace=config.requirements.br_namespace)
+    m = mapping_in_use(p)
+    assert m.source == "portfolio_file"
+    entries = {entry.name: entry for entry in load_sites(config)[0]}
+
+    def inputs(name):
+        data, problem = site_data(entries[name])
+        assert problem is None, problem
+        return apply_inputs(entries[name], data, config).data
+
+    quarry = inputs(UNESTIMATED)
+    (zero,) = [leaf for leaf in quarry.leaves if leaf.meta.get("h") == "0"]
+    found = leaf_attention(zero, quarry, m)
+    assert (found.rate, found.tag) == (0, "scored")
+
+    harbor = inputs(BUSY)
+    for word in ("research", "spike"):
+        chosen = [leaf for leaf in harbor.leaves
+                  if leaf.flags == word and leaf.models is not None and leaf.models.checking == "fable"]
+        assert len(chosen) == 1, word
+        assert heuristic_need(chosen[0], harbor)[0] >= 3, word
+
