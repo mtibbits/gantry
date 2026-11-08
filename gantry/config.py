@@ -157,7 +157,8 @@ _KIND_TEXT = {
 }
 
 
-def _describe(value) -> str:
+def describe(value) -> str:
+    """A value as a report names it: its text for a small number, else its kind."""
     if isinstance(value, bool):
         return "a boolean"
     if isinstance(value, int):
@@ -223,7 +224,7 @@ def _table_problem(table, registry, prefix) -> str | None:
         if key.name in table and not _kind_ok(key.kind, table[key.name]):
             return (
                 f"{_key_phrase([prefix + key.name])} must be {_KIND_TEXT[key.kind]}, "
-                f"not {_describe(table[key.name])}"
+                f"not {describe(table[key.name])}"
             )
     return None
 
@@ -274,7 +275,7 @@ def load_config(path) -> Config:
         raise fail(f"no config_version; this Gantry reads config_version {CONFIG_VERSION}")
     version = raw["config_version"]
     if not _kind_ok("int", version):
-        raise fail(f"config_version must be an integer, not {_describe(version)}")
+        raise fail(f"config_version must be an integer, not {describe(version)}")
     if version > CONFIG_VERSION:
         raise fail(
             f"config_version {version} is newer than config_version {CONFIG_VERSION}, "
@@ -299,7 +300,7 @@ def load_config(path) -> Config:
     for name, table in site_tables.items():
         dotted = f"site.{name}"
         if not _kind_ok("table", table):
-            raise fail(f"key '{dotted}' must be a table, not {_describe(table)}")
+            raise fail(f"key '{dotted}' must be a table, not {describe(table)}")
         problem = _table_problem(table, SITE_KEYS, dotted + ".")
         if problem:
             raise fail(problem)

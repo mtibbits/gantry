@@ -16,7 +16,8 @@ three kinds of planning page:
 
 Status: `gantry build --config FILE` builds every site's worksite page and
 the index that links them (`--site NAME` builds one site's page); the other
-pages are not built yet.
+pages are not built yet. `gantry portfolio --config FILE` checks the
+installation's portfolio file without building.
 
 ## Your data stays private
 
@@ -32,6 +33,9 @@ page shows: [docs/worksite-page.md](docs/worksite-page.md).
 
 The requirements file format, its IDs and what its reader reports:
 [docs/requirements-format.md](docs/requirements-format.md).
+
+The portfolio file, the operator's private priorities and capacity, and how
+`gantry portfolio` checks it: [docs/portfolio-file.md](docs/portfolio-file.md).
 
 Gantry's own requirements, in that format:
 [docs/requirements.md](docs/requirements.md).

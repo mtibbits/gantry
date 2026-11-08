@@ -243,6 +243,15 @@ def test_fences_hide_and_pair():
     assert s.requirements["alpha:FR-1"].text == "a"
 
 
+
+def test_fence_spans():
+    # Back to back: two spans, not one run.
+    assert req.fence_spans(["```", "a", "```", "```toml", "b", "```"]) == [(0, 2), (3, 5)]
+    # An opener with no closer is plain text.
+    assert req.fence_spans(["```", "a"]) == []
+    # A four-backtick fence holding a three-backtick line is one span.
+    assert req.fence_spans(["````", "```", "x", "```", "````"]) == [(0, 4)]
+
 HOSTILE = [
     "- " + "a" * 100_000,
     "- " + "a-" * 50_000,

@@ -1,4 +1,5 @@
-"""The gantry CLI: its grammar, exit codes and the sample build (#7, #11)."""
+"""The gantry CLI: its grammar, exit codes, the sample build (#7, #11) and
+`gantry portfolio` (#22)."""
 
 import json
 import os
@@ -22,10 +23,12 @@ from helpers_config import (
     copy_samples,
     demo_build,
     sample_projects,
+    write_config,
     write_site_tree,
     written_bytes,
 )
 from sample_roles import BUSY, NO_WBS, READABLE, UNREADABLE
+from test_portfolio_file import EVERY_FIXTURE
 from test_samples import ROOT
 
 FIXTURES = ROOT / "tests" / "fixtures" / "wbs"
@@ -228,7 +231,16 @@ def test_python_m_builds_sample_site(tmp_path):
     assert os.path.samefile(printed, copy / "out" / "sites" / f"{BUSY}.html")
 
 
-# In sample mode the page carries no build time, so two builds compare byte for byte.
+def point_portfolio_file_elsewhere(config):
+    """Name a portfolio file that does not exist, inside samples/ so sample mode holds."""
+    before = config.read_bytes()
+    after = before.replace(b'portfolio_file = "portfolio.md"\n', b'portfolio_file = "missing.md"\n')
+    assert after != before
+    config.write_bytes(after)
+
+
+# In sample mode the page carries no build time, so two builds compare byte for
+# byte. The build does not read the portfolio file yet (#23 or #61 adds it).
 def test_portfolio_file_does_not_change_page(tmp_path, capsys, monkeypatch):
     copy = copy_samples(tmp_path)
     monkeypatch.setattr(stamp, "sample_dir", lambda package_dir=None: copy)
@@ -236,7 +248,7 @@ def test_portfolio_file_does_not_change_page(tmp_path, capsys, monkeypatch):
     assert site_build(capsys, config, BUSY)[0] == 0
     page = copy / "out" / "sites" / f"{BUSY}.html"
     plain = page.read_bytes()
-    add_top_level(config, 'portfolio_file = "portfolio.toml"\n')
+    point_portfolio_file_elsewhere(config)
     assert site_build(capsys, config, BUSY)[0] == 0
     assert page.read_bytes() == plain
 
@@ -256,8 +268,9 @@ def test_site_page_reads_estimates_file(tmp_path, capsys):
     assert f"no estimates file: site.{BUSY}.estimates is false" in page
 
 
-# portfolio_file and fires_list are not read yet; a live requirements key on a
-# site that can be in the trace does not change the build or warn (#15).
+# The build reads neither portfolio_file (#23 or #61 adds it) nor fires_list yet;
+# a live requirements key on a site that can be in the trace does not change
+# the build or warn (#15).
 def test_unread_keys_and_requirements_do_not_change_build(tmp_path, monkeypatch):
     copy = copy_samples(tmp_path)
     config = copy / "gantry.sample.toml"
@@ -265,7 +278,8 @@ def test_unread_keys_and_requirements_do_not_change_build(tmp_path, monkeypatch)
     assert code == 0
     plain = written_bytes(out)
     assert len(plain) == 5
-    add_top_level(config, 'portfolio_file = "portfolio.toml"\nfires_list = "fires.md"\n')
+    point_portfolio_file_elsewhere(config)
+    add_top_level(config, 'fires_list = "fires.md"\n')
     append_bytes(config, f'[site.{BUSY}]\nrequirements = "req.md"\n')
     code, out, _, err = demo_build(tmp_path, monkeypatch, copy=copy)
     assert code == 0
@@ -491,3 +505,102 @@ def test_trace_warning_escapes_name(tmp_path, capsys):
     ]
     assert "site a\\tb's name does not match" in err.splitlines()[0]
     assert "\t" not in err
+
+
+# --- gantry portfolio (#22) ----------------------------------------------------
+
+PORTFOLIO_FIXTURES = ROOT / "tests" / "fixtures" / "portfolio_file"
+MILESTONE_NOTE = ("note: the milestone leaf is not checked here (this command reads no WBS.md); "
+                  "it is checked once the build reads the portfolio file")
+
+
+def portfolio_run(capsys, config):
+    code = main(["portfolio", "--config", str(config)])
+    captured = capsys.readouterr()
+    return code, captured.out, captured.err
+
+
+def portfolio_config(tmp_path, fixture):
+    shutil.copyfile(PORTFOLIO_FIXTURES / fixture, tmp_path / "p.md")
+    return write_config(tmp_path, portfolio_file='"p.md"')
+
+
+def test_portfolio_sample_exits_0():
+    result = run_module("portfolio", "--config", SAMPLE_CONFIG)
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == b""
+    assert b"\r" not in result.stdout
+    assert result.stdout.decode("utf-8").splitlines()[-1] == "0 entries"
+
+
+def test_portfolio_errors_exit_1(tmp_path, capsys):
+    code, out, err = portfolio_run(capsys, portfolio_config(tmp_path, "bad_value_type.md"))
+    assert code == 1 and err == ""
+    lines = out.splitlines()
+    expected = EVERY_FIXTURE["bad_value_type.md"]
+    assert lines[0] == "settings"
+    assert lines[-1] == f"{len(expected)} entries" == "22 entries"
+    body = lines[1:-1]
+    assert len(body) == len(expected)
+    for (kind, _, line, key_path), printed in zip(expected, body):
+        marker = " (advisory)" if kind == "capacity_missing" else ""
+        assert printed.startswith(f"  line {line}: {kind}{marker}: {key_path}: "), printed
+    assert ("  line 20: bad_value: capacity.agent_lanes: must be an integer, 0 or more, not a boolean; "
+            "it is not set") in body
+    assert MILESTONE_NOTE not in out
+
+
+def test_portfolio_groups_by_section(tmp_path, capsys):
+    code, out, _ = portfolio_run(capsys, portfolio_config(tmp_path, "duplicate_section.md"))
+    assert code == 1
+    assert out.splitlines() == [
+        "business requirements",
+        "  line 20: duplicate_section: a second '## Business requirements' heading; only the first (line 5) is read",
+        "1 entry",
+    ]
+
+
+def test_portfolio_prints_bad_milestone(tmp_path, capsys):
+    code, out, _ = portfolio_run(capsys, portfolio_config(tmp_path, "bad_milestone.md"))
+    assert code == 1
+    assert [line for line in out.splitlines() if line.endswith(
+        "'3.2.1' is an outline position: name the leaf by its issue id; outline positions move at wbs update")]
+
+
+def test_portfolio_unset_exits_1(tmp_path, capsys):
+    code, out, err = portfolio_run(capsys, write_config(tmp_path))
+    assert code == 1 and out == ""
+    assert "gantry: error: " in err and "portfolio_file is not set" in err
+    assert 'add portfolio_file = "<path>"' in err and "docs/portfolio-file.md" in err
+
+
+def test_portfolio_config_error_exits_1(tmp_path, capsys):
+    code, _, err = portfolio_run(capsys, write_config(tmp_path, config_version="2"))
+    assert code == 1
+    assert err.startswith("gantry: error:")
+
+
+def test_portfolio_no_config_exits_2(capsys):
+    with pytest.raises(SystemExit) as exc:
+        main(["portfolio"])
+    assert exc.value.code == 2
+    assert "--config" in capsys.readouterr().err
+
+
+def test_portfolio_unreadable_names_no_path(tmp_path, capsys):
+    config = write_config(tmp_path, portfolio_file='"missing.md"')
+    code, out, err = portfolio_run(capsys, config)
+    assert code == 1
+    assert out.splitlines() == ["the portfolio file", "  portfolio_unreadable: the portfolio file does not exist",
+                                "1 entry"]
+    assert str(tmp_path) not in out and str(tmp_path) not in err
+
+
+def test_portfolio_milestone_note(tmp_path, capsys):
+    code, out, _ = portfolio_run(capsys, ROOT / SAMPLE_CONFIG)
+    assert code == 0
+    assert out.splitlines() == [MILESTONE_NOTE, "0 entries"]
+    code, out, _ = portfolio_run(capsys, portfolio_config(tmp_path, "capacity_missing.md"))
+    assert code == 1
+    assert MILESTONE_NOTE not in out
+    assert out.splitlines()[-1] == "2 entries"

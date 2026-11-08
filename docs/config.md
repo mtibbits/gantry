@@ -11,13 +11,22 @@ Every run names its config explicitly:
 ```
 gantry build --config <file>
 python -m gantry build --config <file>
+gantry portfolio --config <file>
+python -m gantry portfolio --config <file>
 ```
+
+`gantry portfolio` checks the portfolio file the config names, without
+building ([the portfolio file](portfolio-file.md#checking-the-file)).
 
 There is **no default config location**: no home-folder lookup, no
 environment variable and no fallback. A run with no `--config` is a usage
 error (exit 2) naming the flag.
 
 ## Keys
+
+<!-- Editor note: tests/test_portfolio_file.py reads the portfolio_file row
+below; the issue that adds the build's read of the file (#23 or #61) rewords
+"the build does not read it yet" and that test together. -->
 
 | Key | Type | Required | Default | Meaning | Owner |
 |---|---|---|---|---|---|
@@ -26,7 +35,7 @@ error (exit 2) naming the flag.
 | `output_dir` | path | yes | none | the folder the build writes pages into | #9 |
 | `as_of` | TOML date (a string is refused) | no | the build machine's local date when the run starts | the date a build treats as today | every dated view |
 | `default_unit_hours` | positive number, integer or float (0, a negative, infinity or a boolean is refused) | no | `6` | the agent-hours given to a leaf with no estimate | #9 |
-| `portfolio_file` | path | no | none | the installation's portfolio file of shares and capacity | #22 |
+| `portfolio_file` | path | no | none | the installation's portfolio file ([format](portfolio-file.md)); `gantry portfolio` checks it; the build does not read it yet (#23 or #61 adds the read) | #22 |
 | `fires_list` | path | no | none | the installation's list of things that need the operator now | #30 |
 | `[requirements]` | table | no | none | settings for requirements files | #15 |
 | `[site.<name>]` | table | no | none | per-site overrides, keyed by the devagent `[project.<name>]` table name | #7 |
@@ -57,6 +66,7 @@ config_version = 1
 devagent_config = "devagent/config.toml"
 output_dir = "out"
 as_of = 2026-01-20
+portfolio_file = "portfolio.md"
 
 [requirements]
 br_namespace = "life"

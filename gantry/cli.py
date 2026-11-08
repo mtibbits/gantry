@@ -1,16 +1,19 @@
-"""The gantry command line: `gantry build --config FILE [--site NAME]`.
+"""The gantry command line: `gantry build --config FILE [--site NAME]` and
+`gantry portfolio --config FILE`.
 
 `gantry build` builds every configured site's page and the index; with
-`--site` it builds that one page and no index. There is no default config
-location: `--config` is required, and nothing here reads the environment or
-the home folder to find one. Exit codes:
+`--site` it builds that one page and no index. `gantry portfolio` checks the
+portfolio file the config names, without building (#22). There is no default
+config location: `--config` is required, and nothing here reads the
+environment or the home folder to find one. Exit codes:
 
 - 0: the full build wrote the index and at least one site page; `--site`
-  wrote its page;
+  wrote its page; `portfolio` found no report entry;
 - 1: a config error; the full build wrote no site page (the index is still
   written) or cannot write the index or the output folder; `--site` names no
   site, a case clash, a site that cannot be built, a render error or a page
-  that cannot be written;
+  that cannot be written; `portfolio` found an entry (an advisory one
+  included), or the config sets no portfolio_file;
 - 2: a usage error (argparse's own).
 """
 
@@ -28,6 +31,7 @@ from gantry.build import (
     write_page,
 )
 from gantry.config import ConfigError, error_reason, load_config
+from gantry.portfolio_file import PORTFOLIO_LABEL, SECTIONS, format_entry, read_portfolio_file, report_entries
 from gantry.sites import shown
 from gantry.stamp import config_roots, stamp_text
 
@@ -56,6 +60,18 @@ def _parser():
         "--site",
         metavar="NAME",
         help="build only that site's worksite page, and no index",
+    )
+    portfolio = commands.add_parser(
+        "portfolio",
+        help="check the portfolio file the config names, without building",
+        description="Read the portfolio file an installation config names and print one line per "
+        "report entry, grouped by section, then a count. Exit 0 with no entries, 1 otherwise.",
+    )
+    portfolio.add_argument(
+        "--config",
+        required=True,
+        metavar="FILE",
+        help="the installation config (a TOML file); there is no default",
     )
     return parser
 
@@ -140,6 +156,41 @@ def _build(args):
     return _build_site(config, sites, args.site)
 
 
+# True until the build reads the portfolio file (#23 or #61); that issue
+# rewords it, with docs/portfolio-file.md.
+MILESTONE_NOTE = ("note: the milestone leaf is not checked here (this command reads no WBS.md); "
+                  "it is checked once the build reads the portfolio file")
+
+
+def _portfolio(args):
+    _utf8_streams()
+    try:
+        config = load_config(args.config)
+        sites, _ = site_list(config)  # the site list's own warnings belong to the build
+    except ConfigError as e:
+        print(f"gantry: error: {e}", file=sys.stderr)
+        return 1
+    if config.portfolio_file is None:
+        print(f"gantry: error: {config.path}: portfolio_file is not set; add portfolio_file = \"<path>\" "
+              "to check a portfolio file (docs/portfolio-file.md)", file=sys.stderr)
+        return 1
+    portfolio = read_portfolio_file(config.portfolio_file, br_namespace=config.requirements.br_namespace)
+    # It reads no WBS.md, so no issues_by_site: the milestone leaf is not checked.
+    entries = report_entries(portfolio, [s.name for s in sites])
+    for section in (None, *SECTIONS):
+        group = [e for e in entries if e.section == section]
+        if group:
+            print(section if section is not None else PORTFOLIO_LABEL)
+            for e in group:
+                print("  " + format_entry(e))
+    if portfolio.milestone is not None:
+        print(MILESTONE_NOTE)
+    print(f"{len(entries)} {'entry' if len(entries) == 1 else 'entries'}")
+    return 0 if not entries else 1
+
+
 def main(argv=None):
     args = _parser().parse_args(argv)
+    if args.command == "portfolio":
+        return _portfolio(args)
     return _build(args)

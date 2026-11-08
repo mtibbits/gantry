@@ -227,8 +227,8 @@ def test_rooted_output_dir_is_error_on_windows(tmp_path, capsys):
     assert "'output_dir'" in err and str(p) in err
 
 
-# portfolio_file and fires_list are not read yet; requirements (#15) and
-# estimates (#10) are live. Every path key resolves alike.
+# fires_list is not read yet; portfolio_file (#22, gantry portfolio only),
+# requirements (#15) and estimates (#10) are live. Every path key resolves alike.
 def test_path_keys_load_and_resolve(tmp_path):
     folder = tmp_path / "cfg"
     p = write_config(
