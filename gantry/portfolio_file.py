@@ -13,6 +13,7 @@ entry holds a path: the file is always "the portfolio file". gantry build does
 not call this module yet (#23 or #61 adds the read).
 """
 
+import functools
 import json
 import math
 import os
@@ -24,7 +25,8 @@ from datetime import date, datetime
 
 from gantry import requirements
 from gantry.config import ID_TOKEN_RE, describe, error_reason
-from gantry.requirements import FENCE_RE, RequirementSet, fence_spans, parse_id, parse_requirements
+from gantry.requirements import (FENCE_RE, RequirementSet, fence_spans, fenced, parse_id, parse_requirements,
+                                 read_utf8, split_lines)
 from gantry.sites import shown
 
 PORTFOLIO_LABEL = "the portfolio file"
@@ -33,7 +35,6 @@ SECTIONS = ("business requirements", "settings")  # section None: the whole file
 # outside fences only. Greedy throughout, so it is linear on a long line.
 HEADING_RE = re.compile(r"(?P<hashes>#{1,6})[ \t]+(?P<text>.*)")  # fullmatch
 BR_HEADING, SETTINGS_HEADING = "Business requirements", "Settings"  # level 2, matched exactly
-_BOM = "\N{BYTE ORDER MARK}"
 
 TOML_AT_RE = re.compile(r" \(at line (?P<line>[1-9][0-9]*), column [0-9]+\)$")  # search
 TOML_END = " (at end of document)"
@@ -51,7 +52,7 @@ REPORT_KINDS = ("portfolio_unreadable", "no_br_section", "no_settings", "duplica
 ADVISORY_KINDS = ("capacity_missing",)
 CARRIED_KINDS = tuple(k for k in requirements.REPORT_KINDS if k != "unreadable")
 _KIND_ORDER = {kind: i for i, kind in enumerate(REPORT_KINDS + CARRIED_KINDS)}
-_SECTION_ORDER = {None: 0, SECTIONS[0]: 1, SECTIONS[1]: 2}
+_SECTION_ORDER = {section: i for i, section in enumerate((None, *SECTIONS))}
 
 # --- the key registry ----------------------------------------------------------
 
@@ -123,24 +124,44 @@ def _mapping_shape(v):
             and all(a <= b for a, b in zip(v, v[1:])))
 
 
+def _int_0(v):
+    return _int(v) and v >= 0
+
+
+def _int_1(v):
+    return _int(v) and v > 0
+
+
+def _positive(v):
+    return _finite(v) and v > 0
+
+
+def _str(v):
+    return isinstance(v, str)
+
+
+def _nonempty_str(v):
+    return isinstance(v, str) and v != ""
+
+
 _CHECKS = {
-    "capacity.agent_lanes": lambda v: _int(v) and v >= 0,
+    "capacity.agent_lanes": _int_0,
     "capacity.reserved[].day": lambda v: isinstance(v, str) and v in WEEKDAYS,
     "capacity.reserved[].start": lambda v: isinstance(v, str) and HHMM_RE.fullmatch(v) is not None,
-    "capacity.reserved[].hours": lambda v: _finite(v) and v > 0,
-    "capacity.reserved[].label": lambda v: isinstance(v, str),
-    "capacity.block_min_hours": lambda v: _finite(v) and v > 0,
+    "capacity.reserved[].hours": _positive,
+    "capacity.reserved[].label": _str,
+    "capacity.block_min_hours": _positive,
     "capacity.block_start_cost_hours": lambda v: _finite(v) and v >= 0,
     "capacity.attention_mapping": _mapping_shape,
-    "milestone.project": lambda v: isinstance(v, str) and v != "",
-    "milestone.issue": lambda v: isinstance(v, str) and v != "",
-    "milestone.label": lambda v: isinstance(v, str),
-    "thresholds.wip_max": lambda v: _int(v) and v >= 0,
-    "thresholds.unknown_deps_max": lambda v: _int(v) and v >= 0,
-    "thresholds.unplanned_max": lambda v: _int(v) and v >= 0,
-    "thresholds.share_gap_points": lambda v: _finite(v) and v > 0,
-    "thresholds.neglect_weeks": lambda v: _int(v) and v > 0,
-    "thresholds.effort_window_weeks": lambda v: _int(v) and v > 0,
+    "milestone.project": _nonempty_str,
+    "milestone.issue": _nonempty_str,
+    "milestone.label": _str,
+    "thresholds.wip_max": _int_0,
+    "thresholds.unknown_deps_max": _int_0,
+    "thresholds.unplanned_max": _int_0,
+    "thresholds.share_gap_points": _positive,
+    "thresholds.neglect_weeks": _int_1,
+    "thresholds.effort_window_weeks": _int_1,
 }
 
 
@@ -166,6 +187,7 @@ def _total(values):
     return sum(values)
 
 
+@functools.cache
 def _allowed(prefix):
     """The key names the registry allows directly under a pattern prefix
     ("" for the settings root, "capacity", "allocation[]", "site.<project>")."""
@@ -375,7 +397,7 @@ def _toml_error_line(e, opener, closer):
     inner = closer - opener - 1
     lineno = getattr(e, "lineno", None)
     text = str(e)
-    if isinstance(lineno, int) and not isinstance(lineno, bool):
+    if _int(lineno):
         at = lineno
     elif (m := TOML_AT_RE.search(text)) is not None:
         at = int(m["line"])
@@ -416,24 +438,16 @@ def read_portfolio_file(path, *, br_namespace) -> Portfolio:
         return unreadable(f"cannot read the portfolio file: {error_reason(e)}")
     if not stat.S_ISREG(st.st_mode):
         return unreadable("the portfolio file is not a file")
-    try:
-        with open(path, "rb") as handle:
-            data = handle.read()
-    except (OSError, ValueError) as e:
-        return unreadable(f"cannot read the portfolio file: {error_reason(e)}")
-    try:
-        text = data.decode("utf-8")
-    except UnicodeDecodeError as e:
-        return unreadable(f"the portfolio file is not valid UTF-8 at byte {e.start}")
+    text, reason = read_utf8(path, PORTFOLIO_LABEL)
+    if text is None:
+        return unreadable(reason)
     return _read_text(text, str(path), br_namespace)
 
 
 def _sections(lines, report):
     """{heading text: (heading index, end index)} for the first level-2 BR and
     Settings headings outside fences; a second one is reported."""
-    hidden = [False] * len(lines)
-    for i, j in fence_spans(lines):
-        hidden[i : j + 1] = [True] * (j + 1 - i)
+    hidden = fenced(lines)
     headings = []
     for i, line in enumerate(lines):
         if not hidden[i]:
@@ -506,7 +520,7 @@ def _load_settings(lines, block, report):
                    "so the settings block is not read")
         return None, key_lines
     version = raw["portfolio_version"]
-    if not (isinstance(version, int) and not isinstance(version, bool) and version == PORTFOLIO_VERSION):
+    if not (_int(version) and version == PORTFOLIO_VERSION):
         report.add("bad_version", SECTIONS[1], line, "portfolio_version",
                    f"portfolio_version {describe(version)} is not {PORTFOLIO_VERSION}, the version this Gantry "
                    "reads, so the settings block is not read")
@@ -554,15 +568,19 @@ class _Settings:
         self.add("bad_value", parts, f"must be a table, not {describe(value)}; it is ignored")
         return {}
 
-    def get(self, table, parts, pattern, fallback=None):
-        """The value of a registry key, _ABSENT, or _BAD (reported)."""
+    def get(self, table, parts, pattern, fallback=None, required=False):
+        """The value of a registry key, _ABSENT, or _BAD (reported). A missing
+        key is reported, as _BAD, when it is REQUIRED or `required`."""
         name = parts[-1]
+        key = _KEYS[pattern]
         if name not in table:
-            return _ABSENT
+            if not (required or key.default is REQUIRED):
+                return _ABSENT
+            self.add("bad_value", parts, f"missing; must be {key.rule}; {fallback}")
+            return _BAD
         value = table[name]
         if _CHECKS[pattern](value):
             return value
-        key = _KEYS[pattern]
         self.bad(parts, key.rule, value, fallback or _fallback(key.default))
         return _BAD
 
@@ -576,10 +594,9 @@ class _Settings:
 
     def read(self):
         root = self.known({k: v for k, v in self.raw.items() if k != "portfolio_version"}, (), "")
-        capacity = self.capacity(self.table(root["capacity"], ("capacity",), "capacity") if "capacity" in root else {})
+        capacity = self.capacity(self.table(root.get("capacity", {}), ("capacity",), "capacity"))
         milestone = self.milestone(root["milestone"]) if "milestone" in root else None
-        thresholds = self.thresholds(
-            self.table(root["thresholds"], ("thresholds",), "thresholds") if "thresholds" in root else {})
+        thresholds = self.thresholds(self.table(root.get("thresholds", {}), ("thresholds",), "thresholds"))
         allocations = self.allocations(root["allocation"]) if "allocation" in root else []
         serves = {}
         if "site" in root:
@@ -608,16 +625,14 @@ class _Settings:
             shares = self.shares(member, at)
             if day is not None and shares is not None:
                 valid.append((n, Allocation(day, shares, _line(self.key_lines, at))))
-        kept = []
+        kept = {}  # from date -> the first Allocation with it
         for n, a in valid:
-            first = next((k for k in kept if k.from_date == a.from_date), None)
-            if first is None:
-                kept.append(a)
-            else:
+            first = kept.setdefault(a.from_date, a)
+            if first is not a:
                 where = f" (line {first.line})" if first.line is not None else ""
                 self.add("duplicate_allocation_date", ("allocation", n, "from"),
                          f"another allocation{where} has from {a.from_date.isoformat()}; the first is used")
-        return kept
+        return list(kept.values())
 
     def from_date(self, member, at):
         parts = at + ("from",)
@@ -665,7 +680,7 @@ class _Settings:
         reserved = self.reserved(table)
         minimum = self.value(table, p + ("block_min_hours",), "capacity.block_min_hours")
         # block_default_hours is at least the minimum in use; so is its default.
-        in_use = minimum if minimum > 2 else 2
+        in_use = max(DEFAULTS["capacity.block_default_hours"], minimum)
         default = table.get("block_default_hours", _ABSENT)
         if default is _ABSENT:
             default = in_use
@@ -715,11 +730,7 @@ class _Settings:
             for name in ("day", "start", "hours", "label"):
                 pattern = f"capacity.reserved[].{name}"
                 got = self.get(member, at + (name,), pattern, fallback="the reserved block is set aside")
-                if got is _ABSENT and _KEYS[pattern].default is REQUIRED:
-                    self.add("bad_value", at + (name,),
-                             f"missing; must be {_KEYS[pattern].rule}; the reserved block is set aside")
-                    ok = False
-                elif got is _BAD:
+                if got is _BAD:
                     ok = False
                 fields[name] = None if got in (_ABSENT, _BAD) else got
             if ok:
@@ -749,11 +760,9 @@ class _Settings:
             self.refs.append((table["project"], p + ("project",), "milestone"))
         fields, ok = {}, True
         for name in ("project", "issue"):
-            got = self.get(table, p + (name,), f"milestone.{name}", fallback="the milestone is not set")
-            if got is _ABSENT:
-                self.add("bad_value", p + (name,),
-                         f"missing; must be {_KEYS['milestone.' + name].rule}; the milestone is not set")
-            if got in (_ABSENT, _BAD):
+            got = self.get(table, p + (name,), f"milestone.{name}", fallback="the milestone is not set",
+                           required=True)
+            if got is _BAD:
                 ok = False
             fields[name] = got
         issue = fields["issue"]
@@ -783,7 +792,7 @@ class _Settings:
         if not isinstance(value, list):
             self.bad(parts, _KEYS["site.<project>.serves"].rule, value, "it is empty")
             return []
-        kept = []
+        kept = {}  # an ordered set
         for n, item in enumerate(value, 1):
             at = parts + (n,)
             rid = parse_id(item, self.br_namespace) if isinstance(item, str) else None
@@ -799,9 +808,9 @@ class _Settings:
                 self.add("misplaced_priority", at, f"{rid} is a {rid.code} ID; serves names business requirements (BR)")
             elif str(rid) not in self.brs.requirements:
                 self.add("undefined_priority", at, f"{rid} names no business requirement in this file")
-            elif rid not in kept:
-                kept.append(rid)
-        return kept
+            else:
+                kept.setdefault(rid)
+        return list(kept)
 
 
 def intended_shares(portfolio, day: date) -> Allocation | None:
@@ -843,13 +852,13 @@ def check_portfolio(portfolio, site_names, issues_by_site=None) -> list:
 def format_entry(e) -> str:
     """One entry as one line: [line N: ]kind[ (advisory)]: [key path: ]message."""
     kind = f"{e.kind} (advisory)" if e.kind in ADVISORY_KINDS else e.kind
-    return (f"line {e.line}: " if e.line is not None else "") + f"{kind}: " +         (f"{e.key_path}: " if e.key_path is not None else "") + e.message
+    where = f"line {e.line}: " if e.line is not None else ""
+    key = f"{e.key_path}: " if e.key_path is not None else ""
+    return f"{where}{kind}: {key}{e.message}"
 
 
 def _read_text(text, source, br_namespace):
-    text = text.removeprefix(_BOM)
-    # split("\n"), never splitlines(), as #15's reader.
-    lines = [line[:-1] if line.endswith("\r") else line for line in text.split("\n")]
+    lines = split_lines(text)
     report = _Report()
     found = _sections(lines, report)
     brs = _read_brs(lines, found, source, br_namespace, report)

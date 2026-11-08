@@ -165,7 +165,7 @@ def fence_spans(lines) -> list[tuple[int, int]]:
     return spans
 
 
-def _fenced(lines):
+def fenced(lines):
     """Which lines a fence hides, opener through closer."""
     fenced = [False] * len(lines)
     for i, j in fence_spans(lines):
@@ -438,27 +438,47 @@ class _Reader:
         return RequirementSet(self.namespace, self.requirements, self.report)
 
 
+def split_lines(text):
+    """A text's lines, split at each LF with a trailing CR removed: never
+    splitlines(), which also breaks at U+2028 and others. A leading byte-order
+    mark is skipped, also when a caller passes a file's first section."""
+    text = text.removeprefix(_BOM)
+    return [line[:-1] if line.endswith("\r") else line for line in text.split("\n")]
+
+
+def read_utf8(path, label):
+    """(text, None), or (None, reason) when the file at `path` cannot be read
+    or is not UTF-8. `label` names the file in the reason ("the requirements file")."""
+    try:
+        with open(path, "rb") as handle:
+            data = handle.read()
+    except (OSError, ValueError) as e:
+        # ValueError: an embedded NUL, or a path too long for Windows.
+        return None, f"cannot read {label}: {error_reason(e)}"
+    try:
+        return data.decode("utf-8"), None
+    except UnicodeDecodeError as e:
+        return None, f"{label} is not valid UTF-8 at byte {e.start}"
+
+
 def parse_requirements(text, namespace, *, source, first_line=1, layers, br_namespace) -> RequirementSet:
     """Read a requirements file's text. `source` labels every requirement and
     report entry; `first_line` is the line of a larger file the text starts on.
     """
     _check_args(namespace, layers, br_namespace)
     reader = _Reader(namespace, source, first_line, frozenset(layers), br_namespace)
-    # split("\n"), never splitlines(), which also breaks at U+2028 and others.
-    # A leading byte-order mark is skipped, also when a caller passes a file's first section.
-    text = text.removeprefix(_BOM)
-    lines = [line[:-1] if line.endswith("\r") else line for line in text.split("\n")]
-    fenced = _fenced(lines)
+    lines = split_lines(text)
+    hidden = fenced(lines)
     i = 0
     while i < len(lines):
-        m = None if fenced[i] else ITEM_RE.fullmatch(lines[i])
+        m = None if hidden[i] else ITEM_RE.fullmatch(lines[i])
         if m is None:
             i += 1
             continue
         # The item's text runs on through lines indented deeper than its marker.
         indent = _width(m["indent"])
         end = i + 1
-        while end < len(lines) and not fenced[end] and lines[end].strip() and _width(lines[end]) > indent:
+        while end < len(lines) and not hidden[end] and lines[end].strip() and _width(lines[end]) > indent:
             end += 1
         reader.item(i, m, [(k, lines[k]) for k in range(i + 1, end)])
         i = end
@@ -471,19 +491,9 @@ def read_requirements(path, namespace, *, layers, br_namespace) -> RequirementSe
     _check_args(namespace, layers, br_namespace)
     source = str(path)
 
-    def unreadable(message):
-        return RequirementSet(namespace, {}, [ReportEntry(source, None, "unreadable", message)])
-
-    try:
-        with open(path, "rb") as handle:
-            data = handle.read()
-    except (OSError, ValueError) as e:
-        # ValueError: an embedded NUL, or a path too long for Windows.
-        return unreadable(f"cannot read the requirements file: {error_reason(e)}")
-    try:
-        text = data.decode("utf-8")
-    except UnicodeDecodeError as e:
-        return unreadable(f"the requirements file is not valid UTF-8 at byte {e.start}")
+    text, reason = read_utf8(path, "the requirements file")
+    if text is None:
+        return RequirementSet(namespace, {}, [ReportEntry(source, None, "unreadable", reason)])
     return parse_requirements(text, namespace, source=source, first_line=1,
                               layers=layers, br_namespace=br_namespace)
 
