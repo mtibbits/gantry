@@ -45,9 +45,10 @@ rewords it.
 It exits 0 when there are no entries and 1 when there is any entry, an
 advisory one included. It also exits 1 on a config error and when the config
 sets no `portfolio_file`, saying so on stderr; a usage error, such as no
-`--config`, exits 2. Nothing it prints holds a path: the file is always
-"the portfolio file". It publishes nothing and writes no file, so the
-operator can check their real file without a build.
+`--config`, exits 2. Nothing it prints about the portfolio file holds that
+file's path: it is always "the portfolio file". A config error on stderr names
+the config file, as `gantry build` does. It publishes nothing and writes no
+file, so the operator can check their real file without a build.
 
 ## The file
 

@@ -147,7 +147,7 @@ def test_no_br_section():
     p = read("no_br_section.md")
     (e,) = [e for e in p.report if e.section == BRS]
     assert (e.kind, e.line, e.key_path) == ("no_br_section", None, None)
-    assert e.message == "no '## Business requirements' heading; no business requirements are read"
+    assert e.message == "no '## Business requirements' heading (level 2, outside a fence); no business requirements are read"
     assert p.brs.namespace == "life" and p.brs.requirements == {} and p.brs.report == []
 
 

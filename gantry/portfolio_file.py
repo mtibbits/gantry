@@ -472,7 +472,7 @@ def _sections(lines, report):
 def _read_brs(lines, found, source, br_namespace, report):
     if BR_HEADING not in found:
         report.add("no_br_section", SECTIONS[0], None, None,
-                   "no '## Business requirements' heading; no business requirements are read")
+                   "no '## Business requirements' heading (level 2, outside a fence); no business requirements are read")
         return RequirementSet(br_namespace, {}, [])
     start, end = found[BR_HEADING]
     rs = parse_requirements("\n".join(lines[start + 1 : end]), br_namespace, source=source,
@@ -726,15 +726,15 @@ class _Settings:
         for n, member in enumerate(value, 1):
             at = parts + (n,)
             member = self.known(member, at, "capacity.reserved[]")
-            fields, ok = {}, True
+            values, ok = {}, True
             for name in ("day", "start", "hours", "label"):
                 pattern = f"capacity.reserved[].{name}"
                 got = self.get(member, at + (name,), pattern, fallback="the reserved block is set aside")
                 if got is _BAD:
                     ok = False
-                fields[name] = None if got in (_ABSENT, _BAD) else got
+                values[name] = None if got in (_ABSENT, _BAD) else got
             if ok:
-                kept.append(Reserved(fields["day"], fields["start"], fields["hours"], fields["label"],
+                kept.append(Reserved(values["day"], values["start"], values["hours"], values["label"],
                                      _line(self.key_lines, at)))
         return tuple(kept)
 
@@ -758,14 +758,14 @@ class _Settings:
         # Only a valid project name is a reference: one cause, one entry.
         if _CHECKS["milestone.project"](table.get("project")):
             self.refs.append((table["project"], p + ("project",), "milestone"))
-        fields, ok = {}, True
+        values, ok = {}, True
         for name in ("project", "issue"):
             got = self.get(table, p + (name,), f"milestone.{name}", fallback="the milestone is not set",
                            required=True)
             if got is _BAD:
                 ok = False
-            fields[name] = got
-        issue = fields["issue"]
+            values[name] = got
+        issue = values["issue"]
         if isinstance(issue, str) and issue:
             if not ID_TOKEN_RE.fullmatch(issue):
                 self.add("bad_milestone", p + ("issue",),
@@ -779,7 +779,7 @@ class _Settings:
         label = self.value(table, p + ("label",), "milestone.label")
         if not ok:
             return None
-        return Milestone(fields["project"], issue, label, _line(self.key_lines, p))
+        return Milestone(values["project"], issue, label, _line(self.key_lines, p))
 
     def thresholds(self, table):
         return Thresholds(*(self.value(table, ("thresholds", f.name), f"thresholds.{f.name}")
