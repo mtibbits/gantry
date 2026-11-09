@@ -243,3 +243,41 @@ def _links(catalog):
             state[key] = "done"
     return {ns: tuple(sorted(found[ns], key=lambda e: (e.line, _KIND_ORDER[e.kind])))
             for ns in catalog.sets if ns in found}
+
+
+def build_site_trace(site, leaves, catalog) -> SiteTrace:
+    """The trace of the site named `site` (its namespace): `leaves` are its
+    parsed leaves in WBS order. No entry stops the build."""
+    leaves = tuple(leaves)
+    in_trace = catalog.in_trace(site)
+    leaf_ids, leaf_entries = {}, []
+    for leaf in leaves:
+        ids, problems = satisfies_ids(leaf, catalog.namespaces)
+        leaf_entries.extend(problems)
+        resolved = []
+        for rid in ids:
+            _, why = catalog.lookup(rid)
+            if why is None:
+                resolved.append(rid)
+            else:
+                leaf_entries.append(ReportEntry(LEAF_SOURCE, leaf.line, "undefined_id",
+                                                MESSAGES["undefined_id"].format(rid=rid, why=why)))
+        if resolved:
+            leaf_ids[leaf.key] = tuple(resolved)
+    serving = {}
+    own = catalog.sets[site] if in_trace else None
+    own_entries = tuple(own.report) if in_trace else ()
+    link_entries = catalog.link_report.get(site, ()) if in_trace else ()
+    leaf_entries.sort(key=lambda e: (e.line, _KIND_ORDER[e.kind]))
+    by_field = {name: tuple(e for group in (own_entries, link_entries, leaf_entries)
+                            for e in group if e.kind in kinds)
+                for name, kinds in FIELDS.items()}
+    if in_trace:
+        use_cases = {key: UseCase(tuple(r.needs), serving.get(key, ()))
+                     for key, r in own.requirements.items() if r.layer == "UC"}
+        unserved = tuple(key for key, r in own.requirements.items() if r.layer != "CON" and key not in serving)
+        untraced = tuple(leaf.key for leaf in leaves if leaf.open and leaf.key not in leaf_ids)
+    else:
+        use_cases, unserved, untraced = {}, None, None
+    report = TraceReport(**by_field, unserved=unserved, unserved_scope=UNSERVED_SCOPE, untraced=untraced)
+    return SiteTrace(site, in_trace, leaf_ids, serving, use_cases, report)
