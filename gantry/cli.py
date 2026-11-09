@@ -32,8 +32,9 @@ from gantry.build import (
 )
 from gantry.config import ConfigError, error_reason, load_config
 from gantry.portfolio_file import PORTFOLIO_LABEL, SECTIONS, format_entry, read_portfolio_file, report_entries
-from gantry.sites import shown
-from gantry.stamp import config_roots, stamp_text
+from gantry.roots import OutsideRoots
+from gantry.sites import config_roots, shown
+from gantry.stamp import stamp_text
 
 
 def _parser():
@@ -92,21 +93,26 @@ def _build_site(config, sites, name):
     site = next((s for s in sites if s.name == name), None)
     if site is None:
         return fail(f"no such site in {config.devagent_config}")
-    roots = config_roots(config, sites)
+    try:
+        roots = config_roots(config)
+    except ConfigError as e:
+        print(f"gantry: error: {e}", file=sys.stderr)
+        return 1
     # The full build's read: its case-clash rule, and a parse error stops only this site.
     inputs, problem = read_site(site, config, clashes(sites).get(site.name), roots=roots)
     if problem is not None:
         return fail(f"cannot build: {problem}")
     try:
-        text, _ = render_site(site.name, inputs, config, stamp_text(config, sites))
+        text, _ = render_site(site.name, inputs, config, stamp_text(config, roots=roots))
     except Exception as e:
         # One line, naming no configured root by its path.
         return fail(render_reason(e, roots))
     folder = config.output_dir / "sites"
     page = folder / f"{site.name}.html"
     try:
-        write_page(folder, site.name, text)
-    except OSError as e:
+        write_page(roots, folder, site.name, text)
+    except (OSError, OutsideRoots) as e:
+        # A refusal's own text names output_dir.
         return fail(f"cannot write {page}: {error_reason(e)}")
     print(page)
     return 0

@@ -484,6 +484,118 @@ def test_bootstrap_reads_only_what_each_step_names(tmp_path):
     assert read_bytes_confined(roots, copy / "harbor" / "WBS.md", key="WBS.md", site="harbor")
 
 
+# --- Task 5: the stamp, the build and the CLI ------------------------------------------
+
+
+def test_missing_output_dir_and_parents_are_created(tmp_path):
+    from helpers_config import run_main
+
+    copy = copy_samples(tmp_path)
+    replace_bytes(copy / "gantry.sample.toml", 'output_dir = "out"', 'output_dir = "deep/out"')
+    code, _, err = run_main("--config", str(copy / "gantry.sample.toml"), "--site", "harbor")
+    assert code == 0, err
+    assert (copy / "deep" / "out" / "sites" / "harbor.html").is_file()
+
+
+def test_copy_named_samples_outside_the_checkout_is_not_sample_mode(tmp_path):
+    from datetime import datetime, timezone
+
+    from gantry.config import load_config
+    from gantry.stamp import sample_mode, stamp_text
+
+    copy = copy_samples(tmp_path)
+    assert copy.name == "samples"
+    config = load_config(copy / "gantry.sample.toml")
+    assert sample_mode(config) is False
+    assert stamp_text(config, now=datetime(2026, 11, 7, 14, 3, tzinfo=timezone.utc)).endswith(
+        "UTC; data as of 2026-01-20")
+
+
+def _stamp_fixtures(tmp_path):
+    """{name: config path}: the sample config, a copy, and the copy with a root moved out."""
+    from test_samples import GANTRY_SAMPLE
+
+    found = {"sample": GANTRY_SAMPLE}
+    for name, move in (("copy", None), ("output_dir", _out_output_dir), ("devdoc_dir", _out_devdoc_dir)):
+        copy = copy_samples(tmp_path / name)
+        if move is not None:
+            elsewhere = tmp_path / name / "elsewhere"
+            elsewhere.mkdir()
+            move(copy, elsewhere)
+        found[name] = copy / "gantry.sample.toml"
+    return found
+
+
+def test_stamp_agrees_with_outside(tmp_path, monkeypatch):
+    from datetime import datetime, timezone
+
+    from gantry import stamp
+    from gantry.config import load_config
+    from gantry.sites import config_roots
+    from gantry.stamp import SAMPLE_STAMP
+
+    now = datetime(2026, 11, 7, 14, 3, tzinfo=timezone.utc)
+    fixtures = _stamp_fixtures(tmp_path)
+
+    def agree(samples):
+        verdicts = {}
+        for name, path in fixtures.items():
+            config = load_config(path)
+            sample = stamp.stamp_text(config, now=now) == SAMPLE_STAMP.format(date=config.as_of.isoformat())
+            assert sample == (outside(config_roots(config), samples) == []), name
+            verdicts[name] = sample
+        return verdicts
+
+    assert agree(sample_dir()) == {"sample": True, "copy": False, "output_dir": False, "devdoc_dir": False}
+    # The stamp follows the sample directory it is given: point it at the copy.
+    copy = fixtures["copy"].parent
+    monkeypatch.setattr(stamp, "sample_dir", lambda: PurePath(copy))
+    assert agree(PurePath(copy)) == {"sample": False, "copy": True, "output_dir": False, "devdoc_dir": False}
+
+
+def test_build_lists_linked_site_outside_roots(tmp_path):
+    from helpers_config import run_main
+
+    copy = copy_samples(tmp_path)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "WBS.md").write_bytes((copy / "harbor" / "WBS.md").read_bytes())
+    (copy / "harbor" / "WBS.md").unlink()
+    symlink(elsewhere / "WBS.md", copy / "harbor" / "WBS.md")
+    code, out, err = run_main("--config", str(copy / "gantry.sample.toml"))
+    assert code == 0, err
+    assert "site harbor is not built: WBS.md for site harbor is outside the configured roots" in err
+    assert "orchard.html" in out and "index.html" in out
+
+
+def test_sites_folder_linked_out_fails_site_build(tmp_path):
+    from helpers_config import run_main
+
+    copy = copy_samples(tmp_path)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (copy / "out").mkdir()
+    link_dir(elsewhere, copy / "out" / "sites")
+    code, out, err = run_main("--config", str(copy / "gantry.sample.toml"), "--site", "harbor")
+    assert code == 1 and out == ""
+    assert "cannot write " in err and "output_dir is outside the configured roots" in err
+    assert list(elsewhere.iterdir()) == []
+
+
+def test_render_error_names_roots_by_key(tmp_path):
+    from gantry.build import render_reason
+    from gantry.config import load_config
+    from gantry.sites import config_roots
+
+    copy = copy_samples(tmp_path)
+    config = load_config(copy / "gantry.sample.toml")
+    roots = config_roots(config)
+    e = ValueError(f"cannot use {config.output_dir} or {config.devagent_config} or {copy / 'harbor' / 'WBS.md'}")
+    assert render_reason(e, roots) == (
+        "render error: ValueError: cannot use output_dir or the devagent config or devdoc_dir of harbor"
+        + ("\\\\" if os.name == "nt" else "/") + "WBS.md")
+
+
 def test_write_confined_mode_and_bytes(tree):
     copy, roots, _ = tree
     out = copy / "out"
