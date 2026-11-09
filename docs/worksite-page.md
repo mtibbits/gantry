@@ -541,8 +541,10 @@ planning directory (`devdoc_dir`) it names, `output_dir`, and each other
 configured path (`portfolio_file`, `fires_list`, and each
 `site.<name>.requirements` and `site.<name>.estimates`). The sample
 directory is `samples/` in the Gantry source tree the running package was
-loaded from, when it holds `gantry.sample.toml`; an installation with no
-source tree is never in sample mode. Both sides are compared after links are
+loaded from; an installation with no source tree is never in sample mode,
+and a copy of the samples anywhere else is not either. It is the same test
+the run's file confinement uses ([Where a build may read and
+write](config.md#where-a-build-may-read-and-write)). Both sides are compared after links are
 resolved and case is folded as the host folds it, so a folder that does not
 exist yet (`samples/out` before the first build) is inside, and `samples-x`
 or `samples/../x` is not. No flag or config key switches sample mode on.

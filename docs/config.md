@@ -132,7 +132,81 @@ These rules hold in every config Gantry reads: this file and devagent's
   separator after them) is refused: write it absolute or relative.
 
 Resolution only makes paths absolute; it does not open them, and it does not
-confine where a build may read (that is #43).
+confine where a build may read; [Where a build may read and
+write](#where-a-build-may-read-and-write) does.
+
+## Where a build may read and write
+
+A run opens files only under its **roots**, checked each time Gantry opens,
+lists, stats, writes or deletes a file, not only when it reads the config.
+Every file access in Gantry goes through one module, `gantry/roots.py`.
+
+**What a root is.** A run's roots are:
+
+- the installation config itself and the devagent config it names;
+- the value of every path key (every key whose kind is a path, or a path or
+  `false`, in the [keys table](#keys)), at the top level and in each
+  `[site.<name>]` table. A key's root kind comes from the key, never from the
+  disk: `devagent_config`, `portfolio_file`, `fires_list`, `requirements` and
+  `estimates` are **file** roots, which admit only that one file (a file key
+  that names a folder makes nothing under it readable); `output_dir` is a
+  **directory** root, which admits everything under it;
+- every site's planning directory (`devdoc_dir`), read from the devagent
+  config; a `devdoc_dir` that cannot be resolved adds no root, and that site
+  keeps its problem;
+- the `gantry` package directory, read-only (the page templates and static
+  files).
+
+The roots grow as the config is read: the run first reads only the file
+given with `--config`, then only the devagent config that file names, and
+only then the planning directories. **No default config is ever read**, from
+the working directory, the home folder or the environment.
+
+**Writable roots** depend on the command. `gantry build` may write only under
+`output_dir`; a later `gantry refresh` will write only under its `[refresh]
+dir`, and a later `gantry serve` writes nothing. Every other root is
+read-only. A writable root may not equal or contain an input root (either
+config file, a planning directory or the package directory): that is a
+config error, exit 1, naming `output_dir` and every input it holds. This is
+the one change for a config that worked before: an `output_dir` of `.`
+beside the installation config, for example, now fails with
+`key 'output_dir' contains the config file itself`. Point `output_dir` at a
+folder of its own, such as `out`. A missing `output_dir` and its missing
+parents are still created.
+
+**Files are resolved where they are opened.** Each path is resolved at the
+moment of use, with symlinks and Windows junctions followed and `..`
+collapsed, and compared with each root (case-folded as the host folds it).
+A path that lands outside every root is refused, and the refusal names the
+config key or file kind and the site, never a path: `WBS.md for site harbor
+is outside the configured roots`. The refusal is reported where that file's
+other errors are: a planning directory or its `WBS.md` becomes that site's
+reason, an estimates file an unreadable-estimates entry (the page still
+builds), a config file a config error (exit 1), and a page write a failed
+write naming `output_dir` (exit 1 for `--site`). A refused write is a
+*write* refusal, a refused read a *read* refusal; neither is an operating
+system error.
+
+**A link at a root moves that root.** Because a root is itself resolved with
+links followed, a planning directory that is a link (a planning tree kept on
+another drive) becomes a root at its target. That is allowed on a real
+installation. For the demo it is caught by sample mode (below), by the test
+that lists every root of the sample config, and by the Pages stamp check. A
+link *below* a root that leads out of every root is what the open-time check
+refuses.
+
+**Sample mode** means every root lies in the sample directory, `samples/`
+under the gantry root (the folder holding the running `gantry` package),
+found from the package itself and never from the working directory or the
+config's folder. The package directory is not counted. A copy of the samples
+anywhere else is never sample mode. See
+[the build stamp](worksite-page.md#the-build-stamp-and-sample-mode).
+
+**The threat model.** The check guards against links, `..` segments and stray
+paths in data and config, and against reading config the run was not given.
+It is not a defence against a concurrent adversary on the build machine who
+swaps a path component for a link between the check and the open, and a hard
+link is not detected (it is indistinguishable from an ordinary file).
 
 ## Sites
 
