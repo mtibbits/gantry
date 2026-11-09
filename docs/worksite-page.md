@@ -87,7 +87,9 @@ result as devagent's regular expression. Inside it, `key: value` pairs are
 separated by commas: a `[...]` value is a list, a quoted value runs to its
 closing quote (commas included), a plain value runs to the next comma, and a
 later duplicate key wins. So `satisfies: a:X, a:Y` reads as two keys,
-`satisfies: a:X` and `a: Y`; write a list as `[a:X, a:Y]`.
+`satisfies: a:X` and `a: Y`; write a list as `[a:X, a:Y]`. The trace reports
+such a key as a probable unbracketed list
+([requirements-format.md](requirements-format.md#the-satisfies-key)).
 
 ### Identity
 

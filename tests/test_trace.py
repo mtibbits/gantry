@@ -5,6 +5,7 @@ except through parse_wbs in memory."""
 import re
 import time
 from dataclasses import fields
+from pathlib import Path
 
 import pytest
 
@@ -18,7 +19,8 @@ from gantry.trace import (FIELDS, LEAF_SOURCE, MESSAGES, TRACE_KINDS, UNSERVED_S
 from gantry.wbs_stopgap import parse_wbs
 from helpers_config import write_site_tree
 from sample_roles import BUSY, SMALL
-from test_samples import GANTRY_SAMPLE
+from test_build import heading_slugs
+from test_samples import GANTRY_SAMPLE, md_tables
 
 
 def leaf(key, line, glyph=" ", **meta):
@@ -550,3 +552,32 @@ def test_derived_extremes(tmp_path):
     assert undefined_why(lone.report.undefined) == [
         message("undefined_id", rid="alpha:FR-1", why=WHY["no_file"].format(ns="alpha"))]
     assert lone.serving == {}
+
+
+# --- Task 6: the docs ----------------------------------------------------------------
+
+DOCS = Path(__file__).resolve().parent.parent / "docs"
+
+
+def test_format_doc_states_trace_rules():
+    text = (DOCS / "requirements-format.md").read_bytes().decode("utf-8")
+    doc = " ".join(text.split())
+    firsts = {row[0] for table in md_tables(text) for row in table.rows}
+    names = [name for name in (f.name for f in fields(TraceReport)) if name != "unserved_scope"]
+    assert [name for name in names if f"`{name}`" not in firsts] == []
+    kinds = [kind for held in FIELDS.values() for kind in held]
+    assert [kind for kind in kinds if f"`{kind}`" not in doc] == []
+    wanted = ["unserved_scope", '"site"', "bracketed list", "skipped", "direct", "indirect",
+              "never listed as unserved", "catalog", "#21", "gantry/trace.py", "probable unbracketed list"]
+    assert [w for w in wanted if w not in doc] == []
+    assert "(#19)" not in doc
+    slugs = heading_slugs(text.replace("\r", ""))
+    anchors = re.findall(r"\]\(#([^)]+)\)", text)
+    assert anchors and [a for a in anchors if a not in slugs] == []
+
+
+def test_worksite_page_points_at_the_satisfies_key():
+    page = " ".join((DOCS / "worksite-page.md").read_bytes().decode("utf-8").split())
+    assert "[requirements-format.md](requirements-format.md#the-satisfies-key)" in page
+    assert "the-satisfies-key" in heading_slugs(
+        (DOCS / "requirements-format.md").read_bytes().decode("utf-8").replace("\r", ""))

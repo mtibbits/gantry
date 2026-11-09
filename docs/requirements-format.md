@@ -3,7 +3,8 @@
 A **requirements file** is a project's Markdown file of requirements, each
 with a stable ID. A leaf in a project's `WBS.md` names the requirements it
 serves in `satisfies:`; this page defines those IDs and the files that define
-them (#15). The reader is `gantry/requirements.py`.
+them (#15). The reader is `gantry/requirements.py`; `gantry/trace.py` reads
+`satisfies:` and builds the trace.
 
 ## Layers
 
@@ -172,16 +173,16 @@ Reported, with the requirement still read:
   the portfolio file's own section such a link is legal, because there the
   installation namespace is the file's own.
 
-A link to another site's namespace is returned unresolved and not reported:
-reading `satisfies:` across files (#19) resolves it, and reports `refines:`
-cycles that cross files.
+A link to another site's namespace is returned unresolved and not reported
+here: the trace resolves it against the catalog and reports `refines:`
+cycles that cross files ([the trace report](#the-trace-report)).
 
 ## Withdrawn requirements
 
 A withdrawn requirement is deleted from the file. Its ID is still never
 reused. That is the author's rule: the reader sees one version of the file,
-so it cannot check it. A leaf that still names a deleted ID is reported as
-undefined when `satisfies:` is read (#19). Record the withdrawal in a prose
+so it cannot check it. A leaf that still names a deleted ID is reported
+`undefined` by the trace ([the trace report](#the-trace-report)). Record the withdrawal in a prose
 line, so that the next author does not reuse the number:
 
 ```text
@@ -214,7 +215,7 @@ A site is **in the trace** only when the installation config sets its
 `requirements` key ([config.md](config.md)); there is no default path. Only
 an in-trace site's open leaves can ever be listed as untraced; a site that
 is not in the trace contributes only leaves whose `satisfies:` names an ID
-that resolves.
+that resolves. The report's fields are below.
 
 Two kinds of site can never be in the trace, because their name cannot be a
 project namespace:
@@ -230,6 +231,81 @@ build's exit code does not change.
 ```text
 gantry: warning: <config>: key 'site.life.requirements' is not read: site life has the name of the installation namespace (br_namespace = 'life'), so it cannot be in the trace
 ```
+
+## The `satisfies:` key
+
+A leaf names the requirements it serves in its `satisfies:` meta key, read
+from the parsed leaf with the same rule as every other meta value. One ID may
+be written bare or quoted. More than one ID **must** use the bracketed list:
+an unbracketed `satisfies: a:X, a:Y` splits at its first comma into
+`satisfies: a:X` and a separate key `a: Y`, and the second ID is lost.
+
+```text
+- [ ] Log the nightly check {issue: Issue-4, satisfies: lighthouse:FR-1}
+- [ ] Show the last thirty nights {issue: Issue-5, satisfies: [lighthouse:FR-2, lighthouse:QA-1]}
+```
+
+- Each entry is a full ID, namespace included (`lighthouse:FR-1`, never
+  `FR-1`). An entry that is not one, such as `FR-1`, `lighthouse:FR-01` or
+  `a:b:FR-1`, is reported `malformed_satisfies` and ignored.
+- When a leaf has `satisfies:`, each other key of the leaf that equals a
+  known namespace (a site's name, or `br_namespace`) is reported
+  `unbracketed_list`, naming the key: a probable unbracketed list.
+- An ID repeated on one leaf counts once.
+- `satisfies: []` names nothing.
+
+## Served
+
+A requirement is **served** by a leaf that is not skipped when the leaf
+names it, or names a requirement that refines it, transitively. A use case
+is also served through a requirement it needs, directly or through
+refinement: a leaf naming an `FR` that refines an `SR` the use case needs
+serves the use case. Serving flows up the links, never down: a leaf naming
+a use case does not serve what the use case needs.
+
+- A skipped leaf (`-`) never serves; a done leaf (`x`) does.
+- Each serving leaf is marked **direct** when it names the requirement and
+  **indirect** otherwise; a leaf that serves a requirement both ways is
+  direct.
+- Each walk visits a requirement once, so a `refines:` loop across files
+  cannot loop the walk; the loop is reported.
+- Constraints (`CON`) are never listed as unserved: they bound all work
+  rather than being delivered by a leaf. A leaf may still name one.
+
+## The trace report
+
+Once per build the trace reads the **catalog**: every in-trace site's
+requirements file, in the site's namespace, and, when `portfolio_file` is
+set, the portfolio file's business requirements. Every read passes
+`br_namespace`. Each leaf's IDs and every link from one namespace into
+another resolve against the catalog. Each site's report has these fields:
+
+| Field | Holds |
+|---|---|
+| `unreadable` | `unreadable`: the site's configured requirements file could not be read |
+| `malformed` | the reader's `malformed_item`, `malformed_meta` and `malformed_link`, plus `malformed_satisfies` and `unbracketed_list` |
+| `duplicate` | the reader's `duplicate_id` |
+| `misplaced` | the reader's `misplaced` |
+| `cycle` | `refines_cycle`: the reader's loops within the file, and `refines:` loops that cross files, each reported once, at the member listed first in the catalog |
+| `undefined` | the reader's `undefined_link`, `undefined_cross_link` (a link into another namespace naming no requirement) and `undefined_id` (a leaf entry naming no requirement) |
+| `unserved` | the site's own requirements that no leaf serves, constraints aside |
+| `untraced` | the site's open leaves that name no ID that resolves |
+
+An undefined ID or link names one of these reasons: the namespace has no
+configured requirements file; its file, or the portfolio file, could not be
+read; the file defines no such ID; or the ID is in `br_namespace` and
+`portfolio_file` is not set.
+
+`unserved` counts only this site's leaves, so its `unserved_scope` is
+`"site"`; "Trace across projects" (#21) widens it. `untraced` lists an open
+leaf with no `satisfies:` key, with `satisfies: []`, or with only malformed
+or undefined entries; the bad entries are reported as well.
+
+No entry stops the build. A site not in the trace has no `unserved` and no
+`untraced` list; its leaves' IDs still resolve, and its `malformed` and
+`undefined` entries are in its own report. The portfolio file's own entries,
+and the links from a business requirement into a site, belong to no site's
+report: they stay with the catalog.
 
 ## Example
 
