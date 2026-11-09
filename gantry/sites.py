@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from gantry.config import ID_TOKEN_RE, ConfigError, PathError, error_reason, read_toml, resolve_path
+from gantry.roots import bootstrap_roots, with_file
 
 
 @dataclass(frozen=True)
@@ -33,8 +34,8 @@ def shown(name: str) -> str:
     return name if ID_TOKEN_RE.fullmatch(name) else ascii(name)[1:-1]
 
 
-def _read_devagent(dfile):
-    data = read_toml(dfile, "the devagent config", "the devagent config ")
+def _read_devagent(roots, dfile):
+    data = read_toml(roots, dfile, "the devagent config", "the devagent config ", key="devagent_config")
     projects = data.get("project")
     if not isinstance(projects, dict):
         raise ConfigError(f"{dfile}: no [project] table; is devagent_config the right file?")
@@ -93,7 +94,7 @@ def _site(name, table, dfile):
 def load_sites(config):
     """Return (sites, warnings) for a loaded installation config."""
     dfile = config.devagent_config
-    projects = _read_devagent(dfile)
+    projects = _read_devagent(with_file(bootstrap_roots(config.path), dfile, key="devagent_config"), dfile)
     sites = [_site(name, table, dfile) for name, table in projects.items()]
     warnings = [
         SiteWarning(f"site.{name}", f"{config.path}: [site.{name}] names no project in {dfile}")

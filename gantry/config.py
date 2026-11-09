@@ -12,8 +12,10 @@ import re
 import tomllib
 from dataclasses import dataclass
 from datetime import date, datetime
-from pathlib import Path, PurePosixPath, PureWindowsPath
+from pathlib import PurePath, PurePosixPath, PureWindowsPath
 from typing import Literal
+
+from gantry.roots import CONFIG_KEY, OutsideRoots, bootstrap_roots, open_confined
 
 CONFIG_VERSION = 1
 DEFAULT_BR_NAMESPACE = "life"
@@ -38,23 +40,24 @@ class Key:
     default: object
     owner: str
     doc_name: str
+    root: str | None = None  # a path key's root kind, "file" or "directory" (#59)
 
 
 KEYS = (
     Key("config_version", "int", True, None, "#7", "`config_version`"),
-    Key("devagent_config", "path", True, None, "#7", "`devagent_config`"),
-    Key("output_dir", "path", True, None, "#9", "`output_dir`"),
+    Key("devagent_config", "path", True, None, "#7", "`devagent_config`", "file"),
+    Key("output_dir", "path", True, None, "#9", "`output_dir`", "directory"),
     Key("as_of", "date", False, None, "every dated view", "`as_of`"),
     Key("default_unit_hours", "positive_number", False, 6, "#9", "`default_unit_hours`"),
-    Key("portfolio_file", "path", False, None, "#22", "`portfolio_file`"),
-    Key("fires_list", "path", False, None, "#30", "`fires_list`"),
+    Key("portfolio_file", "path", False, None, "#22", "`portfolio_file`", "file"),
+    Key("fires_list", "path", False, None, "#30", "`fires_list`", "file"),
     Key("requirements", "table", False, None, "#15", "`[requirements]`"),
     Key("site", "table", False, None, "#7", "`[site.<name>]`"),
 )
 
 SITE_KEYS = (
-    Key("requirements", "path", False, None, "#15", "`requirements`"),
-    Key("estimates", "path_or_false", False, None, "#10", "`estimates`"),
+    Key("requirements", "path", False, None, "#15", "`requirements`", "file"),
+    Key("estimates", "path_or_false", False, None, "#10", "`estimates`", "file"),
 )
 
 REQUIREMENTS_KEYS = (
@@ -64,10 +67,16 @@ REQUIREMENTS_KEYS = (
 _KEYS_BY_NAME = {key.name: key for key in KEYS}
 
 
+def missing_root_kinds(*registries) -> list[str]:
+    """The names of the path keys that have no root kind: each must have one."""
+    return [key.name for registry in registries for key in registry
+            if key.kind in ("path", "path_or_false") and key.root not in ("file", "directory")]
+
+
 @dataclass(frozen=True)
 class SiteOverride:
-    requirements: Path | None
-    estimates: Path | Literal[False] | None
+    requirements: PurePath | None
+    estimates: PurePath | Literal[False] | None
 
 
 @dataclass(frozen=True)
@@ -77,14 +86,14 @@ class RequirementsSettings:
 
 @dataclass(frozen=True)
 class Config:
-    path: Path
+    path: PurePath
     config_version: int
-    devagent_config: Path
-    output_dir: Path
+    devagent_config: PurePath
+    output_dir: PurePath
     as_of: date
     default_unit_hours: int | float
-    portfolio_file: Path | None
-    fires_list: Path | None
+    portfolio_file: PurePath | None
+    fires_list: PurePath | None
     requirements: RequirementsSettings
     sites: dict[str, SiteOverride]
 
@@ -126,7 +135,7 @@ def _expand_tilde(raw: str, flavour: str) -> str:
     return home + raw[1:]
 
 
-def resolve_path(raw: str, base_dir, *, flavour: str) -> Path:
+def resolve_path(raw: str, base_dir, *, flavour: str) -> PurePath:
     """Make a config path absolute, lexically (no filesystem access).
 
     A bare ~ expands; a relative path joins `base_dir`, the folder of the file
@@ -140,8 +149,8 @@ def resolve_path(raw: str, base_dir, *, flavour: str) -> Path:
             raise PathError("is drive-relative; write it absolute or relative")
         raise PathError("is rooted but not absolute on this operating system (a path for another OS?)")
     if kind == "relative":
-        return Path(os.path.normpath(os.path.join(os.fspath(base_dir), expanded)))
-    return Path(os.path.normpath(expanded))
+        return PurePath(os.path.normpath(os.path.join(os.fspath(base_dir), expanded)))
+    return PurePath(os.path.normpath(expanded))
 
 
 # --- types -----------------------------------------------------------------------
@@ -239,17 +248,17 @@ def error_reason(e: Exception) -> str:
     return getattr(e, "strerror", None) or str(e)
 
 
-def read_toml(path, name: str, subject: str) -> dict:
-    """Read a TOML file; raise ConfigError naming the file on any failure.
+def read_toml(roots, path, name: str, subject: str, *, key) -> dict:
+    """Read a TOML file under `roots`; raise ConfigError naming the file on any failure.
 
     `name` is what "cannot read ..." calls the file; `subject` prefixes the
-    other messages ("" or "the devagent config ").
+    other messages ("" or "the devagent config "); `key` names it in a refusal.
     """
     file = str(path)
     try:
-        with open(path, "rb") as handle:
+        with open_confined(roots, path, "rb", key=key) as handle:
             data = handle.read()
-    except (OSError, ValueError) as e:
+    except (OSError, ValueError, OutsideRoots) as e:
         # ValueError: an embedded NUL, or a path too long for Windows.
         raise ConfigError(f"{file}: cannot read {name}: {error_reason(e)}") from None
     if data.startswith(_BOM):
@@ -268,7 +277,8 @@ def load_config(path) -> Config:
     def fail(message):
         return ConfigError(f"{file}: {message}")
 
-    raw = read_toml(path, "the config", "")
+    # The roots start as the --config file alone (#59).
+    raw = read_toml(bootstrap_roots(path), path, "the config", "", key=CONFIG_KEY)
 
     # The version first, so a newer file reports its version, not its new keys.
     if "config_version" not in raw:
@@ -305,7 +315,7 @@ def load_config(path) -> Config:
         if problem:
             raise fail(problem)
 
-    config_path = Path(os.path.abspath(path))
+    config_path = PurePath(os.path.abspath(path))
     base = config_path.parent
 
     def resolved(dotted, value):

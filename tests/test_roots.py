@@ -311,6 +311,19 @@ def test_directory_roots_writable_is_a_union(tmp_path):
     assert [(r.key, r.writable) for r in roots.roots] == [("a", False), ("w", True)]
 
 
+def test_every_path_key_has_a_root_kind():
+    from gantry.config import KEYS, REQUIREMENTS_KEYS, SITE_KEYS, Key, missing_root_kinds
+
+    assert missing_root_kinds(KEYS, SITE_KEYS, REQUIREMENTS_KEYS) == []
+    planted = Key("x", "path", False, None, "#0", "`x`")
+    assert missing_root_kinds(KEYS, (planted,)) == ["x"]
+    planted = Key("y", "path_or_false", False, None, "#0", "`y`")
+    assert missing_root_kinds((planted,), SITE_KEYS) == ["y"]
+    for key in (*KEYS, *SITE_KEYS):
+        if key.kind in ("path", "path_or_false"):
+            assert key.root in ("file", "directory"), key.name
+
+
 def test_write_confined_mode_and_bytes(tree):
     copy, roots, _ = tree
     out = copy / "out"

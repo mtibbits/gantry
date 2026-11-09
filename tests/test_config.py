@@ -8,7 +8,7 @@ import dataclasses
 import os
 import tomllib
 from datetime import date
-from pathlib import Path
+from pathlib import Path, PurePath
 
 import pytest
 
@@ -245,10 +245,10 @@ def test_path_keys_load_and_resolve(tmp_path):
         "estimates": c.sites["harbor"].estimates,
     }
     for key, path in got.items():
-        assert isinstance(path, Path), key
+        assert isinstance(path, PurePath) and not isinstance(path, Path), key
         assert path.is_absolute(), key
         assert under(path, folder), key
-        assert not path.exists(), key
+        assert not Path(path).exists(), key
 
 
 # --- the sample installation config (#7) ---------------------------------------
@@ -261,7 +261,7 @@ def test_sample_config_loads_inside_samples():
     paths = [c.devagent_config, c.output_dir, c.portfolio_file, c.fires_list]
     for site in c.sites.values():
         paths += [site.requirements, site.estimates]
-    paths = [p for p in paths if isinstance(p, Path)]
+    paths = [p for p in paths if isinstance(p, PurePath)]
     assert len(paths) >= 2
     for p in paths:
         assert Path(os.path.normcase(str(p))).is_relative_to(samples), p
