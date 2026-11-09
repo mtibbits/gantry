@@ -380,7 +380,27 @@ def mkdir_confined(roots, path, *, key, site=None):
     """Make the folder and its missing parents; the writable root itself may
     be among them, nothing else outside it."""
     resolved, _ = _check(roots, path, key=key, site=site, write=True)
-    os.makedirs(resolved, exist_ok=True)
+    _makedirs(resolved)
+
+
+def _makedirs(path):
+    """Path.mkdir(parents=True, exist_ok=True)'s algorithm, so a failure raises
+    the error it raised (os.makedirs fails on the leaf instead of the parent)."""
+    try:
+        os.mkdir(path)
+    except FileNotFoundError:
+        parent = os.path.dirname(path)
+        if parent == path:
+            raise
+        _makedirs(parent)
+        try:
+            os.mkdir(path)
+        except OSError:
+            if not os.path.isdir(path):
+                raise
+    except OSError:
+        if not os.path.isdir(path):
+            raise
 
 
 def rmtree_confined(roots, path, *, key, site=None):

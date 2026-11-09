@@ -669,6 +669,18 @@ def test_no_module_but_roots_imports_path_tempfile_or_resources():
     assert found == []
 
 
+def test_mkdir_confined_fails_as_path_mkdir_does(tmp_path):
+    """Under a file, the error is Path.mkdir's own, so a --site message keeps its text."""
+    (tmp_path / "out").write_bytes(b"x")
+    with pytest.raises(OSError) as plain:
+        (tmp_path / "out" / "sites").mkdir(parents=True, exist_ok=True)
+    roots = directory_roots([tmp_path], writable=[tmp_path])
+    with pytest.raises(OSError) as confined:
+        mkdir_confined(roots, tmp_path / "out" / "sites", key="output_dir")
+    assert (type(confined.value), confined.value.errno, confined.value.strerror) == (
+        type(plain.value), plain.value.errno, plain.value.strerror)
+
+
 def test_write_confined_mode_and_bytes(tree):
     copy, roots, _ = tree
     out = copy / "out"
