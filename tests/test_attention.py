@@ -30,6 +30,8 @@ from gantry.model import REPORT_KINDS, Leaf, Models, SiteData, report_order
 from gantry.portfolio_file import read_portfolio_file
 from gantry.wbs_stopgap import parse_wbs
 from test_samples import ROOT
+from gantry.roots import directory_roots
+from gantry.sites import config_roots
 
 FIXTURES = ROOT / "tests" / "fixtures" / "attention"
 SITE = "alpha"
@@ -215,7 +217,7 @@ def test_check_h_never_raises():
 
 
 def portfolio(name):
-    return read_portfolio_file(FIXTURES / f"portfolio_{name}.md", br_namespace="life")
+    return read_portfolio_file(directory_roots([FIXTURES]), FIXTURES / f"portfolio_{name}.md", br_namespace="life")
 
 
 def report_paths(p, kind):
@@ -452,15 +454,16 @@ def test_demo_inputs():
     from test_samples import SAMPLES
 
     config = load_config(SAMPLES / "gantry.sample.toml")
-    p = read_portfolio_file(config.portfolio_file, br_namespace=config.requirements.br_namespace)
+    roots = config_roots(config)
+    p = read_portfolio_file(roots, config.portfolio_file, br_namespace=config.requirements.br_namespace)
     m = mapping_in_use(p)
     assert m.source == "portfolio_file"
     entries = {entry.name: entry for entry in load_sites(config)[0]}
 
     def inputs(name):
-        data, problem = site_data(entries[name])
+        data, problem = site_data(roots, entries[name])
         assert problem is None, problem
-        return apply_inputs(entries[name], data, config).data
+        return apply_inputs(roots, entries[name], data, config).data
 
     quarry = inputs(UNESTIMATED)
     (zero,) = [leaf for leaf in quarry.leaves if leaf.meta.get("h") == "0"]

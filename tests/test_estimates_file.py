@@ -11,6 +11,8 @@ from gantry.estimates_file import find_estimates_file, read_estimates_file
 from gantry.sites import SiteEntry
 from sample_roles import BUSY
 from test_samples import ROOT, SAMPLES, decode_bytes, git, git_work_tree, needs_git
+from gantry.roots import directory_roots
+from helpers_config import roots_around
 
 INPUTS = ROOT / "tests" / "fixtures" / "inputs"
 NOT_UTF8 = INPUTS / "estimates-not-utf8.md"
@@ -30,7 +32,7 @@ def site_dir(tmp_path, *names, source=ESTIMATES):
 
 def find(folder, estimates=None):
     config = SimpleNamespace(sites={} if estimates is None else {"alpha": SiteOverride(None, estimates)})
-    return find_estimates_file(SiteEntry("alpha", folder, None), config)
+    return find_estimates_file(directory_roots([folder]), SiteEntry("alpha", folder, None), config)
 
 
 def kinds(report):
@@ -38,7 +40,7 @@ def kinds(report):
 
 
 def read(path, name=None):
-    return read_estimates_file(path, "alpha", name or path.name)
+    return read_estimates_file(roots_around(path), path, "alpha", name or path.name)
 
 
 # --- discovery ---------------------------------------------------------------

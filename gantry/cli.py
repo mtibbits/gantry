@@ -173,6 +173,7 @@ def _portfolio(args):
     try:
         config = load_config(args.config)
         sites, _ = site_list(config)  # the site list's own warnings belong to the build
+        roots = config_roots(config)
     except ConfigError as e:
         print(f"gantry: error: {e}", file=sys.stderr)
         return 1
@@ -180,7 +181,7 @@ def _portfolio(args):
         print(f"gantry: error: {config.path}: portfolio_file is not set; add portfolio_file = \"<path>\" "
               "to check a portfolio file (docs/portfolio-file.md)", file=sys.stderr)
         return 1
-    portfolio = read_portfolio_file(config.portfolio_file, br_namespace=config.requirements.br_namespace)
+    portfolio = read_portfolio_file(roots, config.portfolio_file, br_namespace=config.requirements.br_namespace)
     # It reads no WBS.md, so no issues_by_site: the milestone leaf is not checked.
     entries = report_entries(portfolio, [s.name for s in sites])
     for section in (None, *SECTIONS):

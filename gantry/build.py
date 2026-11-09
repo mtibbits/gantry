@@ -85,11 +85,11 @@ def render_reason(e: Exception, roots) -> str:
     return RENDER_ERROR.format(type=type(e).__name__, message=message)
 
 
-def site_data(site):
+def site_data(roots, site):
     """(data, None) for a site a page can be built from, else (None, why not)."""
     if site.problem is not None:
         return None, site.problem
-    data = read_wbs(site.planning_dir / "WBS.md", site.name)
+    data = read_wbs(roots, site.planning_dir / "WBS.md", site.name)
     unreadable = [e for e in data.report if e.kind == "site_unreadable"]
     if unreadable:
         return None, unreadable[0].message
@@ -105,10 +105,10 @@ def read_site(site, config, earlier, *, roots):
         return None, CLASH.format(earlier=earlier)
     # Parsing too is per site: a parser that throws on one WBS.md stops only that site.
     try:
-        data, problem = site_data(site)
+        data, problem = site_data(roots, site)
         if problem is not None:
             return None, public_text(problem, roots)
-        inputs = apply_inputs(site, data, config)
+        inputs = apply_inputs(roots, site, data, config)
         return replace(inputs, data=check_h(inputs.data, site.name)), None
     except Exception as e:
         return None, render_reason(e, roots)

@@ -441,10 +441,10 @@ def test_unwritable_sites_folder_still_writes_index(tmp_path, monkeypatch):
 def test_parse_error_isolated(tmp_path, monkeypatch):
     real = build.read_wbs
 
-    def read_wbs(path, name):
+    def read_wbs(roots, path, name):
         if name == "beta":
             raise RuntimeError("parser broke")
-        return real(path, name)
+        return real(roots, path, name)
 
     monkeypatch.setattr(build, "read_wbs", read_wbs)
     result = build_all(page_tree(tmp_path, ["alpha", "beta"]))
@@ -454,7 +454,7 @@ def test_parse_error_isolated(tmp_path, monkeypatch):
 
 
 def test_site_mode_parse_error_is_one_line(tmp_path, monkeypatch):
-    def read_wbs(path, name):
+    def read_wbs(roots, path, name):
         raise RuntimeError("parser broke")
 
     monkeypatch.setattr(build, "read_wbs", read_wbs)

@@ -49,9 +49,12 @@ from page_script.harness import Planted, open_page, run_function
 from sample_roles import BUSY, OWN_UNIT, READABLE, UNESTIMATED
 from test_samples import ROOT, SAMPLES
 from test_source_scan import code_files
+from gantry.roots import directory_roots
+from gantry.sites import config_roots
 
 FIXTURES = ROOT / "tests" / "fixtures" / "wbs"
 INPUTS = ROOT / "tests" / "fixtures" / "inputs"
+SAMPLE_ROOTS = directory_roots([SAMPLES])  # the sample sites, read where they are (#59)
 PAGE_ASSETS = ("gantry/templates/worksite.html", "gantry/templates/index.html", "gantry/static/schedule.js",
                "gantry/static/worksite.js")
 
@@ -316,7 +319,7 @@ def page_for(name="page", unit=6, data=None, site="alpha"):
 
 
 def sample_page(site):
-    return render_page(site, read_wbs(SAMPLES / site / "WBS.md", site), default_unit_hours=6)
+    return render_page(site, read_wbs(SAMPLE_ROOTS, SAMPLES / site / "WBS.md", site), default_unit_hours=6)
 
 
 def with_tiers(data, thinking="opus", checking="fable"):
@@ -393,7 +396,7 @@ def built_panel(out, site):
 
 def assert_quarry_lists_bad_h(copy, panel):
     """Of every bad_h message quarry's h: values could give, the panel lists only Issue-7's."""
-    data = read_wbs(copy / UNESTIMATED / "WBS.md", UNESTIMATED)
+    data = read_wbs(directory_roots([copy]), copy / UNESTIMATED / "WBS.md", UNESTIMATED)
     held = [n for n in (*data.leaves, *data.rows) if "h" in n.meta]
     assert len(held) == 4
     possible = {H_MESSAGES[kind].format(line=n.line, raw=n.meta["h"], key=n.key)
@@ -432,7 +435,7 @@ def hostile_inputs(tmp_path):
     (folder / "estimates-2026-01-01.md").write_bytes(text.encode("utf-8"))
     config = SimpleNamespace(sites={}, default_unit_hours=6)
     site = hostile_site()
-    inputs = apply_inputs(SiteEntry("alpha", folder, None), site, config)
+    inputs = apply_inputs(directory_roots([folder]), SiteEntry("alpha", folder, None), site, config)
     # No row can name the other leaves (their keys are no Issue-N), so their
     # hand-set tier and flag are put back: every HOSTILE value stays planted.
     leaves = tuple(new if new.key == "Issue-4" else dataclasses.replace(new, models=old.models, flags=old.flags)
@@ -600,13 +603,13 @@ def inputs_for(folder, text, site="alpha", unit=6, estimates=None, configured=No
         shutil.copyfile(estimates, folder / "estimates-2026-01-01.md")
     sites = {} if configured is None else {site: SiteOverride(None, configured)}
     config = SimpleNamespace(sites=sites, default_unit_hours=unit)
-    return apply_inputs(SiteEntry(site, folder, None), parse_wbs(text, site), config)
+    return apply_inputs(directory_roots([folder]), SiteEntry(site, folder, None), parse_wbs(text, site), config)
 
 
 def sample_inputs(site):
     """apply_inputs over a sample site, read where it is."""
     config = SimpleNamespace(sites={}, default_unit_hours=6)
-    return apply_inputs(SiteEntry(site, SAMPLES / site, None), read_wbs(SAMPLES / site / "WBS.md", site), config)
+    return apply_inputs(SAMPLE_ROOTS, SiteEntry(site, SAMPLES / site, None), read_wbs(SAMPLE_ROOTS, SAMPLES / site / "WBS.md", site), config)
 
 
 def est_inputs(tmp_path):
@@ -963,9 +966,10 @@ def inputs_page(site):
     config = load_installation(SAMPLES / "gantry.sample.toml")
     sites, _ = load_sites(config)
     entry = next(s for s in sites if s.name == site)
-    data, problem = site_data(entry)
+    roots = config_roots(config)
+    data, problem = site_data(roots, entry)
     assert problem is None, problem
-    inputs = apply_inputs(entry, data, config)
+    inputs = apply_inputs(roots, entry, data, config)
     return inputs, render_page(site, inputs.data, default_unit_hours=config.default_unit_hours, inputs=inputs)
 
 
@@ -985,8 +989,8 @@ def test_non_time_sample_site():
 
 def test_model_tier_sample_site():
     inputs, page = inputs_page(BUSY)
-    found = find_estimates_file(SiteEntry(BUSY, SAMPLES / BUSY, None), SimpleNamespace(sites={}))
-    rows = read_estimates_file(found.path, BUSY, found.name).rows
+    found = find_estimates_file(SAMPLE_ROOTS, SiteEntry(BUSY, SAMPLES / BUSY, None), SimpleNamespace(sites={}))
+    rows = read_estimates_file(SAMPLE_ROOTS, found.path, BUSY, found.name).rows
     m = model_with(inputs, BUSY)
     assert m["leaves"]
     for leaf in m["leaves"]:
@@ -1322,7 +1326,7 @@ def expected_placement(leaf, data, nodes):
 
 
 def test_every_leaf_has_one_anchor():
-    pages = {site: (sample_page(site), read_wbs(SAMPLES / site / "WBS.md", site)) for site in sorted(READABLE)}
+    pages = {site: (sample_page(site), read_wbs(SAMPLE_ROOTS, SAMPLES / site / "WBS.md", site)) for site in sorted(READABLE)}
     pages["cycle"] = (page_for("cycle"), fixture("cycle"))
     seen = set()
     for name, (page, data) in pages.items():
@@ -1344,7 +1348,7 @@ def finished_list(t):
 
 
 def test_finished_list_lines():
-    data = read_wbs(SAMPLES / BUSY / "WBS.md", BUSY)
+    data = read_wbs(SAMPLE_ROOTS, SAMPLES / BUSY / "WBS.md", BUSY)
     done = [leaf for leaf in data.leaves if not leaf.open]
     assert len(done) == 6
     t = tree(sample_page(BUSY))
@@ -1381,7 +1385,7 @@ def test_stamp_slot():
 def test_anchors_not_script_built(node, tmp_path):
     text = sample_page(BUSY)
     static = [i for i in page_ids(text) if i.startswith("leaf-")]
-    assert len(static) == len(read_wbs(SAMPLES / BUSY / "WBS.md", BUSY).leaves)
+    assert len(static) == len(read_wbs(SAMPLE_ROOTS, SAMPLES / BUSY / "WBS.md", BUSY).leaves)
     with open_page(write(tmp_path, text)) as page:
         assert len(page.query('[id^="leaf-"]')) == len(static)
         assert page.query('#gantt [id^="leaf-"]') == []

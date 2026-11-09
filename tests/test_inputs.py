@@ -11,6 +11,7 @@ from gantry.sites import SiteEntry
 from gantry.wbs_stopgap import parse_wbs
 from sample_roles import BUSY, UNESTIMATED
 from test_samples import ROOT, SAMPLES
+from gantry.roots import directory_roots
 
 INPUTS = ROOT / "tests" / "fixtures" / "inputs"
 
@@ -23,7 +24,7 @@ def run(tmp_path, wbs, estimates=INPUTS / "estimates.md", unit=6, configured=Non
         shutil.copyfile(estimates, folder / "estimates-2026-01-01.md")
     sites = {} if configured is None else {"alpha": SiteOverride(None, configured)}
     config = SimpleNamespace(sites=sites, default_unit_hours=unit)
-    return apply_inputs(SiteEntry("alpha", folder, None), parse_wbs(wbs, "alpha"), config)
+    return apply_inputs(directory_roots([folder]), SiteEntry("alpha", folder, None), parse_wbs(wbs, "alpha"), config)
 
 
 def est_text():
@@ -164,7 +165,7 @@ def sample(tmp_path, site):
     folder = tmp_path / site
     shutil.copytree(SAMPLES / site, folder)
     config = SimpleNamespace(sites={}, default_unit_hours=6)
-    return apply_inputs(SiteEntry(site, folder, None), parse_wbs(wbs(site), site), config)
+    return apply_inputs(directory_roots([folder]), SiteEntry(site, folder, None), parse_wbs(wbs(site), site), config)
 
 
 def test_no_model_tiers_entry_iff_no_tiers(tmp_path):

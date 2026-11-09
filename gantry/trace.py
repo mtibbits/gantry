@@ -173,18 +173,18 @@ def satisfies_ids(leaf, namespaces) -> tuple[list[ReqId], list[ReportEntry]]:
     return ids, problems
 
 
-def load_catalog(config, sites) -> Catalog:
+def load_catalog(roots, config, sites) -> Catalog:
     """Read every in-trace site's requirements file and, when portfolio_file
-    is set, the portfolio file's business requirements. `sites` is
-    load_sites(config)[0]; in_trace_sites' warnings are build.site_list's to
-    print. Never raises on a file's content."""
+    is set, the portfolio file's business requirements, under the run's
+    `roots`. `sites` is load_sites(config)[0]; in_trace_sites' warnings are
+    build.site_list's to print. Never raises on a file's content."""
     br = config.requirements.br_namespace
     traced, _ = in_trace_sites(config, sites)
-    sets = {name: read_requirements(path, name, layers=PROJECT_LAYERS, br_namespace=br)
+    sets = {name: read_requirements(roots, path, name, layers=PROJECT_LAYERS, br_namespace=br)
             for name, path in traced.items()}
     portfolio_report = ()
     if config.portfolio_file is not None:
-        portfolio = read_portfolio_file(config.portfolio_file, br_namespace=br)
+        portfolio = read_portfolio_file(roots, config.portfolio_file, br_namespace=br)
         sets[br] = portfolio.brs
         portfolio_report = tuple(e for e in portfolio.report if e.section != "settings")
     merged = {key: r for rs in sets.values() for key, r in rs.requirements.items()}

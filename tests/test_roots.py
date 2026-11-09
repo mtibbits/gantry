@@ -596,6 +596,79 @@ def test_render_error_names_roots_by_key(tmp_path):
         + ("\\\\" if os.name == "nt" else "/") + "WBS.md")
 
 
+# --- Task 6: the per-file readers -----------------------------------------------------
+
+
+def _unreadable_estimates(result, site):
+    return [e.message for e in result.inputs[site].data.report if e.kind == "estimates_unreadable"]
+
+
+def test_estimates_folder_key_is_unreadable_and_page_builds(tmp_path):
+    from gantry.build import build_all
+    from gantry.config import load_config
+
+    copy = copy_samples(tmp_path)
+    folder = tmp_path / "folder"
+    folder.mkdir()
+    config = copy / "gantry.sample.toml"
+    config.write_bytes(config.read_bytes() + f"\n[site.harbor]\nestimates = {literal(folder)}\n".encode())
+    result = build_all(load_config(config))
+    assert "harbor" in result.pages
+    assert len(_unreadable_estimates(result, "harbor")) == 1
+
+
+def test_estimates_link_out_is_unreadable_and_page_builds(tmp_path):
+    from gantry.build import build_all
+    from gantry.config import load_config
+
+    copy = copy_samples(tmp_path)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    name = "estimates-2026-01-15-effort-and-model-tiers.md"
+    (elsewhere / name).write_bytes((copy / "harbor" / name).read_bytes())
+    (copy / "harbor" / name).unlink()
+    symlink(elsewhere / name, copy / "harbor" / name)
+    result = build_all(load_config(copy / "gantry.sample.toml"))
+    assert "harbor" in result.pages
+    (message,) = _unreadable_estimates(result, "harbor")
+    assert "outside the configured roots" in message
+
+
+def test_view_refuses_before_reading_a_template(tmp_path, monkeypatch):
+    from gantry import render
+    from gantry.views import worksite
+    from gantry.wbs_stopgap import parse_wbs
+
+    m = worksite.page_model("alpha", parse_wbs("- [ ] A {issue: Issue-1}\n", "alpha"), default_unit_hours=6)
+    render.asset.cache_clear()
+    try:
+        monkeypatch.setattr(render, "package_roots", lambda: directory_roots([tmp_path]))
+        with recording() as record:
+            with pytest.raises(OutsideRoots) as e:
+                worksite.render_model(m)
+            opened = [p for event, p in record if event == "open" and "templates" in p]
+        assert str(e.value) == "the gantry package is outside the configured roots"
+        assert opened == []
+    finally:
+        monkeypatch.undo()
+        render.asset.cache_clear()
+
+
+def test_no_module_but_roots_imports_path_tempfile_or_resources():
+    """A tripwire only; #60's scan is the gate."""
+    package = Path(__file__).resolve().parents[1] / "gantry"
+    found = []
+    for path in sorted(package.rglob("*.py")):
+        if path.name == "roots.py" and path.parent == package:
+            continue
+        text = path.read_bytes().decode("utf-8")
+        for bad in ("from pathlib import Path\r", "from pathlib import Path\n", "from pathlib import Path,",
+                    "import tempfile", "importlib", "import shutil", "open("):
+            if bad in text:
+                found.append((path.name, bad.strip()))
+    assert found == []
+
+
 def test_write_confined_mode_and_bytes(tree):
     copy, roots, _ = tree
     out = copy / "out"

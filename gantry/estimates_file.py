@@ -9,13 +9,13 @@ entry, and none names an absolute path. docs/worksite-page.md states the rules.
 """
 
 import math
-import os
 import re
 from dataclasses import dataclass
 from datetime import date
-from pathlib import Path
+from pathlib import PurePath
 
 from gantry.config import error_reason
+from gantry.roots import OutsideRoots, list_confined, read_bytes_confined, stat_confined
 from gantry.est_rules import NUM
 from gantry.model import ReportEntry
 
@@ -45,10 +45,11 @@ MESSAGES = {
 
 @dataclass(frozen=True)
 class Found:
-    path: Path | None  # None: no file is read
+    path: PurePath | None  # None: no file is read
     name: str | None  # the file's base name
     date: date | None  # from the name; None when it has none
     report: tuple[ReportEntry, ...]
+    key: str = "estimates file"  # how a refusal names it: a configured file by its key
 
 
 @dataclass(frozen=True)
@@ -83,28 +84,30 @@ def _name_date(name):
         return None
 
 
-def find_estimates_file(site, config) -> Found:
-    """The estimates file a site reads, with its report entries."""
+def find_estimates_file(roots, site, config) -> Found:
+    """The estimates file a site reads under `roots`, with its report entries."""
     override = config.sites.get(site.name)
     configured = override.estimates if override is not None else None
     if configured is False:
         return Found(None, None, None, (_entry(site.name, "no_estimates_file", MESSAGES["off"].format(site=site.name)),))
     if configured is not None:
-        path = Path(configured)
+        path = PurePath(configured)
+        key = f"site.{site.name}.estimates"
         try:
-            os.stat(path)
+            stat_confined(roots, path, key=key)
         except FileNotFoundError:
             return Found(None, None, None, (
                 _entry(site.name, "estimates_unreadable", MESSAGES["missing"].format(site=site.name)),))
-        except (OSError, ValueError):
+        except (OSError, ValueError, OutsideRoots):
             pass  # read_estimates_file reports why it cannot be opened
-        return Found(path, path.name, _name_date(path.name), ())
+        return Found(path, path.name, _name_date(path.name), (), key)
     if site.planning_dir is None:
         return Found(None, None, None, ())
     try:
-        with os.scandir(site.planning_dir) as it:
-            names = sorted(e.name for e in it if ANY_RE.fullmatch(e.name) and e.is_file())
-    except (OSError, ValueError) as e:
+        entries = list_confined(roots, site.planning_dir, key="devdoc_dir", site=site.name)
+        # A link out of the roots is kept, so reading it reports the refusal.
+        names = sorted(e.name for e in entries if ANY_RE.fullmatch(e.name) and (e.is_file or e.leaves_roots))
+    except (OSError, ValueError, OutsideRoots) as e:
         reason = error_reason(e) or "unknown error"
         return Found(None, None, None, (
             _entry(site.name, "estimates_unreadable", MESSAGES["unlisted"].format(reason=reason)),))
@@ -125,7 +128,7 @@ def find_estimates_file(site, config) -> Found:
     if read is None:
         report.append(_entry(site.name, "no_estimates_file", MESSAGES["no_file"]))
         return Found(None, None, None, tuple(report))
-    return Found(Path(site.planning_dir) / read[1], read[1], read[0], tuple(report))
+    return Found(PurePath(site.planning_dir) / read[1], read[1], read[0], tuple(report))
 
 
 def _cells(line):
@@ -148,12 +151,12 @@ def _hours(cell):
     return lo, hi
 
 
-def read_estimates_file(path, site: str, name: str) -> EstimatesFile:
-    """The rows of the file at `path`, called `name` in every message."""
+def read_estimates_file(roots, path, site: str, name: str, *, key="estimates file") -> EstimatesFile:
+    """The rows of the file at `path` under `roots`, called `name` in every
+    message; `key` names it in a refusal."""
     try:
-        with open(path, "rb") as handle:
-            data = handle.read()
-    except (OSError, ValueError) as e:
+        data = read_bytes_confined(roots, path, key=key, site=site)
+    except (OSError, ValueError, OutsideRoots) as e:
         reason = error_reason(e) or "unknown error"
         return EstimatesFile({}, (_entry(site, "estimates_unreadable",
                                          MESSAGES["cannot_read"].format(name=name, reason=reason)),))

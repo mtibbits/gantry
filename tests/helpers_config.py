@@ -5,6 +5,7 @@ import contract).
 """
 
 import io
+import os
 import posixpath
 import shutil
 from contextlib import redirect_stderr, redirect_stdout
@@ -70,6 +71,13 @@ def write_site_tree(folder, sites, tail="", **raw):
 def toml_key(name):
     """A quoted TOML key for any name: backslash and double quote escaped."""
     return '"' + name.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def roots_around(*paths):
+    """Directory roots at each path's folder, for a test with no installation config (#59)."""
+    from gantry.roots import directory_roots
+
+    return directory_roots([os.path.dirname(os.path.abspath(p)) for p in paths])
 
 
 def copy_samples(tmp_path):

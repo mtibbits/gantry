@@ -21,6 +21,7 @@ from helpers_config import write_site_tree
 from sample_roles import BUSY, SMALL
 from test_build import heading_slugs
 from test_samples import GANTRY_SAMPLE, md_tables
+from gantry.sites import config_roots
 
 
 def leaf(key, line, glyph=" ", **meta):
@@ -49,7 +50,7 @@ def tree(tmp_path, sites, portfolio=None, br=None, tail="", **raw):
 
 def catalog(config_path) -> Catalog:
     c = load_config(config_path)
-    return load_catalog(c, load_sites(c)[0])
+    return load_catalog(config_roots(c), c, load_sites(c)[0])
 
 
 def message(kind, **fields_):

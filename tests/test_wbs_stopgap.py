@@ -22,6 +22,7 @@ from gantry.wbs_stopgap import MESSAGES, parse_wbs, read_wbs, split_meta, split_
 from commit_check import path_form_hits
 from sample_roles import BUSY, HOSTILE_TITLE, OWN_UNIT, SMALL, UNESTIMATED, UNREADABLE
 from test_samples import MARSH_BAD_OFFSET, ROOT, decode_bytes, git, git_work_tree, needs_git, wbs_text
+from helpers_config import roots_around
 
 FIXTURES = ROOT / "tests" / "fixtures" / "wbs"
 NOT_UTF8 = FIXTURES / "not_utf8.md"
@@ -387,13 +388,13 @@ def only_unreadable(data):
 
 def test_read_wbs_not_utf8():
     offset = NOT_UTF8.read_bytes().index(b"\xe9")
-    message = only_unreadable(read_wbs(NOT_UTF8, "alpha"))
+    message = only_unreadable(read_wbs(roots_around(NOT_UTF8), NOT_UTF8, "alpha"))
     assert message == f"WBS.md is not valid UTF-8 at byte {offset}"
     assert path_form_hits(message) == []
 
 
 def test_read_wbs_unreadable_sample():
-    message = only_unreadable(read_wbs(ROOT / "samples" / UNREADABLE / "WBS.md", UNREADABLE))
+    message = only_unreadable(read_wbs(roots_around(ROOT / "samples" / UNREADABLE / "WBS.md"), ROOT / "samples" / UNREADABLE / "WBS.md", UNREADABLE))
     assert message == f"WBS.md is not valid UTF-8 at byte {MARSH_BAD_OFFSET}"
 
 
@@ -402,7 +403,7 @@ def test_read_wbs_cannot_open(tmp_path, make):
     path = tmp_path / "WBS.md"
     if make == "directory":
         path.mkdir()
-    message = only_unreadable(read_wbs(path, "alpha"))
+    message = only_unreadable(read_wbs(roots_around(path), path, "alpha"))
     assert message.startswith("WBS.md cannot be read: ")
     assert str(tmp_path) not in message
     assert path_form_hits(message) == []
@@ -411,7 +412,7 @@ def test_read_wbs_cannot_open(tmp_path, make):
 def test_read_wbs_reads_utf8_not_locale(tmp_path):
     path = tmp_path / "WBS.md"
     path.write_bytes("- [ ] Café {issue: Issue-1}\n".encode("utf-8"))
-    assert [leaf.title for leaf in read_wbs(path, "alpha").leaves] == ["Café"]
+    assert [leaf.title for leaf in read_wbs(roots_around(path), path, "alpha").leaves] == ["Café"]
 
 
 # --- docs --------------------------------------------------------------------
