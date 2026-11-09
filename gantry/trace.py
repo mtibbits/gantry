@@ -70,6 +70,7 @@ MESSAGES = {
 }
 
 WHY = {  # why an ID names no requirement: the {why} of undefined_id and undefined_cross_link
+    "not_a_site": "namespace {ns!r} is not a site of this installation, nor br_namespace",
     "no_file": "no requirements file is configured for namespace {ns!r}",
     "no_portfolio": "portfolio_file is not set, so no business requirement is defined",
     "unreadable": "the requirements file of namespace {ns!r} could not be read",
@@ -97,6 +98,8 @@ class Catalog:
         ns = rid.namespace
         if ns == self.br_namespace and not self.portfolio_set:
             return None, WHY["no_portfolio"]
+        if ns not in self.namespaces:
+            return None, WHY["not_a_site"].format(ns=ns)
         rs = self.sets.get(ns)
         if rs is None:
             return None, WHY["no_file"].format(ns=ns)

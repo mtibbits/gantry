@@ -182,8 +182,9 @@ cycles that cross files ([the trace report](#the-trace-report)).
 A withdrawn requirement is deleted from the file. Its ID is still never
 reused. That is the author's rule: the reader sees one version of the file,
 so it cannot check it. A leaf that still names a deleted ID is reported
-`undefined` by the trace ([the trace report](#the-trace-report)). Record the withdrawal in a prose
-line, so that the next author does not reuse the number:
+`undefined` by the trace ([the trace report](#the-trace-report)). Record
+the withdrawal in a prose line, so that the next author does not reuse the
+number:
 
 ```text
 FR-7 was withdrawn on 2026-11-05.
@@ -291,7 +292,8 @@ another resolve against the catalog. Each site's report has these fields:
 | `unserved` | the site's own requirements that no leaf serves, constraints aside |
 | `untraced` | the site's open leaves that name no ID that resolves |
 
-An undefined ID or link names one of these reasons: the namespace has no
+An undefined ID or link names one of these reasons: the namespace is not a
+site of the installation, nor `br_namespace`; the namespace has no
 configured requirements file; its file, or the portfolio file, could not be
 read; the portfolio file has no `## Business requirements` section; the file
 defines no such ID; or the ID is in `br_namespace` and

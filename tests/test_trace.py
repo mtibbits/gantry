@@ -210,7 +210,7 @@ def test_lookup_reasons(tmp_path):
     assert cat.lookup(rid("life:BR-1"))[0].layer == "BR"
     assert cat.lookup(rid("alpha:FR-9")) == (None, WHY["not_in_file"].format(ns="alpha", rid="alpha:FR-9"))
     assert cat.lookup(rid("gamma:FR-1")) == (None, WHY["no_file"].format(ns="gamma"))
-    assert cat.lookup(rid("zeta:FR-1")) == (None, WHY["no_file"].format(ns="zeta"))
+    assert cat.lookup(rid("zeta:FR-1")) == (None, WHY["not_a_site"].format(ns="zeta"))
     assert cat.lookup(rid("life:BR-9")) == (None, WHY["not_in_portfolio"].format(rid="life:BR-9"))
 
 
@@ -239,7 +239,7 @@ def test_cross_namespace_link_undefined(tmp_path):
                     message("undefined_cross_link", key="refines", rid="ferry:SR-2",
                             why=WHY["not_in_file"].format(ns="ferry", rid="ferry:SR-2"))),
         ReportEntry(src, 2, "undefined_cross_link",
-                    message("undefined_cross_link", key="needs", rid="zeta:FR-1", why=WHY["no_file"].format(ns="zeta"))),
+                    message("undefined_cross_link", key="needs", rid="zeta:FR-1", why=WHY["not_a_site"].format(ns="zeta"))),
     )
     # The reader reports no own-namespace miss for either link.
     assert cat.sets["alpha"].report == []
@@ -311,7 +311,7 @@ def test_undefined_leaf_id_reasons(tmp_path):
     assert undefined_why(t.report.undefined) == [
         message("undefined_id", rid="alpha:FR-9", why=WHY["not_in_file"].format(ns="alpha", rid="alpha:FR-9")),
         message("undefined_id", rid="gamma:FR-1", why=WHY["no_file"].format(ns="gamma")),
-        message("undefined_id", rid="zeta:FR-1", why=WHY["no_file"].format(ns="zeta")),
+        message("undefined_id", rid="zeta:FR-1", why=WHY["not_a_site"].format(ns="zeta")),
         message("undefined_id", rid="life:BR-9", why=WHY["not_in_portfolio"].format(rid="life:BR-9")),
     ]
 
@@ -560,7 +560,7 @@ def test_derived_extremes(tmp_path):
     cat = catalog(tree(tmp_path / "c", {"gamma": None}))
     lone = build_site_trace("gamma", [leaf("L1", 2, satisfies="alpha:FR-1")], cat)
     assert undefined_why(lone.report.undefined) == [
-        message("undefined_id", rid="alpha:FR-1", why=WHY["no_file"].format(ns="alpha"))]
+        message("undefined_id", rid="alpha:FR-1", why=WHY["not_a_site"].format(ns="alpha"))]
     assert lone.serving == {}
 
 
