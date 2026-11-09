@@ -293,7 +293,8 @@ another resolve against the catalog. Each site's report has these fields:
 
 An undefined ID or link names one of these reasons: the namespace has no
 configured requirements file; its file, or the portfolio file, could not be
-read; the file defines no such ID; or the ID is in `br_namespace` and
+read; the portfolio file has no `## Business requirements` section; the file
+defines no such ID; or the ID is in `br_namespace` and
 `portfolio_file` is not set.
 
 `unserved` counts only this site's leaves, so its `unserved_scope` is

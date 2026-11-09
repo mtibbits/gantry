@@ -72,6 +72,7 @@ WHY = {  # why an ID names no requirement: the {why} of undefined_id and undefin
     "no_portfolio": "portfolio_file is not set, so no business requirement is defined",
     "unreadable": "the requirements file of namespace {ns!r} could not be read",
     "portfolio_unreadable": "the portfolio file could not be read",
+    "no_br_section": "the portfolio file has no '## Business requirements' section",
     "not_in_file": "the requirements file of namespace {ns!r} defines no {rid}",
     "not_in_portfolio": "the portfolio file defines no {rid}",
 }
@@ -99,8 +100,9 @@ class Catalog:
         if found is not None:
             return found, None
         if ns == self.br_namespace:
-            if any(e.kind == "portfolio_unreadable" for e in self.portfolio_report):
-                return None, WHY["portfolio_unreadable"]
+            for kind in ("portfolio_unreadable", "no_br_section"):
+                if any(e.kind == kind for e in self.portfolio_report):
+                    return None, WHY[kind]
             return None, WHY["not_in_portfolio"].format(rid=rid)
         if any(e.kind == "unreadable" for e in rs.report):
             return None, WHY["unreadable"].format(ns=ns)

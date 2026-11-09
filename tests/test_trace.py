@@ -193,6 +193,15 @@ def test_catalog_portfolio_unreadable(tmp_path):
     assert cat.lookup(rid("life:BR-1")) == (None, WHY["portfolio_unreadable"])
 
 
+def test_catalog_portfolio_without_br_section(tmp_path):
+    # A mis-cased heading: the BR-1 line is there, but no section is read.
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "nobr.md").write_bytes(b"# P\n\n## Business Requirements\n\n- BR-1: x\n")
+    cat = catalog(tree(tmp_path, {"alpha": "- FR-1: a\n"}, portfolio_file='"nobr.md"'))
+    assert [e.kind for e in cat.portfolio_report] == ["no_br_section"]
+    assert cat.lookup(rid("life:BR-1")) == (None, WHY["no_br_section"])
+
+
 def test_lookup_reasons(tmp_path):
     cat = catalog(tree(tmp_path, {"alpha": "- FR-1: a\n", "beta": "- SR-1: b\n", "gamma": None},
                        portfolio="- BR-1: one\n"))
@@ -250,12 +259,13 @@ def test_cross_file_refines_cycle_reported_once(tmp_path):
 
 
 def test_cross_file_cycle_headed_by_first_in_catalog_order(tmp_path):
-    # beta is listed first, so the cycle is written from beta's member.
-    cat = catalog(tree(tmp_path, {"beta": "- SR-1: b {refines: alpha:FR-2}\n",
-                                  "alpha": "- FR-1: x\n- FR-2: a {refines: beta:SR-1}\n"}))
+    # beta is listed first, so the cycle is written from beta's member, though
+    # alpha's member has the earlier line (the reader's rule would pick it).
+    cat = catalog(tree(tmp_path, {"beta": "- SR-1: x\n- SR-2: b {refines: alpha:FR-1}\n",
+                                  "alpha": "- FR-1: a {refines: beta:SR-2}\n"}))
     assert [(e.kind, e.source, e.line, e.message) for e in cat.link_report["beta"]] == [
-        ("refines_cycle", source_of(cat, "beta:SR-1"), 1,
-         message("refines_cycle", chain="beta:SR-1 -> alpha:FR-2 -> beta:SR-1"))]
+        ("refines_cycle", source_of(cat, "beta:SR-2"), 2,
+         message("refines_cycle", chain="beta:SR-2 -> alpha:FR-1 -> beta:SR-2"))]
     assert list(cat.link_report) == ["beta"]
 
 
