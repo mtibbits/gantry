@@ -14,7 +14,7 @@ from gantry.model import FINISHED_GLYPHS, STATE_GLYPHS, Leaf
 from gantry.requirements import ReportEntry, ReqId
 from gantry.sites import load_sites
 from gantry.trace import (FIELDS, LEAF_SOURCE, MESSAGES, TRACE_KINDS, UNSERVED_SCOPE, WHY, Catalog, Serving,
-                          SiteTrace, TraceReport, build_site_trace, load_catalog, satisfies_ids)
+                          SiteTrace, TraceReport, UseCase, build_site_trace, load_catalog, satisfies_ids)
 from gantry.wbs_stopgap import parse_wbs
 from helpers_config import write_site_tree
 from sample_roles import BUSY, SMALL
@@ -31,6 +31,7 @@ def tree(tmp_path, sites, portfolio=None, br=None, tail="", **raw):
     """An installation in tmp_path: `sites` maps a site name to its requirements
     text (written to <name>.md beside the config), or None for a site with no
     requirements key. `portfolio` is the portfolio file's BR-section text."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
     tables = []
     for name, text in sites.items():
         if text is not None:
@@ -413,3 +414,139 @@ def test_hostile_values_never_raise(tmp_path):
     assert problems
     assert {e.kind for e in problems} <= set(TRACE_KINDS)
     assert sum(e.kind == "unbracketed_list" for e in problems) == 2 * len(HOSTILE)
+
+
+# --- Task 5: serving -----------------------------------------------------------------
+
+SERVING_REQ = """\
+- UC-1: u1 {needs: [FR-1, QA-1]}
+- UC-2: u2 {needs: [SR-2]}
+- SR-1: s1
+- SR-2: s2
+- FR-1: f1 {refines: SR-1}
+- FR-2: f2 {refines: SR-2}
+- FR-3: f3
+- QA-1: q1
+- CON-1: c1
+- EI-1: e1
+"""
+
+SERVING_LEAVES = [
+    leaf("L1", 2, satisfies="alpha:FR-1"),
+    leaf("L2", 3, "x", satisfies="alpha:FR-2"),
+    leaf("L3", 4, "-", satisfies="alpha:FR-3"),
+    leaf("L4", 5, satisfies="[alpha:SR-1, alpha:FR-1]"),
+    leaf("L5", 6, satisfies="alpha:CON-1"),
+    leaf("L6", 7),
+    leaf("L7", 8, satisfies="[]"),
+    leaf("L8", 9, satisfies="zeta:FR-1"),
+]
+
+D, I = "direct", "indirect"
+
+
+def serving_trace(tmp_path, leaves=SERVING_LEAVES, text=SERVING_REQ):
+    return build_site_trace("alpha", leaves, catalog(tree(tmp_path, {"alpha": text})))
+
+
+def test_serving_table(tmp_path):
+    t = serving_trace(tmp_path)
+    assert t.serving == {
+        "alpha:UC-1": (Serving("L1", I), Serving("L4", I)),
+        "alpha:UC-2": (Serving("L2", I),),
+        "alpha:SR-1": (Serving("L1", I), Serving("L4", D)),
+        "alpha:SR-2": (Serving("L2", I),),
+        "alpha:FR-1": (Serving("L1", D), Serving("L4", D)),
+        "alpha:FR-2": (Serving("L2", D),),
+        "alpha:CON-1": (Serving("L5", D),),
+    }
+    assert list(t.serving) == ["alpha:UC-1", "alpha:UC-2", "alpha:SR-1", "alpha:SR-2", "alpha:FR-1", "alpha:FR-2",
+                               "alpha:CON-1"]
+    assert t.report.unserved == ("alpha:FR-3", "alpha:QA-1", "alpha:EI-1")
+    assert t.report.untraced == ("L6", "L7", "L8")
+    assert list(t.leaf_ids) == ["L1", "L2", "L3", "L4", "L5"]
+    assert t.use_cases == {
+        "alpha:UC-1": UseCase((rid("alpha:FR-1"), rid("alpha:QA-1")), t.serving["alpha:UC-1"]),
+        "alpha:UC-2": UseCase((rid("alpha:SR-2"),), t.serving["alpha:UC-2"]),
+    }
+
+
+def test_direct_wins(tmp_path):
+    t = serving_trace(tmp_path)
+    assert t.serving["alpha:SR-1"] == (Serving("L1", I), Serving("L4", D))
+    only = serving_trace(tmp_path / "b", [leaf("S1", 2, satisfies="alpha:SR-1")])
+    assert only.serving == {"alpha:SR-1": (Serving("S1", D),)}
+
+
+def test_use_case_serving_via_needs_and_refinement(tmp_path):
+    t = serving_trace(tmp_path)
+    assert t.serving["alpha:UC-2"] == (Serving("L2", I),)  # FR-2 -> SR-2 -> UC-2
+    up = serving_trace(tmp_path / "b", [leaf("U1", 2, satisfies="alpha:UC-1")])
+    assert up.serving == {"alpha:UC-1": (Serving("U1", D),)}  # flows go up, never down
+
+
+def test_skipped_never_serves_done_serves(tmp_path):
+    t = serving_trace(tmp_path)
+    assert "L3" in t.leaf_ids
+    assert all(s.leaf != "L3" for held in t.serving.values() for s in held)
+    assert "L3" not in t.report.untraced
+    assert t.serving["alpha:FR-2"] == (Serving("L2", D),)
+
+
+def test_con_never_unserved(tmp_path):
+    t = serving_trace(tmp_path, [x for x in SERVING_LEAVES if x.key != "L5"])
+    assert "alpha:CON-1" not in t.serving
+    assert "alpha:CON-1" not in t.report.unserved
+    every = SERVING_LEAVES + [leaf("M1", 10, satisfies="[alpha:FR-3, alpha:QA-1, alpha:EI-1]")]
+    every = [x for x in every if x.key != "L5"]
+    assert serving_trace(tmp_path / "b", every).report.unserved == ()
+
+
+def test_serving_across_namespaces(tmp_path):
+    cat = catalog(tree(tmp_path, {"alpha": "- FR-1: a {refines: beta:SR-1}\n",
+                                  "beta": "- SR-1: b\n- UC-1: u {needs: [alpha:FR-1]}\n"}))
+    t = build_site_trace("alpha", [leaf("L1", 2, satisfies="alpha:FR-1")], cat)
+    assert t.serving == {"alpha:FR-1": (Serving("L1", D),), "beta:SR-1": (Serving("L1", I),),
+                         "beta:UC-1": (Serving("L1", I),)}
+    assert t.report.unserved == ()
+    assert build_site_trace("beta", [], cat).report.unserved == ("beta:SR-1", "beta:UC-1")  # site scope; #21
+
+
+def test_cycle_does_not_loop_serving(tmp_path):
+    cat = catalog(tree(tmp_path, {"alpha": "- FR-1: a {refines: beta:SR-1}\n",
+                                  "beta": "- SR-1: b {refines: alpha:FR-1}\n"}))
+    t = build_site_trace("alpha", [leaf("L1", 2, satisfies="alpha:FR-1")], cat)
+    assert t.serving == {"alpha:FR-1": (Serving("L1", D),), "beta:SR-1": (Serving("L1", I),)}
+    assert [e.kind for e in t.report.cycle] == ["refines_cycle"]
+
+
+def chain_text(n_fr, n_uc, closed):
+    lines = [f"- FR-{i}: f {{refines: FR-{i + 1}}}" for i in range(1, n_fr)]
+    lines.append(f"- FR-{n_fr}: f {{refines: FR-1}}" if closed else f"- FR-{n_fr}: f")
+    lines += [f"- UC-{i}: u {{needs: [FR-{n_fr}]}}" for i in range(1, n_uc + 1)]
+    return "\n".join(lines) + "\n"
+
+
+@pytest.mark.parametrize("closed", [False, True])
+def test_serving_walk_budget(tmp_path, closed):
+    cat = catalog(tree(tmp_path, {"alpha": chain_text(2000, 300, closed)}))
+    leaves = [leaf(f"L{i}", i + 2, satisfies="alpha:FR-1") for i in range(50)]
+    start = time.perf_counter()
+    t = build_site_trace("alpha", leaves, cat)
+    assert time.perf_counter() - start < 2
+    assert len(t.serving) == 2300
+    assert all(len(held) == 50 for held in t.serving.values())
+    assert [e.kind for e in t.report.cycle] == (["refines_cycle"] if closed else [])
+
+
+def test_derived_extremes(tmp_path):
+    t = serving_trace(tmp_path, [])
+    assert t.serving == {}
+    assert t.report.unserved == tuple(k for k in catalog(tree(tmp_path / "b", {"alpha": SERVING_REQ})).sets[
+        "alpha"].requirements if not k.startswith("alpha:CON-"))
+    assert t.report.untraced == ()
+    cat = catalog(tree(tmp_path / "c", {"gamma": None}))
+    lone = build_site_trace("gamma", [leaf("L1", 2, satisfies="alpha:FR-1")], cat)
+    assert undefined_why(lone.report.undefined) == [
+        message("undefined_id", rid="alpha:FR-1", why=WHY["no_file"].format(ns="alpha"))]
+    assert lone.serving == {}

@@ -264,7 +264,7 @@ def build_site_trace(site, leaves, catalog) -> SiteTrace:
                                                 MESSAGES["undefined_id"].format(rid=rid, why=why)))
         if resolved:
             leaf_ids[leaf.key] = tuple(resolved)
-    serving = {}
+    serving = _serving(leaves, leaf_ids, _flows(catalog), catalog)
     own = catalog.sets[site] if in_trace else None
     own_entries = tuple(own.report) if in_trace else ()
     link_entries = catalog.link_report.get(site, ()) if in_trace else ()
@@ -281,3 +281,41 @@ def build_site_trace(site, leaves, catalog) -> SiteTrace:
         use_cases, unserved, untraced = {}, None, None
     report = TraceReport(**by_field, unserved=unserved, unserved_scope=UNSERVED_SCOPE, untraced=untraced)
     return SiteTrace(site, in_trace, leaf_ids, serving, use_cases, report)
+
+
+def _flows(catalog):
+    """{str(X): [str(Y), ...]}: what serving X also serves. X flows to the
+    requirement it refines and to each use case that needs it, when the
+    target resolves; flows go up, never down."""
+    known = {key for rs in catalog.sets.values() for key in rs.requirements}
+    flows = {}
+    for rs in catalog.sets.values():
+        for key, r in rs.requirements.items():
+            if r.refines is not None and str(r.refines) in known:
+                flows.setdefault(key, []).append(str(r.refines))
+            for need in r.needs:
+                if str(need) in known:
+                    flows.setdefault(str(need), []).append(key)
+    return flows
+
+
+def _serving(leaves, leaf_ids, flows, catalog):
+    """{str(ReqId): serving leaves in WBS order}, keyed in catalog order. A
+    skipped leaf never serves; a leaf serves directly what it names, and
+    indirectly what that flows to. Each walk visits a requirement once, so a
+    cycle cannot loop."""
+    found = {}
+    for leaf in leaves:
+        if leaf.state == "skipped" or leaf.key not in leaf_ids:
+            continue
+        named = {str(rid) for rid in leaf_ids[leaf.key]}
+        seen, stack = set(named), list(named)
+        while stack:
+            for nxt in flows.get(stack.pop(), ()):
+                if nxt not in seen:
+                    seen.add(nxt)
+                    stack.append(nxt)
+        # Collected first, appended once per reached requirement (U1).
+        for key in seen:
+            found.setdefault(key, []).append(Serving(leaf.key, "direct" if key in named else "indirect"))
+    return {key: tuple(found[key]) for rs in catalog.sets.values() for key in rs.requirements if key in found}
