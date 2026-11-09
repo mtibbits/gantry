@@ -38,7 +38,7 @@ source LEAF_SOURCE and the leaf's line; one about a requirement has its
 source and line. Messages name namespaces, IDs and keys, never a path.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from gantry import requirements
 from gantry.model import meta_values
@@ -178,7 +178,7 @@ def load_catalog(config, sites) -> Catalog:
         portfolio = read_portfolio_file(config.portfolio_file, br_namespace=br)
         sets[br] = portfolio.brs
         portfolio_report = tuple(e for e in portfolio.report if e.section != "settings")
-    return Catalog(
+    catalog = Catalog(
         br_namespace=br,
         namespaces=frozenset({site.name for site in sites} | {br}),
         sets=sets,
@@ -186,3 +186,60 @@ def load_catalog(config, sites) -> Catalog:
         portfolio_report=portfolio_report,
         link_report={},
     )
+    return replace(catalog, link_report=_links(catalog))
+
+
+_KIND_ORDER = {kind: i for i, kind in enumerate(requirements.REPORT_KINDS + TRACE_KINDS)}
+
+
+def _links(catalog):
+    """{namespace: entries} for the cross-namespace links that name no
+    requirement and the refines: cycles that cross files (D7). A link within
+    one namespace, and a cycle within one file, are the reader's."""
+    found = {}
+
+    def add(r, kind, message):
+        ns = r.id.namespace
+        source = PORTFOLIO_LABEL if ns == catalog.br_namespace else r.source
+        found.setdefault(ns, []).append(ReportEntry(source, r.line, kind, message))
+
+    order = {}  # str(id) -> position in catalog order
+    reqs = {}
+    for rs in catalog.sets.values():
+        for key, r in rs.requirements.items():
+            order[key] = len(order)
+            reqs[key] = r
+    for r in reqs.values():
+        for key, targets in (("refines", [r.refines]), ("needs", r.needs)):
+            for t in targets:
+                if t is None or t.namespace == r.id.namespace:
+                    continue
+                _, why = catalog.lookup(t)
+                if why is not None:
+                    add(r, "undefined_cross_link",
+                        MESSAGES["undefined_cross_link"].format(key=key, rid=t, why=why))
+
+    def follow(key):
+        t = reqs[key].refines
+        return str(t) if t is not None and str(t) in reqs else None
+
+    # Each requirement refines at most one other: walk the paths in catalog
+    # order, visiting each requirement once.
+    state = {}
+    for start in reqs:
+        path, node = [], start
+        while node is not None and node not in state:
+            state[node] = "path"
+            path.append(node)
+            node = follow(node)
+        if node is not None and state[node] == "path":
+            cycle = path[path.index(node):]
+            if len({reqs[k].id.namespace for k in cycle}) > 1:
+                first = cycle.index(min(cycle, key=order.__getitem__))
+                cycle = cycle[first:] + cycle[:first]
+                add(reqs[cycle[0]], "refines_cycle",
+                    MESSAGES["refines_cycle"].format(chain=" -> ".join(cycle + cycle[:1])))
+        for key in path:
+            state[key] = "done"
+    return {ns: tuple(sorted(found[ns], key=lambda e: (e.line, _KIND_ORDER[e.kind])))
+            for ns in catalog.sets if ns in found}

@@ -208,3 +208,72 @@ def test_sample_catalog_resolves_br_id():
     assert list(cat.sets["life"].requirements) == ["life:BR-1", "life:BR-2", "life:BR-3"]
     assert cat.portfolio_report == ()
     assert cat.lookup(ReqId("life", "BR", 2))[0].layer == "BR"
+
+
+# --- Task 3: cross-namespace links and cross-file cycles ----------------------------
+
+
+def source_of(cat, key):
+    return cat.lookup(rid(key))[0].source
+
+
+def test_cross_namespace_link_undefined(tmp_path):
+    cat = catalog(tree(tmp_path, {"alpha": "- FR-1: a {refines: ferry:SR-2}\n- UC-1: u {needs: [zeta:FR-1]}\n",
+                                  "ferry": "- SR-1: s\n"}))
+    src = source_of(cat, "alpha:FR-1")
+    assert list(cat.link_report) == ["alpha"]
+    assert cat.link_report["alpha"] == (
+        ReportEntry(src, 1, "undefined_cross_link",
+                    message("undefined_cross_link", key="refines", rid="ferry:SR-2",
+                            why=WHY["not_in_file"].format(ns="ferry", rid="ferry:SR-2"))),
+        ReportEntry(src, 2, "undefined_cross_link",
+                    message("undefined_cross_link", key="needs", rid="zeta:FR-1", why=WHY["no_file"].format(ns="zeta"))),
+    )
+    # The reader reports no own-namespace miss for either link.
+    assert cat.sets["alpha"].report == []
+
+
+def test_cross_namespace_link_defined_not_reported(tmp_path):
+    cat = catalog(tree(tmp_path, {"alpha": "- FR-1: a {refines: ferry:SR-1}\n", "ferry": "- SR-1: s\n"}))
+    assert cat.link_report == {}
+
+
+def test_cross_file_refines_cycle_reported_once(tmp_path):
+    cat = catalog(tree(tmp_path, {"alpha": "- FR-1: a {refines: beta:SR-1}\n",
+                                  "beta": "- SR-1: b {refines: alpha:FR-1}\n"}))
+    assert cat.link_report == {"alpha": (
+        ReportEntry(source_of(cat, "alpha:FR-1"), 1, "refines_cycle",
+                    "cross-file refines cycle: alpha:FR-1 -> beta:SR-1 -> alpha:FR-1"),)}
+
+
+def test_cross_file_cycle_headed_by_first_in_catalog_order(tmp_path):
+    # beta is listed first, so the cycle is written from beta's member.
+    cat = catalog(tree(tmp_path, {"beta": "- SR-1: b {refines: alpha:FR-2}\n",
+                                  "alpha": "- FR-1: x\n- FR-2: a {refines: beta:SR-1}\n"}))
+    assert [(e.kind, e.source, e.line, e.message) for e in cat.link_report["beta"]] == [
+        ("refines_cycle", source_of(cat, "beta:SR-1"), 1,
+         message("refines_cycle", chain="beta:SR-1 -> alpha:FR-2 -> beta:SR-1"))]
+    assert list(cat.link_report) == ["beta"]
+
+
+def test_no_cross_file_cycle_through_a_business_requirement(tmp_path):
+    # A project file cannot link into br_namespace (the reader's misplaced), so
+    # a cycle through a business requirement never forms across files.
+    cat = catalog(tree(tmp_path, {"alpha": "- FR-1: a {refines: life:BR-1}\n"},
+                       portfolio="- BR-1: x {refines: alpha:FR-1}\n"))
+    assert [e.kind for e in cat.sets["alpha"].report] == ["misplaced"]
+    assert cat.link_report == {}
+
+
+def test_within_file_cycle_not_double_reported(tmp_path):
+    cat = catalog(tree(tmp_path, {"alpha": "- FR-1: a {refines: FR-2}\n- FR-2: b {refines: FR-1}\n"}))
+    assert [e.kind for e in cat.sets["alpha"].report] == ["refines_cycle"]
+    assert cat.link_report == {}
+
+
+def test_br_links_stay_on_the_catalog(tmp_path):
+    cat = catalog(tree(tmp_path, {"alpha": "- FR-1: a\n"}, portfolio="- BR-1: x {refines: alpha:FR-9}\n"))
+    assert cat.link_report == {"life": (
+        ReportEntry("the portfolio file", 5, "undefined_cross_link",
+                    message("undefined_cross_link", key="refines", rid="alpha:FR-9",
+                            why=WHY["not_in_file"].format(ns="alpha", rid="alpha:FR-9"))),)}
