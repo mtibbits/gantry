@@ -324,6 +324,166 @@ def test_every_path_key_has_a_root_kind():
             assert key.root in ("file", "directory"), key.name
 
 
+# --- Task 4: config_roots and the confined site list ----------------------------------
+
+
+def literal(path):
+    """A TOML literal string for a path: no escapes, so a Windows path needs none."""
+    text = str(path)
+    assert "'" not in text
+    return f"'{text}'"
+
+
+def replace_bytes(path, old, new):
+    before = path.read_bytes().decode("utf-8")
+    after = before.replace(old, new)
+    assert after != before
+    path.write_bytes(after.encode("utf-8"))
+
+
+def roots_of(config_path):
+    from gantry.config import load_config
+    from gantry.sites import config_roots
+
+    return config_roots(load_config(config_path))
+
+
+def test_sample_roots_lie_inside_the_sample_directory():
+    from helpers_config import sample_projects
+    from test_samples import GANTRY_SAMPLE
+
+    roots = roots_of(GANTRY_SAMPLE)
+    assert outside(roots, sample_dir()) == []
+    found = {(r.key, r.site) for r in roots.roots}
+    assert {("devdoc_dir", n) for n in sample_projects()} <= found
+    assert {("--config", None), ("devagent_config", None), ("output_dir", None), ("portfolio_file", None),
+            ("site.lighthouse.requirements", None)} <= found
+    assert [r.key for r in roots.roots if r.writable] == ["output_dir"]
+
+
+def _out_output_dir(copy, elsewhere):
+    replace_bytes(copy / "gantry.sample.toml", 'output_dir = "out"', f"output_dir = {literal(elsewhere)}")
+
+
+def _out_requirements(copy, elsewhere):
+    replace_bytes(copy / "gantry.sample.toml", 'requirements = "lighthouse/requirements.md"',
+                  'requirements = "../../x"')
+
+
+def _out_devdoc_dir(copy, elsewhere):
+    replace_bytes(copy / "devagent" / "config.toml", 'devdoc_dir = "../harbor"',
+                  f"devdoc_dir = {literal(elsewhere)}")
+
+
+def _link_out(make):
+    def move(copy, elsewhere):
+        import shutil
+
+        shutil.copytree(copy / "harbor", elsewhere / "harbor")
+        shutil.rmtree(copy / "harbor")
+        make(elsewhere / "harbor", copy / "harbor")
+    return move
+
+
+OUT_CASES = {
+    "output_dir": (_out_output_dir, [("output_dir", None)]),
+    "requirements": (_out_requirements, [("site.lighthouse.requirements", None)]),
+    "devdoc_dir": (_out_devdoc_dir, [("devdoc_dir", "harbor")]),
+    "linked site": (_link_out(lambda t, l: symlink(t, l, directory=True)), [("devdoc_dir", "harbor")]),
+    "junction site": (_link_out(junction), [("devdoc_dir", "harbor")]),
+}
+
+
+@pytest.mark.parametrize("case", list(OUT_CASES))
+def test_outside_names_the_root_changed(tmp_path, case):
+    copy = copy_samples(tmp_path)
+    assert outside(roots_of(copy / "gantry.sample.toml"), copy) == []
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    move, expected = OUT_CASES[case]
+    move(copy, elsewhere)
+    assert [(r.key, r.site) for r in outside(roots_of(copy / "gantry.sample.toml"), copy)] == expected
+
+
+def test_writable_root_may_not_contain_an_input(tmp_path):
+    from gantry.config import ConfigError
+
+    copy = copy_samples(tmp_path)
+    config = copy / "gantry.sample.toml"
+    replace_bytes(config, 'output_dir = "out"', f"output_dir = {literal(copy)}")
+    with pytest.raises(ConfigError) as e:
+        roots_of(config)
+    text = str(e.value)
+    assert "'output_dir'" in text and "contains" in text
+    assert "devdoc_dir of site harbor" in text and "the config file itself" in text
+    assert "key 'devagent_config'" in text
+    replace_bytes(config, f"output_dir = {literal(copy)}", f"output_dir = {literal(copy / 'harbor')}")
+    with pytest.raises(ConfigError) as e:
+        roots_of(config)
+    assert "'output_dir' equals devdoc_dir of site harbor" in str(e.value)
+    replace_bytes(config, f"output_dir = {literal(copy / 'harbor')}", 'output_dir = "out"')
+    assert roots_of(config)
+
+
+def test_writable_root_containment_exits_1_at_the_cli(tmp_path):
+    from helpers_config import run_main
+
+    copy = copy_samples(tmp_path)
+    replace_bytes(copy / "gantry.sample.toml", 'output_dir = "out"', 'output_dir = "."')
+    code, out, err = run_main("--config", str(copy / "gantry.sample.toml"))
+    assert code == 1 and out == ""
+    assert "'output_dir' contains" in err
+
+
+def test_estimates_naming_a_folder_admits_nothing_under_it(tmp_path):
+    copy = copy_samples(tmp_path)
+    folder = tmp_path / "folder"
+    folder.mkdir()
+    (folder / "x.md").write_bytes(b"x")
+    config = copy / "gantry.sample.toml"
+    config.write_bytes(config.read_bytes() + f"\n[site.harbor]\nestimates = {literal(folder)}\n".encode())
+    roots = roots_of(config)
+    with pytest.raises(OutsideRoots):
+        read_bytes_confined(roots, folder / "x.md", key="estimates file", site="harbor")
+
+
+def test_nul_devdoc_dir_adds_no_root_and_is_a_problem(tmp_path):
+    from gantry.config import load_config
+    from gantry.sites import config_roots, load_sites
+    from helpers_config import write_config
+
+    p = write_config(tmp_path)
+    (tmp_path / "plans").mkdir()
+    (tmp_path / "plans" / "WBS.md").write_bytes(b"x\n")
+    (tmp_path / "devagent.toml").write_bytes(
+        b'[project.nul]\ndevdoc_dir = "a\\u0000b"\n[project.good]\ndevdoc_dir = "plans"\n')
+    config = load_config(p)
+    assert [r.site for r in config_roots(config).roots if r.key == "devdoc_dir"] == ["good"]
+    sites, _ = load_sites(config)
+    assert sites[0].problem.startswith("cannot check the planning directory: ")
+    assert sites[1].problem is None
+
+
+def test_bootstrap_reads_only_what_each_step_names(tmp_path):
+    from gantry.config import load_config
+    from gantry.roots import bootstrap_roots, with_file
+    from gantry.sites import config_roots
+
+    copy = copy_samples(tmp_path)
+    path = copy / "gantry.sample.toml"
+    roots = bootstrap_roots(path)
+    assert read_bytes_confined(roots, path, key="--config")
+    devagent = copy / "devagent" / "config.toml"
+    with pytest.raises(OutsideRoots):
+        read_bytes_confined(roots, devagent, key="devagent_config")
+    roots = with_file(roots, devagent, key="devagent_config")
+    assert read_bytes_confined(roots, devagent, key="devagent_config")
+    with pytest.raises(OutsideRoots):
+        read_bytes_confined(roots, copy / "harbor" / "WBS.md", key="WBS.md", site="harbor")
+    roots = config_roots(load_config(path))
+    assert read_bytes_confined(roots, copy / "harbor" / "WBS.md", key="WBS.md", site="harbor")
+
+
 def test_write_confined_mode_and_bytes(tree):
     copy, roots, _ = tree
     out = copy / "out"

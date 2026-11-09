@@ -249,6 +249,14 @@ def with_package(roots) -> Roots:
     return Roots(roots.roots + (package_root(),))
 
 
+def relation(outer: Root, inner: Root) -> str | None:
+    """"equals" or "contains" when `outer` is or holds `inner`, else None."""
+    a, b = os.path.normcase(str(outer.path)), os.path.normcase(str(inner.path))
+    if a == b:
+        return "equals"
+    return "contains" if _within(b, a) else None
+
+
 def outside(roots, base) -> list[Root]:
     """The roots that are not `base` or under it, both sides resolved and
     case-normalised; the package root is never listed."""
