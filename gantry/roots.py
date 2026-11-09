@@ -151,21 +151,25 @@ def _is_link(text) -> bool:
         return False
 
 
-def _refuse_links(path, root, *, key, site):
-    """LinkRefused when a component of `path` strictly below `root` is a link.
-    A link at the root itself moved the root and is allowed."""
-    mine = os.path.normcase(str(root.path))
-    full = os.path.abspath(_text(path))
-    prefixes, head = [], full
-    while True:
-        prefixes.append(head)
-        parent = os.path.dirname(head)
-        if parent == head:
-            break
-        head = parent
-    for prefix in reversed(prefixes):
-        canon = _canon(prefix)
-        if canon != mine and _admits(root, canon) and _is_link(prefix):
+def _refuse_links(roots, path, *, key, site):
+    """LinkRefused when a component of `path` that sits inside a root is a link.
+
+    The components are walked as written (`..` not collapsed first), and a
+    link counts by where it sits, not where it points: a link whose parent
+    folder lies inside a root is refused, even one pointing back at a root. A
+    link whose parent lies outside every root is where the path enters a
+    root (a link at the root itself moved the root) and is allowed.
+    """
+    text = _text(path)
+    if not os.path.isabs(text):
+        text = os.path.join(os.getcwd(), text)
+    parts = PurePath(text).parts
+    prefix = parts[0]
+    for part in parts[1:]:
+        parent, prefix = prefix, os.path.join(prefix, part)
+        if part == ".." or not _is_link(prefix):
+            continue
+        if _admitting(roots, _canon(parent), False) is not None:
             raise LinkRefused(key, "read", site)
 
 
@@ -280,9 +284,9 @@ def open_confined(roots, path, mode="r", *, key, site=None, follow_links=True, e
     write mode is provisional for #35's lock file.
     """
     write = any(c in mode for c in "wax+")
-    resolved, root = _check(roots, path, key=key, site=site, write=write)
+    resolved, _ = _check(roots, path, key=key, site=site, write=write)
     if not follow_links:
-        _refuse_links(path, root, key=key, site=site)
+        _refuse_links(roots, path, key=key, site=site)
     return open(resolved, mode, encoding=encoding, opener=_nofollow)
 
 

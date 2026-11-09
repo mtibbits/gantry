@@ -298,6 +298,38 @@ def test_follow_links_false_allows_a_link_at_the_root(tmp_path):
     assert read_text_confined(roots, tmp_path / "linked" / "x.md", key="x", follow_links=False) == "inside"
 
 
+def _two_roots(tmp_path):
+    a, b = tmp_path / "a", tmp_path / "b"
+    for folder in (a, b):
+        folder.mkdir()
+        (folder / "secret.md").write_bytes(b"secret")
+    return a, b, directory_roots([a, b])
+
+
+def test_follow_links_false_refuses_a_link_to_its_own_root(tmp_path):
+    a, _, roots = _two_roots(tmp_path)
+    link_dir(a, a / "loop")
+    with pytest.raises(LinkRefused):
+        read_text_confined(roots, a / "loop" / "secret.md", key="x", follow_links=False)
+
+
+def test_follow_links_false_refuses_a_link_to_a_sibling_root(tmp_path):
+    a, b, roots = _two_roots(tmp_path)
+    link_dir(b, a / "to_b")
+    with pytest.raises(LinkRefused):
+        read_text_confined(roots, a / "to_b" / "secret.md", key="x", follow_links=False)
+
+
+def test_follow_links_false_refuses_a_link_before_dotdot(tmp_path):
+    a, _, roots = _two_roots(tmp_path)
+    (a / "deep" / "inner").mkdir(parents=True)
+    (a / "deep" / "x.md").write_bytes(b"deep")
+    (a / "x.md").write_bytes(b"top")
+    link_dir(a / "deep" / "inner", a / "dj")
+    with pytest.raises(LinkRefused):
+        read_text_confined(roots, str(a / "dj") + os.sep + ".." + os.sep + "x.md", key="x", follow_links=False)
+
+
 def test_outside_lists_by_key_and_skips_package(tmp_path):
     copy = copy_samples(tmp_path)
     roots = directory_roots([copy / ".." / "x", tmp_path / "samples-x", copy / "out", copy])
