@@ -12,14 +12,14 @@ import html
 import json
 import re
 
-from gantry.roots import PACKAGE_KEY, gantry_root, package_roots, read_bytes_confined
+from gantry.roots import PACKAGE_KEY, package_root, package_roots, read_bytes_confined
 
 
 @functools.cache
 def asset(name: str) -> str:
     """A packaged page asset's text (a template or a script), read as UTF-8
     bytes under the package root, once per process."""
-    path = gantry_root() / "gantry" / name
+    path = package_root().path / name
     return read_bytes_confined(package_roots(), path, key=PACKAGE_KEY).decode("utf-8")
 
 

@@ -122,7 +122,7 @@ def test_outside_cases(tmp_path):
 
 
 def test_no_sample_dir_never_sample_mode(monkeypatch):
-    monkeypatch.setattr(stamp, "sample_dir", lambda package_dir=None: None)
+    monkeypatch.setattr(stamp, "sample_dir", lambda: None)
     assert sample_mode(loaded(ROOT / "samples" / "gantry.sample.toml")) is False
 
 

@@ -204,17 +204,17 @@ def _check_containment(config, roots):
                               "a writable root may not equal or contain an input root")
 
 
-def load_sites(config):
+def load_sites(config, roots=None):
     """Return (sites, warnings) for a loaded installation config.
 
     The devagent config is read through roots holding only the two config
     files; each planning directory and its WBS.md are then stat'd through
-    the run's full roots, which config_roots builds (reading the devagent
-    config again).
+    the run's full roots: `roots` when the caller has built them, else
+    config_roots builds them (reading the devagent config again).
     """
     dfile = config.devagent_config
     projects, parsed = _parse(config, _config_files(config))
-    full = config_roots(config)
+    full = config_roots(config) if roots is None else roots
     sites = [replace(s, problem=_stat_problem(full, s.planning_dir, s.name)) if s.planning_dir is not None else s
              for s in parsed]
     warnings = [

@@ -189,7 +189,7 @@ def demo_build(tmp_path, monkeypatch, *args, copy=None):
 
     if copy is None:
         copy = copy_samples(tmp_path)
-    monkeypatch.setattr(stamp, "sample_dir", lambda package_dir=None: copy)
+    monkeypatch.setattr(stamp, "sample_dir", lambda: copy)
     code, out, err = run_main("--config", str(copy / "gantry.sample.toml"), *args)
     return code, copy / "out", out, err
 

@@ -15,7 +15,7 @@ from gantry.attention import check_h
 from gantry.config import Config, error_reason
 from gantry.inputs import Inputs, apply_inputs
 from gantry.requirements import in_trace_sites
-from gantry.roots import OutsideRoots, Roots, exists_confined, mkdir_confined, stat_confined, write_confined
+from gantry.roots import OutsideRoots, Roots, mkdir_confined, stat_confined, write_confined
 from gantry.sites import SiteEntry, SiteWarning, config_roots, load_sites
 from gantry.stamp import public_text, stamp_text
 from gantry.views import worksite
@@ -57,9 +57,9 @@ class BuildResult:
     roots: Roots  # the run's roots (#59): every read, the stamp and every write
 
 
-def site_list(config):
+def site_list(config, roots=None):
     """(sites, warnings): the site list's warnings, then the trace's. ConfigError propagates."""
-    sites, warnings = load_sites(config)
+    sites, warnings = load_sites(config, roots)
     return sites, warnings + in_trace_sites(config, sites)[1]
 
 
@@ -179,8 +179,8 @@ def build_all(config, *, now=None, samples=None) -> BuildResult:
     entries across the read sites there, then calls render_sites again on
     the sites whose pages change.
     """
-    sites, warnings = site_list(config)
     roots = config_roots(config)
+    sites, warnings = site_list(config, roots)
     stamp = stamp_text(config, now=now, samples=samples, roots=roots)
     inputs, reasons = read_sites(config, sites, roots=roots)
     pages, models, failed = render_sites(config, inputs, stamp, roots=roots)
@@ -192,8 +192,7 @@ def build_all(config, *, now=None, samples=None) -> BuildResult:
 
 def _is_file_shaped(roots, folder) -> bool:
     try:
-        return (exists_confined(roots, folder, key="output_dir")
-                and not stat.S_ISDIR(stat_confined(roots, folder, key="output_dir").st_mode))
+        return not stat.S_ISDIR(stat_confined(roots, folder, key="output_dir").st_mode)
     except (OSError, ValueError, OutsideRoots):
         return False
 

@@ -130,12 +130,12 @@ def _admitting(roots, canon, write):
 
 
 def _check(roots, path, *, key, site, write=False):
-    """(resolved path text, admitting root), or raise OutsideRoots."""
+    """The resolved path text, or raise OutsideRoots."""
     resolved = os.path.realpath(_text(path))
     root = _admitting(roots, os.path.normcase(resolved), write)
     if root is None:
         raise OutsideRoots(key, "write" if write else "read", site)
-    return resolved, root
+    return resolved
 
 
 def _is_link_stat(st) -> bool:
@@ -284,7 +284,7 @@ def open_confined(roots, path, mode="r", *, key, site=None, follow_links=True, e
     write mode is provisional for #35's lock file.
     """
     write = any(c in mode for c in "wax+")
-    resolved, _ = _check(roots, path, key=key, site=site, write=write)
+    resolved = _check(roots, path, key=key, site=site, write=write)
     if not follow_links:
         _refuse_links(roots, path, key=key, site=site)
     return open(resolved, mode, encoding=encoding, opener=_nofollow)
@@ -302,18 +302,18 @@ def read_text_confined(roots, path, *, key, site=None, follow_links=True) -> str
 
 def exists_confined(roots, path, *, key, site=None) -> bool:
     """Whether the path exists; outside every root it raises, never answers false."""
-    resolved, _ = _check(roots, path, key=key, site=site)
+    resolved = _check(roots, path, key=key, site=site)
     return os.path.exists(resolved)
 
 
 def stat_confined(roots, path, *, key, site=None) -> os.stat_result:
-    resolved, _ = _check(roots, path, key=key, site=site)
+    resolved = _check(roots, path, key=key, site=site)
     return os.stat(resolved)
 
 
 def list_confined(roots, path, *, key, site=None) -> list[Entry]:
     """The folder's entries; outside every root it raises, never answers empty."""
-    resolved, _ = _check(roots, path, key=key, site=site)
+    resolved = _check(roots, path, key=key, site=site)
     entries = []
     with os.scandir(resolved) as it:
         for e in it:
@@ -339,7 +339,7 @@ def list_confined(roots, path, *, key, site=None) -> list[Entry]:
 def resolve_confined(roots, path, *, key, site=None) -> PurePath:
     """The checked, resolved path, for a path handed to a child process
     (provisional for #43)."""
-    resolved, _ = _check(roots, path, key=key, site=site)
+    resolved = _check(roots, path, key=key, site=site)
     return PurePath(resolved)
 
 
@@ -349,7 +349,7 @@ def resolve_confined(roots, path, *, key, site=None) -> PurePath:
 def write_confined(roots, path, data: bytes, *, key, site=None):
     """Write `data` through a temporary file in the same folder and a rename:
     no partial file. The file gets the mode any new file gets."""
-    resolved, _ = _check(roots, path, key=key, site=site, write=True)
+    resolved = _check(roots, path, key=key, site=site, write=True)
     folder = os.path.dirname(resolved)
     fd, tmp = tempfile.mkstemp(dir=folder, prefix=f".{PurePath(resolved).stem}.", suffix=".tmp")
     try:
@@ -369,21 +369,21 @@ def write_confined(roots, path, data: bytes, *, key, site=None):
 
 def replace_confined(roots, src, dst, *, key, site=None):
     """os.replace under a writable root (provisional for #35)."""
-    source, _ = _check(roots, src, key=key, site=site, write=True)
-    target, _ = _check(roots, dst, key=key, site=site, write=True)
+    source = _check(roots, src, key=key, site=site, write=True)
+    target = _check(roots, dst, key=key, site=site, write=True)
     os.replace(source, target)
 
 
 def remove_confined(roots, path, *, key, site=None):
     """os.remove under a writable root (provisional for #35)."""
-    resolved, _ = _check(roots, path, key=key, site=site, write=True)
+    resolved = _check(roots, path, key=key, site=site, write=True)
     os.remove(resolved)
 
 
 def mkdir_confined(roots, path, *, key, site=None):
     """Make the folder and its missing parents; the writable root itself may
     be among them, nothing else outside it."""
-    resolved, _ = _check(roots, path, key=key, site=site, write=True)
+    resolved = _check(roots, path, key=key, site=site, write=True)
     _makedirs(resolved)
 
 
@@ -409,5 +409,5 @@ def _makedirs(path):
 
 def rmtree_confined(roots, path, *, key, site=None):
     """shutil.rmtree under a writable root (provisional for #35)."""
-    resolved, _ = _check(roots, path, key=key, site=site, write=True)
+    resolved = _check(roots, path, key=key, site=site, write=True)
     shutil.rmtree(resolved)

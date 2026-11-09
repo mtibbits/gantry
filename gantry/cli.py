@@ -85,7 +85,7 @@ def _utf8_streams():
             stream.reconfigure(encoding="utf-8", errors="backslashreplace", newline="\n")
 
 
-def _build_site(config, sites, name):
+def _build_site(config, roots, sites, name):
     def fail(message):
         print(f"gantry: error: --site {shown(name)}: {message}", file=sys.stderr)
         return 1
@@ -93,11 +93,6 @@ def _build_site(config, sites, name):
     site = next((s for s in sites if s.name == name), None)
     if site is None:
         return fail(f"no such site in {config.devagent_config}")
-    try:
-        roots = config_roots(config)
-    except ConfigError as e:
-        print(f"gantry: error: {e}", file=sys.stderr)
-        return 1
     # The full build's read: its case-clash rule, and a parse error stops only this site.
     inputs, problem = read_site(site, config, clashes(sites).get(site.name), roots=roots)
     if problem is not None:
@@ -154,12 +149,13 @@ def _build(args):
         config = load_config(args.config)
         if args.site is None:
             return _build_all(config)
-        sites, warnings = site_list(config)
+        roots = config_roots(config)
+        sites, warnings = site_list(config, roots)
     except ConfigError as e:
         print(f"gantry: error: {e}", file=sys.stderr)
         return 1
     _warn(warnings)
-    return _build_site(config, sites, args.site)
+    return _build_site(config, roots, sites, args.site)
 
 
 # True until the build reads the portfolio file (#23 or #61); that issue
@@ -172,8 +168,8 @@ def _portfolio(args):
     _utf8_streams()
     try:
         config = load_config(args.config)
-        sites, _ = site_list(config)  # the site list's own warnings belong to the build
         roots = config_roots(config)
+        sites, _ = site_list(config, roots)  # the site list's own warnings belong to the build
     except ConfigError as e:
         print(f"gantry: error: {e}", file=sys.stderr)
         return 1

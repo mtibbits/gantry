@@ -15,7 +15,7 @@ from datetime import date, datetime
 from pathlib import PurePath, PurePosixPath, PureWindowsPath
 from typing import Literal
 
-from gantry.roots import CONFIG_KEY, OutsideRoots, bootstrap_roots, open_confined
+from gantry.roots import CONFIG_KEY, OutsideRoots, bootstrap_roots, read_bytes_confined
 
 CONFIG_VERSION = 1
 DEFAULT_BR_NAMESPACE = "life"
@@ -256,8 +256,7 @@ def read_toml(roots, path, name: str, subject: str, *, key) -> dict:
     """
     file = str(path)
     try:
-        with open_confined(roots, path, "rb", key=key) as handle:
-            data = handle.read()
+        data = read_bytes_confined(roots, path, key=key)
     except (OSError, ValueError, OutsideRoots) as e:
         # ValueError: an embedded NUL, or a path too long for Windows.
         raise ConfigError(f"{file}: cannot read {name}: {error_reason(e)}") from None
