@@ -30,7 +30,9 @@ from gantry.roots import (
     read_bytes_confined,
     read_text_confined,
     remove_confined,
+    replace_confined,
     resolve_confined,
+    rmtree_confined,
     sample_dir,
     stat_confined,
     write_confined,
@@ -170,6 +172,10 @@ def test_write_modes_need_a_writable_root(tree, mode):
     with open_confined(roots, target, mode, key="output_dir"):
         pass
     assert target.exists()
+    if os.name != "nt":
+        with open(copy / "out" / "plain.txt", "w"):
+            pass
+        assert target.stat().st_mode & 0o777 == (copy / "out" / "plain.txt").stat().st_mode & 0o777
 
 
 def test_read_refusal_kind_is_read(tree):
@@ -725,3 +731,36 @@ def test_write_confined_mode_and_bytes(tree):
     if os.name != "nt":
         mode = os.stat(out / "sites" / "harbor.html").st_mode & 0o777
         assert mode == os.stat(out / "sites" / "plain.html").st_mode & 0o777
+
+def test_rmtree_refuses_a_folder_link_and_keeps_its_target(tree):
+    copy, roots, _ = tree
+    out = copy / "out"
+    (out / "gen1").mkdir(parents=True)
+    (out / "gen1" / "index.html").write_bytes(b"live")
+    link_dir(out / "gen1", out / "current")
+    with pytest.raises(OSError):
+        rmtree_confined(roots, out / "current", key="output_dir")
+    assert (out / "gen1" / "index.html").read_bytes() == b"live"
+    rmtree_confined(roots, out / "gen1", key="output_dir")
+    assert not (out / "gen1").exists()
+
+
+def test_remove_replace_and_write_act_on_a_file_link_not_its_target(tree):
+    copy, roots, elsewhere = tree
+    out = copy / "out"
+    out.mkdir()
+    (out / "target.txt").write_bytes(b"target")
+    for name in ("removed", "replaced", "written"):
+        symlink(out / "target.txt", out / name)
+    symlink(elsewhere / "keep.txt", out / "away")
+    (out / "new.txt").write_bytes(b"new")
+    remove_confined(roots, out / "removed", key="output_dir")
+    remove_confined(roots, out / "away", key="output_dir")
+    replace_confined(roots, out / "new.txt", out / "replaced", key="output_dir")
+    write_confined(roots, out / "written", b"page", key="output_dir")
+    assert not os.path.lexists(out / "removed")
+    assert not os.path.lexists(out / "away")
+    assert not is_link(out / "replaced") and (out / "replaced").read_bytes() == b"new"
+    assert not is_link(out / "written") and (out / "written").read_bytes() == b"page"
+    assert (out / "target.txt").read_bytes() == b"target"
+    assert (elsewhere / "keep.txt").read_bytes() == b"keep"

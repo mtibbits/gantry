@@ -138,6 +138,21 @@ def _check(roots, path, *, key, site, write=False):
     return resolved
 
 
+def _check_entry(roots, path, *, key, site):
+    """The resolved folder joined with the path's last part, unresolved, under
+    a writable root, or raise OutsideRoots. A write, rename or removal then
+    acts on a link at `path` itself, as os.replace and os.remove do, never on
+    what it points at."""
+    text = _text(path)
+    head, leaf = os.path.split(text)
+    if leaf in ("", ".", ".."):
+        return _check(roots, path, key=key, site=site, write=True)
+    resolved = os.path.join(os.path.realpath(head or os.curdir), leaf)
+    if _admitting(roots, os.path.normcase(resolved), True) is None:
+        raise OutsideRoots(key, "write", site)
+    return resolved
+
+
 def _is_link_stat(st) -> bool:
     """A symlink, or a junction (which S_ISLNK misses)."""
     tag = getattr(st, "st_reparse_tag", 0)
@@ -273,7 +288,7 @@ def outside(roots, base) -> list[Root]:
 
 
 def _nofollow(path, flags):
-    return os.open(path, flags | getattr(os, "O_NOFOLLOW", 0))
+    return os.open(path, flags | getattr(os, "O_NOFOLLOW", 0), 0o666)
 
 
 def open_confined(roots, path, mode="r", *, key, site=None, follow_links=True, encoding=None):
@@ -348,8 +363,9 @@ def resolve_confined(roots, path, *, key, site=None) -> PurePath:
 
 def write_confined(roots, path, data: bytes, *, key, site=None):
     """Write `data` through a temporary file in the same folder and a rename:
-    no partial file. The file gets the mode any new file gets."""
-    resolved = _check(roots, path, key=key, site=site, write=True)
+    no partial file. The file gets the mode any new file gets; a link at
+    `path` is replaced, not followed."""
+    resolved = _check_entry(roots, path, key=key, site=site)
     folder = os.path.dirname(resolved)
     fd, tmp = tempfile.mkstemp(dir=folder, prefix=f".{PurePath(resolved).stem}.", suffix=".tmp")
     try:
@@ -369,14 +385,14 @@ def write_confined(roots, path, data: bytes, *, key, site=None):
 
 def replace_confined(roots, src, dst, *, key, site=None):
     """os.replace under a writable root (provisional for #35)."""
-    source = _check(roots, src, key=key, site=site, write=True)
-    target = _check(roots, dst, key=key, site=site, write=True)
+    source = _check_entry(roots, src, key=key, site=site)
+    target = _check_entry(roots, dst, key=key, site=site)
     os.replace(source, target)
 
 
 def remove_confined(roots, path, *, key, site=None):
     """os.remove under a writable root (provisional for #35)."""
-    resolved = _check(roots, path, key=key, site=site, write=True)
+    resolved = _check_entry(roots, path, key=key, site=site)
     os.remove(resolved)
 
 
@@ -408,6 +424,7 @@ def _makedirs(path):
 
 
 def rmtree_confined(roots, path, *, key, site=None):
-    """shutil.rmtree under a writable root (provisional for #35)."""
-    resolved = _check(roots, path, key=key, site=site, write=True)
+    """shutil.rmtree under a writable root (provisional for #35); like
+    shutil.rmtree, it refuses a link."""
+    resolved = _check_entry(roots, path, key=key, site=site)
     shutil.rmtree(resolved)
