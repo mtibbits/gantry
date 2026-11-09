@@ -42,7 +42,9 @@ from dataclasses import dataclass
 
 from gantry import requirements
 from gantry.model import meta_values
-from gantry.requirements import ReportEntry, ReqId, parse_id
+from gantry.portfolio_file import PORTFOLIO_LABEL, PortfolioEntry, read_portfolio_file
+from gantry.requirements import (PROJECT_LAYERS, ReportEntry, ReqId, Requirement, RequirementSet, in_trace_sites,
+                                 parse_id, read_requirements)
 
 UNSERVED_SCOPE = "site"  # only this site's leaves are counted; #21 widens it
 LEAF_SOURCE = "WBS.md"
@@ -64,6 +66,48 @@ MESSAGES = {
     "undefined_cross_link": "{key}: {rid} names no requirement: {why}",
     "refines_cycle": "cross-file refines cycle: {chain}",
 }
+
+WHY = {  # why an ID names no requirement: the {why} of undefined_id and undefined_cross_link
+    "no_file": "no requirements file is configured for namespace {ns!r}",
+    "no_portfolio": "portfolio_file is not set, so no business requirement is defined",
+    "unreadable": "the requirements file of namespace {ns!r} could not be read",
+    "portfolio_unreadable": "the portfolio file could not be read",
+    "not_in_file": "the requirements file of namespace {ns!r} defines no {rid}",
+    "not_in_portfolio": "the portfolio file defines no {rid}",
+}
+
+
+@dataclass(frozen=True)
+class Catalog:
+    """Every requirement set of the build, read once."""
+    br_namespace: str
+    namespaces: frozenset[str]  # every site name, plus br_namespace
+    sets: dict[str, RequirementSet]  # in-trace sites in config order, then br_namespace when portfolio_file is set
+    portfolio_set: bool
+    portfolio_report: tuple[PortfolioEntry, ...]  # the portfolio file's entries outside its settings
+    link_report: dict[str, tuple[ReportEntry, ...]]  # namespace -> the cross-file entries attributed to it
+
+    def lookup(self, rid) -> tuple[Requirement | None, str | None]:
+        """(requirement, None), or (None, why) when `rid` names no requirement."""
+        ns = rid.namespace
+        if ns == self.br_namespace and not self.portfolio_set:
+            return None, WHY["no_portfolio"]
+        rs = self.sets.get(ns)
+        if rs is None:
+            return None, WHY["no_file"].format(ns=ns)
+        found = rs.requirements.get(str(rid))
+        if found is not None:
+            return found, None
+        if ns == self.br_namespace:
+            if any(e.kind == "portfolio_unreadable" for e in self.portfolio_report):
+                return None, WHY["portfolio_unreadable"]
+            return None, WHY["not_in_portfolio"].format(rid=rid)
+        if any(e.kind == "unreadable" for e in rs.report):
+            return None, WHY["unreadable"].format(ns=ns)
+        return None, WHY["not_in_file"].format(ns=ns, rid=rid)
+
+    def in_trace(self, site) -> bool:
+        return site in self.sets and site != self.br_namespace
 
 
 @dataclass(frozen=True)
@@ -118,3 +162,27 @@ def satisfies_ids(leaf, namespaces) -> tuple[list[ReqId], list[ReportEntry]]:
                 problems.append(ReportEntry(LEAF_SOURCE, leaf.line, "unbracketed_list",
                                             MESSAGES["unbracketed_list"].format(key=key)))
     return ids, problems
+
+
+def load_catalog(config, sites) -> Catalog:
+    """Read every in-trace site's requirements file and, when portfolio_file
+    is set, the portfolio file's business requirements. `sites` is
+    load_sites(config)[0]; in_trace_sites' warnings are build.site_list's to
+    print. Never raises on a file's content."""
+    br = config.requirements.br_namespace
+    traced, _ = in_trace_sites(config, sites)
+    sets = {name: read_requirements(path, name, layers=PROJECT_LAYERS, br_namespace=br)
+            for name, path in traced.items()}
+    portfolio_report = ()
+    if config.portfolio_file is not None:
+        portfolio = read_portfolio_file(config.portfolio_file, br_namespace=br)
+        sets[br] = portfolio.brs
+        portfolio_report = tuple(e for e in portfolio.report if e.section != "settings")
+    return Catalog(
+        br_namespace=br,
+        namespaces=frozenset({site.name for site in sites} | {br}),
+        sets=sets,
+        portfolio_set=config.portfolio_file is not None,
+        portfolio_report=portfolio_report,
+        link_report={},
+    )
