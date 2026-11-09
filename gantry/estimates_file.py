@@ -15,9 +15,9 @@ from datetime import date
 from pathlib import PurePath
 
 from gantry.config import error_reason
-from gantry.roots import OutsideRoots, list_confined, read_bytes_confined, stat_confined
 from gantry.est_rules import NUM
 from gantry.model import ReportEntry
+from gantry.roots import OutsideRoots, list_confined, read_bytes_confined, stat_confined
 
 DATED_RE = re.compile(r"estimates-(?P<date>[0-9]{4}-[0-9]{2}-[0-9]{2}).*\.md", re.DOTALL)
 ANY_RE = re.compile(r"estimates-.*\.md", re.DOTALL)
@@ -155,7 +155,8 @@ def read_estimates_file(roots, path, site: str, name: str, *, key="estimates fil
     """The rows of the file at `path` under `roots`, called `name` in every
     message; `key` names it in a refusal."""
     try:
-        data = read_bytes_confined(roots, path, key=key, site=site)
+        # A configured file's key (site.<name>.estimates) names the site already.
+        data = read_bytes_confined(roots, path, key=key, site=None if key.startswith("site.") else site)
     except (OSError, ValueError, OutsideRoots) as e:
         reason = error_reason(e) or "unknown error"
         return EstimatesFile({}, (_entry(site, "estimates_unreadable",

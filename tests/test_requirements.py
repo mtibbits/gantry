@@ -21,11 +21,11 @@ from gantry.requirements import (
     parse_requirements,
     read_requirements,
 )
+from gantry.roots import directory_roots
 from gantry.sites import SiteWarning, load_sites
+from gantry.sites import config_roots
 from helpers_config import write_site_tree
 from test_samples import GANTRY_SAMPLE, ROOT, md_tables
-from gantry.roots import directory_roots
-from gantry.sites import config_roots
 from helpers_config import roots_around
 
 # A fictional mixed-case namespace (operator decision Q3); the format doc's

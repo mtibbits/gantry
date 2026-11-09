@@ -732,6 +732,7 @@ def test_write_confined_mode_and_bytes(tree):
         mode = os.stat(out / "sites" / "harbor.html").st_mode & 0o777
         assert mode == os.stat(out / "sites" / "plain.html").st_mode & 0o777
 
+
 def test_rmtree_refuses_a_folder_link_and_keeps_its_target(tree):
     copy, roots, _ = tree
     out = copy / "out"
@@ -764,3 +765,74 @@ def test_remove_replace_and_write_act_on_a_file_link_not_its_target(tree):
     assert not is_link(out / "written") and (out / "written").read_bytes() == b"page"
     assert (out / "target.txt").read_bytes() == b"target"
     assert (elsewhere / "keep.txt").read_bytes() == b"keep"
+
+def test_portfolio_writes_nothing_so_holds_no_writable_root(tmp_path, capsys):
+    from gantry.cli import main
+
+    copy = copy_samples(tmp_path)
+    replace_bytes(copy / "gantry.sample.toml", 'output_dir = "out"', 'output_dir = "."')
+    code = main(["portfolio", "--config", str(copy / "gantry.sample.toml")])
+    err = capsys.readouterr().err
+    assert code == 0, err
+    assert "output_dir" not in err
+
+
+@pytest.mark.parametrize("purpose", ["check", "refresh", "serve"])
+def test_a_purpose_naming_no_writable_key_has_no_writable_root(tmp_path, purpose):
+    from gantry.config import load_config
+    from gantry.sites import config_roots
+
+    copy = copy_samples(tmp_path)
+    replace_bytes(copy / "gantry.sample.toml", 'output_dir = "out"', 'output_dir = "."')
+    roots = config_roots(load_config(copy / "gantry.sample.toml"), purpose=purpose)
+    assert not [r for r in roots.roots if r.writable]
+
+
+def test_an_unknown_purpose_raises():
+    from gantry.config import load_config
+    from gantry.sites import config_roots
+
+    with pytest.raises(ValueError):
+        config_roots(load_config(sample_dir() / "gantry.sample.toml"), purpose="nope")
+
+
+def test_output_dir_argument_replaces_the_key_root(tmp_path):
+    from gantry.config import load_config
+    from gantry.sites import config_roots
+
+    copy = copy_samples(tmp_path)
+    other = tmp_path / "other"
+    roots = config_roots(load_config(copy / "gantry.sample.toml"), output_dir=other)
+    (writable,) = [r for r in roots.roots if r.writable]
+    assert writable.key == "output_dir"
+    assert os.path.normcase(str(writable.path)) == os.path.normcase(os.path.realpath(other))
+
+
+def test_an_unresolvable_path_key_is_a_config_error_naming_it(tmp_path):
+    from helpers_config import run_main
+
+    copy = copy_samples(tmp_path)
+    replace_bytes(copy / "gantry.sample.toml", 'output_dir = "out"', 'output_dir = "a\\u0000b"')
+    code, out, err = run_main("--config", str(copy / "gantry.sample.toml"))
+    assert code == 1 and out == ""
+    assert f"key 'output_dir' cannot be resolved: {NUL_MESSAGE}" in err
+
+
+def test_a_configured_estimates_refusal_names_its_site_once(tmp_path):
+    from gantry.estimates_file import read_estimates_file
+
+    copy = copy_samples(tmp_path)
+    name = "estimates-2026-01-15-effort-and-model-tiers.md"
+    read = read_estimates_file(directory_roots([tmp_path / "elsewhere"]), copy / "harbor" / name, "harbor", name,
+                               key="site.harbor.estimates")
+    (message,) = [e.message for e in read.report if e.kind == "estimates_unreadable"]
+    assert "site.harbor.estimates is outside the configured roots" in message
+    assert "for site harbor" not in message
+
+
+def test_a_missing_sample_dir_is_never_sample_mode(tmp_path, monkeypatch):
+    from gantry import stamp
+    from gantry.config import load_config
+
+    monkeypatch.setattr(stamp, "sample_dir", lambda: tmp_path / "missing")
+    assert stamp.sample_mode(load_config(sample_dir() / "gantry.sample.toml")) is False

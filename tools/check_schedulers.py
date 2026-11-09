@@ -49,7 +49,7 @@ def main(argv=None):
         return _fail("--out must be outside the repository")
     try:
         config = load_config(args.config)
-        roots = config_roots(config)  # for the gantry readers; --out is this tool's own
+        roots = config_roots(config, purpose="check")  # for the gantry readers; --out is this tool's own
         sites, _ = load_sites(config, roots)
     except ConfigError as e:
         return _fail(str(e))

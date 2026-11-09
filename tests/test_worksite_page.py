@@ -23,7 +23,8 @@ from gantry.inputs import EstimatesSource, apply_inputs
 from gantry.links import leaf_anchor
 from gantry.model import Estimate, Leaf, Models, Row, SiteData
 from gantry.estimates_file import find_estimates_file, read_estimates_file
-from gantry.sites import SiteEntry, load_sites
+from gantry.roots import directory_roots
+from gantry.sites import SiteEntry, config_roots, load_sites
 from gantry import render
 from gantry.render import CLASS_TOKENS
 from gantry.schedule import limit, plan
@@ -49,8 +50,6 @@ from page_script.harness import Planted, open_page, run_function
 from sample_roles import BUSY, OWN_UNIT, READABLE, UNESTIMATED
 from test_samples import ROOT, SAMPLES
 from test_source_scan import code_files
-from gantry.roots import directory_roots
-from gantry.sites import config_roots
 
 FIXTURES = ROOT / "tests" / "fixtures" / "wbs"
 INPUTS = ROOT / "tests" / "fixtures" / "inputs"

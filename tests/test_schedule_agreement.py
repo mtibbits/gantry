@@ -14,6 +14,7 @@ import sys
 import pytest
 
 from gantry.config import load_config
+from gantry.roots import directory_roots
 from gantry.schedule import chain_hours, limit, plan
 from gantry.views.worksite import render_page
 from gantry.wbs_stopgap import parse_wbs, read_wbs
@@ -25,7 +26,6 @@ from page_script.harness import NODE_MISSING, PageScriptError, run_function
 from sample_roles import READABLE
 from test_samples import ROOT, SAMPLES
 from test_schedule import REFUSALS
-from gantry.roots import directory_roots
 
 LANES = range(1, 9)
 TOOL = ROOT / "tools" / "check_schedulers.py"

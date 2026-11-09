@@ -39,7 +39,7 @@ from gantry.roots import (
 
 # The keys whose roots are writable, by a run's purpose. #35 adds refresh's
 # `[refresh] dir`; serve writes nothing.
-WRITABLE = {"build": ("output_dir",), "refresh": (), "serve": ()}
+WRITABLE = {"build": ("output_dir",), "check": (), "refresh": (), "serve": ()}
 
 
 @dataclass(frozen=True)
@@ -149,8 +149,10 @@ def _inner(root):
 def config_roots(config, *, output_dir=None, purpose="build"):
     """Every root of a run: the two config files, every set path key's value
     (its kind from the registry), every planning directory, and the package
-    directory. Writable: the keys WRITABLE names for `purpose`. A writable
-    root that equals or contains an input root is a ConfigError."""
+    directory. Writable: the keys WRITABLE names for `purpose` ("check", for
+    a command that writes nothing, has none). A writable root that equals or
+    contains an input root is a ConfigError. `output_dir=` and the "refresh"
+    and "serve" purposes are provisional for #35 and #64."""
     if purpose not in WRITABLE:
         raise ValueError(f"unknown purpose {purpose!r}")
     roots = _config_files(config)

@@ -397,8 +397,9 @@ def remove_confined(roots, path, *, key, site=None):
 
 
 def mkdir_confined(roots, path, *, key, site=None):
-    """Make the folder and its missing parents; the writable root itself may
-    be among them, nothing else outside it."""
+    """Make the folder and its missing parents. The folder must lie under a
+    writable root; the root's own missing ancestors (a new output_dir's
+    parents) are created too, the one write outside a writable root."""
     resolved = _check(roots, path, key=key, site=site, write=True)
     _makedirs(resolved)
 

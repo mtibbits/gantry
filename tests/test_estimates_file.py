@@ -8,10 +8,10 @@ import pytest
 
 from gantry.config import SiteOverride
 from gantry.estimates_file import find_estimates_file, read_estimates_file
+from gantry.roots import directory_roots
 from gantry.sites import SiteEntry
 from sample_roles import BUSY
 from test_samples import ROOT, SAMPLES, decode_bytes, git, git_work_tree, needs_git
-from gantry.roots import directory_roots
 from helpers_config import roots_around
 
 INPUTS = ROOT / "tests" / "fixtures" / "inputs"

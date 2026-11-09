@@ -28,10 +28,10 @@ from gantry.attention import (
 )
 from gantry.model import REPORT_KINDS, Leaf, Models, SiteData, report_order
 from gantry.portfolio_file import read_portfolio_file
-from gantry.wbs_stopgap import parse_wbs
-from test_samples import ROOT
 from gantry.roots import directory_roots
 from gantry.sites import config_roots
+from gantry.wbs_stopgap import parse_wbs
+from test_samples import ROOT
 
 FIXTURES = ROOT / "tests" / "fixtures" / "attention"
 SITE = "alpha"

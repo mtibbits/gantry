@@ -7,11 +7,11 @@ from types import SimpleNamespace
 from gantry.config import SiteOverride
 from gantry.inputs import NO_TIERS, apply_inputs, has_tiers, scheduled, site_totals
 from gantry.model import REPORT_KINDS, Estimate, Models, Totals
+from gantry.roots import directory_roots
 from gantry.sites import SiteEntry
 from gantry.wbs_stopgap import parse_wbs
 from sample_roles import BUSY, UNESTIMATED
 from test_samples import ROOT, SAMPLES
-from gantry.roots import directory_roots
 
 INPUTS = ROOT / "tests" / "fixtures" / "inputs"
 

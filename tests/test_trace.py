@@ -13,7 +13,7 @@ from gantry import requirements
 from gantry.config import load_config
 from gantry.model import FINISHED_GLYPHS, STATE_GLYPHS, Leaf
 from gantry.requirements import ReportEntry, ReqId
-from gantry.sites import load_sites
+from gantry.sites import config_roots, load_sites
 from gantry.trace import (FIELDS, LEAF_SOURCE, MESSAGES, TRACE_KINDS, UNSERVED_SCOPE, WHY, Catalog, Serving,
                           SiteTrace, TraceReport, UseCase, build_site_trace, load_catalog, satisfies_ids)
 from gantry.wbs_stopgap import parse_wbs
@@ -21,7 +21,6 @@ from helpers_config import write_site_tree
 from sample_roles import BUSY, SMALL
 from test_build import heading_slugs
 from test_samples import GANTRY_SAMPLE, md_tables
-from gantry.sites import config_roots
 
 
 def leaf(key, line, glyph=" ", **meta):

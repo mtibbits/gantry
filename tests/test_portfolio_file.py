@@ -28,10 +28,10 @@ from gantry.portfolio_file import (
 )
 from gantry.cli import MILESTONE_NOTE as MILESTONE_NOTE_TEXT
 from gantry.requirements import FENCE_RE, ReqId, fence_spans
-from sample_roles import BUSY, NOT_BUILT, OWN_UNIT, READABLE, SMALL, UNESTIMATED
-from test_samples import GANTRY_SAMPLE, ROOT, decode_bytes, git, git_work_tree, issue_leaves, md_tables, needs_git, wbs
 from gantry.roots import directory_roots
 from gantry.sites import config_roots
+from sample_roles import BUSY, NOT_BUILT, OWN_UNIT, READABLE, SMALL, UNESTIMATED
+from test_samples import GANTRY_SAMPLE, ROOT, decode_bytes, git, git_work_tree, issue_leaves, md_tables, needs_git, wbs
 from helpers_config import roots_around
 
 FIXTURES = Path(__file__).parent / "fixtures" / "portfolio_file"

@@ -9,7 +9,6 @@ dependency resolution to gantry.deps. docs/worksite-page.md states the rules.
 import re
 
 from gantry.config import error_reason
-from gantry.roots import OutsideRoots, read_bytes_confined
 from gantry.deps import refs, resolve
 from gantry.model import (
     FINISHED_GLYPHS,
@@ -22,6 +21,7 @@ from gantry.model import (
     report_order,
 )
 from gantry.priority import is_valid
+from gantry.roots import OutsideRoots, read_bytes_confined
 
 # devagent's _BULLET_RE and _FENCE_RE, verbatim.
 NODE_RE = re.compile(r"^(?P<indent>\s*)- \[(?P<glyph>[ x\-!~?P])\]\s+(?P<rest>.+)$")

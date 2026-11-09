@@ -168,7 +168,7 @@ def _portfolio(args):
     _utf8_streams()
     try:
         config = load_config(args.config)
-        roots = config_roots(config)
+        roots = config_roots(config, purpose="check")  # it writes nothing
         sites, _ = site_list(config, roots)  # the site list's own warnings belong to the build
     except ConfigError as e:
         print(f"gantry: error: {e}", file=sys.stderr)
