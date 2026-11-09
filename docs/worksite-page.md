@@ -186,7 +186,7 @@ in this table's order.
 | `site_unreadable` | `WBS.md` cannot be opened, read or decoded as UTF-8 | shows the site as unreadable, with the reason |
 | `no_estimates_file` | the site has no estimates file, or its `estimates` key is `false` | reads hours and tiers from `est:` and the default unit only |
 | `estimates_ignored` | a discovered `estimates-*.md` file is not the one read: an earlier date, the same date and an earlier name, or no date | lists the file and why |
-| `estimates_unreadable` | the configured file does not exist, or the file cannot be opened or is not valid UTF-8 | continues as if the site had no estimates file |
+| `estimates_unreadable` | the configured file does not exist, or the file cannot be opened, is not valid UTF-8, or leads outside the configured roots | continues as if the site had no estimates file |
 | `estimates_column_missing` | an estimates table has no `#`-table column Gantry reads (once per file and column) | reads the rest of the table |
 | `estimates_cell_bad` | a row's `hours` cell is empty or not a number or range above 0 | the row gives no hours; its other cells are still read |
 | `estimates_row_unmatched` | a row `#N` names no `WBS.md` line | lists the row |
@@ -239,7 +239,8 @@ A site's `[site.<name>] estimates` key (docs/config.md) names its file, read
 whatever its name and never replaced by discovery, or, set to `false`,
 turns discovery off. Otherwise Gantry lists the top level of the planning
 directory (never below it) for regular files whose names match
-`estimates-YYYY-MM-DD*.md`, case-sensitively. The latest date is read; among
+`estimates-YYYY-MM-DD*.md`, case-sensitively; a matching link that leads
+outside the configured roots is kept too, so its read reports the refusal. The latest date is read; among
 files of that date, the name that sorts last. Every other match, and every
 `estimates-*.md` whose name holds no valid date, is listed as
 `estimates_ignored`. With none, the panel says `no estimates file`.
@@ -652,7 +653,8 @@ index with its reason and on stderr as
 
 - the site list's and the parser's: an invalid name, no usable
   `devdoc_dir`, no planning directory, no `WBS.md`, or a `WBS.md` that
-  cannot be read or is not valid UTF-8 ([config.md](config.md#sites));
+  cannot be read, is not valid UTF-8 or leads outside the configured roots
+  ([config.md](config.md#sites));
 - a name that differs only in case from an earlier site's, whatever that
   site's own status:
   `name clashes with {earlier} on a case-insensitive file system`;

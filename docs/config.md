@@ -149,7 +149,8 @@ Every file access in Gantry goes through one module, `gantry/roots.py`.
   `[site.<name>]` table. A key's root kind comes from the key, never from the
   disk: `devagent_config`, `portfolio_file`, `fires_list`, `requirements` and
   `estimates` are **file** roots, which admit only that one file (a file key
-  that names a folder makes nothing under it readable); `output_dir` is a
+  that names a folder makes nothing under it readable, though the folder
+  itself can still be listed); `output_dir` is a
   **directory** root, which admits everything under it;
 - every site's planning directory (`devdoc_dir`), read from the devagent
   config; a `devdoc_dir` that cannot be resolved adds no root, and that site
@@ -163,20 +164,24 @@ only then the planning directories. **No default config is ever read**, from
 the working directory, the home folder or the environment.
 
 **Writable roots** depend on the command. `gantry build` may write only under
-`output_dir`; a later `gantry refresh` will write only under its `[refresh]
-dir`, and a later `gantry serve` writes nothing. Every other root is
-read-only. A writable root may not equal or contain an input root (either
-config file, a planning directory or the package directory): that is a
-config error, exit 1, naming `output_dir` and every input it holds. This is
-the one change for a config that worked before: an `output_dir` of `.`
-beside the installation config, for example, now fails with
-`key 'output_dir' contains the config file itself`. Point `output_dir` at a
+`output_dir`; `gantry portfolio` writes nothing; a later `gantry refresh` will
+write only under its `[refresh] dir`, and a later `gantry serve` writes
+nothing. Every other root is read-only. A writable root may not equal or
+contain an input root (either config file, a planning directory or the
+package directory): that is a config error, exit 1, naming `output_dir` and
+every input it holds. The files the other path keys name (`portfolio_file`,
+`fires_list`, `requirements`, `estimates`) are not input roots for this
+rule: one may sit inside `output_dir`, and a build can then overwrite it.
+This is the one change for a config that worked before: an `output_dir` of
+`.` beside the installation config, for example, now fails `gantry build`
+with `key 'output_dir' contains the config file itself`. Point `output_dir` at a
 folder of its own, such as `out`. A missing `output_dir` and its missing
 parents are still created.
 
 **Files are resolved where they are opened.** Each path is resolved at the
 moment of use, with symlinks and Windows junctions followed and `..`
-collapsed, and compared with each root (case-folded as the host folds it).
+collapsed, and compared with each root (case-insensitively on Windows,
+exactly elsewhere).
 A path that lands outside every root is refused, and the refusal names the
 config key or file kind and the site, never a path: `WBS.md for site harbor
 is outside the configured roots`. The refusal is reported where that file's
@@ -227,7 +232,9 @@ others, when:
 - its planning directory does not exist or is not a directory;
 - there is no `WBS.md` file in it, or Gantry cannot tell;
 - its `WBS.md` cannot be opened or read (`WBS.md cannot be read: <reason>`),
-  or is not valid UTF-8 (`WBS.md is not valid UTF-8 at byte N`).
+  or is not valid UTF-8 (`WBS.md is not valid UTF-8 at byte N`);
+- its `WBS.md` is a link that leads outside the configured roots
+  (`WBS.md for site <name> is outside the configured roots`).
 
 A `[site.<name>]` table naming no devagent project is a **warning**: it is
 printed on stderr and also returned as data with the sites, for later pages
@@ -324,7 +331,12 @@ A later issue that needs a key adds it, in its own change, to:
 3. a row in the tables above, whose Owner cell is the registry's owner
    exactly (a test checks every registry key has its row);
 4. `samples/gantry.sample.toml`, when the key names a file the samples
-   provide.
+   provide;
+5. for a path key, its root kind (`root="file"` or `root="directory"` on its
+   registry entry; a test checks every path key has one). `config_roots` in
+   `gantry/sites.py` makes roots only from `KEYS` and `SITE_KEYS`, so a path
+   key in another table also needs that table walked there, or its value
+   gets no root and every access to it is refused.
 
 A new optional key needs no version bump; anything else follows the version
 rule above.
