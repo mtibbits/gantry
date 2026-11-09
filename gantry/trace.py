@@ -14,8 +14,10 @@ leaves serving each requirement (direct or indirect), the site's use cases
 and its TraceReport. It renders and prints nothing; `SiteTrace` is
 provisional until #20 binds it to the page's `trace` data.
 
-Identifiers: every map is keyed by `str(ReqId)`; every sequence of IDs holds
-`ReqId`, except TraceReport.unserved, which lists `str(ReqId)`.
+Identifiers: requirement maps (`serving`, `use_cases`, Catalog.requirements,
+Catalog.flows) are keyed by `str(ReqId)`; `leaf_ids` by leaf key; Catalog.sets
+and Catalog.link_report by namespace. Every sequence of IDs holds `ReqId`,
+except TraceReport.unserved, which lists `str(ReqId)`.
 
 Decisions:
 - D1 the reader's `undefined_link` entries are carried into `undefined`,
@@ -88,7 +90,7 @@ class Catalog:
     portfolio_report: tuple[PortfolioEntry, ...]  # the portfolio file's entries outside its settings
     link_report: dict[str, tuple[ReportEntry, ...]]  # namespace -> the cross-file entries attributed to it
     requirements: dict[str, Requirement]  # str(ReqId) -> requirement, every set merged, in catalog order
-    flows: dict[str, list[str]]  # str(ReqId) -> what serving it also serves; see _flows
+    flows: dict[str, list[str]]  # str(ReqId) -> what serving it also serves: what it refines, use cases needing it
 
     def lookup(self, rid) -> tuple[Requirement | None, str | None]:
         """(requirement, None), or (None, why) when `rid` names no requirement."""
@@ -122,7 +124,7 @@ class Serving:
 
 @dataclass(frozen=True)
 class UseCase:
-    needs: tuple[ReqId, ...]
+    needs: tuple[ReqId, ...]  # as written: an ID that names no requirement stays, and is reported undefined
     serving: tuple[Serving, ...]
 
 
