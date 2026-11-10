@@ -46,6 +46,7 @@ Keys of a `[site.<name>]` table:
 |---|---|---|---|---|---|
 | `requirements` | path | no | none | the site's requirements file ([format](requirements-format.md)); the site is in the trace only when this is set | #15 |
 | `estimates` | path, or `false` | no | discovery | the site's estimates file, read whatever its name and never replaced by discovery; `false` turns discovery off; absent, the planning directory's latest `estimates-YYYY-MM-DD*.md` is read ([the rules](worksite-page.md#the-estimates-file)) | #10 |
+| `history` | path | no | the planning directory | the directory whose `WBS.md` git history is read ([the rules](wbs-history.md)); it must lie in a git work tree, whose top level may lie above it; no page shows the history yet (#29) | #28 |
 
 Keys of the `[requirements]` table:
 
@@ -150,8 +151,8 @@ Every file access in Gantry goes through one module, `gantry/roots.py`.
   disk: `devagent_config`, `portfolio_file`, `fires_list`, `requirements` and
   `estimates` are **file** roots, which admit only that one file (a file key
   that names a folder makes nothing under it readable, though the folder
-  itself can still be listed); `output_dir` is a
-  **directory** root, which admits everything under it;
+  itself can still be listed); `output_dir` and a site's `history` are
+  **directory** roots, which admit everything under them;
 - every site's planning directory (`devdoc_dir`), read from the devagent
   config; a `devdoc_dir` that cannot be resolved adds no root, and that site
   keeps its problem;
@@ -167,8 +168,8 @@ the working directory, the home folder or the environment.
 `output_dir`; `gantry portfolio` writes nothing; a later `gantry refresh` will
 write only under its `[refresh] dir`, and a later `gantry serve` writes
 nothing. Every other root is read-only. A writable root may not equal or
-contain an input root (either config file, a planning directory or the
-package directory): that is a config error, exit 1, naming `output_dir` and
+contain an input root (either config file, a planning directory, a site's
+`history` directory or the package directory): that is a config error, exit 1, naming `output_dir` and
 every input it holds. The files the other path keys name (`portfolio_file`,
 `fires_list`, `requirements`, `estimates`) are not input roots for this
 rule: one may sit inside `output_dir`, and a build can then overwrite it.

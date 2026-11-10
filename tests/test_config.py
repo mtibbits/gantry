@@ -81,6 +81,8 @@ ERROR_CASES = {
     "unit-inf": (_raw(default_unit_hours="inf"), ["'default_unit_hours'"]),
     "estimates-true": (_raw(tail=HARBOR + "estimates = true\n"), ["'site.harbor.estimates'"]),
     "estimates-int": (_raw(tail=HARBOR + "estimates = 3\n"), ["'site.harbor.estimates'"]),
+    "history-int": (_raw(tail=HARBOR + "history = 3\n"), ["'site.harbor.history'", "must be a path string"]),
+    "history-false": (_raw(tail=HARBOR + "history = false\n"), ["'site.harbor.history'", "must be a path string"]),
     "br-space": (_raw(tail=REQ + 'br_namespace = "life x"\n'), ["'requirements.br_namespace'"]),
     "br-colon": (_raw(tail=REQ + 'br_namespace = "a:b"\n'), ["'requirements.br_namespace'"]),
     "br-empty": (_raw(tail=REQ + 'br_namespace = ""\n'), ["'requirements.br_namespace'"]),
@@ -249,6 +251,17 @@ def test_path_keys_load_and_resolve(tmp_path):
         assert path.is_absolute(), key
         assert under(path, folder), key
         assert not Path(path).exists(), key
+
+
+def test_history_key_loads_and_resolves(tmp_path):
+    """`[site.<name>] history` is a path resolved against the config's folder (#28)."""
+    p = write_config(tmp_path, tail='\n[site.harbor]\nhistory = "hist/harbor"\n[site.orchard]\n')
+    c = cfg.load_config(p)
+    history = c.sites["harbor"].history
+    assert isinstance(history, PurePath) and not isinstance(history, Path)
+    assert history.is_absolute()
+    assert norm(history) == norm(tmp_path / "hist" / "harbor")
+    assert c.sites["orchard"].history is None
 
 
 # --- the sample installation config (#7) ---------------------------------------

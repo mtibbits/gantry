@@ -463,6 +463,40 @@ def test_writable_root_may_not_contain_an_input(tmp_path):
     assert roots_of(config)
 
 
+def _with_history(tmp_path, history):
+    """A site tree whose harbor site sets `history` to the given path (#28)."""
+    from helpers_config import write_site_tree
+
+    return write_site_tree(tmp_path / "inst", {"harbor": b"- [ ] A\n"},
+                           tail=f"\n[site.harbor]\nhistory = {literal(history)}\n")
+
+
+def test_history_root_is_a_directory_root(tmp_path):
+    history = tmp_path / "hist"
+    (history / "deep").mkdir(parents=True)
+    (history / "deep" / "WBS.md").write_bytes(b"x\n")
+    roots = roots_of(_with_history(tmp_path, history))
+    found = [r for r in roots.roots if r.key == "site.harbor.history"]
+    assert [(r.kind, r.writable) for r in found] == [("directory", False)]
+    assert read_bytes_confined(roots, history / "deep" / "WBS.md", key="x") == b"x\n"
+
+
+def test_writable_root_may_not_contain_a_history_root(tmp_path):
+    from gantry.config import ConfigError
+
+    history = tmp_path / "hist"
+    history.mkdir()
+    config = _with_history(tmp_path, history)
+    for output in (history, tmp_path):
+        replace_bytes(config, 'output_dir = "out"', f"output_dir = {literal(output)}")
+        with pytest.raises(ConfigError) as e:
+            roots_of(config)
+        text = str(e.value)
+        assert "key 'output_dir'" in text and "key 'site.harbor.history'" in text, text
+        replace_bytes(config, f"output_dir = {literal(output)}", 'output_dir = "out"')
+    assert roots_of(config)
+
+
 def test_writable_root_containment_exits_1_at_the_cli(tmp_path):
     from helpers_config import run_main
 

@@ -58,6 +58,7 @@ KEYS = (
 SITE_KEYS = (
     Key("requirements", "path", False, None, "#15", "`requirements`", "file"),
     Key("estimates", "path_or_false", False, None, "#10", "`estimates`", "file"),
+    Key("history", "path", False, None, "#28", "`history`", "directory"),
 )
 
 REQUIREMENTS_KEYS = (
@@ -77,6 +78,8 @@ def missing_root_kinds(*registries) -> list[str]:
 class SiteOverride:
     requirements: PurePath | None
     estimates: PurePath | Literal[False] | None
+    # Last and defaulted: callers build SiteOverride(requirements, estimates) positionally.
+    history: PurePath | None = None
 
 
 @dataclass(frozen=True)
@@ -334,6 +337,7 @@ def load_config(path) -> Config:
         name: SiteOverride(
             requirements=resolved(f"site.{name}.requirements", table.get("requirements")),
             estimates=resolved(f"site.{name}.estimates", table.get("estimates")),
+            history=resolved(f"site.{name}.history", table.get("history")),
         )
         for name, table in site_tables.items()
     }
