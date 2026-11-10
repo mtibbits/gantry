@@ -6,15 +6,27 @@ dates (tests/helpers_history.py); every path is built at run time.
 """
 
 import ast
+import os
 import random
 import re
 import time
-from pathlib import Path
+from pathlib import Path, PurePath
 
+import pytest
+
+from gantry import roots as roots_module
 from gantry import wbs_history
+from gantry.roots import directory_roots
 from gantry.wbs_history import decode_version, scan_nodes, split_meta, state_changes
+from helpers_gate import gate_run
+from helpers_history import CI_SUFFIX, GIT_MISSING, make_repo, spy_git
 
 ROOT = Path(__file__).resolve().parents[1]
+BS = "\\"
+# Floors for the git gate's end-to-end run, set below the real counts.
+GATED_MODULES = ["tests/test_wbs_history.py"]
+GATED_TESTS = 9
+UNGATED_TESTS = 30
 
 # devagent's META_RE (scripts/lib/wbs-parser.py `_META_BLOCK_RE`), verbatim.
 DEVAGENT_META_RE = re.compile(r"\s*\{(?P<body>[^{}]*)\}\s*$")
@@ -199,3 +211,187 @@ def test_module_never_imports_the_stopgap():
     assert "gantry.wbs_stopgap" not in seen
     assert {"gantry.wbs_history", "gantry.roots"} <= seen
     assert wbs_history.__name__ == "gantry.wbs_history"
+
+
+# --- the isolated git helper and the repository rule (Task 3) -----------------------
+
+
+def norm(path):
+    return os.path.normcase(os.path.realpath(str(path)))
+
+
+def repo_below(tmp_path, *parts):
+    """A fixture repository with an empty planning directory `parts` below its top."""
+    top = make_repo(tmp_path / "planning")
+    directory = top.joinpath(*parts)
+    directory.mkdir(parents=True, exist_ok=True)
+    return top, directory
+
+
+def find(roots, path, gantry, site="harbor"):
+    return wbs_history.history_repository(roots, path, gantry, key="devdoc_dir", site=site)
+
+
+def fixture_checkout(tmp_path):
+    """A fixture repository standing in for the gantry checkout."""
+    return PurePath(os.path.realpath(make_repo(tmp_path / "gantry-checkout")))
+
+
+def test_git_env_strips_every_git_variable():
+    environ = {"GIT_DIR": "x", "GIT_INDEX_FILE": "x", "git_work_tree": "x", "GIT_DEFAULT_HASH": "sha256",
+               "PATH": "p", "HOME": "h"}
+    env = wbs_history.git_env(PurePath("ceiling"), environ)
+    assert {k for k in env if k.upper().startswith("GIT_")} == {
+        "GIT_CEILING_DIRECTORIES", "GIT_NO_LAZY_FETCH", "GIT_TERMINAL_PROMPT"}
+    assert env["GIT_CEILING_DIRECTORIES"] == "ceiling"
+    assert (env["GIT_NO_LAZY_FETCH"], env["GIT_TERMINAL_PROMPT"]) == ("1", "0")
+    assert (env["PATH"], env["HOME"], env["LC_ALL"]) == ("p", "h", "C")
+
+
+REFUSED = [["log"], ["show", "HEAD"], ["hash-object", "-w", "--", "x"], ["hash-object", "--no-filters", "--", "x"],
+           ["hash-object", "--stdin"], ["cat-file", "--batch"], ["cat-file", "--batch-check"],
+           ["cat-file", "--textconv", "HEAD:x"], ["cat-file", "--filters", "HEAD:x"], ["cat-file", "-p", "HEAD"],
+           ["rev-list", "--all"], ["rev-parse", "--git-dir"], []]
+
+
+@pytest.mark.parametrize("args", REFUSED, ids=lambda a: " ".join(a) or "empty")
+def test_run_git_refuses_porcelain(args, tmp_path, monkeypatch):
+    def no_child(*a, **k):
+        raise AssertionError("no child process may start")
+
+    monkeypatch.setattr(wbs_history.subprocess, "run", no_child)
+    with pytest.raises(wbs_history.GitRefused):
+        wbs_history.run_git(args, cwd=tmp_path, ceiling=tmp_path)
+
+
+def test_gantry_root_is_the_package_parent():
+    assert wbs_history.gantry_root is roots_module.gantry_root
+    assert norm(wbs_history.gantry_root()) == norm(Path(wbs_history.__file__).resolve().parent.parent)
+
+
+def test_planning_directory_below_top_level_is_accepted(tmp_path, git_ready):
+    top, planning = repo_below(tmp_path, "plans", "harbor")
+    repo = find(directory_roots([tmp_path]), planning, fixture_checkout(tmp_path))
+    assert isinstance(repo, wbs_history.Repo), repo
+    assert repo.prefix == "plans/harbor"
+    assert repo.site == "harbor"
+
+
+def test_toplevel_equals_resolved_path(tmp_path, git_ready):
+    top, planning = repo_below(tmp_path, "plans")
+    repo = find(directory_roots([tmp_path]), planning, fixture_checkout(tmp_path))
+    assert os.path.normcase(str(repo.top)) == norm(top)
+
+
+def test_missing_history_directory_makes_no_git_call(tmp_path, monkeypatch, git_ready):
+    calls = spy_git(monkeypatch)
+    roots = directory_roots([tmp_path])
+    gantry = fixture_checkout(tmp_path)
+    (tmp_path / "a-file").write_bytes(b"x")
+    for path in (tmp_path / "nope", tmp_path / "a-file", tmp_path / "a-file" / "below", None):
+        assert find(roots, path, gantry) == wbs_history.NoData(wbs_history.DIR_NOT_FOUND), path
+    assert calls == []
+    _, planning = repo_below(tmp_path, "plans")
+    assert isinstance(find(roots, planning, gantry), wbs_history.Repo)
+    assert len(calls) == 1
+
+
+def test_history_outside_the_roots_is_refused_before_git(tmp_path, monkeypatch, git_ready):
+    calls = spy_git(monkeypatch)
+    _, planning = repo_below(tmp_path, "plans")
+    got = find(directory_roots([tmp_path / "elsewhere"]), planning, fixture_checkout(tmp_path))
+    assert got.text == "no data: history directory is outside the configured roots"
+    assert calls == []
+
+
+def test_history_at_or_above_gantry_root_is_refused_before_git(tmp_path, monkeypatch, git_ready):
+    gantry = fixture_checkout(tmp_path)
+    calls = spy_git(monkeypatch)
+    roots = directory_roots([tmp_path])
+    for path in (gantry, gantry.parent, Path(str(gantry)) / "sub" / ".."):
+        got = find(roots, path, gantry)
+        assert got.text == "no data: history would come from Gantry's own repository", path
+    assert calls == []
+
+
+def test_repository_holding_gantry_root_is_refused(tmp_path, monkeypatch, git_ready):
+    outer = make_repo(tmp_path / "outer")
+    gantry = PurePath(os.path.realpath(make_repo(outer / "inner" / "gantry-checkout")))
+    (outer / "plans").mkdir()
+    calls = spy_git(monkeypatch)
+    got = find(directory_roots([tmp_path]), outer / "plans", gantry)
+    assert got.text == "no data: history would come from Gantry's own repository"
+    assert len(calls) == 1
+
+
+def test_gantry_root_need_not_be_a_work_tree(tmp_path, git_ready):
+    a = make_repo(tmp_path / "a")
+    gantry = a / "plain-gantry"
+    gantry.mkdir()
+    b = make_repo(tmp_path / "b")
+    repo = find(directory_roots([tmp_path]), b, PurePath(os.path.realpath(gantry)))
+    assert isinstance(repo, wbs_history.Repo), repo
+    assert repo.prefix == ""
+
+
+def test_discovery_runs_under_the_ceiling(tmp_path, monkeypatch, git_ready):
+    gantry = fixture_checkout(tmp_path)
+    calls = spy_git(monkeypatch)
+    _, planning = repo_below(tmp_path, "plans")
+    plain = Path(str(gantry)) / "plain"
+    plain.mkdir()
+    find(directory_roots([tmp_path]), planning, gantry)
+    find(directory_roots([tmp_path]), plain, gantry)
+    assert len(calls) == 2 and all(ceiling == gantry for _, _, ceiling in calls)
+    assert calls[0][0] == ["rev-parse", "--show-toplevel", "--show-prefix"]
+
+
+def test_in_no_repository_below_the_ceiling(tmp_path, git_ready):
+    gantry = fixture_checkout(tmp_path)
+    plain = Path(str(gantry)) / "samples" / "quarry"
+    plain.mkdir(parents=True)
+    got = find(directory_roots([tmp_path]), plain, gantry)
+    assert got == wbs_history.NoData(wbs_history.NO_REPOSITORY)
+    assert got.text == "no data: in no repository"
+
+
+def test_without_git_reads_git_not_found(tmp_path, monkeypatch):
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    planning = tmp_path / "plans"
+    planning.mkdir()
+    monkeypatch.setenv("PATH", str(empty))
+    got = find(directory_roots([tmp_path]), planning, PurePath(os.path.realpath(tmp_path / "g")))
+    assert got.text == "no data: git not found"
+
+
+def test_clean_removes_absolute_paths():
+    drive = "D" + ":"
+    known = drive + BS + "work" + BS + "plans"
+    cases = {
+        f"fatal: '{drive}/a b/c' is bad": "fatal: 'harbor' is bad",
+        "fatal: '/srv/a b' is bad": "fatal: 'harbor' is bad",
+        f"fatal: cannot change to {drive}{BS}x{BS}y: no": "fatal: cannot change to harbor",
+        "error: /srv/repo/.git is broken": "error: harbor",
+        "fatal: not a git repository: /a b/.git": "fatal: not a git repository: harbor",
+        f"error: {known}{BS}sub near .git/objects/ab/cd": f"error: harbor{BS}sub near .git/objects/ab/cd",
+        "error: " + known.replace(BS, "/") + "/x": "error: harbor/x",
+        "error: object file .git/objects/ab/cd is empty": "error: object file .git/objects/ab/cd is empty",
+    }
+    assert {m: wbs_history.clean(m, [known], "harbor") for m in cases} == cases
+
+
+@pytest.mark.parametrize("ci", [None, "", "true"], ids=["unset", "empty", "true"])
+def test_git_gate_end_to_end(tmp_path, ci):
+    code, cases = gate_run(tmp_path, ci, module=GATED_MODULES)
+    passed = [kind for kind, _ in cases].count("passed")
+    others = [(kind, message) for kind, message in cases if kind != "passed"]
+    if ci:
+        assert all(kind in ("failure", "error") and GIT_MISSING + CI_SUFFIX in message
+                   for kind, message in others), others
+        assert code == 1
+    else:
+        assert all(kind == "skipped" and message == GIT_MISSING for kind, message in others), others
+        assert code == 0
+    assert len(others) >= GATED_TESTS
+    assert passed >= UNGATED_TESTS

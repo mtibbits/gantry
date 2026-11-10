@@ -276,6 +276,21 @@ def relation(outer: Root, inner: Root) -> str | None:
     return "contains" if _within(b, a) else None
 
 
+def is_within(inner, outer) -> bool:
+    """Whether `inner` is `outer` or under it, compared as given (normalised and
+    case-normalised, not resolved): the caller passes resolved paths (#28)."""
+    def canon(path):
+        return os.path.normcase(os.path.normpath(_text(path)))
+
+    return _within(canon(inner), canon(outer))
+
+
+def program_on_path(name, environ) -> bool:
+    """Whether `name` is an executable on `environ`'s PATH, as a child process
+    started with that environment would find it (#28)."""
+    return shutil.which(name, path=environ.get("PATH", os.defpath)) is not None
+
+
 def outside(roots, base) -> list[Root]:
     """The roots that are not `base` or under it, both sides resolved and
     case-normalised; the package root is never listed."""
