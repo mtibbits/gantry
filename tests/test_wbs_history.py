@@ -35,6 +35,9 @@ from helpers_history import (
     site_config,
     spy_git,
 )
+from sample_roles import HISTORY_LESS, HISTORY_RECENT, HISTORY_STALE, HISTORY_YOUNG
+from test_samples import GANTRY_SAMPLE, SAMPLES, git_work_tree
+from test_samples import git as sample_git
 
 ROOT = Path(__file__).resolve().parents[1]
 BS = "\\"
@@ -856,3 +859,128 @@ def test_without_git_everything_reads_git_not_found(tmp_path, monkeypatch):
     got = wbs_history.last_state_change(roots, found["harbor"], config, AS_OF, 4, HistoryCache())
     assert got.no_data.text == "no data: git not found"
     assert wbs_history.committed_text(got.repo, "Issue-7/checklist.md") is got.repo
+
+
+# --- the sample legs, on the real checkout (Task 7) ------------------------------------
+
+HISTORY_SITES = (HISTORY_RECENT, HISTORY_STALE, HISTORY_YOUNG)
+SAMPLE_ROLES = {
+    "recent": (HISTORY_RECENT, (date(2026, 1, 8), False, 3, None)),
+    "stale": (HISTORY_STALE, (None, False, 2, None)),
+    "young": (HISTORY_YOUNG, (date(2026, 1, 5), True, 2, None)),
+    "less": (HISTORY_LESS, (None, False, 0, "no data: in no repository")),
+}
+
+
+def sample_answers(names=None):
+    """{site: HistoryResult} on the sample installation, as_of and weeks passed."""
+    from gantry.config import load_config
+    from gantry.sites import config_roots, load_sites
+
+    config = load_config(GANTRY_SAMPLE)
+    roots = config_roots(config)
+    found, _ = load_sites(config, roots)
+    cache = HistoryCache()
+    return {s.name: wbs_history.last_state_change(roots, s, config, AS_OF, 4, cache)
+            for s in found if names is None or s.name in names}
+
+
+def shape(result):
+    return (result.date, result.history_start, result.commits_read,
+            None if result.no_data is None else result.no_data.text)
+
+
+@pytest.mark.parametrize("role", list(SAMPLE_ROLES))
+def test_sample_roles_answer(role, built_sample_history):
+    site, expected = SAMPLE_ROLES[role]
+    assert shape(sample_answers({site})[site]) == expected
+
+
+def test_git_dir_cannot_redirect_the_reader(monkeypatch, built_sample_history):
+    if not git_work_tree(ROOT):
+        pytest.skip("the gantry root is not a git work tree")
+    monkeypatch.setenv("GIT_DIR", str(ROOT / ".git"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(ROOT))
+    got = sample_answers({s for s, _ in SAMPLE_ROLES.values()})
+    assert {role: shape(got[site]) for role, (site, _) in SAMPLE_ROLES.items()} == {
+        role: expected for role, (_, expected) in SAMPLE_ROLES.items()}
+
+
+def test_history_less_discovery_runs_under_the_ceiling(monkeypatch, built_sample_history):
+    calls = spy_git(monkeypatch)
+    assert shape(sample_answers({HISTORY_LESS})[HISTORY_LESS])[3] == "no data: in no repository"
+    assert len(calls) == 1
+    args, cwd, ceiling = calls[0]
+    assert args[0] == "rev-parse" and ceiling == wbs_history.gantry_root()
+    assert norm(cwd) == norm(SAMPLES / HISTORY_LESS)
+
+
+def test_no_working_tree_wbs_is_opened(monkeypatch, built_sample_history):
+    import builtins
+
+    real_open, real_os_open = builtins.open, os.open
+
+    def refuse(path):
+        if os.path.basename(os.fsdecode(path)) == "WBS.md":
+            raise PermissionError("a working-tree WBS.md was opened")
+
+    def guarded_open(file, *args, **kwargs):
+        if isinstance(file, (str, bytes, os.PathLike)):
+            refuse(file)
+        return real_open(file, *args, **kwargs)
+
+    def guarded_os_open(path, *args, **kwargs):
+        refuse(path)
+        return real_os_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "open", guarded_open)
+    monkeypatch.setattr(os, "open", guarded_os_open)
+    with pytest.raises(PermissionError):
+        builtins.open(SAMPLES / HISTORY_RECENT / "WBS.md", "rb")  # the control: the patch bites
+    got = sample_answers(set(HISTORY_SITES))
+    monkeypatch.undo()
+    assert {s: got[s].no_data for s in HISTORY_SITES} == {s: None for s in HISTORY_SITES}
+    assert shape(got[HISTORY_RECENT])[0] == date(2026, 1, 8)
+
+
+def test_sample_sites_with_history_are_committed(built_sample_history):
+    got = sample_answers(set(HISTORY_SITES))
+    assert {s: (got[s].uncommitted, got[s].uncommitted_reason) for s in HISTORY_SITES} == {
+        s: (False, None) for s in HISTORY_SITES}
+
+
+def _home_without_autocrlf(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / ".gitconfig").write_bytes(b"[core]\n\tautocrlf = false\n")
+    for name in ("HOME", "USERPROFILE", "XDG_CONFIG_HOME"):
+        monkeypatch.setenv(name, str(home))
+
+
+def test_crlf_copy_is_not_uncommitted(tmp_path, monkeypatch, built_sample_history):
+    _home_without_autocrlf(tmp_path, monkeypatch)
+    copies = {}
+    for site in HISTORY_SITES:
+        source = (SAMPLES / site / "WBS.md").read_bytes()
+        copies[site] = source.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+        assert copies[site] != source, site
+    out = SAMPLES / "history" / "out"
+    config, roots, found = site_config(tmp_path / "inst", copies, history={s: out / s for s in HISTORY_SITES})
+    cache = HistoryCache()
+    got = {s: wbs_history.last_state_change(roots, found[s], config, AS_OF, 4, cache) for s in HISTORY_SITES}
+    assert {s: (r.no_data, r.uncommitted) for s, r in got.items()} == {s: (None, False) for s in HISTORY_SITES}
+    # The control, under the same home: with no info/attributes, a CRLF copy is a change.
+    repo = make_repo(tmp_path / "plain")
+    commit(repo, "WBS.md", wbs(), "2026-01-05")
+    assert answer(tmp_path / "control", repo, planning=wbs().replace("\n", "\r\n").encode()).uncommitted is True
+
+
+def test_sample_wbs_eol_attr_is_lf():
+    if not git_work_tree(ROOT):
+        pytest.skip("the gantry root is not a git work tree")
+    sites = sorted(p.parent.name for p in SAMPLES.glob("*/WBS.md"))
+    assert len(sites) == 5, sites
+    for site in sites:
+        result = sample_git(ROOT, "check-attr", "eol", "--", f"samples/{site}/WBS.md")
+        assert result.returncode == 0
+        assert result.stdout.decode("utf-8").strip().endswith("eol: lf"), site
