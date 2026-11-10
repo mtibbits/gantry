@@ -17,6 +17,11 @@ SMALL = "lighthouse"
 HOSTILE_SITE = SMALL
 NO_WBS = "bakery"
 UNREADABLE = "marsh"
+# The sample WBS.md history (#28): samples/history/plan.toml.
+HISTORY_RECENT = BUSY  # a glyph change inside the four-week window
+HISTORY_STALE = OWN_UNIT  # a last glyph change older than the window
+HISTORY_YOUNG = SMALL  # history that begins inside the window, no change since
+HISTORY_LESS = UNESTIMATED  # a WBS.md and no `history` key
 READABLE = frozenset({BUSY, OWN_UNIT, UNESTIMATED, SMALL})
 NOT_BUILT = frozenset({NO_WBS, UNREADABLE})
 HOSTILE_TITLE = 'Render <b>this</b> & "that" as text'

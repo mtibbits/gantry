@@ -8,3 +8,11 @@ portfolio_file = "portfolio.md"
 
 [site.lighthouse]
 requirements = "lighthouse/requirements.md"
+history = "history/out/lighthouse"
+
+# The sample WBS.md history (#28), built by tools/sample_history.py.
+[site.harbor]
+history = "history/out/harbor"
+
+[site.orchard]
+history = "history/out/orchard"

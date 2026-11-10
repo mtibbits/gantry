@@ -273,9 +273,11 @@ def test_sample_config_loads_inside_samples():
     samples = os.path.normcase(str(SAMPLES.resolve()))
     paths = [c.devagent_config, c.output_dir, c.portfolio_file, c.fires_list]
     for site in c.sites.values():
-        paths += [site.requirements, site.estimates]
+        paths += [site.requirements, site.estimates, site.history]
+    histories = [s.history for s in c.sites.values() if isinstance(s.history, PurePath)]
+    assert len(histories) == 3
     paths = [p for p in paths if isinstance(p, PurePath)]
-    assert len(paths) >= 2
+    assert len(paths) >= 5
     for p in paths:
         assert Path(os.path.normcase(str(p))).is_relative_to(samples), p
     assert "out" in c.output_dir.parts

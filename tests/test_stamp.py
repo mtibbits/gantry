@@ -17,7 +17,7 @@ from gantry.build import build_all, write_all
 from gantry.config import load_config
 from gantry.roots import directory_roots
 from gantry.stamp import BUILT_STAMP, SAMPLE_STAMP, outside, sample_dir, sample_mode, stamp_text
-from helpers_config import append_bytes, copy_samples, demo_build, written_bytes
+from helpers_config import copy_samples, demo_build, written_bytes
 from sample_roles import BUSY, SMALL
 from test_samples import ROOT
 
@@ -96,7 +96,11 @@ def _move_requirements(copy, outside_dir):
 
 def _move_estimates(copy, outside_dir):
     config = copy / "gantry.sample.toml"
-    append_bytes(config, f"[site.{BUSY}]\nestimates = {literal(outside_dir / 'estimates.md')}\n")
+    # The sample already has a [site.<BUSY>] table (its history key, #28).
+    text = config.read_bytes().decode("utf-8")
+    after = text.replace(f"[site.{BUSY}]\n", f"[site.{BUSY}]\nestimates = {literal(outside_dir / 'estimates.md')}\n")
+    assert after != text
+    config.write_bytes(after.encode("utf-8"))
     return config
 
 

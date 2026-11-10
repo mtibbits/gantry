@@ -396,6 +396,9 @@ def test_sample_roots_lie_inside_the_sample_directory():
     assert {("devdoc_dir", n) for n in sample_projects()} <= found
     assert {("--config", None), ("devagent_config", None), ("output_dir", None), ("portfolio_file", None),
             ("site.lighthouse.requirements", None)} <= found
+    from sample_roles import HISTORY_RECENT, HISTORY_STALE, HISTORY_YOUNG
+
+    assert {(f"site.{s}.history", None) for s in (HISTORY_RECENT, HISTORY_STALE, HISTORY_YOUNG)} <= found
     assert [r.key for r in roots.roots if r.writable] == ["output_dir"]
 
 
@@ -513,7 +516,7 @@ def test_estimates_naming_a_folder_admits_nothing_under_it(tmp_path):
     folder.mkdir()
     (folder / "x.md").write_bytes(b"x")
     config = copy / "gantry.sample.toml"
-    config.write_bytes(config.read_bytes() + f"\n[site.harbor]\nestimates = {literal(folder)}\n".encode())
+    replace_bytes(config, "[site.harbor]\n", f"[site.harbor]\nestimates = {literal(folder)}\n")
     roots = roots_of(config)
     with pytest.raises(OutsideRoots):
         read_bytes_confined(roots, folder / "x.md", key="estimates file", site="harbor")
@@ -683,7 +686,7 @@ def test_estimates_folder_key_is_unreadable_and_page_builds(tmp_path):
     folder = tmp_path / "folder"
     folder.mkdir()
     config = copy / "gantry.sample.toml"
-    config.write_bytes(config.read_bytes() + f"\n[site.harbor]\nestimates = {literal(folder)}\n".encode())
+    replace_bytes(config, "[site.harbor]\n", f"[site.harbor]\nestimates = {literal(folder)}\n")
     result = build_all(load_config(config))
     assert "harbor" in result.pages
     assert len(_unreadable_estimates(result, "harbor")) == 1
