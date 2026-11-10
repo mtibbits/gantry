@@ -10,6 +10,7 @@ import os
 import random
 import re
 import time
+from datetime import date
 from pathlib import Path, PurePath
 
 import pytest
@@ -17,9 +18,23 @@ import pytest
 from gantry import roots as roots_module
 from gantry import wbs_history
 from gantry.roots import directory_roots
-from gantry.wbs_history import decode_version, scan_nodes, split_meta, state_changes
+from gantry.sites import SiteEntry
+from gantry.wbs_history import HistoryCache, decode_version, scan_nodes, split_meta, state_changes
 from helpers_gate import gate_run
-from helpers_history import CI_SUFFIX, GIT_MISSING, make_repo, spy_git
+from helpers_history import (
+    CI_SUFFIX,
+    GIT_MISSING,
+    branch,
+    checkout,
+    commit,
+    corrupt,
+    git,
+    make_repo,
+    merge,
+    shallow_clone,
+    site_config,
+    spy_git,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 BS = "\\"
@@ -395,3 +410,316 @@ def test_git_gate_end_to_end(tmp_path, ci):
         assert code == 0
     assert len(others) >= GATED_TESTS
     assert passed >= UNGATED_TESTS
+
+
+# --- last_state_change: the walk (Task 4) ---------------------------------------------
+
+AS_OF = date(2026, 1, 20)  # weeks 4: the window is 2025-12-24 to 2026-01-20
+NO_COMMITS_TEXT = "no data: `WBS.md` has no commits on or before 2026-01-20"
+
+
+def wbs(a=" ", b=" ", note=""):
+    """A WBS.md version: two issue leaves under an epic, glyphs `a` and `b`."""
+    return f"# Plan\n- [ ] Epic\n  - [{a}] A {{issue: Issue-1}}\n  - [{b}] B {{issue: Issue-2}}{note}\n"
+
+
+def answer(tmp_path, history, *, as_of=AS_OF, weeks=4, cache=None, planning=None, sites=("harbor",)):
+    """last_state_change for each site, every site's `history` naming `history`."""
+    planning = wbs().encode() if planning is None else planning
+    config, roots, found = site_config(tmp_path / "inst", {s: planning for s in sites},
+                                       history={s: history for s in sites})
+    cache = HistoryCache() if cache is None else cache
+    got = [wbs_history.last_state_change(roots, found[s], config, as_of, weeks, cache) for s in sites]
+    return got[0] if len(got) == 1 else got
+
+
+def resolved_versions(calls):
+    """The `<commit>:<path>` arguments of the spied rev-parse calls, in order."""
+    return [a[-1] for a, _, _ in calls if a[0] == "rev-parse" and ":" in a[-1] and "^" not in a[-1]]
+
+
+def blob_reads(calls):
+    return [a[-1] for a, _, _ in calls if a[0] == "cat-file"]
+
+
+def test_change_on_window_first_day_is_returned(tmp_path, git_ready):
+    repo = make_repo(tmp_path / "plans")
+    commit(repo, "WBS.md", wbs(), "2025-12-01")
+    commit(repo, "WBS.md", wbs("x"), "2025-12-24")
+    got = answer(tmp_path, repo)
+    assert (got.date, got.history_start, got.no_data) == (date(2025, 12, 24), False, None)
+
+
+def test_change_in_newest_commit_before_window_is_returned(tmp_path, git_ready):
+    repo = make_repo(tmp_path / "plans")
+    commit(repo, "WBS.md", wbs(), "2025-11-01")
+    commit(repo, "WBS.md", wbs("x"), "2025-12-23")
+    commit(repo, "WBS.md", wbs("x", note=" more"), "2026-01-05")
+    got = answer(tmp_path, repo)
+    assert (got.date, got.commits_read) == (date(2025, 12, 23), 2)
+
+
+def test_change_behind_the_stop_commit_is_not_read(tmp_path, monkeypatch, git_ready):
+    repo = make_repo(tmp_path / "plans")
+    c0 = commit(repo, "WBS.md", wbs(), "2025-11-01")
+    commit(repo, "WBS.md", wbs("x"), "2025-11-15")
+    commit(repo, "WBS.md", wbs("x", note=" edited"), "2025-12-01")
+    commit(repo, "WBS.md", wbs("x", note=" again"), "2026-01-05")
+    calls = spy_git(monkeypatch)
+    got = answer(tmp_path, repo)
+    assert (got.date, got.commits_read, got.no_data) == (None, 2, None)
+    assert f"{c0}:WBS.md" not in resolved_versions(calls)
+
+
+def test_latest_date_wins_when_chain_order_differs(tmp_path, git_ready):
+    repo = make_repo(tmp_path / "plans")
+    commit(repo, "WBS.md", wbs(), "2025-11-01")
+    commit(repo, "WBS.md", wbs("x"), "2026-01-15")
+    commit(repo, "WBS.md", wbs("x", "x"), "2026-01-02")
+    assert answer(tmp_path, repo).date == date(2026, 1, 15)
+
+
+def test_commit_after_as_of_is_skipped_and_older_one_read(tmp_path, git_ready):
+    repo = make_repo(tmp_path / "plans")
+    commit(repo, "WBS.md", wbs(), "2025-11-01")
+    commit(repo, "WBS.md", wbs("x"), "2026-01-10")
+    commit(repo, "WBS.md", wbs("x", "x"), "2026-02-01")
+    got = answer(tmp_path, repo)
+    assert (got.date, got.commits_read) == (date(2026, 1, 10), 2)
+
+
+def test_merge_counts_side_branch_change_at_the_merge(tmp_path, git_ready):
+    repo = make_repo(tmp_path / "plans")
+    commit(repo, "WBS.md", wbs(), "2025-11-01")
+    branch(repo, "side")
+    checkout(repo, "side")
+    commit(repo, "WBS.md", wbs("x"), "2026-01-18")
+    checkout(repo, "main")
+    commit(repo, "other.md", "x\n", "2026-01-05")
+    merge(repo, "side", "2026-01-10")
+    got = answer(tmp_path, repo)
+    assert got.date == date(2026, 1, 10)
+
+
+def test_date_is_in_the_commits_own_offset(tmp_path, monkeypatch, git_ready):
+    repo = make_repo(tmp_path / "plans")
+    commit(repo, "WBS.md", wbs(), "2025-11-01")
+    commit(repo, "WBS.md", wbs("x"), "2026-01-12T23:30:00-1100")
+    monkeypatch.setenv("TZ", "Asia/Tokyo")
+    assert answer(tmp_path, repo).date == date(2026, 1, 12)
+
+
+def test_history_start_inside_window(tmp_path, git_ready):
+    repo = make_repo(tmp_path / "plans")
+    commit(repo, "other.md", "x\n", "2025-10-01")
+    commit(repo, "WBS.md", wbs(), "2026-01-05")
+    commit(repo, "WBS.md", wbs(note=" edited"), "2026-01-10")
+    got = answer(tmp_path, repo)
+    assert (got.date, got.history_start, got.commits_read) == (date(2026, 1, 5), True, 2)
+
+
+def test_history_start_is_false_when_a_change_followed(tmp_path, git_ready):
+    repo = make_repo(tmp_path / "plans")
+    commit(repo, "WBS.md", wbs(), "2026-01-05")
+    commit(repo, "WBS.md", wbs("x"), "2026-01-10")
+    got = answer(tmp_path, repo)
+    assert (got.date, got.history_start) == (date(2026, 1, 10), False)
+
+
+def test_each_version_is_read_once_per_build(tmp_path, monkeypatch, git_ready):
+    repo = make_repo(tmp_path / "plans")
+    commit(repo, "WBS.md", wbs(), "2025-11-01")
+    commit(repo, "other.md", "a\n", "2025-11-20")
+    commit(repo, "WBS.md", wbs("x"), "2025-12-01")
+    commit(repo, "WBS.md", wbs("x", "x"), "2026-01-10")
+    calls = spy_git(monkeypatch)
+    cache = HistoryCache()
+    first = answer(tmp_path, repo, cache=cache, sites=("harbor", "orchard"))
+    assert [r.date for r in first] == [date(2026, 1, 10)] * 2
+    versions, blobs = resolved_versions(calls), blob_reads(calls)
+    assert versions and blobs
+    assert len(versions) == len(set(versions)), versions
+    assert len(blobs) == len(set(blobs)), blobs
+    before = len(calls)
+    config, roots, found = site_config(tmp_path / "again", {"harbor": wbs().encode()}, history={"harbor": repo})
+    again = wbs_history.last_state_change(roots, found["harbor"], config, AS_OF, 4, cache)
+    assert again.date == date(2026, 1, 10)
+    assert resolved_versions(calls[before:]) == [] and blob_reads(calls[before:]) == []
+
+
+def test_walk_stops_after_first_commit_before_window(tmp_path, monkeypatch, git_ready):
+    repo = make_repo(tmp_path / "plans")
+    commit(repo, "WBS.md", wbs(), "2025-10-01")
+    commit(repo, "other.md", "1\n", "2025-10-02")
+    commit(repo, "WBS.md", wbs("x"), "2025-11-01")
+    p_stop = commit(repo, "other.md", "2\n", "2025-11-02")
+    stop = commit(repo, "WBS.md", wbs("x", "x"), "2025-12-01")
+    p_new = commit(repo, "other.md", "3\n", "2025-12-02")
+    new = commit(repo, "WBS.md", wbs("x", "x", " edited"), "2026-01-05")
+    calls = spy_git(monkeypatch)
+    got = answer(tmp_path, repo)
+    assert got.commits_read == 2
+    assert resolved_versions(calls) == [f"{c}:WBS.md" for c in (new, p_new, stop, p_stop)]
+
+
+def _shallow_source(tmp_path):
+    repo = make_repo(tmp_path / "source")
+    commit(repo, "WBS.md", wbs(), "2025-10-01")
+    commit(repo, "WBS.md", wbs("x"), "2025-11-01")
+    commit(repo, "WBS.md", wbs("x", note=" edited"), "2025-12-01")
+    commit(repo, "WBS.md", wbs("x", note=" again"), "2026-01-10")
+    return repo
+
+
+def test_shallow_clone_reads_shallow_history(tmp_path, git_ready):
+    source = _shallow_source(tmp_path)
+    one = shallow_clone(source, tmp_path / "one", depth=1)
+    assert answer(tmp_path / "a", one).no_data.text == "no data: shallow history"
+    # Depth 2: the parentless boundary is the stop commit, whose version before it is missing.
+    two = shallow_clone(source, tmp_path / "two", depth=2)
+    assert answer(tmp_path / "b", two).no_data.text == "no data: shallow history"
+    # No commit counted (the only one is after as_of): shallow, not "no commits".
+    got = answer(tmp_path / "c", one, as_of=date(2026, 1, 5))
+    assert got.no_data.text == "no data: shallow history"
+
+
+def test_full_clone_control_answers(tmp_path, git_ready):
+    source = _shallow_source(tmp_path)
+    full = tmp_path / "full"
+    git(tmp_path, "clone", "-q", source.resolve().as_uri(), str(full))
+    got = answer(tmp_path, full)
+    assert (got.no_data, got.date, got.commits_read) == (None, None, 2)
+
+
+def test_corrupt_commit_reads_git_failed(tmp_path, git_ready):
+    repo = make_repo(tmp_path / "plans")
+    commit(repo, "WBS.md", wbs(), "2025-11-01")
+    head = commit(repo, "WBS.md", wbs("x"), "2026-01-05")
+    corrupt(repo, head)
+    got = answer(tmp_path, repo)
+    assert got.no_data.text.startswith("no data: git failed: "), got.no_data
+    for form in (str(tmp_path), str(tmp_path).replace(BS, "/")):
+        assert form not in got.no_data.text
+
+
+def test_untracked_wbs_has_no_commits(tmp_path, git_ready):
+    repo = make_repo(tmp_path / "plans")
+    commit(repo, "other.md", "x\n", "2025-11-01")
+    (repo / "WBS.md").write_bytes(wbs().encode())
+    got = answer(tmp_path, repo)
+    assert (got.no_data.text, got.uncommitted, got.uncommitted_reason) == (NO_COMMITS_TEXT, None, NO_COMMITS_TEXT)
+
+
+def test_all_commits_after_as_of_has_no_commits(tmp_path, git_ready):
+    repo = make_repo(tmp_path / "plans")
+    commit(repo, "WBS.md", wbs(), "2026-02-01")
+    got = answer(tmp_path, repo)
+    assert (got.no_data.text, got.uncommitted) == (NO_COMMITS_TEXT, None)
+
+
+def test_unborn_head_has_no_commits(tmp_path, git_ready):
+    repo = make_repo(tmp_path / "plans")
+    assert answer(tmp_path, repo).no_data.text == NO_COMMITS_TEXT
+
+
+def _case_missing(tmp_path, monkeypatch):
+    return tmp_path / "nope", None
+
+
+def _case_own(tmp_path, monkeypatch):
+    return Path(str(wbs_history.gantry_root())), None
+
+
+def _case_no_repository(tmp_path, monkeypatch):
+    gantry = fixture_checkout(tmp_path)
+    monkeypatch.setattr(wbs_history, "gantry_root", lambda: gantry)
+    plain = Path(str(gantry)) / "plain"
+    plain.mkdir()
+    return plain, None
+
+
+def _case_no_commits(tmp_path, monkeypatch):
+    return make_repo(tmp_path / "plans"), None
+
+
+def _case_shallow(tmp_path, monkeypatch):
+    return shallow_clone(_shallow_source(tmp_path), tmp_path / "one", depth=1), None
+
+
+def _case_git_failed(tmp_path, monkeypatch):
+    repo = make_repo(tmp_path / "plans")
+    corrupt(repo, commit(repo, "WBS.md", wbs(), "2025-11-01"))
+    return repo, None
+
+
+def _case_git_missing(tmp_path, monkeypatch):
+    repo = make_repo(tmp_path / "plans")
+    commit(repo, "WBS.md", wbs(), "2025-11-01")
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    return repo, lambda: monkeypatch.setenv("PATH", str(empty))
+
+
+NO_DATA_CASES = {
+    "missing": (_case_missing, "no data: history directory not found"),
+    "own": (_case_own, "no data: history would come from Gantry's own repository"),
+    "no-repository": (_case_no_repository, "no data: in no repository"),
+    "no-commits": (_case_no_commits, NO_COMMITS_TEXT),
+    "shallow": (_case_shallow, "no data: shallow history"),
+    "git-failed": (_case_git_failed, "no data: git failed: "),
+    "git-missing": (_case_git_missing, "no data: git not found"),
+}
+
+
+@pytest.mark.parametrize("case", list(NO_DATA_CASES))
+def test_no_data_cases_never_raise(tmp_path, monkeypatch, case, git_ready):
+    make, expected = NO_DATA_CASES[case]
+    history, before = make(tmp_path, monkeypatch)
+    config, roots, found = site_config(tmp_path / "inst", {"harbor": wbs().encode()}, history={"harbor": history})
+    given = []
+    real = wbs_history.history_repository
+
+    def spy(*args, **kwargs):
+        given.append(real(*args, **kwargs))
+        return given[-1]
+
+    monkeypatch.setattr(wbs_history, "history_repository", spy)
+    if before is not None:
+        before()
+    got = wbs_history.last_state_change(roots, found["harbor"], config, AS_OF, 4, HistoryCache())
+    assert got.no_data.text.startswith(expected), got.no_data
+    assert (got.date, got.history_start, got.uncommitted) == (None, False, None)
+    assert got.uncommitted_reason == got.no_data.text
+    assert len(given) == 1 and got.repo is given[0]
+
+
+def test_site_without_planning_directory_never_raises(tmp_path, git_ready):
+    config, roots, _ = site_config(tmp_path / "inst", {"harbor": wbs().encode()})
+    for site in (SiteEntry("harbor", None, "no devdoc_dir"), SiteEntry("nul", PurePath("a\x00b"), None),
+                 SiteEntry("unlisted", tmp_path / "nope", None)):
+        got = wbs_history.last_state_change(roots, site, config, AS_OF, 4, HistoryCache())
+        assert got.no_data is not None and got.date is None, site
+    got = wbs_history.last_state_change(roots, SiteEntry("harbor", None, "x"), config, AS_OF, 4, HistoryCache())
+    assert got.no_data.text == "no data: the site has no planning directory"
+
+
+def test_answering_site_repo_is_what_history_repository_gave(tmp_path, monkeypatch, git_ready):
+    repo = make_repo(tmp_path / "plans")
+    commit(repo, "WBS.md", wbs(), "2025-11-01")
+    given = []
+    real = wbs_history.history_repository
+    monkeypatch.setattr(wbs_history, "history_repository", lambda *a, **k: given.append(real(*a, **k)) or given[-1])
+    got = answer(tmp_path, repo)
+    assert isinstance(got.repo, wbs_history.Repo) and got.repo is given[0]
+
+
+def test_history_dir_below_top_and_glob_characters(tmp_path, git_ready):
+    repo = make_repo(tmp_path / "plans")
+    for name in ("sites/harbor", "sites/h[ab]"):
+        commit(repo, f"{name}/WBS.md", wbs(), "2025-11-01")
+        commit(repo, f"{name}/WBS.md", wbs("x"), "2026-01-05")
+    commit(repo, "sites/hb/WBS.md", wbs("x", "x"), "2026-01-15")  # matched only by a glob
+    for name in ("harbor", "h[ab]"):
+        got = answer(tmp_path / name.replace("[", "").replace("]", ""), repo / "sites" / name)
+        assert (got.no_data, got.date) == (None, date(2026, 1, 5)), name
+        assert got.repo.prefix == f"sites/{name}"
