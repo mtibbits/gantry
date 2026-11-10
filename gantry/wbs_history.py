@@ -14,12 +14,13 @@ The signatures are provisional until #29 binds them.
 """
 
 import os
+import posixpath
 import re
 import stat
 import subprocess
 from dataclasses import dataclass
 from datetime import date, timedelta
-from pathlib import PurePath
+from pathlib import PurePath, PureWindowsPath
 
 from gantry.roots import OutsideRoots, gantry_root, is_within, program_on_path, resolve_confined, stat_confined
 
@@ -34,8 +35,9 @@ OWN_REPOSITORY = "history would come from Gantry's own repository"
 NO_COMMITS = "`WBS.md` has no commits on or before {as_of}"
 SHALLOW = "shallow history"
 GIT_FAILED = "git failed: {message}"
+CANNOT_CHECK_WBS = "cannot check the working-tree `WBS.md`: {reason}"  # uncommitted only
 REASONS = (GIT_NOT_FOUND, DIR_NOT_FOUND, NO_PLANNING_DIR, OUTSIDE_ROOTS, CANNOT_CHECK, NO_REPOSITORY,
-           OWN_REPOSITORY, NO_COMMITS, SHALLOW, GIT_FAILED)
+           OWN_REPOSITORY, NO_COMMITS, SHALLOW, GIT_FAILED, CANNOT_CHECK_WBS)
 
 GIT_TIMEOUT = 120  # seconds, for one plumbing call
 
@@ -582,4 +584,61 @@ def last_state_change(roots, site, config, as_of, weeks, cache) -> HistoryResult
     if isinstance(walked, NoData):
         return _no_data_result(walked, repo, read)
     day, history_start, read = walked
-    return HistoryResult(day, history_start, read, None, None, repo, None)
+    uncommitted, reason = _uncommitted(roots, site, repo, cache)
+    return HistoryResult(day, history_start, read, uncommitted, reason, repo, None)
+
+
+def _uncommitted(roots, site, repo, cache):
+    """(True or False, None) when the planning directory's working-tree
+    WBS.md is or is not its committed version at HEAD, or (None, the reason).
+
+    Git hashes the file with the repository's attributes and line-ending
+    rules (`hash-object --path`, never -w, never --no-filters); this module
+    never reads the file itself."""
+    if site.planning_dir is None:
+        return None, NoData(NO_PLANNING_DIR).text
+    try:
+        file = resolve_confined(roots, site.planning_dir / "WBS.md", key="WBS.md", site=site.name)
+    except OutsideRoots as e:
+        return None, NoData(str(e)).text
+    except (OSError, ValueError) as e:
+        return None, NoData(CANNOT_CHECK_WBS.format(reason=getattr(e, "strerror", None) or str(e))).text
+    path = _repo_path(repo, "WBS.md")
+    ran = _git(repo, ["hash-object", f"--path={path}", "--", str(file)])
+    if isinstance(ran, NoData):
+        return None, ran.text
+    if ran.returncode != 0:
+        return None, _failed(ran, [str(repo.top), str(file), str(site.planning_dir)], repo.site).text
+    head = _head(repo, cache)
+    committed = _blob_id(repo, head, path, cache) if isinstance(head, str) else head
+    if isinstance(committed, NoData):
+        return None, committed.text
+    return isinstance(committed, Absent) or committed != _out(ran).strip(), None
+
+
+def _names_no_file(rel: str) -> bool:
+    """A `rel_path` that can name no file in the history directory: empty,
+    absolute or drive-relative under either OS's rules, with a `..` segment,
+    or holding a newline."""
+    if not rel or "\n" in rel or "\r" in rel:
+        return True
+    if rel[0] in "/\\" or PureWindowsPath(rel).drive:
+        return True
+    return ".." in re.split(r"[\\/]", rel)
+
+
+def committed_text(repo, rel_path: str):
+    """The text of `rel_path` (relative to the history directory, `/` form) at
+    the repository's HEAD, decoded with replacement; Absent when it is not in
+    that commit or can name no file there; NoData only when git fails. A
+    NoData given is returned unchanged, with no git call. Provisional until
+    #29 binds it."""
+    if isinstance(repo, NoData):
+        return repo
+    if _names_no_file(rel_path):
+        return Absent()
+    blob_id = _resolve(repo, f"HEAD:{posixpath.join(repo.prefix, rel_path)}")
+    if isinstance(blob_id, (Absent, NoData)):
+        return blob_id
+    data = _blob(repo, blob_id)
+    return data if isinstance(data, NoData) else decode_version(data)

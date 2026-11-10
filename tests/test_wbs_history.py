@@ -723,3 +723,136 @@ def test_history_dir_below_top_and_glob_characters(tmp_path, git_ready):
         got = answer(tmp_path / name.replace("[", "").replace("]", ""), repo / "sites" / name)
         assert (got.no_data, got.date) == (None, date(2026, 1, 5)), name
         assert got.repo.prefix == f"sites/{name}"
+
+
+# --- committed_text and the uncommitted check (Task 5) ----------------------------------
+
+
+def repo_for(tmp_path, directory):
+    return find(directory_roots([tmp_path]), directory, fixture_checkout(tmp_path))
+
+
+def test_committed_text_reads_head_relative_to_history_dir(tmp_path, git_ready):
+    top, planning = repo_below(tmp_path, "plans", "harbor")
+    commit(top, "plans/harbor/Issue-7/checklist.md", "- [x] 0. pull\n", "2026-01-05")
+    commit(top, "Issue-7/checklist.md", "top-level decoy\n", "2026-01-06")
+    repo = repo_for(tmp_path, planning)
+    assert wbs_history.committed_text(repo, "Issue-7/checklist.md") == "- [x] 0. pull\n"
+
+
+def test_committed_text_at_the_top_level(tmp_path, git_ready):
+    top = make_repo(tmp_path / "planning")
+    commit(top, "Issue-7/checklist.md", "caf\xe9\n".encode("latin-1"), "2026-01-05")
+    repo = repo_for(tmp_path, top)
+    assert repo.prefix == ""
+    assert wbs_history.committed_text(repo, "Issue-7/checklist.md") == "caf�\n"
+
+
+def test_committed_text_absent(tmp_path, monkeypatch, git_ready):
+    top, planning = repo_below(tmp_path, "plans")
+    commit(top, "plans/kept.md", "x\n", "2026-01-05")
+    (planning / "working-only.md").write_bytes(b"x\n")
+    repo = repo_for(tmp_path, planning)
+    calls = spy_git(monkeypatch)
+    for rel in ("missing.md", "working-only.md"):
+        assert wbs_history.committed_text(repo, rel) == wbs_history.Absent(), rel
+    assert len(calls) == 2
+    for rel in (str(planning / "kept.md"), "/kept.md", BS + "kept.md", "C" + ":kept.md", "../kept.md",
+                "a/../kept.md", "a" + BS + ".." + BS + "kept.md", "", "kept\n.md"):
+        assert wbs_history.committed_text(repo, rel) == wbs_history.Absent(), rel
+    assert len(calls) == 2
+    assert wbs_history.committed_text(repo, "kept.md") == "x\n"
+
+
+def test_committed_text_passes_nodata_through(tmp_path, monkeypatch, git_ready):
+    gantry = fixture_checkout(tmp_path)
+    plain = Path(str(gantry)) / "plain"
+    plain.mkdir()
+    roots = directory_roots([tmp_path])
+    given = [find(roots, plain, gantry), find(roots, gantry, gantry), find(roots, tmp_path / "nope", gantry)]
+    assert [g.reason for g in given] == [wbs_history.NO_REPOSITORY, wbs_history.OWN_REPOSITORY,
+                                         wbs_history.DIR_NOT_FOUND]
+    calls = spy_git(monkeypatch)
+    for no_data in given:
+        assert wbs_history.committed_text(no_data, "Issue-7/checklist.md") is no_data
+    assert calls == []
+
+
+def test_committed_text_corrupt_blob_is_git_failed(tmp_path, git_ready):
+    top = make_repo(tmp_path / "planning")
+    commit(top, "a.md", "x\n", "2026-01-05")
+    corrupt(top, git(top, "rev-parse", "HEAD:a.md").strip())
+    got = wbs_history.committed_text(repo_for(tmp_path, top), "a.md")
+    assert isinstance(got, wbs_history.NoData) and got.text.startswith("no data: git failed: "), got
+    assert str(tmp_path) not in got.text and str(tmp_path).replace(BS, "/") not in got.text
+
+
+def _uncommitted_site(tmp_path, planning_bytes):
+    repo = make_repo(tmp_path / "plans")
+    commit(repo, "WBS.md", wbs(), "2025-11-01")
+    commit(repo, "WBS.md", wbs("x"), "2026-01-05")
+    return repo, answer(tmp_path, repo, planning=planning_bytes)
+
+
+def test_uncommitted_true_when_working_tree_differs(tmp_path, git_ready):
+    _, got = _uncommitted_site(tmp_path, wbs("x", "x").encode())
+    assert (got.no_data, got.uncommitted, got.uncommitted_reason) == (None, True, None)
+
+
+def test_uncommitted_false_when_it_matches(tmp_path, git_ready):
+    _, got = _uncommitted_site(tmp_path, wbs("x").encode())
+    assert (got.no_data, got.uncommitted, got.uncommitted_reason) == (None, False, None)
+
+
+def test_uncommitted_true_when_absent_at_head(tmp_path, git_ready):
+    top = make_repo(tmp_path / "plans")
+    commit(top, "WBS.md", wbs(), "2025-11-01")
+    git(top, "rm", "-q", "WBS.md")
+    git(top, "commit", "-q", "-m", "gone", when="2026-01-05")
+    got = answer(tmp_path, top)
+    assert (got.no_data, got.uncommitted) == (None, True)
+
+
+def _store(repo):
+    git_dir = Path(repo) / ".git"
+    return (git_dir / "index").read_bytes(), sorted(
+        p.relative_to(git_dir / "objects").as_posix() for p in (git_dir / "objects").rglob("*"))
+
+
+def test_uncommitted_check_writes_nothing(tmp_path, monkeypatch, git_ready):
+    repo = make_repo(tmp_path / "plans")
+    commit(repo, "WBS.md", wbs(), "2026-01-05")
+    before = _store(repo)
+    calls = spy_git(monkeypatch)
+    got = answer(tmp_path, repo, planning=wbs("x", "x", " new text").encode())
+    assert got.uncommitted is True
+    assert _store(repo) == before
+    hashes = [a for a, _, _ in calls if a[0] == "hash-object"]
+    assert len(hashes) == 1 and "-w" not in hashes[0]
+
+
+def test_uncommitted_not_checked_in_no_data_case(tmp_path, git_ready):
+    got = answer(tmp_path, make_repo(tmp_path / "plans"))
+    assert (got.uncommitted, got.uncommitted_reason) == (None, NO_COMMITS_TEXT)
+
+
+def test_uncommitted_not_checked_without_a_working_tree_wbs(tmp_path, git_ready):
+    repo = make_repo(tmp_path / "plans")
+    commit(repo, "WBS.md", wbs(), "2026-01-05")
+    config, roots, found = site_config(tmp_path / "inst", {"harbor": None}, history={"harbor": repo})
+    got = wbs_history.last_state_change(roots, found["harbor"], config, AS_OF, 4, HistoryCache())
+    assert got.no_data is None and got.uncommitted is None
+    assert got.uncommitted_reason.startswith("no data: git failed: ")
+    assert str(tmp_path) not in got.uncommitted_reason
+
+
+def test_without_git_everything_reads_git_not_found(tmp_path, monkeypatch):
+    planning = tmp_path / "plans"
+    planning.mkdir()
+    config, roots, found = site_config(tmp_path / "inst", {"harbor": b"x\n"}, history={"harbor": planning})
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    monkeypatch.setenv("PATH", str(empty))
+    got = wbs_history.last_state_change(roots, found["harbor"], config, AS_OF, 4, HistoryCache())
+    assert got.no_data.text == "no data: git not found"
+    assert wbs_history.committed_text(got.repo, "Issue-7/checklist.md") is got.repo
