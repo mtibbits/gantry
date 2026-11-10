@@ -18,6 +18,7 @@ from gantry.sites import load_sites
 from gantry.views import worksite
 from gantry.views.worksite import NO_LEAVES
 from helpers_config import (
+    add_site_key,
     add_top_level,
     append_bytes,
     copy_samples,
@@ -261,7 +262,7 @@ def test_site_page_reads_estimates_file(tmp_path, capsys):
     page = (copy / "out" / "sites" / f"{BUSY}.html").read_bytes().decode("utf-8")
     assert name in page
     assert "no estimates file" not in page
-    append_bytes(config, f"[site.{BUSY}]\nestimates = false\n")
+    add_site_key(config, BUSY, "estimates = false\n")
     assert site_build(capsys, config, BUSY)[0] == 0
     page = (copy / "out" / "sites" / f"{BUSY}.html").read_bytes().decode("utf-8")
     assert name not in page
@@ -280,7 +281,7 @@ def test_unread_keys_and_requirements_do_not_change_build(tmp_path, monkeypatch)
     assert len(plain) == 5
     point_portfolio_file_elsewhere(config)
     add_top_level(config, 'fires_list = "fires.md"\n')
-    append_bytes(config, f'[site.{BUSY}]\nrequirements = "req.md"\n')
+    add_site_key(config, BUSY, 'requirements = "req.md"\n')
     code, out, _, err = demo_build(tmp_path, monkeypatch, copy=copy)
     assert code == 0
     assert written_bytes(out) == plain
