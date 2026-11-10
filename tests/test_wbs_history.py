@@ -43,8 +43,8 @@ ROOT = Path(__file__).resolve().parents[1]
 BS = "\\"
 # Floors for the git gate's end-to-end run, set below the real counts.
 GATED_MODULES = ["tests/test_wbs_history.py", "tests/test_sample_history.py"]
-GATED_TESTS = 9
-UNGATED_TESTS = 30
+GATED_TESTS = 70
+UNGATED_TESTS = 40
 
 # devagent's META_RE (scripts/lib/wbs-parser.py `_META_BLOCK_RE`), verbatim.
 DEVAGENT_META_RE = re.compile(r"\s*\{(?P<body>[^{}]*)\}\s*$")
@@ -975,7 +975,7 @@ def test_crlf_copy_is_not_uncommitted(tmp_path, monkeypatch, built_sample_histor
     assert answer(tmp_path / "control", repo, planning=wbs().replace("\n", "\r\n").encode()).uncommitted is True
 
 
-def test_sample_wbs_eol_attr_is_lf():
+def test_sample_wbs_eol_attr_is_lf(git_ready):
     if not git_work_tree(ROOT):
         pytest.skip("the gantry root is not a git work tree")
     sites = sorted(p.parent.name for p in SAMPLES.glob("*/WBS.md"))
@@ -984,3 +984,30 @@ def test_sample_wbs_eol_attr_is_lf():
         result = sample_git(ROOT, "check-attr", "eol", "--", f"samples/{site}/WBS.md")
         assert result.returncode == 0
         assert result.stdout.decode("utf-8").strip().endswith("eol: lf"), site
+
+
+# --- CI and docs (Task 8) --------------------------------------------------------------
+
+DOC = ROOT / "docs" / "wbs-history.md"
+
+
+def test_workflow_builds_sample_history_before_pytest():
+    lines = (ROOT / ".github" / "workflows" / "test.yml").read_bytes().decode("utf-8").splitlines()
+    tool = next((i for i, line in enumerate(lines) if "tools/sample_history.py" in line and "run:" in line), -1)
+    tests = next((i for i, line in enumerate(lines) if "python -m pytest" in line), -1)
+    assert tool >= 0 and tests >= 0
+    assert tool < tests
+
+
+def test_doc_states_every_no_data_reason():
+    doc = " ".join(DOC.read_bytes().decode("utf-8").split())
+    assert len(wbs_history.REASONS) == 11
+    missing = [r for r in wbs_history.REASONS if r.split("{")[0].strip() not in doc]
+    assert missing == []
+
+
+def test_doc_command_is_the_tools_grammar():
+    doc = DOC.read_bytes().decode("utf-8")
+    fenced = re.findall(r"```[^\n]*\n(.*?)```", doc, re.S)
+    commands = [line for block in fenced for line in block.splitlines() if "sample_history" in line]
+    assert commands and all(c.startswith("python tools/sample_history.py") for c in commands), commands

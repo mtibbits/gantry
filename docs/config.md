@@ -74,9 +74,14 @@ br_namespace = "life"
 
 [site.lighthouse]
 requirements = "lighthouse/requirements.md"
+history = "history/out/lighthouse"
 
 [site.harbor]
+history = "history/out/harbor"
 estimates = false
+
+[site.orchard]
+history = "history/out/orchard"
 ```
 
 ## The version rule
@@ -178,6 +183,15 @@ This is the one change for a config that worked before: an `output_dir` of
 with `key 'output_dir' contains the config file itself`. Point `output_dir` at a
 folder of its own, such as `out`. A missing `output_dir` and its missing
 parents are still created.
+
+**Git reads a history directory's repository.** To read a site's `WBS.md`
+history ([the rules](wbs-history.md)), Gantry starts git, a child process,
+in the site's history directory (its `history` key, else its planning
+directory), after checking that directory is under a root. Git then reads
+the repository that holds it, whose top level may lie above the root, as a
+shared planning repository's does. It never reads a repository whose top
+level is the gantry root or above it: discovery stops at the gantry root,
+and such a repository is refused.
 
 **Files are resolved where they are opened.** Each path is resolved at the
 moment of use, with symlinks and Windows junctions followed and `..`

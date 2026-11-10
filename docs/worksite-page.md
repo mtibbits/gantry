@@ -540,7 +540,8 @@ Sample mode holds when every root the config names resolves inside the
 sample directory: the Gantry config itself, the devagent config, every
 planning directory (`devdoc_dir`) it names, `output_dir`, and each other
 configured path (`portfolio_file`, `fires_list`, and each
-`site.<name>.requirements` and `site.<name>.estimates`). The sample
+`site.<name>.requirements`, `site.<name>.estimates` and
+`site.<name>.history`). The sample
 directory is `samples/` in the Gantry source tree the running package was
 loaded from; an installation with no source tree is never in sample mode,
 and a copy of the samples anywhere else is not either. It is the same test
