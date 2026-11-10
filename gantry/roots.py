@@ -287,7 +287,8 @@ def is_within(inner, outer) -> bool:
 
 def program_on_path(name, environ) -> bool:
     """Whether `name` is an executable on `environ`'s PATH, as a child process
-    started with that environment would find it (#28)."""
+    started with that environment would find it (#28; a missing PATH is os.defpath,
+    never shutil.which's fallback to os.environ)."""
     return shutil.which(name, path=environ.get("PATH", os.defpath)) is not None
 
 

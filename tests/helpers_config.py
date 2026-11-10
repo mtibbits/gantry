@@ -93,6 +93,21 @@ def append_bytes(path, text):
     path.write_bytes(after)
 
 
+def literal(path):
+    """A TOML literal string for a path: no escapes, so a Windows path needs none."""
+    text = str(path)
+    assert "'" not in text
+    return f"'{text}'"
+
+
+def replace_bytes(path, old, new):
+    """Replace `old` with `new` in a UTF-8 file, asserting something changed."""
+    before = path.read_bytes().decode("utf-8")
+    after = before.replace(old, new)
+    assert after != before
+    path.write_bytes(after.encode("utf-8"))
+
+
 def add_site_key(path, site, line):
     """Add `line` to the config's `[site.<site>]` table, appending the table
     when there is none (the sample already has some, #28)."""

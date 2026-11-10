@@ -4,19 +4,19 @@ The tool runs in process, through `sample_history.main(argv)`, on a copy of
 samples/ under tmp_path (copy_samples leaves out every `out` folder).
 """
 
-import io
 import os
 import tomllib
-from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 import pytest
 
 import sample_history
-from helpers_config import copy_samples
+from helpers_config import copy_samples, replace_bytes
 from helpers_history import git
+from helpers_history import run_sample_history as run
 from sample_roles import HISTORY_LESS, HISTORY_RECENT, HISTORY_STALE, HISTORY_YOUNG, NOT_BUILT
 from test_samples import GANTRY_SAMPLE, SAMPLES
+from test_samples import git as plain_git
 
 pytestmark = pytest.mark.usefixtures("git_ready")
 
@@ -28,14 +28,6 @@ TOOL_GIT_KEYS = {"GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_GLOBAL", "GIT_TEMPLATE_DIR",
 PINNED_HEAD = "608b0b71f8cc3b2ad145a6cac71dd77b2334dd21"
 
 
-def run(*argv):
-    """main(argv) in process: (exit code, stdout, stderr)."""
-    out, err = io.StringIO(), io.StringIO()
-    with redirect_stdout(out), redirect_stderr(err):
-        code = sample_history.main([str(a) for a in argv])
-    return code, out.getvalue(), err.getvalue()
-
-
 def built(copy, out=None):
     """Build the copy's history; (HEAD id, every commit id newest first, out folder)."""
     out = copy / "history" / "out" if out is None else out
@@ -44,13 +36,6 @@ def built(copy, out=None):
     head = stdout.strip()
     assert stdout == head + "\n"
     return head, git(out, "rev-list", "HEAD").split(), out
-
-
-def replace_text(path, old, new):
-    before = path.read_bytes().decode("utf-8")
-    after = before.replace(old, new)
-    assert after != before
-    path.write_bytes(after.encode("utf-8"))
 
 
 def test_two_runs_give_the_same_ids(tmp_path):
@@ -135,7 +120,7 @@ def test_refuses_output_outside_the_sample_directory(tmp_path):
 
 def test_refuses_plan_after_as_of(tmp_path):
     copy = copy_samples(tmp_path)
-    replace_text(copy / "history" / "plan.toml", "last_date = 2026-01-16", "last_date = 2026-01-21")
+    replace_bytes(copy / "history" / "plan.toml", "last_date = 2026-01-16", "last_date = 2026-01-21")
     _refused(copy, copy / "history" / "out", "plan last_date 2026-01-21 is after as_of 2026-01-20")
 
 
@@ -149,10 +134,10 @@ def test_refuses_identical_versions(tmp_path):
 def test_refuses_unordered_dates_and_a_missing_version(tmp_path):
     copy = copy_samples(tmp_path)
     plan = copy / "history" / "plan.toml"
-    replace_text(plan, "dates = [2026-01-05]", "dates = [2026-01-05, 2026-01-04]")
+    replace_bytes(plan, "dates = [2026-01-05]", "dates = [2026-01-05, 2026-01-04]")
     _refused(copy, copy / "history" / "out",
              f"plan site {HISTORY_YOUNG}: dates must be strictly ascending and before last_date 2026-01-16")
-    replace_text(plan, "dates = [2026-01-05, 2026-01-04]", "dates = [2026-01-06]")
+    replace_bytes(plan, "dates = [2026-01-05, 2026-01-04]", "dates = [2026-01-06]")
     _refused(copy, copy / "history" / "out", f"missing version history/{HISTORY_YOUNG}/2026-01-06.md")
 
 
@@ -177,17 +162,10 @@ def test_newest_version_equals_the_sample_wbs(tmp_path):
     assert len(sites) == 3
     for site in sites:
         blob = git(out, "rev-parse", f"HEAD:{site}/WBS.md").strip()
-        committed = git_bytes(out, "cat-file", "blob", blob)
+        ran = plain_git(out, "cat-file", "blob", blob, hermetic=True)
+        assert ran.returncode == 0, ran.stderr
+        committed = ran.stdout
         assert committed == (SAMPLES / site / "WBS.md").read_bytes().replace(b"\r\n", b"\n"), site
-
-
-def git_bytes(repo, *args):
-    import subprocess
-
-    from test_samples import git_env
-
-    return subprocess.run(["git", *args], cwd=repo, env=git_env(hermetic=True), capture_output=True,
-                          check=True).stdout
 
 
 def test_rebuild_replaces_a_read_only_tree(tmp_path):

@@ -34,6 +34,7 @@ from helpers_history import (
     shallow_clone,
     site_config,
     spy_git,
+    spy_repository,
 )
 from sample_roles import HISTORY_LESS, HISTORY_RECENT, HISTORY_STALE, HISTORY_YOUNG
 from test_samples import GANTRY_SAMPLE, SAMPLES, git_work_tree
@@ -679,14 +680,7 @@ def test_no_data_cases_never_raise(tmp_path, monkeypatch, case, git_ready):
     make, expected = NO_DATA_CASES[case]
     history, before = make(tmp_path, monkeypatch)
     config, roots, found = site_config(tmp_path / "inst", {"harbor": wbs().encode()}, history={"harbor": history})
-    given = []
-    real = wbs_history.history_repository
-
-    def spy(*args, **kwargs):
-        given.append(real(*args, **kwargs))
-        return given[-1]
-
-    monkeypatch.setattr(wbs_history, "history_repository", spy)
+    given = spy_repository(monkeypatch)
     if before is not None:
         before()
     got = wbs_history.last_state_change(roots, found["harbor"], config, AS_OF, 4, HistoryCache())
@@ -709,9 +703,7 @@ def test_site_without_planning_directory_never_raises(tmp_path, git_ready):
 def test_answering_site_repo_is_what_history_repository_gave(tmp_path, monkeypatch, git_ready):
     repo = make_repo(tmp_path / "plans")
     commit(repo, "WBS.md", wbs(), "2025-11-01")
-    given = []
-    real = wbs_history.history_repository
-    monkeypatch.setattr(wbs_history, "history_repository", lambda *a, **k: given.append(real(*a, **k)) or given[-1])
+    given = spy_repository(monkeypatch)
     got = answer(tmp_path, repo)
     assert isinstance(got.repo, wbs_history.Repo) and got.repo is given[0]
 

@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import PurePath, PureWindowsPath
 
+from gantry.model import meta_scalar
 from gantry.roots import OutsideRoots, gantry_root, is_within, program_on_path, resolve_confined, stat_confined
 
 # Every "no data" reason, the one spelling (docs/wbs-history.md lists each).
@@ -70,11 +71,10 @@ class Absent:
     """The path is not in the commit."""
 
 # devagent's node rule (scripts/lib/wbs-parser.py at 8d729b5; equal to
-# 8a821d5's): these three regexes are its _BULLET_RE, _META_BLOCK_RE and
-# _FENCE_RE, verbatim. META_RE is kept as the reference `split_meta` equals;
-# the scan never runs it (it backtracks on a long whitespace run).
+# 8a821d5's): these two regexes are its _BULLET_RE and _FENCE_RE, verbatim.
+# Its _META_BLOCK_RE backtracks on a long whitespace run, so `split_meta`
+# replaces it (the tests hold the regex as the reference it must equal).
 NODE_RE = re.compile(r"^(?P<indent>\s*)- \[(?P<glyph>[ x\-!~?P])\]\s+(?P<rest>.+)$")
-META_RE = re.compile(r"\s*\{(?P<body>[^{}]*)\}\s*$")
 FENCE_RE = re.compile(r"^[ \t]*(?P<run>`{3,}|~{3,})(?P<info>.*)$")
 
 
@@ -87,7 +87,7 @@ def decode_version(data: bytes) -> str:
 
 
 def split_meta(rest: str):
-    """`META_RE.search(rest)` as `(start, body)`, or None, in linear time."""
+    """devagent's `_META_BLOCK_RE.search(rest)` as `(start, body)`, or None, in linear time."""
     stripped = rest.rstrip()
     if not stripped.endswith("}"):
         return None
@@ -101,14 +101,9 @@ def split_meta(rest: str):
     return start, stripped[brace + 1:close]
 
 
-def _strip_quotes(s: str) -> str:
-    if len(s) >= 2 and s[0] == s[-1] and s[0] in "\"'":
-        return s[1:-1]
-    return s
-
-
-def _parse_meta(body: str) -> dict:
-    """devagent's `_parse_meta_walk`, its value only: a repeated key keeps the last."""
+def _raw_meta(body: str) -> dict:
+    """devagent's `_parse_meta_walk`, each key's raw value text (read by
+    model.meta_value): a repeated key keeps the last."""
     out = {}
     i, n = 0, len(body)
     while i < n:
@@ -125,27 +120,20 @@ def _parse_meta(body: str) -> dict:
         i += 1
         while i < n and body[i] in " \t":
             i += 1
+        start = i
         if i < n and body[i] == "[":
             end = body.find("]", i)
             if end == -1:
-                out[key] = body[i + 1:].strip()
+                out[key] = body[start:]
                 break
-            out[key] = [_strip_quotes(x.strip()) for x in body[i + 1:end].split(",") if x.strip()]
             i = end + 1
         elif i < n and body[i] in "\"'":
-            quote = body[i]
-            i += 1
-            val_start = i
-            while i < n and body[i] != quote:
-                i += 1
-            out[key] = body[val_start:i]
-            if i < n:
-                i += 1
+            close = body.find(body[i], i + 1)
+            i = n if close == -1 else close + 1
         else:
-            val_start = i
             while i < n and body[i] != ",":
                 i += 1
-            out[key] = body[val_start:i].strip()
+        out[key] = body[start:i]
     return out
 
 
@@ -157,8 +145,8 @@ def _identity(rest: str) -> tuple[str, str]:
     if found is None:
         return "text", rest.strip()
     start, body = found
-    value = _parse_meta(body).get("issue")
-    if isinstance(value, str) and value:
+    value = meta_scalar(_raw_meta(body).get("issue"))
+    if value:
         return "issue", value
     return "text", rest[:start].rstrip()
 
@@ -343,11 +331,12 @@ def _out(ran) -> str:
 
 
 def history_dir(site, config):
-    """The site's `history` path when set, else its planning directory (may be None)."""
+    """(path, root key): the site's `history` path when set, else its planning
+    directory (may be None) under `devdoc_dir`."""
     override = config.sites.get(site.name)
     if override is not None and override.history is not None:
-        return override.history
-    return site.planning_dir
+        return override.history, f"site.{site.name}.history"
+    return site.planning_dir, "devdoc_dir"
 
 
 def history_repository(roots, path, gantry_root, *, key, site):
@@ -393,10 +382,18 @@ def history_repository(roots, path, gantry_root, *, key, site):
 class HistoryCache:
     """One build's reads, shared by every site in a repository: `HEAD` and
     shallowness by top level, chains by (top, head, path), blob ids by
-    (top, commit, path) and scans by (top, blob id). It lasts one build."""
+    (top, commit, path) and scans by (top, blob id). It lasts one build, and
+    a read that gave NoData is not retried within it."""
 
     def __init__(self):
-        self.heads, self.shallow, self.chains, self.blobs, self.scans = {}, {}, {}, {}, {}
+        self._tables = {}
+
+    def get(self, table: str, key, compute):
+        """The cached answer for `key` in `table`, computing it the first time."""
+        found = self._tables.setdefault(table, {})
+        if key not in found:
+            found[key] = compute()
+        return found[key]
 
 
 @dataclass(frozen=True)
@@ -419,52 +416,47 @@ def _git(repo, args):
     return run_git(args, cwd=repo.top, ceiling=repo.ceiling)
 
 
+def _checked(repo, ran):
+    """`ran` when git ran and exited 0, else NoData."""
+    if isinstance(ran, NoData) or ran.returncode == 0:
+        return ran
+    return _failed(ran, [str(repo.top)], repo.site)
+
+
 def _repo_path(repo, rel: str) -> str:
     """`rel` (relative to the history directory, `/` form) relative to the top level."""
     return f"{repo.prefix}/{rel}" if repo.prefix else rel
-
-
-def _known(repo):
-    return [str(repo.top)]
 
 
 def _resolve(repo, rev: str):
     """`rev` resolved to an id; Absent when rev-parse says it does not exist
     (exit 1, nothing on stderr); NoData for any other failure."""
     ran = _git(repo, ["rev-parse", "--verify", "--quiet", rev])
-    if isinstance(ran, NoData):
-        return ran
-    if ran.returncode == 1 and not ran.stderr.strip():
+    if not isinstance(ran, NoData) and ran.returncode == 1 and not ran.stderr.strip():
         return Absent()
-    if ran.returncode != 0:
-        return _failed(ran, _known(repo), repo.site)
-    return _out(ran).strip()
+    ran = _checked(repo, ran)
+    return ran if isinstance(ran, NoData) else _out(ran).strip()
 
 
 def _head(repo, cache):
     """HEAD's commit id, once per top level per build: an id, Absent (unborn) or NoData."""
-    key = _top(repo)
-    if key not in cache.heads:
-        cache.heads[key] = _resolve(repo, "HEAD^{commit}")
-    return cache.heads[key]
+    return cache.get("heads", _top(repo), lambda: _resolve(repo, "HEAD^{commit}"))
 
 
 def _blob_id(repo, commit: str, path: str, cache):
     """The blob id of `path` (relative to the top) at `commit`, once per build."""
-    key = (_top(repo), commit, path)
-    if key not in cache.blobs:
-        cache.blobs[key] = _resolve(repo, f"{commit}:{path}")
-    return cache.blobs[key]
+    return cache.get("blobs", (_top(repo), commit, path), lambda: _resolve(repo, f"{commit}:{path}"))
 
 
 def _blob(repo, blob_id: str):
     """The blob's bytes, or NoData."""
-    ran = _git(repo, ["cat-file", "blob", blob_id])
-    if isinstance(ran, NoData):
-        return ran
-    if ran.returncode != 0:
-        return _failed(ran, _known(repo), repo.site)
-    return ran.stdout
+    ran = _checked(repo, _git(repo, ["cat-file", "blob", blob_id]))
+    return ran if isinstance(ran, NoData) else ran.stdout
+
+
+def _scan_blob(repo, blob_id: str):
+    data = _blob(repo, blob_id)
+    return data if isinstance(data, NoData) else scan_nodes(decode_version(data))
 
 
 def _version(repo, commit, path: str, cache):
@@ -475,51 +467,41 @@ def _version(repo, commit, path: str, cache):
     blob_id = _blob_id(repo, commit, path, cache)
     if isinstance(blob_id, (Absent, NoData)):
         return {} if isinstance(blob_id, Absent) else blob_id
-    key = (_top(repo), blob_id)
-    if key not in cache.scans:
-        data = _blob(repo, blob_id)
-        if isinstance(data, NoData):
-            return data
-        cache.scans[key] = scan_nodes(decode_version(data))
-    return cache.scans[key]
+    return cache.get("scans", (_top(repo), blob_id), lambda: _scan_blob(repo, blob_id))
+
+
+def _read_chain(repo, head: str, path: str):
+    ran = _checked(repo, _git(repo, ["rev-list", "--first-parent", "--format=%H %P|%ci", head, "--",
+                                     f":(top,literal){path}"]))
+    if isinstance(ran, NoData):
+        return ran
+    chain = []
+    for line in _out(ran).splitlines():
+        if not line.strip() or line.startswith("commit "):
+            continue
+        ids, _, when = line.partition("|")
+        parts = ids.split()
+        chain.append((parts[0], parts[1] if len(parts) > 1 else None, date.fromisoformat(when.strip()[:10])))
+    return chain
 
 
 def _chain(repo, head: str, path: str, cache):
     """The first-parent chain of commits that touch `path`, newest first, as
     (commit, first parent or None, date in the commit's own offset); or NoData."""
-    key = (_top(repo), head, path)
-    if key not in cache.chains:
-        ran = _git(repo, ["rev-list", "--first-parent", "--format=%H %P|%ci", head, "--", f":(top,literal){path}"])
-        if isinstance(ran, NoData):
-            return ran
-        if ran.returncode != 0:
-            return _failed(ran, _known(repo), repo.site)
-        chain = []
-        for line in _out(ran).splitlines():
-            if not line.strip() or line.startswith("commit "):
-                continue
-            ids, _, when = line.partition("|")
-            parts = ids.split()
-            chain.append((parts[0], parts[1] if len(parts) > 1 else None, date.fromisoformat(when.strip()[:10])))
-        cache.chains[key] = chain
-    return cache.chains[key]
+    return cache.get("chains", (_top(repo), head, path), lambda: _read_chain(repo, head, path))
+
+
+def _read_shallow(repo):
+    ran = _checked(repo, _git(repo, ["rev-parse", "--is-shallow-repository"]))
+    return ran if isinstance(ran, NoData) else _out(ran).strip() == "true"
 
 
 def _is_shallow(repo, cache):
-    key = _top(repo)
-    if key not in cache.shallow:
-        ran = _git(repo, ["rev-parse", "--is-shallow-repository"])
-        if isinstance(ran, NoData):
-            return ran
-        if ran.returncode != 0:
-            return _failed(ran, _known(repo), repo.site)
-        cache.shallow[key] = _out(ran).strip() == "true"
-    return cache.shallow[key]
+    return cache.get("shallow", _top(repo), lambda: _read_shallow(repo))
 
 
 def _walk(repo, as_of, weeks, cache):
-    """(date, history_start, commits read) for the repository's WBS.md, or
-    (NoData, commits read)."""
+    """((date, history_start) or NoData, commits read) for the repository's WBS.md."""
     path = _repo_path(repo, "WBS.md")
     no_commits = NoData(NO_COMMITS.format(as_of=as_of.isoformat()))
     head = _head(repo, cache)
@@ -559,8 +541,8 @@ def _walk(repo, as_of, weeks, cache):
     if read == 0:
         return no_commits, 0
     if not stopped and latest is None and last is chain[-1]:
-        return (last[2], True, read), read
-    return (latest, False, read), read
+        return (last[2], True), read
+    return (latest, False), read
 
 
 def _no_data_result(no_data, repo, read=0) -> HistoryResult:
@@ -571,19 +553,16 @@ def last_state_change(roots, site, config, as_of, weeks, cache) -> HistoryResult
     """The latest date a leaf line's glyph changed in the `weeks` ending at
     `as_of` (or in the last commit read, just before the window), for a site
     (a sites.SiteEntry); never raises. Provisional until #29 binds it."""
-    name = site.name
-    path = history_dir(site, config)
+    path, key = history_dir(site, config)
     if path is None:
         return _no_data_result(NoData(NO_PLANNING_DIR), NoData(NO_PLANNING_DIR))
-    override = config.sites.get(name)
-    key = f"site.{name}.history" if override is not None and override.history is not None else "devdoc_dir"
-    repo = history_repository(roots, path, gantry_root(), key=key, site=name)
+    repo = history_repository(roots, path, gantry_root(), key=key, site=site.name)
     if isinstance(repo, NoData):
         return _no_data_result(repo, repo)
     walked, read = _walk(repo, as_of, weeks, cache)
     if isinstance(walked, NoData):
         return _no_data_result(walked, repo, read)
-    day, history_start, read = walked
+    day, history_start = walked
     uncommitted, reason = _uncommitted(roots, site, repo, cache)
     return HistoryResult(day, history_start, read, uncommitted, reason, repo, None)
 

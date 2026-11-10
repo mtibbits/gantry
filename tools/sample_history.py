@@ -86,7 +86,7 @@ def _lf(data: bytes) -> bytes:
 
 
 def read_plan(samples):
-    """(last_date, [(date, site, bytes)] in commit order), or Refused."""
+    """[(date, site, bytes)] in commit order, or Refused."""
     plan_file = samples / "history" / "plan.toml"
     try:
         plan = tomllib.loads(plan_file.read_bytes().decode("utf-8"))
@@ -118,7 +118,7 @@ def read_plan(samples):
             before = data
             commits.append((when, order, site, data))
     commits.sort(key=lambda c: (c[0], c[1]))
-    return last, [(when, site, data) for when, _, site, data in commits]
+    return [(when, site, data) for when, _, site, data in commits]
 
 
 def _check_out(out, samples, sites):
@@ -136,26 +136,18 @@ def _check_out(out, samples, sites):
 
 
 def _delete(out):
-    """Delete the folder, clearing each read-only bit first (git's objects are read-only)."""
-    if not out.exists():
-        return
-    for folder, dirs, files in os.walk(out, topdown=False):
-        for name in files:
-            path = os.path.join(folder, name)
-            os.chmod(path, stat.S_IWRITE | stat.S_IREAD)
-            os.remove(path)
-        for name in dirs:
-            path = os.path.join(folder, name)
-            if os.path.islink(path):
-                os.remove(path)
-            else:
-                os.rmdir(path)
-    os.rmdir(out)
+    """Delete the folder, clearing a read-only bit and retrying (git's objects are read-only)."""
+    def writable(func, path, _):
+        os.chmod(path, stat.S_IWRITE | stat.S_IREAD)
+        func(path)
+
+    if out.exists():
+        shutil.rmtree(out, **({"onexc": writable} if sys.version_info >= (3, 12) else {"onerror": writable}))
 
 
 def build(samples, out) -> str:
     """Rebuild the history repository at `out`; its HEAD id."""
-    last, commits = read_plan(samples)
+    commits = read_plan(samples)
     _check_out(out, samples, sorted({site for _, site, _ in commits}))
     if shutil.which("git") is None:
         raise Refused("git not found")

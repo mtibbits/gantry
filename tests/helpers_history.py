@@ -7,14 +7,13 @@ are the same on every run.
 """
 
 import os
-import shutil
 import stat
 import subprocess
 from pathlib import Path
 
 import pytest
 
-from helpers_config import write_site_tree
+from helpers_config import literal, write_site_tree
 from test_samples import decode_bytes, git_env
 
 GIT_MISSING = "git not on PATH"
@@ -24,9 +23,12 @@ IDENTITY = {"GIT_AUTHOR_NAME": "Test", "GIT_AUTHOR_EMAIL": "test@example.invalid
 
 
 def require_git(env=None):
-    """Return when git is on PATH; else skip, or fail under a truthy CI."""
+    """Return when git is on PATH, by the reader's own lookup; else skip, or
+    fail under a truthy CI."""
+    from gantry.roots import program_on_path
+
     env = os.environ if env is None else env
-    if shutil.which("git", path=env.get("PATH")) is not None:
+    if program_on_path("git", env):
         return
     if env.get("CI"):
         pytest.fail(GIT_MISSING + CI_SUFFIX, pytrace=False)
@@ -98,13 +100,6 @@ def corrupt(repo, object_id):
     file.write_bytes(b"not a zlib stream")
 
 
-def literal(path):
-    """A TOML literal string for a path built at run time."""
-    text = str(path)
-    assert "'" not in text
-    return f"'{text}'"
-
-
 def site_config(folder, sites, history=None):
     """(config, roots, sites by name) for a site tree; `history` maps a site
     name to the path its `history` key names."""
@@ -131,3 +126,31 @@ def spy_git(monkeypatch):
 
     monkeypatch.setattr(wbs_history, "run_git", spy)
     return calls
+
+
+def spy_repository(monkeypatch):
+    """Record each wbs_history.history_repository answer."""
+    from gantry import wbs_history
+
+    given = []
+    real = wbs_history.history_repository
+
+    def spy(*args, **kwargs):
+        given.append(real(*args, **kwargs))
+        return given[-1]
+
+    monkeypatch.setattr(wbs_history, "history_repository", spy)
+    return given
+
+
+def run_sample_history(*argv):
+    """tools/sample_history.py's main(argv) in process: (exit code, stdout, stderr)."""
+    import io
+    from contextlib import redirect_stderr, redirect_stdout
+
+    import sample_history
+
+    out, err = io.StringIO(), io.StringIO()
+    with redirect_stdout(out), redirect_stderr(err):
+        code = sample_history.main([str(a) for a in argv])
+    return code, out.getvalue(), err.getvalue()

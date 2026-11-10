@@ -25,14 +25,8 @@ def built_sample_history():
 
     Only the real checkout has the gantry repository above the samples, so
     the sample legs run there; one pytest session per checkout at a time."""
-    import io
-    from contextlib import redirect_stderr, redirect_stdout
-
-    import sample_history
-    from helpers_history import require_git
+    from helpers_history import require_git, run_sample_history
 
     require_git()
-    out, err = io.StringIO(), io.StringIO()
-    with redirect_stdout(out), redirect_stderr(err):
-        code = sample_history.main([])
-    assert code == 0, err.getvalue()
+    code, _, err = run_sample_history()
+    assert code == 0, err
