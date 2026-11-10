@@ -96,7 +96,8 @@ history of `<history directory>/WBS.md`:
 - **Read once per build.** A `HistoryCache` lasts one build. Within it each
   `(repository, commit, path)` version is resolved once and each blob is
   read and scanned once, and sites that share a repository share its reads.
-  What bounds each build's reads is the window.
+  A read that fails is not kept, so the next site tries it again and its
+  reason names that site. What bounds each build's reads is the window.
 
 ## Committed text
 
@@ -133,6 +134,13 @@ convert. Git, not Gantry, opens the working-tree file: the reader opens no
 working-tree `WBS.md`. The answer is true, false, or, in any no-data case,
 not checked (`None`), with the reason in `uncommitted_reason`.
 
+One known limit: a blob committed with CRLF line endings, in a repository
+where `core.autocrlf` is `true`, reads as uncommitted even when the
+working-tree file is byte-identical to it. `hash-object --path` converts
+CRLF to LF there, while `git status` skips that conversion for a file whose
+committed version already holds CRLF. Committing the file once with LF line
+endings clears it. A test pins this behaviour.
+
 **The line-ending pins.** Both sides are pinned for the sample history. The
 gantry repository's `.gitattributes` holds `samples/**/*.md text eol=lf` (and
 the same for `*.toml` and `*.json`), so every checkout, Windows included,
@@ -154,7 +162,9 @@ Every git call goes through one helper, `run_git`:
   `GIT_NO_LAZY_FETCH=1` and `GIT_TERMINAL_PROMPT=0` set back, with
   `LC_ALL=C` so git's messages are not translated;
 - run in the history directory to find the repository, then in its top
-  level, with every path given as `:(top,literal)<path>`;
+  level, with every path relative to that top level: `rev-list` takes it
+  as the pathspec `:(top,literal)<path>`, `rev-parse` as `<commit>:<path>`
+  and `hash-object` as `--path=<path>`;
 - a time limit per call.
 
 The user's global git config is kept, so a `safe.directory` entry the

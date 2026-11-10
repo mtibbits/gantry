@@ -35,6 +35,7 @@ from helpers_history import (
     site_config,
     spy_git,
     spy_repository,
+    write,
 )
 from sample_roles import HISTORY_LESS, HISTORY_RECENT, HISTORY_STALE, HISTORY_YOUNG
 from test_samples import GANTRY_SAMPLE, SAMPLES, git_work_tree
@@ -839,6 +840,33 @@ def test_uncommitted_not_checked_without_a_working_tree_wbs(tmp_path, git_ready)
     assert got.no_data is None and got.uncommitted is None
     assert got.uncommitted_reason.startswith("no data: git failed: ")
     assert str(tmp_path) not in got.uncommitted_reason
+
+
+
+def test_crlf_blob_under_autocrlf_reads_uncommitted(tmp_path, git_ready):
+    """The documented limit: hash-object converts a CRLF file where git status would not."""
+    repo = make_repo(tmp_path / "plans")
+    crlf = wbs("x").replace("\n", "\r\n")
+    commit(repo, "WBS.md", crlf, "2025-11-01")
+    git(repo, "config", "core.autocrlf", "true")
+    got = answer(tmp_path, repo, planning=crlf.encode())
+    assert (got.no_data, got.uncommitted, got.uncommitted_reason) == (None, True, None)
+
+
+def test_unreadable_commit_date_is_git_failed(tmp_path, git_ready):
+    repo = make_repo(tmp_path / "plans")
+    commit(repo, "WBS.md", wbs(), "2025-11-01")
+    write(repo, "WBS.md", wbs("x"))
+    git(repo, "add", "WBS.md")
+    tree, parent = git(repo, "write-tree").strip(), git(repo, "rev-parse", "HEAD").strip()
+    body = (f"tree {tree}\nparent {parent}\nauthor Test <test@example.invalid> 1767614400 +0000\n"
+            "committer Test <test@example.invalid> notadate +0000\n\nbad date\n")
+    obj = write(tmp_path, "commit.txt", body)
+    bad = git(repo, "hash-object", "-t", "commit", "-w", "--literally", str(obj)).strip()
+    git(repo, "update-ref", "refs/heads/main", bad)
+    got = answer(tmp_path, repo)
+    assert got.no_data.text == f"no data: git failed: commit {bad[:12]} has no readable date"
+    assert got.date is None and got.uncommitted is None
 
 
 def test_without_git_everything_reads_git_not_found(tmp_path, monkeypatch):

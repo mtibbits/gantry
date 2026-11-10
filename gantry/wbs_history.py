@@ -70,6 +70,7 @@ class Repo:
 class Absent:
     """The path is not in the commit."""
 
+
 # devagent's node rule (scripts/lib/wbs-parser.py at 8d729b5; equal to
 # 8a821d5's): these two regexes are its _BULLET_RE and _FENCE_RE, verbatim.
 # Its _META_BLOCK_RE backtracks on a long whitespace run, so `split_meta`
@@ -382,18 +383,22 @@ def history_repository(roots, path, gantry_root, *, key, site):
 class HistoryCache:
     """One build's reads, shared by every site in a repository: `HEAD` and
     shallowness by top level, chains by (top, head, path), blob ids by
-    (top, commit, path) and scans by (top, blob id). It lasts one build, and
-    a read that gave NoData is not retried within it."""
+    (top, commit, path) and scans by (top, blob id). It lasts one build."""
 
     def __init__(self):
         self._tables = {}
 
     def get(self, table: str, key, compute):
-        """The cached answer for `key` in `table`, computing it the first time."""
+        """The cached answer for `key` in `table`, computing it the first time.
+        A NoData is not kept: its message names the site that met it, and the
+        key is shared by every site in the repository."""
         found = self._tables.setdefault(table, {})
-        if key not in found:
-            found[key] = compute()
-        return found[key]
+        if key in found:
+            return found[key]
+        value = compute()
+        if not isinstance(value, NoData):
+            found[key] = value
+        return value
 
 
 @dataclass(frozen=True)
@@ -481,7 +486,12 @@ def _read_chain(repo, head: str, path: str):
             continue
         ids, _, when = line.partition("|")
         parts = ids.split()
-        chain.append((parts[0], parts[1] if len(parts) > 1 else None, date.fromisoformat(when.strip()[:10])))
+        try:
+            day = date.fromisoformat(when.strip()[:10])
+        except ValueError:
+            # git prints no date for a commit whose committer date it cannot parse.
+            return NoData(GIT_FAILED.format(message=f"commit {parts[0][:12]} has no readable date"))
+        chain.append((parts[0], parts[1] if len(parts) > 1 else None, day))
     return chain
 
 
