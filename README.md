@@ -70,6 +70,13 @@ Node.js is for development only; installed Gantry never needs it. Without
 it the page-script tests skip, except under `CI`, where they fail. See
 [docs/page-safety.md](docs/page-safety.md).
 
+The WBS.md history tests need `git` on the path, and follow the same rule:
+without it they skip, except under `CI`, where they fail. Those tests
+rebuild the git-ignored `samples/history/out` in the checkout once per
+pytest session (`python tools/sample_history.py` builds it by hand), so run
+one pytest session per checkout at a time. See
+[docs/wbs-history.md](docs/wbs-history.md).
+
 ## License
 
 MIT. See [LICENSE](LICENSE).

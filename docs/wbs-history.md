@@ -112,8 +112,10 @@ the site's history directory, in `/` form (for example
   decoded with replacement.
 - **`Absent`** when the path is not in that commit (a file that exists only
   in the working tree included), or when `rel_path` is empty, absolute
-  under either operating system's rules, holds a `..` segment or a newline,
-  since it can then name no file in the history directory.
+  under either operating system's rules, holds a `..` segment, a newline or
+  a NUL, since it can then name no file in the history directory. git's
+  "not there" is exit 1 with no `fatal:` line; a warning such as a stale
+  alternates entry does not turn it into a failure.
 - **`NoData`** only when the git call itself fails (`git failed: ...`). It
   reads one commit, so shallow history never affects it.
 
@@ -168,7 +170,12 @@ Every git call goes through one helper, `run_git`:
 - a time limit per call.
 
 The user's global git config is kept, so a `safe.directory` entry the
-operator relies on still applies.
+operator relies on still applies. That holds only for config git finds at
+its usual places: config named through a `GIT_*` variable
+(`GIT_CONFIG_GLOBAL`, `GIT_CONFIG_SYSTEM`, `GIT_CONFIG_COUNT` and its
+`GIT_CONFIG_KEY_<n>`/`GIT_CONFIG_VALUE_<n>` pairs) is removed with the rest,
+so a build machine that sets `safe.directory` that way reads "no data: git
+failed: ..." for the repository.
 
 ## The repository rule
 

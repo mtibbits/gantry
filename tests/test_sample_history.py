@@ -4,7 +4,7 @@ The tool runs in process, through `sample_history.main(argv)`, on a copy of
 samples/ under tmp_path (copy_samples leaves out every `out` folder).
 """
 
-import os
+import stat
 import tomllib
 from pathlib import Path
 
@@ -172,7 +172,8 @@ def test_rebuild_replaces_a_read_only_tree(tmp_path):
     copy = copy_samples(tmp_path)
     head, _, out = built(copy)
     objects = [p for p in (out / ".git" / "objects").rglob("*") if p.is_file()]
-    assert objects and all(not os.access(p, os.W_OK) for p in objects if p.parent.name != "info"
+    # Mode bits, not os.access: root passes every access check.
+    assert objects and all(not p.stat().st_mode & stat.S_IWUSR for p in objects if p.parent.name != "info"
                            and p.parent.name != "pack")
     assert built(copy)[0] == head
 

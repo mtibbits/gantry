@@ -169,7 +169,7 @@ different keys:
 - the portfolio file's `[site.<project>]` holds the operator's priorities for
   the site: `serves`;
 - the installation config's `[site.<name>]` holds where the site's files
-  are: `requirements` and `estimates` ([config reference](config.md)).
+  are: `requirements`, `estimates` and `history` ([config reference](config.md)).
 
 A key in the wrong file is an unknown key there.
 

@@ -228,7 +228,8 @@ def test_module_never_imports_the_stopgap():
             continue  # a name imported from a module, not a module
         seen.add(name)
         todo += sorted(_gantry_imports(path))
-    assert "gantry.wbs_stopgap" not in seen
+    # gantry.model is #8's, and #12 changes its meta reading with the stopgap.
+    assert not {"gantry.wbs_stopgap", "gantry.model"} & seen
     assert {"gantry.wbs_history", "gantry.roots"} <= seen
     assert wbs_history.__name__ == "gantry.wbs_history"
 
@@ -754,7 +755,7 @@ def test_committed_text_absent(tmp_path, monkeypatch, git_ready):
         assert wbs_history.committed_text(repo, rel) == wbs_history.Absent(), rel
     assert len(calls) == 2
     for rel in (str(planning / "kept.md"), "/kept.md", BS + "kept.md", "C" + ":kept.md", "../kept.md",
-                "a/../kept.md", "a" + BS + ".." + BS + "kept.md", "", "kept\n.md"):
+                "a/../kept.md", "a" + BS + ".." + BS + "kept.md", "", "kept\n.md", "kept\0.md"):
         assert wbs_history.committed_text(repo, rel) == wbs_history.Absent(), rel
     assert len(calls) == 2
     assert wbs_history.committed_text(repo, "kept.md") == "x\n"
@@ -867,6 +868,31 @@ def test_unreadable_commit_date_is_git_failed(tmp_path, git_ready):
     got = answer(tmp_path, repo)
     assert got.no_data.text == f"no data: git failed: commit {bad[:12]} has no readable date"
     assert got.date is None and got.uncommitted is None
+
+
+def test_nul_in_a_git_argument_is_git_failed(tmp_path, git_ready):
+    got = wbs_history.run_git(["rev-parse", "--verify", "a\0b"], cwd=tmp_path, ceiling=tmp_path)
+    assert isinstance(got, wbs_history.NoData) and got.text.startswith("no data: git failed: "), got
+
+
+def test_extreme_windows_never_raise(tmp_path, git_ready):
+    repo = make_repo(tmp_path / "plans")
+    commit(repo, "WBS.md", wbs(), "2025-11-01")
+    commit(repo, "WBS.md", wbs("x"), "2026-01-05")
+    got = answer(tmp_path / "early", repo, as_of=date(1, 1, 10))
+    assert got.no_data.text == "no data: `WBS.md` has no commits on or before 0001-01-10"
+    got = answer(tmp_path / "long", repo, weeks=10**7)
+    assert (got.no_data, got.date, got.commits_read) == (None, date(2026, 1, 5), 2)
+
+
+def test_git_warning_does_not_turn_absent_into_failure(tmp_path, git_ready):
+    top = make_repo(tmp_path / "planning")
+    commit(top, "a.md", "x\n", "2026-01-05")
+    (top / ".git" / "objects" / "info").mkdir(exist_ok=True)
+    (top / ".git" / "objects" / "info" / "alternates").write_bytes(b"harbor\n")
+    repo = repo_for(tmp_path, top)
+    assert wbs_history.committed_text(repo, "nope.md") == wbs_history.Absent()
+    assert wbs_history.committed_text(repo, "a.md") == "x\n"
 
 
 def test_without_git_everything_reads_git_not_found(tmp_path, monkeypatch):

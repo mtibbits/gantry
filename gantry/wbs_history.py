@@ -22,7 +22,6 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import PurePath, PureWindowsPath
 
-from gantry.model import meta_scalar
 from gantry.roots import OutsideRoots, gantry_root, is_within, program_on_path, resolve_confined, stat_confined
 
 # Every "no data" reason, the one spelling (docs/wbs-history.md lists each).
@@ -102,9 +101,14 @@ def split_meta(rest: str):
     return start, stripped[brace + 1:close]
 
 
-def _raw_meta(body: str) -> dict:
-    """devagent's `_parse_meta_walk`, each key's raw value text (read by
-    model.meta_value): a repeated key keeps the last."""
+def _strip_quotes(s: str) -> str:
+    if len(s) >= 2 and s[0] == s[-1] and s[0] in "\"'":
+        return s[1:-1]
+    return s
+
+
+def _parse_meta(body: str) -> dict:
+    """devagent's `_parse_meta_walk`, its value only: a repeated key keeps the last."""
     out = {}
     i, n = 0, len(body)
     while i < n:
@@ -121,20 +125,27 @@ def _raw_meta(body: str) -> dict:
         i += 1
         while i < n and body[i] in " \t":
             i += 1
-        start = i
         if i < n and body[i] == "[":
             end = body.find("]", i)
             if end == -1:
-                out[key] = body[start:]
+                out[key] = body[i + 1:].strip()
                 break
+            out[key] = [_strip_quotes(x.strip()) for x in body[i + 1:end].split(",") if x.strip()]
             i = end + 1
         elif i < n and body[i] in "\"'":
-            close = body.find(body[i], i + 1)
-            i = n if close == -1 else close + 1
+            quote = body[i]
+            i += 1
+            val_start = i
+            while i < n and body[i] != quote:
+                i += 1
+            out[key] = body[val_start:i]
+            if i < n:
+                i += 1
         else:
+            val_start = i
             while i < n and body[i] != ",":
                 i += 1
-        out[key] = body[start:i]
+            out[key] = body[val_start:i].strip()
     return out
 
 
@@ -146,8 +157,8 @@ def _identity(rest: str) -> tuple[str, str]:
     if found is None:
         return "text", rest.strip()
     start, body = found
-    value = meta_scalar(_raw_meta(body).get("issue"))
-    if value:
+    value = _parse_meta(body).get("issue")
+    if isinstance(value, str) and value:
         return "issue", value
     return "text", rest[:start].rstrip()
 
@@ -289,6 +300,9 @@ def run_git(args, *, cwd, ceiling):
         return NoData(GIT_FAILED.format(message="timed out"))
     except OSError as e:
         return NoData(GIT_FAILED.format(message=e.strerror or type(e).__name__))
+    except ValueError as e:
+        # An argument git cannot be given, such as one holding a NUL.
+        return NoData(GIT_FAILED.format(message=str(e)))
 
 
 # An absolute path in git's message: quoted (kept quoted), or bare, which
@@ -433,11 +447,16 @@ def _repo_path(repo, rel: str) -> str:
     return f"{repo.prefix}/{rel}" if repo.prefix else rel
 
 
+def _fatal(stderr: bytes) -> bool:
+    return any(line.startswith("fatal:") for line in stderr.decode("utf-8", "replace").splitlines())
+
+
 def _resolve(repo, rev: str):
     """`rev` resolved to an id; Absent when rev-parse says it does not exist
-    (exit 1, nothing on stderr); NoData for any other failure."""
+    (exit 1, no `fatal:` line: a warning such as a stale alternates entry is
+    not a failure); NoData for any other failure."""
     ran = _git(repo, ["rev-parse", "--verify", "--quiet", rev])
-    if not isinstance(ran, NoData) and ran.returncode == 1 and not ran.stderr.strip():
+    if not isinstance(ran, NoData) and ran.returncode == 1 and not _fatal(ran.stderr):
         return Absent()
     ran = _checked(repo, ran)
     return ran if isinstance(ran, NoData) else _out(ran).strip()
@@ -520,8 +539,10 @@ def _walk(repo, as_of, weeks, cache):
     chain = _chain(repo, head, path, cache)
     if isinstance(chain, NoData):
         return chain, 0
-    first = as_of - timedelta(days=7 * weeks - 1)
-    stop_on = first - timedelta(days=1)
+    # The day before the window's first day, or None when the window reaches
+    # back past the first representable date (nothing is before it).
+    back = 7 * weeks
+    stop_on = as_of - timedelta(days=back) if back <= (as_of - date.min).days else None
     read, latest, last, stopped = 0, None, None, False
     for entry in chain:
         commit, parent, day = entry
@@ -537,7 +558,7 @@ def _walk(repo, as_of, weeks, cache):
             return old, read
         if state_changes(old, new) and (latest is None or day > latest):
             latest = day
-        if day <= stop_on:
+        if stop_on is not None and day <= stop_on:
             stopped = True
             break
     # A parentless last commit in a shallow clone is a boundary, not the start.
@@ -608,8 +629,8 @@ def _uncommitted(roots, site, repo, cache):
 def _names_no_file(rel: str) -> bool:
     """A `rel_path` that can name no file in the history directory: empty,
     absolute or drive-relative under either OS's rules, with a `..` segment,
-    or holding a newline."""
-    if not rel or "\n" in rel or "\r" in rel:
+    or holding a newline or a NUL."""
+    if not rel or "\n" in rel or "\r" in rel or "\0" in rel:
         return True
     if rel[0] in "/\\" or PureWindowsPath(rel).drive:
         return True
