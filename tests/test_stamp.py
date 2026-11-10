@@ -1,20 +1,21 @@
 """The build stamp and sample mode (#11).
 
-Sample mode holds when every configured root resolves inside the sample
-directory; #59 will swap in its own config_roots, outside and sample_dir with
-no change in behavior. Every path here is built at run time from tmp_path.
+Sample mode holds when every root of the run resolves inside the sample
+directory, with #59's config_roots, outside and sample_dir. Every path here
+is built at run time from tmp_path.
 """
 
 import os
 import shutil
 from datetime import datetime, timezone
+from pathlib import Path, PurePath
 
 import pytest
 
 from gantry import stamp
 from gantry.build import build_all, write_all
 from gantry.config import load_config
-from gantry.sites import load_sites
+from gantry.roots import directory_roots
 from gantry.stamp import BUILT_STAMP, SAMPLE_STAMP, outside, sample_dir, sample_mode, stamp_text
 from helpers_config import append_bytes, copy_samples, demo_build, written_bytes
 from sample_roles import BUSY, SMALL
@@ -24,8 +25,7 @@ NOW = datetime(2026, 11, 7, 14, 3, tzinfo=timezone.utc)
 
 
 def loaded(path):
-    config = load_config(path)
-    return config, load_sites(config)[0]
+    return load_config(path)
 
 
 def literal(path):
@@ -37,14 +37,11 @@ def literal(path):
 
 def test_sample_dir_from_source_tree(tmp_path):
     assert os.path.samefile(sample_dir(), ROOT / "samples")
-    assert sample_dir(package_dir=tmp_path / "gantry") is None
-    # The folder alone is not enough: it must hold the sample config.
-    (tmp_path / "samples").mkdir()
-    assert sample_dir(package_dir=tmp_path / "gantry") is None
+    assert isinstance(sample_dir(), PurePath) and not isinstance(sample_dir(), Path)
 
 
 def test_sample_config_is_sample_mode():
-    assert sample_mode(*loaded(ROOT / "samples" / "gantry.sample.toml")) is True
+    assert sample_mode(loaded(ROOT / "samples" / "gantry.sample.toml")) is True
 
 
 def _move_config(copy, outside_dir):
@@ -110,35 +107,35 @@ MOVES = {"config": _move_config, "devagent_config": _move_devagent, "output_dir"
 @pytest.mark.parametrize("root", list(MOVES))
 def test_root_outside_not_sample_mode(tmp_path, root):
     copy = copy_samples(tmp_path)
-    assert sample_mode(*loaded(copy / "gantry.sample.toml"), samples=copy) is True
+    assert sample_mode(loaded(copy / "gantry.sample.toml"), samples=copy) is True
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
     config = MOVES[root](copy, elsewhere)
-    assert sample_mode(*loaded(config), samples=copy) is False
+    assert sample_mode(loaded(config), samples=copy) is False
 
 
 def test_outside_cases(tmp_path):
     base = copy_samples(tmp_path)
     up, sibling, out = base / ".." / "x", tmp_path / "samples-x", base / "out"
     assert not out.exists()
-    assert outside([("up", up), ("sibling", sibling), ("out", out), ("self", base)], base) == [up, sibling]
+    assert [r.key for r in outside(directory_roots([up, sibling, out, base]), base)] == ["x", "samples-x"]
 
 
 def test_no_sample_dir_never_sample_mode(monkeypatch):
-    monkeypatch.setattr(stamp, "sample_dir", lambda package_dir=None: None)
-    assert sample_mode(*loaded(ROOT / "samples" / "gantry.sample.toml")) is False
+    monkeypatch.setattr(stamp, "sample_dir", lambda: None)
+    assert sample_mode(loaded(ROOT / "samples" / "gantry.sample.toml")) is False
 
 
 def test_stamp_texts(tmp_path):
     copy = copy_samples(tmp_path)
-    config, sites = loaded(copy / "gantry.sample.toml")
-    assert stamp_text(config, sites, now=NOW, samples=copy) == "sample data as of 2026-01-20"
+    config = loaded(copy / "gantry.sample.toml")
+    assert stamp_text(config, now=NOW, samples=copy) == "sample data as of 2026-01-20"
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
-    config, sites = loaded(_move_output(copy, elsewhere))
-    assert stamp_text(config, sites, now=NOW, samples=copy) == "built 2026-11-07 14:03 UTC; data as of 2026-01-20"
+    config = loaded(_move_output(copy, elsewhere))
+    assert stamp_text(config, now=NOW, samples=copy) == "built 2026-11-07 14:03 UTC; data as of 2026-01-20"
     with pytest.raises(ValueError):
-        stamp_text(config, sites, now=datetime(2026, 11, 7, 14, 3), samples=copy)
+        stamp_text(config, now=datetime(2026, 11, 7, 14, 3), samples=copy)
 
 
 def test_stamp_doc():
@@ -173,4 +170,4 @@ def test_outside_root_stamp_has_time(tmp_path):
     assert result.stamp == expected
     result, paths, error = write_all(result)
     assert error is None and len(paths) == 5
-    assert all(expected in path.read_bytes().decode("utf-8") for path in paths)
+    assert all(expected in Path(path).read_bytes().decode("utf-8") for path in paths)

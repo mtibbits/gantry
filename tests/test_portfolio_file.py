@@ -28,8 +28,11 @@ from gantry.portfolio_file import (
 )
 from gantry.cli import MILESTONE_NOTE as MILESTONE_NOTE_TEXT
 from gantry.requirements import FENCE_RE, ReqId, fence_spans
+from gantry.roots import directory_roots
+from gantry.sites import config_roots
 from sample_roles import BUSY, NOT_BUILT, OWN_UNIT, READABLE, SMALL, UNESTIMATED
 from test_samples import GANTRY_SAMPLE, ROOT, decode_bytes, git, git_work_tree, issue_leaves, md_tables, needs_git, wbs
+from helpers_config import roots_around
 
 FIXTURES = Path(__file__).parent / "fixtures" / "portfolio_file"
 NOT_UTF8 = FIXTURES / "not_utf8.md"
@@ -40,7 +43,7 @@ SETTINGS = "settings"
 
 
 def read(name):
-    return read_portfolio_file(FIXTURES / name, br_namespace=NS)
+    return read_portfolio_file(directory_roots([FIXTURES]), FIXTURES / name, br_namespace=NS)
 
 
 def entries(p):
@@ -64,7 +67,7 @@ def test_br_section_call(monkeypatch):
 
     monkeypatch.setattr(pf, "parse_requirements", spy)
     path = FIXTURES / "no_settings.md"
-    p = read_portfolio_file(path, br_namespace="life")
+    p = read_portfolio_file(roots_around(path), path, br_namespace="life")
     ((args, kwargs),) = calls
     assert args[1:] == ("life",)
     assert kwargs == {"source": str(path), "first_line": 4, "layers": {"BR"}, "br_namespace": "life"}
@@ -120,7 +123,7 @@ def _unreadable(tmp_path, case):
     ],
 )
 def test_unreadable(tmp_path, case, message):
-    p = read_portfolio_file(_unreadable(tmp_path, case), br_namespace=NS)
+    p = read_portfolio_file(directory_roots([tmp_path]), _unreadable(tmp_path, case), br_namespace=NS)
     (e,) = p.report
     assert (e.kind, e.section, e.line, e.key_path, e.message) == ("portfolio_unreadable", None, None, None, message)
     assert p.brs.requirements == {} and p.brs.report == []
@@ -165,7 +168,7 @@ def test_bom_and_crlf(tmp_path):
     plain = read("no_settings.md")
     for name, variant in (("bom.md", b"\xef\xbb\xbf" + data), ("crlf.md", data.replace(b"\n", b"\r\n"))):
         (tmp_path / name).write_bytes(variant)
-        p = read_portfolio_file(tmp_path / name, br_namespace=NS)
+        p = read_portfolio_file(directory_roots([tmp_path]), tmp_path / name, br_namespace=NS)
         assert {k: (r.text, r.line) for k, r in p.brs.requirements.items()} == {
             k: (r.text, r.line) for k, r in plain.brs.requirements.items()
         }
@@ -181,7 +184,7 @@ def test_hostile_input_is_fast(tmp_path):
     start = time.perf_counter()
     for name, text in hostile.items():
         (tmp_path / name).write_bytes(text.encode("utf-8"))
-        read_portfolio_file(tmp_path / name, br_namespace=NS)
+        read_portfolio_file(directory_roots([tmp_path]), tmp_path / name, br_namespace=NS)
     assert time.perf_counter() - start < 2
 
 
@@ -239,7 +242,7 @@ def test_toml_error_line_paths():
 def test_long_int_and_deep_nesting(tmp_path, value):
     text = "## Settings\n\n```toml\nportfolio_version = 1\nx = " + value + "\n```\n"
     (tmp_path / "p.md").write_bytes(text.encode("utf-8"))
-    p = read_portfolio_file(tmp_path / "p.md", br_namespace=NS)
+    p = read_portfolio_file(directory_roots([tmp_path]), tmp_path / "p.md", br_namespace=NS)
     assert [e.kind for e in p.report if e.section == SETTINGS] == ["settings_invalid"]
     assert p.settings_read is False
 
@@ -262,7 +265,7 @@ def test_bad_version(tmp_path, line, at, message):
     text = (FIXTURES / "bad_version.md").read_bytes().decode("utf-8")
     text = text.replace("portfolio_version = 2\n", "" if line is None else line + "\n")
     (tmp_path / "p.md").write_bytes(text.encode("utf-8"))
-    p = read_portfolio_file(tmp_path / "p.md", br_namespace=NS)
+    p = read_portfolio_file(directory_roots([tmp_path]), tmp_path / "p.md", br_namespace=NS)
     # The file also holds an unknown key and shares summing to 99: neither is reported.
     assert entries(p) == [("bad_version", SETTINGS, at, "portfolio_version")]
     assert p.report[0].message == message
@@ -295,7 +298,7 @@ def test_duplicate_settings(tmp_path):
     assert p.key_lines["capacity.agent_lanes"] == 17
     text = (FIXTURES / "fences.md").read_bytes() + b"\n## Settings\n\n```toml\nportfolio_version = 2\n```\n"
     (tmp_path / "p.md").write_bytes(text)
-    p = read_portfolio_file(tmp_path / "p.md", br_namespace=NS)
+    p = read_portfolio_file(directory_roots([tmp_path]), tmp_path / "p.md", br_namespace=NS)
     assert entries(p) == [("duplicate_section", SETTINGS, 41, None)]
     assert p.report[0].message == "a second '## Settings' heading; only the first (line 17) is read"
     assert p.settings_read is True
@@ -326,7 +329,7 @@ def test_key_lines_locator():
 
 def write(tmp_path, text, name="p.md"):
     (tmp_path / name).write_bytes(text.encode("utf-8"))
-    return read_portfolio_file(tmp_path / name, br_namespace=NS)
+    return read_portfolio_file(directory_roots([tmp_path]), tmp_path / name, br_namespace=NS)
 
 
 def fixture_with(name, old, new):
@@ -793,7 +796,7 @@ CARRIED_FIXTURE_KINDS = {"malformed_item", "duplicate_id", "misplaced", "undefin
 
 
 def every_entry(folder, name):
-    p = read_portfolio_file(folder / name, br_namespace=NS)
+    p = read_portfolio_file(directory_roots([folder]), folder / name, br_namespace=NS)
     checked = check_portfolio(p, SITES, CHECKED[name]) if name in CHECKED else []
     return p, [*p.report, *checked]
 
@@ -835,7 +838,7 @@ def test_format_entry():
 
 def sample():
     config = load_gantry_config(GANTRY_SAMPLE)
-    return config, read_portfolio_file(config.portfolio_file, br_namespace=config.requirements.br_namespace)
+    return config, read_portfolio_file(config_roots(config), config.portfolio_file, br_namespace=config.requirements.br_namespace)
 
 
 def test_sample_reads_clean():

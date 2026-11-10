@@ -14,6 +14,7 @@ import sys
 import pytest
 
 from gantry.config import load_config
+from gantry.roots import directory_roots
 from gantry.schedule import chain_hours, limit, plan
 from gantry.views.worksite import render_page
 from gantry.wbs_stopgap import parse_wbs, read_wbs
@@ -85,7 +86,7 @@ def test_agreement_on_sample_sites(node, tmp_path):
             folder = tmp_path / f"{site}-{unit}"
             config = load_config(write_site_tree(folder, {site: (SAMPLES / site / "WBS.md").read_bytes()},
                                                  default_unit_hours=unit))
-            data = read_wbs(folder / "0" / "WBS.md", site)
+            data = read_wbs(directory_roots([folder]), folder / "0" / "WBS.md", site)
             path = write_page(folder, render_page(site, data, default_unit_hours=config.default_unit_hours), site)
             items = assert_page_safe(path.read_bytes().decode("utf-8"), [])["schedule"]["items"]
             assert items, site

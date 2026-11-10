@@ -16,6 +16,7 @@ from typing import NamedTuple
 
 # DEFAULT_BR_NAMESPACE is re-exported: its one home is gantry.config.
 from gantry.config import DEFAULT_BR_NAMESPACE, ID_TOKEN_RE, error_reason
+from gantry.roots import OutsideRoots, read_bytes_confined
 from gantry.sites import SiteWarning, shown
 
 # After Wiegers & Beatty: business requirement, business rule, use case,
@@ -446,13 +447,13 @@ def split_lines(text):
     return [line[:-1] if line.endswith("\r") else line for line in text.split("\n")]
 
 
-def read_utf8(path, label):
+def read_utf8(roots, path, label, *, key, site=None):
     """(text, None), or (None, reason) when the file at `path` cannot be read
-    or is not UTF-8. `label` names the file in the reason ("the requirements file")."""
+    under `roots` or is not UTF-8. `label` names the file in the reason ("the
+    requirements file"); `key` names it in a refusal."""
     try:
-        with open(path, "rb") as handle:
-            data = handle.read()
-    except (OSError, ValueError) as e:
+        data = read_bytes_confined(roots, path, key=key, site=site)
+    except (OSError, ValueError, OutsideRoots) as e:
         # ValueError: an embedded NUL, or a path too long for Windows.
         return None, f"cannot read {label}: {error_reason(e)}"
     try:
@@ -485,13 +486,13 @@ def parse_requirements(text, namespace, *, source, first_line=1, layers, br_name
     return reader.result()
 
 
-def read_requirements(path, namespace, *, layers, br_namespace) -> RequirementSet:
-    """Read a requirements file as UTF-8; a file that cannot be read gives an
-    empty set with one `unreadable` entry, never an exception."""
+def read_requirements(roots, path, namespace, *, layers, br_namespace) -> RequirementSet:
+    """Read a requirements file under `roots` as UTF-8; a file that cannot be
+    read gives an empty set with one `unreadable` entry, never an exception."""
     _check_args(namespace, layers, br_namespace)
     source = str(path)
 
-    text, reason = read_utf8(path, "the requirements file")
+    text, reason = read_utf8(roots, path, "the requirements file", key=f"site.{namespace}.requirements")
     if text is None:
         return RequirementSet(namespace, {}, [ReportEntry(source, None, "unreadable", reason)])
     return parse_requirements(text, namespace, source=source, first_line=1,

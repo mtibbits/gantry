@@ -7,8 +7,7 @@ that cannot be built gets a reason that names its config key or file kind,
 never an absolute path. docs/worksite-page.md states the build.
 """
 
-import os
-import tempfile
+import stat
 from dataclasses import dataclass, replace
 from datetime import date, timedelta
 
@@ -16,8 +15,9 @@ from gantry.attention import check_h
 from gantry.config import Config, error_reason
 from gantry.inputs import Inputs, apply_inputs
 from gantry.requirements import in_trace_sites
-from gantry.sites import SiteEntry, SiteWarning, load_sites
-from gantry.stamp import config_roots, public_text, stamp_text
+from gantry.roots import OutsideRoots, Roots, mkdir_confined, stat_confined, write_confined
+from gantry.sites import SiteEntry, SiteWarning, config_roots, load_sites
+from gantry.stamp import public_text, stamp_text
 from gantry.views import worksite
 from gantry.views.index import render_index
 from gantry.wbs_stopgap import read_wbs
@@ -54,11 +54,12 @@ class BuildResult:
     pages: dict[str, str]
     summaries: tuple[SiteSummary, ...]
     stamp: str
+    roots: Roots  # the run's roots (#59): every read, the stamp and every write
 
 
-def site_list(config):
+def site_list(config, roots=None):
     """(sites, warnings): the site list's warnings, then the trace's. ConfigError propagates."""
-    sites, warnings = load_sites(config)
+    sites, warnings = load_sites(config, roots)
     return sites, warnings + in_trace_sites(config, sites)[1]
 
 
@@ -84,11 +85,11 @@ def render_reason(e: Exception, roots) -> str:
     return RENDER_ERROR.format(type=type(e).__name__, message=message)
 
 
-def site_data(site):
+def site_data(roots, site):
     """(data, None) for a site a page can be built from, else (None, why not)."""
     if site.problem is not None:
         return None, site.problem
-    data = read_wbs(site.planning_dir / "WBS.md", site.name)
+    data = read_wbs(roots, site.planning_dir / "WBS.md", site.name)
     unreadable = [e for e in data.report if e.kind == "site_unreadable"]
     if unreadable:
         return None, unreadable[0].message
@@ -104,10 +105,10 @@ def read_site(site, config, earlier, *, roots):
         return None, CLASH.format(earlier=earlier)
     # Parsing too is per site: a parser that throws on one WBS.md stops only that site.
     try:
-        data, problem = site_data(site)
+        data, problem = site_data(roots, site)
         if problem is not None:
             return None, public_text(problem, roots)
-        inputs = apply_inputs(site, data, config)
+        inputs = apply_inputs(roots, site, data, config)
         return replace(inputs, data=check_h(inputs.data, site.name)), None
     except Exception as e:
         return None, render_reason(e, roots)
@@ -178,20 +179,29 @@ def build_all(config, *, now=None, samples=None) -> BuildResult:
     entries across the read sites there, then calls render_sites again on
     the sites whose pages change.
     """
-    sites, warnings = site_list(config)
-    stamp = stamp_text(config, sites, now=now, samples=samples)
-    roots = config_roots(config, sites)
+    roots = config_roots(config)
+    sites, warnings = site_list(config, roots)
+    stamp = stamp_text(config, now=now, samples=samples, roots=roots)
     inputs, reasons = read_sites(config, sites, roots=roots)
     pages, models, failed = render_sites(config, inputs, stamp, roots=roots)
     reasons.update(failed)
     summaries = tuple(_summary(s.name, inputs[s.name], models[s.name], config.as_of) if s.name in pages
                       else not_built(s.name, reasons[s.name]) for s in sites)
-    return BuildResult(config, tuple(sites), tuple(warnings), inputs, pages, summaries, stamp)
+    return BuildResult(config, tuple(sites), tuple(warnings), inputs, pages, summaries, stamp, roots)
 
 
-def _why(e: OSError, folder=None, what=None) -> str:
+def _is_file_shaped(roots, folder) -> bool:
+    try:
+        return not stat.S_ISDIR(stat_confined(roots, folder, key="output_dir").st_mode)
+    except (OSError, ValueError, OutsideRoots):
+        return False
+
+
+def _why(e: Exception, roots, folder=None, what=None) -> str:
+    if isinstance(e, OutsideRoots):
+        return str(e)  # it names output_dir
     # mkdir on a file says "File exists", which names neither the file nor the fix.
-    if folder is not None and folder.exists() and not folder.is_dir():
+    if folder is not None and _is_file_shaped(roots, folder):
         return NOT_A_FOLDER.format(what=what)
     return error_reason(e) or "unknown error"
 
@@ -205,44 +215,33 @@ def write_all(result):
     be made, nothing is written and the index error says why; when only
     sites/ cannot be, each page fails on its own and the index is written.
     """
+    roots = result.roots
     out = result.config.output_dir
     folder = out / "sites"
     try:
-        out.mkdir(parents=True, exist_ok=True)
-    except OSError as e:
-        return result, [], _why(e, out, "output_dir")
+        mkdir_confined(roots, out, key="output_dir")
+    except (OSError, OutsideRoots) as e:
+        return result, [], _why(e, roots, out, "output_dir")
     written, pages, failed = [], {}, {}
     for name, text in result.pages.items():
         try:
-            write_page(folder, name, text)
-        except OSError as e:
-            failed[name] = WRITE_ERROR.format(name=name, why=_why(e, folder, "sites/"))
+            write_page(roots, folder, name, text)
+        except (OSError, OutsideRoots) as e:
+            failed[name] = WRITE_ERROR.format(name=name, why=_why(e, roots, folder, "sites/"))
             continue
         pages[name] = text
         written.append(folder / f"{name}.html")
     summaries = tuple(not_built(s.name, failed[s.name]) if s.name in failed else s for s in result.summaries)
     result = replace(result, pages=pages, summaries=summaries)
     try:
-        write_page(out, "index", render_index(result))
-    except OSError as e:
-        return result, written, _why(e)
+        write_page(roots, out, "index", render_index(result))
+    except (OSError, OutsideRoots) as e:
+        return result, written, _why(e, roots)
     return result, written + [out / "index.html"], None
 
 
-def write_page(folder, name, text):
-    """Write <folder>/<name>.html through a temporary file and a rename: no partial page."""
-    folder.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=folder, prefix=f".{name}.", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(text.encode("utf-8"))
-        # mkstemp makes the file 0600; a page gets the mode any new file
-        # gets, so a server on the private network can read it.
-        umask = os.umask(0)
-        os.umask(umask)
-        os.chmod(tmp, 0o666 & ~umask)
-        os.replace(tmp, folder / f"{name}.html")
-    except BaseException:
-        # fdopen closed the descriptor, on success or failure.
-        os.unlink(tmp)
-        raise
+def write_page(roots, folder, name, text):
+    """Write <folder>/<name>.html under the output root, through a temporary
+    file and a rename (write_confined): no partial page."""
+    mkdir_confined(roots, folder, key="output_dir")
+    write_confined(roots, folder / f"{name}.html", text.encode("utf-8"), key="output_dir")

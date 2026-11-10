@@ -12,7 +12,7 @@ from gantry import render
 from gantry.links import page_href
 from gantry.render import Markup, embed_json, esc, fill
 from gantry.sites import shown
-from gantry.stamp import config_roots, public_text
+from gantry.stamp import public_text
 from gantry.views.worksite import DOT, LANES_DEFAULT, SCHEDULE_LABEL, _count_line, _includes
 
 TITLE = "Worksites"
@@ -72,7 +72,7 @@ def render_index(result, *, headline="", extra=None, view_links=None) -> str:
     escaped parts; `view_links` is a list of (label, relative href).
     """
     extra = extra or {}
-    roots = config_roots(result.config, result.sites)
+    roots = result.roots
     # A warning names a path by its config key or file kind, as a reason does.
     warnings = [(w.key, public_text(w.message, roots)) for w in result.warnings]
     return fill(

@@ -13,7 +13,7 @@ from gantry import requirements
 from gantry.config import load_config
 from gantry.model import FINISHED_GLYPHS, STATE_GLYPHS, Leaf
 from gantry.requirements import ReportEntry, ReqId
-from gantry.sites import load_sites
+from gantry.sites import config_roots, load_sites
 from gantry.trace import (FIELDS, LEAF_SOURCE, MESSAGES, TRACE_KINDS, UNSERVED_SCOPE, WHY, Catalog, Serving,
                           SiteTrace, TraceReport, UseCase, build_site_trace, load_catalog, satisfies_ids)
 from gantry.wbs_stopgap import parse_wbs
@@ -49,7 +49,7 @@ def tree(tmp_path, sites, portfolio=None, br=None, tail="", **raw):
 
 def catalog(config_path) -> Catalog:
     c = load_config(config_path)
-    return load_catalog(c, load_sites(c)[0])
+    return load_catalog(config_roots(c), c, load_sites(c)[0])
 
 
 def message(kind, **fields_):

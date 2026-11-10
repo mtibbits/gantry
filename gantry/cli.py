@@ -32,8 +32,9 @@ from gantry.build import (
 )
 from gantry.config import ConfigError, error_reason, load_config
 from gantry.portfolio_file import PORTFOLIO_LABEL, SECTIONS, format_entry, read_portfolio_file, report_entries
-from gantry.sites import shown
-from gantry.stamp import config_roots, stamp_text
+from gantry.roots import OutsideRoots
+from gantry.sites import config_roots, shown
+from gantry.stamp import stamp_text
 
 
 def _parser():
@@ -84,7 +85,7 @@ def _utf8_streams():
             stream.reconfigure(encoding="utf-8", errors="backslashreplace", newline="\n")
 
 
-def _build_site(config, sites, name):
+def _build_site(config, roots, sites, name):
     def fail(message):
         print(f"gantry: error: --site {shown(name)}: {message}", file=sys.stderr)
         return 1
@@ -92,21 +93,21 @@ def _build_site(config, sites, name):
     site = next((s for s in sites if s.name == name), None)
     if site is None:
         return fail(f"no such site in {config.devagent_config}")
-    roots = config_roots(config, sites)
     # The full build's read: its case-clash rule, and a parse error stops only this site.
     inputs, problem = read_site(site, config, clashes(sites).get(site.name), roots=roots)
     if problem is not None:
         return fail(f"cannot build: {problem}")
     try:
-        text, _ = render_site(site.name, inputs, config, stamp_text(config, sites))
+        text, _ = render_site(site.name, inputs, config, stamp_text(config, roots=roots))
     except Exception as e:
         # One line, naming no configured root by its path.
         return fail(render_reason(e, roots))
     folder = config.output_dir / "sites"
     page = folder / f"{site.name}.html"
     try:
-        write_page(folder, site.name, text)
-    except OSError as e:
+        write_page(roots, folder, site.name, text)
+    except (OSError, OutsideRoots) as e:
+        # A refusal's own text names output_dir.
         return fail(f"cannot write {page}: {error_reason(e)}")
     print(page)
     return 0
@@ -148,12 +149,13 @@ def _build(args):
         config = load_config(args.config)
         if args.site is None:
             return _build_all(config)
-        sites, warnings = site_list(config)
+        roots = config_roots(config)
+        sites, warnings = site_list(config, roots)
     except ConfigError as e:
         print(f"gantry: error: {e}", file=sys.stderr)
         return 1
     _warn(warnings)
-    return _build_site(config, sites, args.site)
+    return _build_site(config, roots, sites, args.site)
 
 
 # True until the build reads the portfolio file (#23 or #61); that issue
@@ -166,7 +168,8 @@ def _portfolio(args):
     _utf8_streams()
     try:
         config = load_config(args.config)
-        sites, _ = site_list(config)  # the site list's own warnings belong to the build
+        roots = config_roots(config, purpose="check")  # it writes nothing
+        sites, _ = site_list(config, roots)  # the site list's own warnings belong to the build
     except ConfigError as e:
         print(f"gantry: error: {e}", file=sys.stderr)
         return 1
@@ -174,7 +177,7 @@ def _portfolio(args):
         print(f"gantry: error: {config.path}: portfolio_file is not set; add portfolio_file = \"<path>\" "
               "to check a portfolio file (docs/portfolio-file.md)", file=sys.stderr)
         return 1
-    portfolio = read_portfolio_file(config.portfolio_file, br_namespace=config.requirements.br_namespace)
+    portfolio = read_portfolio_file(roots, config.portfolio_file, br_namespace=config.requirements.br_namespace)
     # It reads no WBS.md, so no issues_by_site: the milestone leaf is not checked.
     entries = report_entries(portfolio, [s.name for s in sites])
     for section in (None, *SECTIONS):

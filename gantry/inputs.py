@@ -77,13 +77,14 @@ def site_totals(leaves, unit) -> Totals:
     return Totals(hours, lo, hi, unestimated, non_time)
 
 
-def apply_inputs(site, data, config) -> Inputs:
-    """`data` with each open leaf's inputs filled in, its totals and the file read."""
-    found = find_estimates_file(site, config)
+def apply_inputs(roots, site, data, config) -> Inputs:
+    """`data` with each open leaf's inputs filled in, its totals and the file
+    read; the estimates file is found and read under the run's `roots`."""
+    found = find_estimates_file(roots, site, config)
     report = list(found.report)
     rows, source = {}, None
     if found.path is not None:
-        read = read_estimates_file(found.path, site.name, found.name)
+        read = read_estimates_file(roots, found.path, site.name, found.name, key=found.key)
         report += read.report
         if not any(e.kind == "estimates_unreadable" for e in read.report):
             rows, source = read.rows, EstimatesSource(found.name, found.date)

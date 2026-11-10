@@ -17,7 +17,6 @@ not call this module yet (#23 or #61 adds the read).
 import functools
 import json
 import math
-import os
 import re
 import stat
 import tomllib
@@ -28,6 +27,7 @@ from gantry import requirements
 from gantry.config import ID_TOKEN_RE, describe, error_reason
 from gantry.requirements import (FENCE_RE, RequirementSet, fence_spans, fenced, parse_id, parse_requirements,
                                  read_utf8, split_lines)
+from gantry.roots import OutsideRoots, stat_confined
 from gantry.sites import shown
 
 PORTFOLIO_LABEL = "the portfolio file"
@@ -422,24 +422,24 @@ def _toml_reason(e):
 # --- reading -------------------------------------------------------------------
 
 
-def read_portfolio_file(path, *, br_namespace) -> Portfolio:
-    """Read and check a portfolio file as UTF-8. A file that cannot be read
-    gives an empty Portfolio with one portfolio_unreadable entry."""
+def read_portfolio_file(roots, path, *, br_namespace) -> Portfolio:
+    """Read and check a portfolio file under `roots` as UTF-8. A file that
+    cannot be read gives an empty Portfolio with one portfolio_unreadable entry."""
 
     def unreadable(message):
         return _empty(br_namespace, [PortfolioEntry("portfolio_unreadable", None, None, None, message)])
 
     # stat first, so a directory reads alike on every operating system.
     try:
-        st = os.stat(path)
+        st = stat_confined(roots, path, key="portfolio_file")
     except FileNotFoundError:
         return unreadable("the portfolio file does not exist")
-    except (OSError, ValueError) as e:
+    except (OSError, ValueError, OutsideRoots) as e:
         # ValueError: an embedded NUL, or a path too long for Windows.
         return unreadable(f"cannot read the portfolio file: {error_reason(e)}")
     if not stat.S_ISREG(st.st_mode):
         return unreadable("the portfolio file is not a file")
-    text, reason = read_utf8(path, PORTFOLIO_LABEL)
+    text, reason = read_utf8(roots, path, PORTFOLIO_LABEL, key="portfolio_file")
     if text is None:
         return unreadable(reason)
     return _read_text(text, str(path), br_namespace)

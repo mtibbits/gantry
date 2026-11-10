@@ -22,7 +22,7 @@ from gantry.build import site_data  # noqa: E402
 from gantry.config import ConfigError, load_config  # noqa: E402
 from gantry.inputs import apply_inputs  # noqa: E402
 from gantry.schedule import plan  # noqa: E402
-from gantry.sites import load_sites, shown  # noqa: E402
+from gantry.sites import config_roots, load_sites, shown  # noqa: E402
 from gantry.views.worksite import page_model, render_model  # noqa: E402
 from page_script.harness import HarnessError, run_function  # noqa: E402
 
@@ -49,19 +49,20 @@ def main(argv=None):
         return _fail("--out must be outside the repository")
     try:
         config = load_config(args.config)
-        sites, _ = load_sites(config)
+        roots = config_roots(config, purpose="check")  # for the gantry readers; --out is this tool's own
+        sites, _ = load_sites(config, roots)
     except ConfigError as e:
         return _fail(str(e))
     folder = out / "sites"
     built = skipped = leaves = disagreements = 0
     for site in sites:
-        data, problem = site_data(site)
+        data, problem = site_data(roots, site)
         if problem is not None:
             skipped += 1
             continue
         page = folder / f"{site.name}.html"
         try:
-            inputs = apply_inputs(site, data, config)
+            inputs = apply_inputs(roots, site, data, config)
             m = page_model(site.name, inputs.data, default_unit_hours=config.default_unit_hours, inputs=inputs)
             items = m["schedule"]["items"]
             folder.mkdir(parents=True, exist_ok=True)

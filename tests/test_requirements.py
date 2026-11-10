@@ -21,9 +21,12 @@ from gantry.requirements import (
     parse_requirements,
     read_requirements,
 )
+from gantry.roots import directory_roots
 from gantry.sites import SiteWarning, load_sites
+from gantry.sites import config_roots
 from helpers_config import write_site_tree
 from test_samples import GANTRY_SAMPLE, ROOT, md_tables
+from helpers_config import roots_around
 
 # A fictional mixed-case namespace (operator decision Q3); the format doc's
 # case rule uses the same name.
@@ -39,7 +42,7 @@ def parse(text, namespace="alpha", *, layers=PROJECT_LAYERS, br="life", source="
 
 
 def read(name, namespace="alpha", *, layers=PROJECT_LAYERS, br="life"):
-    return read_requirements(FIXTURES / name, namespace, layers=layers, br_namespace=br)
+    return read_requirements(directory_roots([FIXTURES]), FIXTURES / name, namespace, layers=layers, br_namespace=br)
 
 
 def rid(text, namespace="alpha"):
@@ -289,7 +292,7 @@ def _unreadable(tmp_path, case):
 @pytest.mark.parametrize("case", ["missing", "directory", "not-utf8", "nul"])
 def test_read_unreadable(tmp_path, case):
     path = _unreadable(tmp_path, case)
-    s = read_requirements(path, "alpha", layers=PROJECT_LAYERS, br_namespace="life")
+    s = read_requirements(roots_around(path), path, "alpha", layers=PROJECT_LAYERS, br_namespace="life")
     assert s.requirements == {}
     (entry,) = s.report
     assert (entry.kind, entry.line, entry.source) == ("unreadable", None, str(path))
@@ -302,7 +305,7 @@ def test_read_unreadable(tmp_path, case):
 def test_read_bom(tmp_path):
     p = tmp_path / "bom.md"
     p.write_bytes(b"\xef\xbb\xbf- FR-1: x\n")
-    s = read_requirements(p, "alpha", layers=PROJECT_LAYERS, br_namespace="life")
+    s = read_requirements(roots_around(p), p, "alpha", layers=PROJECT_LAYERS, br_namespace="life")
     assert s.report == []
     assert s.requirements["alpha:FR-1"].line == 1
 
@@ -320,7 +323,7 @@ def test_programmer_errors_raise(namespace, layers, br):
     with pytest.raises(ValueError):
         parse_requirements("- FR-1: x\n", namespace, source="t", layers=layers, br_namespace=br)
     with pytest.raises(ValueError):
-        read_requirements(FIXTURES / "empty.md", namespace, layers=layers, br_namespace=br)
+        read_requirements(directory_roots([FIXTURES]), FIXTURES / "empty.md", namespace, layers=layers, br_namespace=br)
 
 
 # --- links and the whole-set report ------------------------------------------------
@@ -518,7 +521,7 @@ def _sample_trace():
 def _sample_sets():
     """{site name: its RequirementSet} for each site in the sample trace."""
     c, _, (traced, _) = _sample_trace()
-    return {name: read_requirements(path, name, layers=PROJECT_LAYERS, br_namespace=c.requirements.br_namespace)
+    return {name: read_requirements(config_roots(c), path, name, layers=PROJECT_LAYERS, br_namespace=c.requirements.br_namespace)
             for name, path in traced.items()}
 
 

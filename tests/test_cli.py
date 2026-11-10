@@ -243,7 +243,7 @@ def point_portfolio_file_elsewhere(config):
 # byte. The build does not read the portfolio file yet (#23 or #61 adds it).
 def test_portfolio_file_does_not_change_page(tmp_path, capsys, monkeypatch):
     copy = copy_samples(tmp_path)
-    monkeypatch.setattr(stamp, "sample_dir", lambda package_dir=None: copy)
+    monkeypatch.setattr(stamp, "sample_dir", lambda: copy)
     config = copy / "gantry.sample.toml"
     assert site_build(capsys, config, BUSY)[0] == 0
     page = copy / "out" / "sites" / f"{BUSY}.html"

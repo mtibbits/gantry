@@ -10,6 +10,7 @@ from collections import Counter
 from gantry.config import ID_TOKEN_RE
 from gantry.requirements import DEFAULT_BR_NAMESPACE, LAYERS, PROJECT_LAYERS, read_requirements
 from test_samples import ROOT
+from helpers_config import roots_around
 
 DOC = ROOT / "docs" / "requirements.md"
 FORMAT_DOC = ROOT / "docs" / "requirements-format.md"
@@ -35,7 +36,7 @@ PLANTED = (
 
 @functools.cache
 def own_set():
-    return read_requirements(DOC, NAMESPACE, layers=PROJECT_LAYERS, br_namespace=DEFAULT_BR_NAMESPACE)
+    return read_requirements(roots_around(DOC), DOC, NAMESPACE, layers=PROJECT_LAYERS, br_namespace=DEFAULT_BR_NAMESPACE)
 
 
 @functools.cache
