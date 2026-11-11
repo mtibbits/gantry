@@ -240,6 +240,26 @@ class Page(_Driver):
                 raise TypeError(f"drive({control!r}, {value!r}): control and value must be strings")
         self._request({"op": "drive", "control": control, "value": value})
 
+    def leave(self, control, value):
+        """Move focus off an item of a data-control-items container: a bubbling focusout, to nowhere."""
+        for arg in (control, value):
+            if not isinstance(arg, str):
+                raise TypeError(f"leave({control!r}, {value!r}): control and value must be strings")
+        self._request({"op": "leave", "control": control, "value": value})
+
+    def chip(self, item, req, action="click"):
+        """Click, or focus, the [data-req] element `req` inside the item `item` of a data-control-items container."""
+        for arg in (item, req, action):
+            if not isinstance(arg, str):
+                raise TypeError(f"chip({item!r}, {req!r}, {action!r}): arguments must be strings")
+        self._request({"op": "chip", "item": item, "req": req, "action": action})
+
+    def key(self, name):
+        """Press a key where the focus is: a bubbling keydown on the active element, else on the body."""
+        if not isinstance(name, str):
+            raise TypeError(f"key({name!r}): the key name must be a string")
+        self._request({"op": "key", "key": name})
+
 
 @contextmanager
 def open_page(path):
