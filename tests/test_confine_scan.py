@@ -138,8 +138,28 @@ ROOT_BUILDERS = (
 
 RULES = ("module", "name", "through-gantry", "star", "rebind", "builtin", "keyword", "roots-builder")
 
-# Exceptions: (module file, exact dotted name) -> reason.
-EXCEPTIONS = {}
+# Exceptions: (module file, exact dotted name) -> reason. #35's and #64's
+# entries are added by whichever of them and #60 lands second: an entry for a
+# module that does not exist yet is stale.
+WBS_GIT = (
+    "run_git is the module's one child process, limited to the git commands _check_args "
+    "admits, with no stdin and a timeout; history reads are bounded by #28's repository "
+    "rule and, once it lands, #43's history check"
+)
+FROM_CONFIG = "this module is where roots are built from the loaded config (#59)"
+EXCEPTIONS = {
+    ("gantry/wbs_history.py", "subprocess.run"): f"starts git: {WBS_GIT}",
+    ("gantry/wbs_history.py", "subprocess.DEVNULL"): f"git's stdin: {WBS_GIT}",
+    ("gantry/wbs_history.py", "subprocess.TimeoutExpired"): f"git's timeout: {WBS_GIT}",
+    ("gantry/wbs_history.py", "os.environ"): (
+        "read once, in git_env, to build git's environment with every GIT_* name removed "
+        f"and the ceiling set; {WBS_GIT}"
+    ),
+    ("gantry/config.py", "gantry.roots.bootstrap_roots"): f"the --config file's own root; {FROM_CONFIG}",
+    ("gantry/sites.py", "gantry.roots.bootstrap_roots"): f"the --config file's own root; {FROM_CONFIG}",
+    ("gantry/sites.py", "gantry.roots.with_file"): f"the devagent_config file the config names; {FROM_CONFIG}",
+    ("gantry/sites.py", "gantry.roots.add_root"): f"each root key and site planning folder; {FROM_CONFIG}",
+}
 
 # Every module the scan must parse: the 27 under gantry/ at 39f4afa. A later
 # issue may extend this list but not shrink it.
