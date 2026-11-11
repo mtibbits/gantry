@@ -765,6 +765,18 @@ def unserved_label(scope):
     return f"{TRACE_LABELS['unserved']} ({UNSERVED_SCOPES.get(scope, UNSERVED_SCOPE_OTHER.format(scope=scope))})"
 
 
+def _chip_label(label):
+    """A chip's label within CHIP_CHARS. A long one keeps its code and number
+    whole and shortens its namespace, so two IDs of one namespace stay apart."""
+    if len(label) <= CHIP_CHARS:
+        return label
+    namespace, colon, tail = label.rpartition(":")
+    keep = CHIP_CHARS - len(tail) - 2  # the ellipsis and the colon
+    if not colon or keep < 1:
+        return _cut(label, CHIP_CHARS)
+    return namespace[:keep] + ELLIPSIS + ":" + tail
+
+
 def _chips(ids, x, y):
     """The chip row in the gap under a box at (x, y): up to CHIPS_MAX chips
     that fit in its width, then CHIP_MORE for the rest."""
@@ -773,7 +785,7 @@ def _chips(ids, x, y):
     base = top + CHIP_H - 2.5
     shown = 0
     for i, (rid, label) in enumerate(ids[:CHIPS_MAX]):
-        text = _cut(label, CHIP_CHARS)
+        text = _chip_label(label)
         w = len(text) * CHIP_CHAR_W + 2 * CHIP_PAD
         rest = len(ids) - i - 1
         reserve = len(CHIP_MORE.format(n=rest)) * CHIP_CHAR_W + CHIP_GAP if rest else 0

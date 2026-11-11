@@ -559,7 +559,20 @@ def test_chip_row_width_bounded(tmp_path):
         assert x <= bx and bx + bw <= x + BW
         assert y + BH < by and by + bh < y + ROWH
     assert all(m + worksite.CHIP_CHAR_W * 2 <= x + BW for m in more)
-    assert all(label.endswith("…") and len(label) <= worksite.CHIP_CHARS for label, _ in shown)
+    # A cut label keeps its code and number whole and shortens the namespace.
+    assert all(label.endswith(":FR-1") and "…" in label and len(label) <= worksite.CHIP_CHARS
+               for label, _ in shown)
+
+
+def test_cut_chip_labels_stay_distinct(tmp_path):
+    reqs = {"devagent": "# R\n\n## Functional requirements\n\n- FR-3: Three.\n- FR-4: Four.\n- FR-12: Twelve.\n"}
+    wbs = {"alpha": ("# A\n\n- [ ] One {issue: Issue-1, satisfies: [devagent:FR-3, devagent:FR-4, devagent:FR-12]}\n"
+                     "- [ ] Two {issue: Issue-2, depends_on: [Issue-1]}\n"),
+           "devagent": ONE_LEAF}
+    t = tree(page_of(installation(tmp_path, wbs, reqs), "alpha"))
+    labels = [label for label, _ in chips(t, node_of(t, "Issue-1"))]
+    assert labels and len(set(labels)) == len(labels)
+    assert all(label.split(":")[-1] in ("FR-3", "FR-4", "FR-12") for label in labels), labels
 
 
 def test_chip_row_clears_large_circle(tmp_path):
