@@ -17,11 +17,14 @@ from gantry.config import load_config
 from gantry.sites import config_roots, load_sites
 from gantry.trace import (COUNT_FINISHED, COUNT_HELD, COUNT_OPEN, build_site_trace, counts_line, load_catalog,
                           page_trace)
-from gantry.views.worksite import page_model
-from helpers_config import sample_build, write_site_tree
-from page_safety import assert_page_safe
-from sample_roles import SMALL
-from test_samples import GANTRY_SAMPLE
+from gantry.views import worksite
+from gantry.views.worksite import BH, BW, ROWH, page_model
+from helpers_config import demo_build, page_ids, sample_build, write_site_tree
+from page_safety import assert_no_external_resources, assert_page_safe
+from page_script.harness import Planted, PageScriptError, open_page, run_function
+from sample_roles import BUSY, READABLE, SMALL
+from test_samples import GANTRY_SAMPLE, ROOT
+from test_worksite_page import find, text_of, tree
 
 # One in-trace site whose FR-1 is served only by Issue-1, held out by its
 # cycle with Issue-2.
@@ -219,3 +222,62 @@ def test_requirements_file_entry_has_no_path(tmp_path):
     assert duplicate[0] == "the requirements file" and duplicate[1] == 6
     assert str(tmp_path) not in text and json.dumps(str(tmp_path))[1:-1] not in text
     assert path_form_hits(text) == []
+
+
+# --- Task 3: the build carries the trace --------------------------------------------
+
+REPORT_NAMES = ["unreadable", "malformed", "duplicate", "misplaced", "cycle", "undefined"]
+
+
+def test_every_built_page_carries_trace(tmp_path):
+    result = sample(tmp_path)
+    assert set(result.pages) == READABLE
+    for name in sorted(READABLE):
+        trace = trace_of(result.pages[name])
+        # Exactly these five keys: #77 and #21 add theirs beside them.
+        assert list(trace) == ["in_trace", "scope", "requirements", "leaves", "report"], name
+        if name == SMALL:
+            assert trace["in_trace"] is True
+            continue
+        assert trace["in_trace"] is False and trace["requirements"] == [] and trace["leaves"] == [], name
+        assert trace["report"] == [[n, []] for n in REPORT_NAMES], name
+
+
+def test_catalog_loaded_once_per_run(tmp_path, monkeypatch):
+    calls = []
+    real = build.load_catalog
+
+    def counting(*args, **kwargs):
+        calls.append(args)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(build, "load_catalog", counting)
+    result = sample(tmp_path)
+    assert set(result.pages) == READABLE
+    assert len(calls) == 1
+
+
+def test_trace_failure_stops_only_its_site(tmp_path, monkeypatch):
+    real = build.build_site_trace
+
+    def failing(site, leaves, catalog):
+        if site == BUSY:
+            raise RuntimeError("trace fault")
+        return real(site, leaves, catalog)
+
+    monkeypatch.setattr(build, "build_site_trace", failing)
+    result = sample(tmp_path)
+    assert set(result.pages) == READABLE - {BUSY}
+    (busy,) = [s for s in result.summaries if s.name == BUSY]
+    assert busy.status == "not_built" and busy.reason == "render error: RuntimeError: trace fault"
+
+
+def test_catalog_fault_does_not_end_run(tmp_path):
+    config_path = installation(tmp_path, {"alpha": ONE_LEAF}, {"alpha": "unused"})
+    (tmp_path / "req-alpha.md").unlink()
+    result = built(config_path)
+    page = result.pages["alpha"]
+    (unreadable,) = dict(trace_of(page)["report"])["unreadable"]
+    assert unreadable[0] == "the requirements file" and unreadable[1] is None
+    assert str(tmp_path) not in page and path_form_hits(page) == []
+

@@ -18,6 +18,7 @@ from gantry.requirements import in_trace_sites
 from gantry.roots import OutsideRoots, Roots, mkdir_confined, stat_confined, write_confined
 from gantry.sites import SiteEntry, SiteWarning, config_roots, load_sites
 from gantry.stamp import public_text, stamp_text
+from gantry.trace import build_site_trace, counts_line, load_catalog, page_trace
 from gantry.views import worksite
 from gantry.views.index import render_index
 from gantry.wbs_stopgap import read_wbs
@@ -43,6 +44,7 @@ class SiteSummary:
     report_count: int | None = None
     hours: float | None = None  # not on the index; carried for Epic #3
     non_time: dict | None = None
+    trace_line: str | None = None  # the build's `trace <site>:` line (#20); None when it prints none
 
 
 @dataclass(frozen=True)
@@ -114,9 +116,13 @@ def read_site(site, config, earlier, *, roots):
         return None, render_reason(e, roots)
 
 
-def render_site(name, inputs, config, stamp):
-    """(html, page model) of one read site; it may raise."""
-    m = worksite.page_model(name, inputs.data, default_unit_hours=config.default_unit_hours, inputs=inputs)
+def render_site(name, inputs, config, stamp, *, catalog):
+    """(html, page model) of one read site, its trace built from the run's
+    `catalog` (#20); it may raise, and the caller's `try` makes a fault in
+    the trace this site's render error."""
+    trace = page_trace(build_site_trace(name, inputs.data.leaves, catalog), catalog, inputs.data)
+    m = worksite.page_model(name, inputs.data, default_unit_hours=config.default_unit_hours, inputs=inputs,
+                            trace=trace)
     return worksite.render_model(m, stamp=stamp), m
 
 
@@ -133,12 +139,12 @@ def read_sites(config, sites, *, roots):
     return inputs, reasons
 
 
-def render_sites(config, inputs, stamp, *, roots):
+def render_sites(config, inputs, stamp, *, roots, catalog):
     """({name: html}, {name: page model}, {name: reason}) over the read sites, each in its own try."""
     pages, models, reasons = {}, {}, {}
     for name, site_inputs in inputs.items():
         try:
-            pages[name], models[name] = render_site(name, site_inputs, config, stamp)
+            pages[name], models[name] = render_site(name, site_inputs, config, stamp, catalog=catalog)
         except Exception as e:
             reasons[name] = render_reason(e, roots)
     return pages, models, reasons
@@ -164,7 +170,7 @@ def _summary(name, inputs, m, as_of):
         open_leaves=sum(leaf.open for leaf in inputs.data.leaves),
         finish_day=day, finish_date=working_day(as_of, day) if day is not None else None,
         unestimated_count=totals.unestimated_count, report_count=len(m["panel"]),
-        hours=totals.hours, non_time=totals.non_time,
+        hours=totals.hours, non_time=totals.non_time, trace_line=counts_line(name, m["trace"]),
     )
 
 
@@ -181,9 +187,12 @@ def build_all(config, *, now=None, samples=None) -> BuildResult:
     """
     roots = config_roots(config)
     sites, warnings = site_list(config, roots)
+    # Every requirements file and the portfolio file, once per run (#20); a
+    # file that cannot be read is a report entry, never an exception.
+    catalog = load_catalog(roots, config, sites)
     stamp = stamp_text(config, now=now, samples=samples, roots=roots)
     inputs, reasons = read_sites(config, sites, roots=roots)
-    pages, models, failed = render_sites(config, inputs, stamp, roots=roots)
+    pages, models, failed = render_sites(config, inputs, stamp, roots=roots, catalog=catalog)
     reasons.update(failed)
     summaries = tuple(_summary(s.name, inputs[s.name], models[s.name], config.as_of) if s.name in pages
                       else not_built(s.name, reasons[s.name]) for s in sites)

@@ -35,6 +35,7 @@ from gantry.portfolio_file import PORTFOLIO_LABEL, SECTIONS, format_entry, read_
 from gantry.roots import OutsideRoots
 from gantry.sites import config_roots, shown
 from gantry.stamp import stamp_text
+from gantry.trace import load_catalog
 
 
 def _parser():
@@ -97,8 +98,10 @@ def _build_site(config, roots, sites, name):
     inputs, problem = read_site(site, config, clashes(sites).get(site.name), roots=roots)
     if problem is not None:
         return fail(f"cannot build: {problem}")
+    # The trace reads every requirements file and the portfolio file (#20).
+    catalog = load_catalog(roots, config, sites)
     try:
-        text, _ = render_site(site.name, inputs, config, stamp_text(config, roots=roots))
+        text, m = render_site(site.name, inputs, config, stamp_text(config, roots=roots), catalog=catalog)
     except Exception as e:
         # One line, naming no configured root by its path.
         return fail(render_reason(e, roots))
@@ -114,7 +117,7 @@ def _build_site(config, roots, sites, name):
 
 
 def _warn(warnings):
-    # In this issue the build only warns; reading the files is the trace's (#19).
+    # The site list's and the trace's warnings; the trace reads the files it names (#20).
     for warning in warnings:
         print(f"gantry: warning: {warning.message}", file=sys.stderr)
 

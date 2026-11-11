@@ -28,7 +28,8 @@ from helpers_config import (
     write_site_tree,
     written_bytes,
 )
-from sample_roles import BUSY, NO_WBS, READABLE, UNREADABLE
+from page_safety import assert_page_safe
+from sample_roles import BUSY, NO_WBS, READABLE, SMALL, UNREADABLE
 from test_portfolio_file import EVERY_FIXTURE
 from test_samples import ROOT
 
@@ -269,9 +270,9 @@ def test_site_page_reads_estimates_file(tmp_path, capsys):
     assert f"no estimates file: site.{BUSY}.estimates is false" in page
 
 
-# The build reads neither portfolio_file (#23 or #61 adds it) nor fires_list yet;
-# a live requirements key on a site that can be in the trace does not change
-# the build or warn (#15).
+# The build does not read fires_list yet, so it changes nothing. The
+# requirements key and the portfolio file are the trace's (#20): each changes
+# the pages whose trace it reaches, and no other page, and neither warns.
 def test_unread_keys_and_requirements_do_not_change_build(tmp_path, monkeypatch):
     copy = copy_samples(tmp_path)
     config = copy / "gantry.sample.toml"
@@ -279,14 +280,30 @@ def test_unread_keys_and_requirements_do_not_change_build(tmp_path, monkeypatch)
     assert code == 0
     plain = written_bytes(out)
     assert len(plain) == 5
-    point_portfolio_file_elsewhere(config)
     add_top_level(config, 'fires_list = "fires.md"\n')
+    code, out, _, err = demo_build(tmp_path, monkeypatch, copy=copy)
+    assert code == 0 and err == plain_err
+    assert written_bytes(out) == plain
+
+    def trace(written, site):
+        return assert_page_safe(written[f"sites/{site}.html"].decode("utf-8"), [])["trace"]
+
+    # lighthouse's Issue-7 names life:BR-1, which no readable portfolio file defines now.
+    point_portfolio_file_elsewhere(config)
+    code, out, _, err = demo_build(tmp_path, monkeypatch, copy=copy)
+    assert code == 0 and err == plain_err
+    moved = written_bytes(out)
+    assert {k for k in plain if moved[k] != plain[k]} == {f"sites/{SMALL}.html"}
+    undefined = dict(trace(moved, SMALL)["report"])["undefined"]
+    assert len(undefined) == 2 and "life:BR-1 names no requirement" in undefined[0][2]
+
     add_site_key(config, BUSY, 'requirements = "req.md"\n')
     code, out, _, err = demo_build(tmp_path, monkeypatch, copy=copy)
-    assert code == 0
-    assert written_bytes(out) == plain
-    # The not-built sites' lines, and nothing more, in both runs.
-    assert err == plain_err
+    assert code == 0 and err == plain_err
+    traced = written_bytes(out)
+    assert {k for k in moved if traced[k] != moved[k]} == {f"sites/{BUSY}.html"}
+    busy = trace(traced, BUSY)
+    assert busy["in_trace"] is True and len(dict(busy["report"])["unreadable"]) == 1
     assert "gantry: warning: site" in err and "trace" not in err
 
 

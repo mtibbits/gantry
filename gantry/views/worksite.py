@@ -241,11 +241,13 @@ def _tier_counts(tiers):
     return [[t, counts[t]] for t in _known_first(counts)]
 
 
-def page_model(site, data, *, default_unit_hours, inputs=None) -> dict:
+def page_model(site, data, *, default_unit_hours, inputs=None, trace=None) -> dict:
     """The page's data for one site's parsed WBS.md.
 
     `inputs` is apply_inputs's result for the site; without it every leaf is
-    on the default unit and no estimates file is named.
+    on the default unit and no estimates file is named. `trace` is
+    gantry.trace.page_trace's result (#20); None, as in a direct test
+    render, draws no trace.
     """
     if inputs is not None:
         data = inputs.data
@@ -395,6 +397,7 @@ def page_model(site, data, *, default_unit_hours, inputs=None) -> dict:
                   "includes": INCLUDES, "includes_one": INCLUDES_ONE, "dates": DATES, "dates_one": DATES_ONE,
                   "summary": SUMMARY, "summary_no_chain": SUMMARY_NO_CHAIN, "summary_unest": SUMMARY_UNEST,
                   "summary_unest_one": SUMMARY_UNEST_ONE},
+        "trace": trace,
     }
 
 
@@ -721,9 +724,10 @@ def _finished(m):
     return Markup(f'<ul class="panel finished">{lines}</ul>')
 
 
-def render_page(site, data, *, default_unit_hours, inputs=None, stamp="") -> str:
+def render_page(site, data, *, default_unit_hours, inputs=None, stamp="", trace=None) -> str:
     """The worksite page for one site's parsed WBS.md, as one HTML text."""
-    return render_model(page_model(site, data, default_unit_hours=default_unit_hours, inputs=inputs), stamp=stamp)
+    return render_model(page_model(site, data, default_unit_hours=default_unit_hours, inputs=inputs, trace=trace),
+                        stamp=stamp)
 
 
 def render_model(m, *, stamp="") -> str:
