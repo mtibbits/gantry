@@ -97,6 +97,11 @@ def node_status(env=None, which=None, root=None):
 # --- the driver process -------------------------------------------------------------
 
 
+def _strings(args, message):
+    if not all(isinstance(a, str) for a in args):
+        raise TypeError(message)
+
+
 class _Driver:
     """One Node child running driver.js; one request in flight at a time."""
 
@@ -235,29 +240,22 @@ class Page(_Driver):
 
     def drive(self, control, value):
         """Set a control the way a user would: pick an option, press a button, focus an item."""
-        for arg in (control, value):
-            if not isinstance(arg, str):
-                raise TypeError(f"drive({control!r}, {value!r}): control and value must be strings")
+        _strings((control, value), f"drive({control!r}, {value!r}): control and value must be strings")
         self._request({"op": "drive", "control": control, "value": value})
 
     def leave(self, control, value):
         """Move focus off an item of a data-control-items container: a bubbling focusout, to nowhere."""
-        for arg in (control, value):
-            if not isinstance(arg, str):
-                raise TypeError(f"leave({control!r}, {value!r}): control and value must be strings")
+        _strings((control, value), f"leave({control!r}, {value!r}): control and value must be strings")
         self._request({"op": "leave", "control": control, "value": value})
 
     def chip(self, item, req, action="click"):
         """Click, or focus, the [data-req] element `req` inside the item `item` of a data-control-items container."""
-        for arg in (item, req, action):
-            if not isinstance(arg, str):
-                raise TypeError(f"chip({item!r}, {req!r}, {action!r}): arguments must be strings")
+        _strings((item, req, action), f"chip({item!r}, {req!r}, {action!r}): arguments must be strings")
         self._request({"op": "chip", "item": item, "req": req, "action": action})
 
     def key(self, name):
         """Press a key where the focus is: a bubbling keydown on the active element, else on the body."""
-        if not isinstance(name, str):
-            raise TypeError(f"key({name!r}): the key name must be a string")
+        _strings((name,), f"key({name!r}): the key name must be a string")
         self._request({"op": "key", "key": name})
 
 

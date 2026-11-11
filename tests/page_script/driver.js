@@ -262,10 +262,7 @@ async function drive(page, control, value) {
     if (button.disabled) throw new PageError("control " + name + " is disabled");
     button.click();
   } else if (kind === "items") {
-    const item = matches
-      .flatMap((c) => Array.from(c.querySelectorAll("[data-item]")))
-      .find((el) => el.getAttribute("data-item") === value);
-    if (item === undefined) throw new PageError("control " + name + ' has no item "' + value + '"');
+    const item = controlItem(document, control, value);
     item.dispatchEvent(new window.FocusEvent("focusin", { bubbles: true }));
   } else {
     throw new PageError("control " + name + " is not a select, a button with data-value or a data-control-items container");

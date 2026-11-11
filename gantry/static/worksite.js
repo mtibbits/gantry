@@ -21,10 +21,11 @@
   // looked up in Maps built from the data's arrays: no key indexes an object.
 
   const isText = (v) => typeof v === "string";
+  const isObj = (v) => v !== null && typeof v === "object";
 
   function step(state, event) {
-    const ok = state !== null && typeof state === "object" && (state.selected === null || isText(state.selected));
-    const e = event !== null && typeof event === "object" ? event : {};
+    const ok = isObj(state) && (state.selected === null || isText(state.selected));
+    const e = isObj(event) ? event : {};
     if (!ok) return state;
     const next = (selected, hover) => ({ selected, hover });
     if (e.type === "select" && isText(e.id)) return next(state.selected === e.id ? null : e.id, state.hover);
@@ -39,18 +40,18 @@
 
   // view: {lane_of: [[leafKey, laneIndex], ...], collapsed: [laneIndex, ...]}
   function marks(trace, state, view) {
-    const hover = state !== null && typeof state === "object" && isText(state.hover) ? state.hover : null;
+    const hover = isObj(state) && isText(state.hover) ? state.hover : null;
     const out = { selected: null, selecting: false, leaves: new Map(), needs: [], lanes: [], tracing: hover };
-    if (trace === null || typeof trace !== "object" || !Array.isArray(trace.requirements)) return out;
+    if (!isObj(trace) || !Array.isArray(trace.requirements)) return out;
     const rows = new Map(trace.requirements.map((r) => [r.id, r]));
-    const id = state !== null && typeof state === "object" && isText(state.selected) ? state.selected : null;
+    const id = isObj(state) && isText(state.selected) ? state.selected : null;
     const row = id === null ? undefined : rows.get(id);
     if (row === undefined) return out;
     out.selected = id;
-    out.leaves = new Map(row.light.map(([k, how]) => [k, how]));
+    out.leaves = new Map(row.light);
     out.selecting = out.leaves.size > 0;
     out.needs = row.needs.filter((n) => rows.has(n));
-    const v = view !== null && typeof view === "object" ? view : {};
+    const v = isObj(view) ? view : {};
     const laneOf = new Map(Array.isArray(v.lane_of) ? v.lane_of : []);
     const collapsed = new Set(Array.isArray(v.collapsed) ? v.collapsed : []);
     const counts = new Map();
@@ -447,10 +448,11 @@
 
   const HOW_CLASS = new Map([["direct", "req-direct"], ["indirect", "req-indirect"]]);
   let sel = { selected: null, hover: null };
+  const LANE_OF = DATA.leaves.map((leaf) => [leaf.key, leaf.lane]);
 
   function view() {
     return {
-      lane_of: DATA.leaves.map((leaf) => [leaf.key, leaf.lane]),
+      lane_of: LANE_OF,
       collapsed: group === "epic" ? lanes.map((_, i) => i).filter((i) => !open.has(i)) : [],
     };
   }
@@ -484,7 +486,7 @@
         t.setAttribute("y", sub === null ? "0" : sub.getAttribute("y"));
         t.setAttribute("text-anchor", "end");
         // One form for every n.
-        t.textContent = DATA.texts.lit.split("{n}").join(String(n));
+        t.textContent = fillIn(DATA.texts.lit, [["n", n]]);
         g.append(t);
       }
     }
@@ -498,8 +500,11 @@
   }
 
   function choose(event) {
+    const was = sel;
     sel = gantryTrace.step(sel, event);
-    applyMarks();
+    // Only the tracing class follows the hover; a new selection redraws every mark.
+    if (sel.selected !== was.selected) applyMarks();
+    else if (svg !== null) svg.classList.toggle("tracing", sel.hover !== null);
   }
 
   function toggleDetail(button) {

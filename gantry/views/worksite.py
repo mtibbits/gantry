@@ -565,7 +565,7 @@ def _network_svg(m):
     leaves = {leaf["key"]: leaf for leaf in m["leaves"]}
     net = m["network"]
     nodes = net["nodes"]
-    chip_ids = dict(m["trace"]["leaves"]) if m.get("trace") is not None else {}
+    chip_ids = dict(m["trace"]["leaves"]) if m["trace"] is not None else {}
     es = {n: leaves[n]["es"] for n in nodes}
     lane_of = {n: leaves[n]["lane"] for n in nodes}
     row = _layout(nodes, es, lane_of, {n: leaves[n]["preds"] for n in nodes})
@@ -748,11 +748,14 @@ def _anchors(anchors):
     return Markup("".join(f'<span class="anchor" id="{esc(a)}"></span>' for a in anchors))
 
 
+def _leaf_line(key, issue, title):
+    return f"{_mono([key])}{DOT}{esc(issue if issue is not None else NO_ISSUE_ID)}{DOT}{esc(title)}"
+
+
 def _finished(m):
     if not m["finished"]:
         return Markup(f"<p>{esc(NO_FINISHED)}</p>")
-    lines = "".join(f'<li id="{esc(f["anchor"])}">{_mono([f["key"]])}{DOT}'
-                    f'{esc(f["issue"] if f["issue"] is not None else NO_ISSUE_ID)}{DOT}{esc(f["title"])}</li>'
+    lines = "".join(f'<li id="{esc(f["anchor"])}">{_leaf_line(f["key"], f["issue"], f["title"])}</li>'
                     for f in m["finished"])
     return Markup(f'<ul class="panel finished">{lines}</ul>')
 
@@ -783,7 +786,6 @@ def _chips(ids, x, y):
     out, cx, right = [], x, x + BW
     top = y + BH + CHIP_DY
     base = top + CHIP_H - 2.5
-    shown = 0
     for i, (rid, label) in enumerate(ids[:CHIPS_MAX]):
         text = _chip_label(label)
         w = len(text) * CHIP_CHAR_W + 2 * CHIP_PAD
@@ -796,9 +798,8 @@ def _chips(ids, x, y):
                    f'<rect class="chip-box" x="{_n(cx)}" y="{_n(top)}" width="{_n(w)}" height="{CHIP_H}" rx="2"/>'
                    + _text("chip-t", cx + CHIP_PAD, base, text) + "</g>")
         cx += w + CHIP_GAP
-        shown += 1
-    if shown < len(ids):
-        out.append(_text("chip-more", cx, base, CHIP_MORE.format(n=len(ids) - shown)))
+    if len(out) < len(ids):
+        out.append(_text("chip-more", cx, base, CHIP_MORE.format(n=len(ids) - len(out))))
     return out
 
 
@@ -810,8 +811,8 @@ def _req_row(r):
            f'<span class="req-count">{esc(r["counts"])}</span></button>')
     rows = [(row, ROW_HELD) for row in r["held"]] + [(row, ROW_FINISHED) for row in r["finished"]]
     if rows:
-        lines = "".join(f"<li>{_mono([key])}{DOT}{esc(issue if issue is not None else NO_ISSUE_ID)}{DOT}"
-                        f"{esc(title)}{DOT}{esc(what)}</li>" for (key, issue, title, _), what in rows)
+        lines = "".join(f"<li>{_leaf_line(key, issue, title)}{DOT}{esc(what)}</li>"
+                        for (key, issue, title, _), what in rows)
         out += (f'<button type="button" class="req-more" data-control="requirement-detail" data-value="{rid}" '
                 f'aria-expanded="false">{esc(ROW_DETAIL)}</button><ul class="req-detail gone">{lines}</ul>')
     return out + "</li>"
@@ -922,8 +923,8 @@ def render_model(m, *, stamp="") -> str:
         HELD_ANCHORS=_anchors(m["anchors"]["held"]),
         FINISHED_HEADING=FINISHED_HEADING,
         FINISHED=_finished(m),
-        REQUIREMENTS=_requirements(m.get("trace")),
-        TRACE=_trace_panel(m.get("trace")),
+        REQUIREMENTS=_requirements(m["trace"]),
+        TRACE=_trace_panel(m["trace"]),
         DATA=embed_json(m),
         SCHEDULE_JS=_script("static/schedule.js"),
         PAGE_JS=_script("static/worksite.js"),
