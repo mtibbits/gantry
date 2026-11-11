@@ -28,7 +28,8 @@ from helpers_config import (
     write_site_tree,
     written_bytes,
 )
-from sample_roles import BUSY, NO_WBS, READABLE, UNREADABLE
+from page_safety import assert_page_safe
+from sample_roles import BUSY, NO_WBS, READABLE, SMALL, UNREADABLE
 from test_portfolio_file import EVERY_FIXTURE
 from test_samples import ROOT
 
@@ -80,13 +81,20 @@ def test_versions_agree():
 SAMPLE_CONFIG = "samples/gantry.sample.toml"
 
 
+SAMPLE_TRACE_LINE = ("trace lighthouse: unreadable 0, malformed 0, duplicate 0, misplaced 0, cycle 0, "
+                     "undefined 1, unserved 2, untraced 3")
+
+
 def check_written(stdout_bytes, out_dir):
     """The full build's stdout: one absolute path per written file, the pages in
-    config order, then the index."""
+    config order, then the index, then the trace line."""
     assert b"\r" not in stdout_bytes
     lines = stdout_bytes.decode("utf-8").splitlines()
     pages = [name for name in sample_projects() if name in READABLE]
-    assert len(lines) == len(pages) + 1 == 5
+    # Then the one sample site in the trace prints its trace line (#20).
+    assert len(lines) == len(pages) + 2 == 6
+    assert lines[5:] == [SAMPLE_TRACE_LINE]
+    lines = lines[:5]
     assert all(os.path.isabs(line) for line in lines), lines
     for line, name in zip(lines, pages):
         assert os.path.samefile(line, out_dir / "sites" / f"{name}.html"), (line, name)
@@ -241,7 +249,8 @@ def point_portfolio_file_elsewhere(config):
 
 
 # In sample mode the page carries no build time, so two builds compare byte for
-# byte. The build does not read the portfolio file yet (#23 or #61 adds it).
+# byte. The build reads the portfolio file's business requirements for the
+# trace (#20); harbor's leaves name none, so its page does not change.
 def test_portfolio_file_does_not_change_page(tmp_path, capsys, monkeypatch):
     copy = copy_samples(tmp_path)
     monkeypatch.setattr(stamp, "sample_dir", lambda: copy)
@@ -269,24 +278,40 @@ def test_site_page_reads_estimates_file(tmp_path, capsys):
     assert f"no estimates file: site.{BUSY}.estimates is false" in page
 
 
-# The build reads neither portfolio_file (#23 or #61 adds it) nor fires_list yet;
-# a live requirements key on a site that can be in the trace does not change
-# the build or warn (#15).
-def test_unread_keys_and_requirements_do_not_change_build(tmp_path, monkeypatch):
+# The build does not read fires_list yet, so it changes nothing. The
+# requirements key and the portfolio file are the trace's (#20): each changes
+# the pages whose trace it reaches, and no other page, and neither warns.
+def test_unread_keys_leave_pages_and_trace_inputs_change_them(tmp_path, monkeypatch):
     copy = copy_samples(tmp_path)
     config = copy / "gantry.sample.toml"
     code, out, _, plain_err = demo_build(tmp_path, monkeypatch, copy=copy)
     assert code == 0
     plain = written_bytes(out)
     assert len(plain) == 5
-    point_portfolio_file_elsewhere(config)
     add_top_level(config, 'fires_list = "fires.md"\n')
+    code, out, _, err = demo_build(tmp_path, monkeypatch, copy=copy)
+    assert code == 0 and err == plain_err
+    assert written_bytes(out) == plain
+
+    def trace(written, site):
+        return assert_page_safe(written[f"sites/{site}.html"].decode("utf-8"), [])["trace"]
+
+    # lighthouse's Issue-7 names life:BR-1, which no readable portfolio file defines now.
+    point_portfolio_file_elsewhere(config)
+    code, out, _, err = demo_build(tmp_path, monkeypatch, copy=copy)
+    assert code == 0 and err == plain_err
+    moved = written_bytes(out)
+    assert {k for k in plain if moved[k] != plain[k]} == {f"sites/{SMALL}.html"}
+    undefined = dict(trace(moved, SMALL)["report"])["undefined"]
+    assert len(undefined) == 2 and "life:BR-1 names no requirement" in undefined[0][2]
+
     add_site_key(config, BUSY, 'requirements = "req.md"\n')
     code, out, _, err = demo_build(tmp_path, monkeypatch, copy=copy)
-    assert code == 0
-    assert written_bytes(out) == plain
-    # The not-built sites' lines, and nothing more, in both runs.
-    assert err == plain_err
+    assert code == 0 and err == plain_err
+    traced = written_bytes(out)
+    assert {k for k in moved if traced[k] != moved[k]} == {f"sites/{BUSY}.html"}
+    busy = trace(traced, BUSY)
+    assert busy["in_trace"] is True and len(dict(busy["report"])["unreadable"]) == 1
     assert "gantry: warning: site" in err and "trace" not in err
 
 
@@ -344,7 +369,7 @@ def test_launcher_prefers_python(tmp_path):
     shims = shim_dir(tmp_path, ["python", "python3"])
     result, names = run_launcher(copy, [SAMPLE_CONFIG], shims, copy, tmp_path)
     assert result.returncode == 0, result.stderr
-    assert sample_line_count(result) == 5
+    assert sample_line_count(result) == 6
     assert names == {"python"}
 
 
@@ -354,7 +379,7 @@ def test_launcher_falls_back_to_python3(tmp_path):
     shims = shim_dir(tmp_path, ["python3"])
     result, names = run_launcher(copy, [SAMPLE_CONFIG], shims, copy, tmp_path)
     assert result.returncode == 0, result.stderr
-    assert sample_line_count(result) == 5
+    assert sample_line_count(result) == 6
     assert names == {"python3"}
 
 
@@ -385,7 +410,7 @@ def test_launcher_one_literal_argument(tmp_path):
     shims = shim_dir(tmp_path, ["python"])
     result, _ = run_launcher(copy, ["samples/" + name], shims, copy, tmp_path)
     assert result.returncode == 0, result.stderr
-    assert sample_line_count(result) == 5
+    assert sample_line_count(result) == 6
     assert list(tmp_path.rglob("pwned")) == []
 
 
@@ -400,7 +425,7 @@ def test_launcher_P_ignores_cwd_package(tmp_path):
     result, _ = run_launcher(copy, [str(config)], shims, elsewhere, tmp_path)
     assert b"decoy" not in result.stderr
     assert result.returncode == 0, result.stderr
-    assert sample_line_count(result) == 5
+    assert sample_line_count(result) == 6
 
 
 @needs_posix_bash
@@ -426,7 +451,7 @@ def test_launcher_dash_leading_config_is_a_value(tmp_path):
     shims = shim_dir(tmp_path, ["python"])
     result, _ = run_launcher(copy, ["-dash.toml"], shims, samples, tmp_path)
     assert result.returncode == 0, result.stderr
-    assert sample_line_count(result) == 5
+    assert sample_line_count(result) == 6
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX file modes only")
@@ -511,8 +536,8 @@ def test_trace_warning_escapes_name(tmp_path, capsys):
 # --- gantry portfolio (#22) ----------------------------------------------------
 
 PORTFOLIO_FIXTURES = ROOT / "tests" / "fixtures" / "portfolio_file"
-MILESTONE_NOTE = ("note: the milestone leaf is not checked here (this command reads no WBS.md); "
-                  "it is checked once the build reads the portfolio file")
+MILESTONE_NOTE = ("note: the milestone leaf is not checked here (this command reads no WBS.md), "
+                  "nor yet by the build, which reads only the file's business requirements")
 
 
 def portfolio_run(capsys, config):

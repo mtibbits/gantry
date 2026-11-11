@@ -11,8 +11,9 @@ load_catalog reads every in-trace site's requirements file and, when
 portfolio_file is set, the portfolio file's business requirements, once per
 build. build_site_trace returns one SiteTrace per site: each leaf's IDs, the
 leaves serving each requirement (direct or indirect), the site's use cases
-and its TraceReport. It renders and prints nothing; `SiteTrace` is
-provisional until #20 binds it to the page's `trace` data.
+and its TraceReport. page_trace binds a SiteTrace to the worksite page's
+`trace` data (#20), and counts_line gives the build's `trace <site>:` line
+from that data. This module renders and prints nothing.
 
 Identifiers: requirement maps (`serving`, `use_cases`, Catalog.requirements,
 Catalog.flows) are keyed by `str(ReqId)`; `leaf_ids` by leaf key; Catalog.sets
@@ -43,6 +44,7 @@ source and line. Messages name namespaces, IDs and keys, never a path.
 from dataclasses import dataclass, replace
 
 from gantry import requirements
+from gantry.inputs import scheduled
 from gantry.model import meta_values
 from gantry.portfolio_file import PORTFOLIO_LABEL, PortfolioEntry, read_portfolio_file
 from gantry.requirements import (PROJECT_LAYERS, ReportEntry, ReqId, Requirement, RequirementSet, in_trace_sites,
@@ -79,6 +81,14 @@ WHY = {  # why an ID names no requirement: the {why} of undefined_id and undefin
     "not_in_file": "the requirements file of namespace {ns!r} defines no {rid}",
     "not_in_portfolio": "the portfolio file defines no {rid}",
 }
+
+# The page's `trace` data and the build's line (#20).
+COUNTS_LINE = ("trace {site}: unreadable {unreadable}, malformed {malformed}, duplicate {duplicate}, "
+               "misplaced {misplaced}, cycle {cycle}, undefined {undefined}, unserved {unserved}, untraced {untraced}")
+COUNT_OPEN, COUNT_HELD, COUNT_FINISHED = "{n} open", "{n} waiting on a cycle", "{n} finished"  # joined with ", "
+# A requirements file's entries name it by kind on the page, never by its path.
+REQUIREMENTS_LABEL = "the requirements file"
+CATEGORIES = (*FIELDS, "unserved", "untraced")
 
 
 @dataclass(frozen=True)
@@ -329,3 +339,79 @@ def _serving(leaves, leaf_ids, catalog):
         for key in seen:
             found.setdefault(key, []).append(Serving(leaf.key, "direct" if key in named else "indirect"))
     return {key: tuple(found[key]) for key in catalog.requirements if key in found}
+
+
+# --- the page's `trace` data (#20) ----------------------------------------------
+
+
+def _label(rid, site):
+    """The ID as a page shows it: without its namespace when that is the site's."""
+    return f"{rid.code}-{rid.number}" if rid.namespace == site else str(rid)
+
+
+def _source(entry):
+    """An entry's source as the page shows it: a leaf's and the portfolio
+    file's as they are, a requirements file's by kind, never its path."""
+    return entry.source if entry.source in (LEAF_SOURCE, PORTFOLIO_LABEL) else REQUIREMENTS_LABEL
+
+
+def page_trace(trace: SiteTrace, catalog: Catalog, data) -> dict:
+    """The worksite page's `trace` data for one site, from its SiteTrace and
+    its SiteData (`data`, the leaves the page draws). Records are arrays,
+    never objects keyed by a record value. docs/worksite-page.md states it."""
+    site, reqs = trace.site, catalog.requirements
+    wanted = dict.fromkeys(catalog.sets[site].requirements if trace.in_trace else ())
+    for ids in trace.leaf_ids.values():
+        wanted.update(dict.fromkeys(str(rid) for rid in ids))
+    order = {key: i for i, key in enumerate(reqs)}
+    rank = {layer: i for i, layer in enumerate(requirements.LAYERS)}
+    keys = sorted(wanted, key=lambda key: (rank[reqs[key].layer], order[key]))
+
+    work = scheduled(data)
+    drawn = {leaf.key for leaf in work}
+    held_out = set(data.held_out)
+    by_key = {leaf.key: leaf for leaf in data.leaves}
+    rows = []
+    for key in keys:
+        r = reqs[key]
+        light, held, finished = [], [], []
+        for s in trace.serving.get(key, ()):
+            leaf = by_key[s.leaf]
+            if s.leaf in drawn:
+                light.append([s.leaf, s.how])
+            else:
+                (held if leaf.open and s.leaf in held_out else finished).append([s.leaf, leaf.issue, leaf.title, s.how])
+        counts = [COUNT_OPEN.format(n=len(light))]
+        counts += [COUNT_HELD.format(n=len(held))] if held else []
+        counts += [COUNT_FINISHED.format(n=len(finished))] if finished else []
+        rows.append({
+            "id": key, "label": _label(r.id, site), "layer": r.layer,
+            # A business requirement's text is never on a worksite page (#23).
+            "text": None if r.id.namespace == catalog.br_namespace else r.text,
+            "needs": [str(n) for n in r.needs if str(n) in wanted and str(n) != key] if r.layer == "UC" else [],
+            "light": light, "held": held, "finished": finished, "counts": ", ".join(counts),
+        })
+    report = [[name, [[_source(e), e.line, e.message] for e in getattr(trace.report, name)]] for name in FIELDS]
+    if trace.in_trace:
+        report.append(["unserved", [[key, _label(reqs[key].id, site)] for key in trace.report.unserved]])
+        report.append(["untraced", [[key, by_key[key].title] for key in trace.report.untraced]])
+    return {
+        "in_trace": trace.in_trace,
+        "scope": trace.report.unserved_scope,
+        "requirements": rows,
+        "leaves": [[leaf.key, [[str(rid), _label(rid, site)] for rid in trace.leaf_ids[leaf.key]]]
+                   for leaf in work if leaf.key in trace.leaf_ids],
+        "report": report,
+    }
+
+
+def counts_line(site: str, page: dict) -> str | None:
+    """The build's `trace <site>:` line from the page's `trace` data, every
+    category in CATEGORIES order and a left-out one as 0; None for a site
+    not in the trace whose report has no entry."""
+    counts = dict.fromkeys(CATEGORIES, 0)
+    for name, items in page["report"]:
+        counts[name] = len(items)
+    if not page["in_trace"] and not any(counts.values()):
+        return None
+    return COUNTS_LINE.format(site=site, **counts)

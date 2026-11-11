@@ -949,6 +949,64 @@ def test_drive_each_control_kind(node, tmp_path):
         assert page.planted_nodes([]).violations == []
 
 
+def test_leave_fires_focusout_on_the_item(node, tmp_path):
+    script = LISTENER_SCRIPT + "\n" + (
+        'document.addEventListener("focusout", (e) => record("focusout", e.target, e.target.getAttribute("data-item")));')
+    with open_page(write_page(tmp_path, hostile_page(body_extra=LISTENER_BODY, script=script))) as page:
+        page.leave("detail", "leaf-2")
+        assert [e.text for e in page.query("#log li")] == ["focusout:detail:leaf-2"]
+        with pytest.raises(PageScriptError, match="is not a data-control-items container"):
+            page.leave("zoom", "all")
+        with pytest.raises(PageScriptError, match='"leaf-9"'):
+            page.leave("detail", "leaf-9")
+
+
+# Two items, each holding chips; leaf-1 and leaf-2 both hold a:FR-1.
+CHIP_SCRIPT = "\n".join([
+    'document.getElementById("panel").innerHTML = \'<svg data-control="detail" data-control-items>'
+    '<g data-item="leaf-1"><g data-req="a:FR-1" tabindex="0"></g></g>'
+    '<g data-item="leaf-2"><g data-req="a:FR-1" tabindex="0"></g><g data-req="a:FR-2" tabindex="0"></g></g>'
+    "</svg>';",
+    "function log(text) {",
+    '  const li = document.createElement("li");',
+    "  li.textContent = text;",
+    '  document.getElementById("log").appendChild(li);',
+    "}",
+    'const chipOf = (t) => (t instanceof Element ? t.closest("[data-req]") : null);',
+    'const where = (c) => (c === null ? "none" : c.closest("[data-item]").getAttribute("data-item") + "/" + '
+    'c.getAttribute("data-req"));',
+    'document.addEventListener("click", (e) => log("click:" + where(chipOf(e.target))));',
+    'document.addEventListener("focusin", (e) => log("focusin:" + where(chipOf(e.target))));',
+    'document.addEventListener("keydown", (e) => log("keydown:" + e.key + ":" + where(chipOf(e.target))));',
+])
+
+
+def chip_page(tmp_path):
+    return write_page(tmp_path, hostile_page(body_extra=LISTENER_BODY, script=CHIP_SCRIPT))
+
+
+def test_drive_chip_item(node, tmp_path):
+    with open_page(chip_page(tmp_path)) as page:
+        page.chip("leaf-2", "a:FR-1")
+        page.chip("leaf-1", "a:FR-1", "focus")
+        assert [e.text for e in page.query("#log li")] == ["click:leaf-2/a:FR-1", "focusin:leaf-1/a:FR-1"]
+        for item, req in (("leaf-1", "a:FR-2"), ("leaf-9", "a:FR-1")):
+            with pytest.raises(PageScriptError, match="has no chip"):
+                page.chip(item, req)
+        with pytest.raises(PageScriptError, match="click or focus"):
+            page.chip("leaf-1", "a:FR-1", "hover")
+
+
+def test_key_dispatches_keydown(node, tmp_path):
+    with open_page(chip_page(tmp_path)) as page:
+        page.key("Escape")
+        page.chip("leaf-2", "a:FR-2", "focus")
+        page.key("Enter")
+        page.key(" ")
+        assert [e.text for e in page.query("#log li")] == [
+            "keydown:Escape:none", "focusin:leaf-2/a:FR-2", "keydown:Enter:leaf-2/a:FR-2", "keydown: :leaf-2/a:FR-2"]
+
+
 def test_drive_unknown_control_raises(node, tmp_path):
     with open_page(listener_page(tmp_path)) as page:
         with pytest.raises(PageScriptError, match="nosuch"):

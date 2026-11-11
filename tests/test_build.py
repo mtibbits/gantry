@@ -188,7 +188,10 @@ def test_demo_build_writes_index_and_pages(tmp_path, monkeypatch):
     assert written_files(out) == sorted(["index.html", *(f"sites/{s}.html" for s in READABLE)])
     printed = stdout.splitlines()
     projects = [p for p in sample_projects() if p in READABLE]
-    assert printed == [str(out / "sites" / f"{s}.html") for s in projects] + [str(out / "index.html")]
+    # The paths, then the in-trace sample site's trace line (#20).
+    assert printed[:-1] == [str(out / "sites" / f"{s}.html") for s in projects] + [str(out / "index.html")]
+    assert printed[-1].startswith("trace lighthouse: ")
+    printed = printed[:-1]
     assert all(os.path.isabs(line) for line in printed)
 
 

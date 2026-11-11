@@ -262,14 +262,65 @@ async function drive(page, control, value) {
     if (button.disabled) throw new PageError("control " + name + " is disabled");
     button.click();
   } else if (kind === "items") {
-    const item = matches
-      .flatMap((c) => Array.from(c.querySelectorAll("[data-item]")))
-      .find((el) => el.getAttribute("data-item") === value);
-    if (item === undefined) throw new PageError("control " + name + ' has no item "' + value + '"');
+    const item = controlItem(document, control, value);
     item.dispatchEvent(new window.FocusEvent("focusin", { bubbles: true }));
   } else {
     throw new PageError("control " + name + " is not a select, a button with data-value or a data-control-items container");
   }
+  await settle();
+  drain(page.errors);
+}
+
+// The item of a data-control-items container: shared by drive and leave.
+function controlItem(document, control, value) {
+  const matches = Array.from(document.querySelectorAll("[data-control]")).filter(
+    (el) => el.getAttribute("data-control") === control,
+  );
+  const name = '"' + control + '"';
+  if (matches.length === 0) throw new PageError("no control named " + name);
+  if (!matches.every((el) => kindOf(el) === "items")) {
+    throw new PageError("control " + name + " is not a data-control-items container");
+  }
+  const item = matches
+    .flatMap((c) => Array.from(c.querySelectorAll("[data-item]")))
+    .find((el) => el.getAttribute("data-item") === value);
+  if (item === undefined) throw new PageError("control " + name + ' has no item "' + value + '"');
+  return item;
+}
+
+async function leave(page, control, value) {
+  const item = controlItem(page.document, control, value);
+  // No relatedTarget: focus leaves for nowhere, as on a blur.
+  item.dispatchEvent(new page.window.FocusEvent("focusout", { bubbles: true }));
+  await settle();
+  drain(page.errors);
+}
+
+// A chip: a [data-req] element inside the item of any data-control-items
+// container, matched by comparing attributes, never by a built selector.
+async function chip(page, item, req, action) {
+  const { document, window } = page;
+  if (action !== "click" && action !== "focus") throw new PageError("chip action must be click or focus");
+  const found = Array.from(document.querySelectorAll("[data-control-items] [data-item]"))
+    .filter((el) => el.getAttribute("data-item") === item)
+    .flatMap((el) => Array.from(el.querySelectorAll("[data-req]")))
+    .find((el) => el.getAttribute("data-req") === req);
+  if (found === undefined) throw new PageError('item "' + item + '" has no chip "' + req + '"');
+  if (action === "click") {
+    found.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }));
+  } else {
+    found.focus();
+    if (document.activeElement !== found) throw new PageError('chip "' + req + '" cannot take focus');
+  }
+  await settle();
+  drain(page.errors);
+}
+
+// A key pressed where the focus is: on the active element, else on the body.
+async function key(page, name) {
+  const { document, window } = page;
+  const target = document.activeElement !== null ? document.activeElement : document.body;
+  target.dispatchEvent(new window.KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true }));
   await settle();
   drain(page.errors);
 }
@@ -375,6 +426,15 @@ async function handle(request, state) {
       return plantedReport(needPage(state), request.planted, request.rules);
     case "drive":
       await drive(needPage(state), request.control, request.value);
+      return null;
+    case "leave":
+      await leave(needPage(state), request.control, request.value);
+      return null;
+    case "chip":
+      await chip(needPage(state), request.item, request.req, request.action);
+      return null;
+    case "key":
+      await key(needPage(state), request.key);
       return null;
     case "call":
       return await call(request.path, request.name, request.args);

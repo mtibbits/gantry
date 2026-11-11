@@ -1,0 +1,271 @@
+<main class="wrap">
+  <header class="prose">
+    <div class="eyebrow">alpha &#183; WBS.md</div>
+    
+    <h1>alpha: what sets the pace</h1>
+    <p>A network of every open leaf that waits on, or is waited on by, another open leaf, then a schedule of all open work across parallel agent lanes. Columns give the earliest slot a leaf can start in, counting one slot per leaf. The red line is the critical path: the chain with no slack.</p>
+    
+    
+    
+  </header>
+
+  <div class="work">
+  <section>
+    <h2>Two limits on the finish date</h2>
+    <figure class="limits">
+      <svg viewBox="0 0 760 168" role="img" aria-label="The critical chain is 36 to 36 agent-hours; all open work is 84 to 84 agent-hours."><text class="lim-label" x="0" y="30">Critical chain (6 leaves)</text><rect class="bar-crit" x="190" y="16" width="240" height="20"/><rect class="bar-crit span" x="430" y="16" width="0" height="20"/><g data-unestimated="6"><text class="lim-val" x="438" y="31">36–36 h</text><text class="lim-note" x="190" y="52">includes 6 unestimated leaves</text></g><text class="lim-label" x="0" y="94">All 14 scheduled leaves</text><rect class="bar-open" x="190" y="80" width="560" height="20"/><rect class="bar-open span" x="750" y="80" width="0" height="20"/><g data-unestimated="14"><text class="lim-val" x="750" y="118" text-anchor="end">84–84 h</text><text class="lim-note" x="750" y="134" text-anchor="end">includes 14 unestimated leaves</text></g><line class="lim-axis" x1="190" y1="142" x2="750" y2="142"/><text class="lim-note" x="190" y="160">agent-hours; solid to the low estimate, pale to the high one</text></svg>
+      <figcaption data-unestimated="14">At 6 agent-hours a day, the critical chain is 6 to 6 working days and all open work is 14 to 14. With one operator, the total sets the finish date. The chain decides order: its first leaf has to start early enough that the chain is not the last thing left. The total includes 14 unestimated leaves.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Dependency network</h2>
+    <div class="controls" role="group" aria-label="Network detail">
+      <button type="button" data-control="zoom" data-value="wave" aria-pressed="true">Rolling wave</button>
+      <button type="button" data-control="zoom" data-value="all" aria-pressed="false">Every leaf as a box</button>
+    </div>
+    <p class="prose">Rolling wave keeps full boxes for the critical path, every leaf whose own priority is P0 or P1, work in progress, and anything the schedule below starts within 10 working days on its default 4 lanes. The rest shrink to circles whose area is their hours.</p>
+    <div class="legend-row" aria-hidden="true">
+      <div class="legend">
+        <span><i class="sw crit"></i>critical, slack 0</span>
+        <span><i class="sw near"></i>near-critical, slack 1&#8211;3</span>
+        <span><i class="sw free"></i>slack 4 or more</span>
+        <span><i class="ln crit"></i>critical link</span>
+        <span><i class="ln cross"></i>link across epics</span>
+        <span><i class="ln"></i>link within an epic</span>
+      </div>
+      <div class="legend">
+        <span><i class="sw st-wip"></i>in progress</span>
+        <span><i class="sw st-stuck"></i>stuck</span>
+        <span><i class="sw st-blocked"></i>blocked</span>
+        <span><i class="sw st-parked"></i>parked</span>
+      </div>
+      <div class="legend">
+        <span>Bottom band, left half: thinking model. Right half: checking model.</span>
+        <span><i class="sw m-haiku"></i>haiku</span>
+        <span><i class="sw m-sonnet"></i>sonnet</span>
+        <span><i class="sw m-opus"></i>opus</span>
+        <span><i class="sw m-fable"></i>fable</span>
+        <span><i class="sw m-other"></i>another tier</span>
+      </div>
+      <div class="legend">
+        <span>Circle: a later, lower-priority leaf. Area is hours:</span>
+        <span><svg width="150" height="44" viewBox="0 0 150 44"><circle class="dot" cx="14" cy="18" r="6"/><text class="dot-k" x="14" y="42" text-anchor="middle">4 h</text><circle class="dot" cx="58" cy="18" r="12"/><text class="dot-k" x="58" y="42" text-anchor="middle">16 h</text><circle class="dot" cx="118" cy="18" r="19"/><text class="dot-k" x="118" y="42" text-anchor="middle">40 h</text></svg></span>
+      </div>
+    </div>
+    <p class="note">no per-leaf model tiers recorded</p>
+    <figure>
+      <div class="plate">
+<svg class="net mode-wave" data-control="network-detail" data-control-items viewBox="0 0 1232 427" width="1232" height="427" role="img" aria-label="Dependency network of the open leaves">
+<defs>
+<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrow" d="M0,1 L10,5 L0,9 z"/></marker>
+<marker id="arrow-crit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrow-crit" d="M0,1 L10,5 L0,9 z"/></marker>
+<marker id="arrow-cross" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrow-cross" d="M0,1 L10,5 L0,9 z"/></marker>
+</defs>
+<rect class="lane" x="0" y="42" width="1232" height="98"/>
+<g class="lane-label" data-unestimated="6">
+<title>Issue-1 Ground works</title>
+<text class="lane-num" x="14" y="73">Issue-1</text>
+<text class="lane-name" x="14" y="89">Ground works</text>
+<text class="lane-free" x="14" y="107">6 open · 36 h</text>
+<text class="lane-free" x="14" y="121">includes 6 unestimated leaves</text>
+</g>
+<rect class="lane alt" x="0" y="136" width="1232" height="178"/>
+<g class="lane-label" data-unestimated="7">
+<title>Issue-10 Frame</title>
+<text class="lane-num" x="14" y="167">Issue-10</text>
+<text class="lane-name" x="14" y="183">Frame</text>
+<text class="lane-free" x="14" y="201">7 open · 42 h</text>
+<text class="lane-free" x="14" y="215">includes 7 unestimated leaves</text>
+<text class="lane-free" x="14" y="233">+2 unlinked</text>
+</g>
+<rect class="lane" x="0" y="310" width="1232" height="109"/>
+<g class="lane-label" data-unestimated="1">
+<title>no epic</title>
+<text class="lane-name" x="14" y="357">no epic</text>
+<text class="lane-free" x="14" y="375">1 open · 6 h</text>
+<text class="lane-free" x="14" y="389">includes 1 unestimated leaf</text>
+<text class="lane-free" x="14" y="407">+1 unlinked</text>
+</g>
+<text class="col-cap" x="14" y="26">earliest slot</text>
+<text class="col-num" x="289" y="26" text-anchor="middle">1</text>
+<line class="col-rule" x1="204" y1="34" x2="204" y2="427"/>
+<text class="col-num" x="459" y="26" text-anchor="middle">2</text>
+<line class="col-rule" x1="374" y1="34" x2="374" y2="427"/>
+<text class="col-num" x="629" y="26" text-anchor="middle">3</text>
+<line class="col-rule" x1="544" y1="34" x2="544" y2="427"/>
+<text class="col-num" x="799" y="26" text-anchor="middle">4</text>
+<line class="col-rule" x1="714" y1="34" x2="714" y2="427"/>
+<text class="col-num" x="969" y="26" text-anchor="middle">5</text>
+<line class="col-rule" x1="884" y1="34" x2="884" y2="427"/>
+<text class="col-num" x="1139" y="26" text-anchor="middle">6</text>
+<line class="col-rule" x1="1054" y1="34" x2="1054" y2="427"/>
+<g class="edges">
+<path class="edge crit" data-u="Issue-2" data-v="Issue-3" d="M365.0,84.5 C395.0,84.5 351.0,84.5 381.0,84.5" marker-end="url(#arrow-crit)"/>
+<path class="edge crit" data-u="Issue-3" data-v="Issue-4" d="M535.0,84.5 C565.0,84.5 521.0,84.5 551.0,84.5" marker-end="url(#arrow-crit)"/>
+<path class="edge crit" data-u="Issue-4" data-v="Issue-5" d="M705.0,84.5 C735.0,84.5 691.0,84.5 721.0,84.5" marker-end="url(#arrow-crit)"/>
+<path class="edge crit" data-u="Issue-5" data-v="Issue-9" d="M875.0,84.5 C905.0,84.5 861.0,84.5 891.0,84.5" marker-end="url(#arrow-crit)"/>
+<path class="edge crit" data-u="Issue-9" data-v="1.7" d="M1045.0,84.5 C1075.0,84.5 1031.0,84.5 1061.0,84.5" marker-end="url(#arrow-crit)"/>
+<path class="edge" data-u="Issue-11" data-v="Issue-12" d="M365.0,178.5 C395.0,178.5 351.0,178.5 381.0,178.5" marker-end="url(#arrow)"/>
+<path class="edge cross" data-u="Issue-4" data-v="Issue-13" d="M705.0,84.5 C735.0,84.5 691.0,178.5 721.0,178.5" marker-end="url(#arrow-cross)"/>
+<path class="edge" data-u="Issue-13" data-v="Issue-7" d="M875.0,178.5 C905.0,178.5 861.0,178.5 891.0,178.5" marker-end="url(#arrow)"/>
+<path class="edge" data-u="Issue-13" data-v="Issue-14" d="M875.0,178.5 C905.0,178.5 861.0,258.5 891.0,258.5" marker-end="url(#arrow)"/>
+</g>
+<g class="node crit st-pending unest" id="leaf-Issue-2" data-item="Issue-2" tabindex="0">
+<title>Issue-2 Survey · unestimated</title>
+<g class="full-form">
+<rect class="box" x="213" y="60" width="152" height="66" rx="3"/>
+<text class="nid" x="221" y="75">Issue-2</text>
+<text class="nmeta" x="357" y="75" text-anchor="end">6 h</text>
+<text class="ntitle" x="221" y="90">Survey</text>
+<rect class="outline" x="213" y="60" width="152" height="66" rx="3"/>
+</g></g>
+<g class="node crit st-pending unest" id="leaf-Issue-3" data-item="Issue-3" tabindex="0">
+<title>Issue-3 Dig · unestimated</title>
+<g class="full-form">
+<rect class="box" x="383" y="60" width="152" height="66" rx="3"/>
+<text class="nid" x="391" y="75">Issue-3</text>
+<text class="nmeta" x="527" y="75" text-anchor="end">6 h</text>
+<text class="ntitle" x="391" y="90">Dig</text>
+<rect class="outline" x="383" y="60" width="152" height="66" rx="3"/>
+</g></g>
+<g class="node crit st-pending unest" id="leaf-Issue-4" data-item="Issue-4" tabindex="0">
+<title>Issue-4 Pour · unestimated</title>
+<g class="full-form">
+<rect class="box" x="553" y="60" width="152" height="66" rx="3"/>
+<text class="nid" x="561" y="75">Issue-4</text>
+<text class="nmeta" x="697" y="75" text-anchor="end">6 h</text>
+<text class="ntitle" x="561" y="90">Pour</text>
+<rect class="outline" x="553" y="60" width="152" height="66" rx="3"/>
+</g></g>
+<g class="node crit st-pending unest" id="leaf-Issue-5" data-item="Issue-5" tabindex="0">
+<title>Issue-5 Cure · unestimated</title>
+<g class="full-form">
+<rect class="box" x="723" y="60" width="152" height="66" rx="3"/>
+<text class="nid" x="731" y="75">Issue-5</text>
+<text class="nmeta" x="867" y="75" text-anchor="end">6 h</text>
+<text class="ntitle" x="731" y="90">Cure</text>
+<rect class="outline" x="723" y="60" width="152" height="66" rx="3"/>
+</g></g>
+<g class="node crit st-pending unest" id="leaf-Issue-9" data-item="Issue-9" tabindex="0">
+<title>Issue-9 Seal · unestimated</title>
+<g class="full-form">
+<rect class="box" x="893" y="60" width="152" height="66" rx="3"/>
+<text class="nid" x="901" y="75">Issue-9</text>
+<text class="nmeta" x="1037" y="75" text-anchor="end">6 h</text>
+<text class="ntitle" x="901" y="90">Seal</text>
+<rect class="outline" x="893" y="60" width="152" height="66" rx="3"/>
+</g></g>
+<g class="node crit st-pending unest" id="leaf-1.7" data-item="1.7" tabindex="0">
+<title>1.7 Polish · unestimated</title>
+<g class="full-form">
+<rect class="box" x="1063" y="60" width="152" height="66" rx="3"/>
+<text class="nid" x="1071" y="75">1.7</text>
+<text class="nmeta" x="1207" y="75" text-anchor="end">6 h</text>
+<text class="ntitle" x="1071" y="90">Polish</text>
+<rect class="outline" x="1063" y="60" width="152" height="66" rx="3"/>
+</g></g>
+<g class="node free st-pending unest" id="leaf-Issue-11" data-item="Issue-11" tabindex="0">
+<title>Issue-11 Walls · unestimated</title>
+<g class="full-form">
+<rect class="box" x="213" y="154" width="152" height="66" rx="3"/>
+<text class="nid" x="221" y="169">Issue-11</text>
+<text class="nmeta" x="357" y="169" text-anchor="end">6 h</text>
+<text class="ntitle" x="221" y="184">Walls</text>
+<rect class="outline" x="213" y="154" width="152" height="66" rx="3"/>
+</g></g>
+<g class="node free st-pending unest" id="leaf-Issue-12" data-item="Issue-12" tabindex="0">
+<title>Issue-12 Roof · unestimated</title>
+<g class="full-form">
+<rect class="box" x="383" y="154" width="152" height="66" rx="3"/>
+<text class="nid" x="391" y="169">Issue-12</text>
+<text class="nmeta" x="527" y="169" text-anchor="end">6 h</text>
+<text class="ntitle" x="391" y="184">Roof</text>
+<rect class="outline" x="383" y="154" width="152" height="66" rx="3"/>
+</g></g>
+<g class="node near st-pending unest" id="leaf-Issue-13" data-item="Issue-13" tabindex="0">
+<title>Issue-13 Brace · unestimated</title>
+<g class="full-form">
+<rect class="box" x="723" y="154" width="152" height="66" rx="3"/>
+<text class="nid" x="731" y="169">Issue-13</text>
+<text class="nmeta" x="867" y="169" text-anchor="end">6 h</text>
+<text class="ntitle" x="731" y="184">Brace</text>
+<rect class="outline" x="723" y="154" width="152" height="66" rx="3"/>
+</g></g>
+<g class="node near st-pending unest" id="leaf-Issue-7" data-item="Issue-7" tabindex="0">
+<title>Issue-7 Fence · priority P1 · unestimated</title>
+<g class="full-form">
+<rect class="box" x="893" y="154" width="152" height="66" rx="3"/>
+<text class="nid" x="901" y="169">Issue-7</text>
+<text class="nmeta" x="1037" y="169" text-anchor="end">P1 · 6 h</text>
+<text class="ntitle" x="901" y="184">Fence</text>
+<rect class="outline" x="893" y="154" width="152" height="66" rx="3"/>
+</g></g>
+<g class="node near st-wip unest" id="leaf-Issue-14" data-item="Issue-14" tabindex="0">
+<title>Issue-14 Gutters · in progress · unestimated</title>
+<g class="full-form">
+<rect class="box" x="893" y="234" width="152" height="66" rx="3"/>
+<text class="nid" x="901" y="249">Issue-14</text>
+<text class="nmeta" x="1037" y="249" text-anchor="end">6 h</text>
+<text class="ntitle" x="901" y="264">Gutters</text>
+<rect class="outline" x="893" y="234" width="152" height="66" rx="3"/>
+</g></g>
+</svg>
+      </div>
+      <figcaption>Top line of each box: the leaf, its priority as written, and its hours. Slack is how many slots a leaf can slip before it pushes out the end of the longest chain. Hover, select or tab to a leaf to trace everything upstream and downstream of it.</figcaption>
+    </figure>
+    <div class="detail" id="detail" aria-live="polite">
+      <div><span class="k">Critical path (6 slots):</span> <span class="mono">Issue-2</span> → <span class="mono">Issue-3</span> → <span class="mono">Issue-4</span> → <span class="mono">Issue-5</span> → <span class="mono">Issue-9</span> → <span class="mono">1.7</span></div>
+      <div><span class="k">Near-critical:</span> slack 1: <span class="mono">Issue-13</span>, <span class="mono">Issue-7</span>, <span class="mono">Issue-14</span></div>
+      <div id="hours-note" data-unestimated="6">Weighting each leaf by its hours picks the same chain, 36 h end to end; includes 6 unestimated leaves.</div>
+      <div>11 of the 14 open leaves have an open link and appear in the network; the other 3 appear only in the schedule. WBS.md gives 10 links between them; 1 repeat what a longer chain implies and are not drawn.</div>
+    </div>
+  </section>
+
+  <section>
+    <div class="prose">
+      <h2><span class="anchor" id="leaf-2.6"></span><span class="anchor" id="leaf-Issue-15"></span><span class="anchor" id="leaf-Issue-20"></span>Schedule across agent lanes</h2>
+      <p>All open leaves, linked or not, spread across parallel agent lanes. Each lane is one agent session working 6 agent-hours a day, and each leaf takes the midpoint of its estimate, or the default unit when it has none. When a lane comes free it takes the most urgent leaf that is ready; a leaf takes the priority of anything it unblocks, and WBS order breaks ties. This is one plausible plan, not a forecast.</p>
+      <p class="label">agent capacity only; ignores operator attention; the week view is the plan</p>
+      
+      
+    </div>
+    <div class="controls">
+      <label for="g-lanes">Agent lanes</label>
+      <select id="g-lanes" data-control="lanes"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4" selected>4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option></select>
+      <span class="controls" role="group" aria-label="Group rows by">
+        <button type="button" data-control="group" data-value="epic" aria-pressed="true">By epic</button>
+        <button type="button" data-control="group" data-value="lane" aria-pressed="false">By lane</button>
+      </span>
+      <button type="button" data-control="expand" data-value="all">Expand all epics</button>
+      <button type="button" data-control="expand" data-value="none">Collapse all</button>
+    </div>
+    <div class="legend" aria-hidden="true">
+      <span><i class="sw m-sonnet"></i><i class="sw m-opus"></i><i class="sw m-fable"></i>bar shade: thinking model</span>
+      <span><i class="sw crit"></i>critical chain</span>
+      <span><svg width="12" height="12" viewBox="0 0 12 12"><circle class="pmark pr-hi" cx="6" cy="6" r="3"/></svg>P1 or P2</span>
+      <span><svg width="12" height="12" viewBox="0 0 12 12"><circle class="pmark pr-p0" cx="6" cy="6" r="3"/></svg>P0</span>
+    </div>
+    <p id="g-limit" aria-live="polite"></p>
+    <p class="summary" id="g-sum" data-unestimated="14" data-unestimated-chain="6">With 4 lanes, all open work ends around working day 6 and the critical chain around day 6. The chain alone needs 6 days; the work spread evenly across the lanes needs 4. The lanes are busy 58% of the time. The plan includes 14 unestimated leaves (6 on the critical chain).</p>
+    <figure>
+      <p id="g-dates" class="label" data-unestimated="14">dates include 14 unestimated leaves</p>
+      <div class="plate" id="gantt" data-control="schedule-detail" data-control-items></div>
+      <figcaption>Each bar's width is its hours. By epic, leaves that run at the same time stack inside the epic's row; select an epic's name to list its leaves. By lane, gaps in a lane are time it sat idle waiting on a dependency.</figcaption>
+    </figure>
+    <div class="detail" id="gdetail" aria-live="polite">
+      <div><span class="k">Hover, select or tab to a bar to see the leaf.</span></div>
+    </div>
+  </section>
+  </div>
+
+  <section class="prose">
+    <h2>Missing or unreadable</h2>
+    <ul class="panel" id="panel"><li>no estimates file</li><li>13 open leaves have no priority and count as P3</li><li>no per-leaf model tiers recorded</li><li>14 leaves with no est: and no estimates-file hours are unestimated: Issue-2, Issue-3, Issue-4, Issue-5, Issue-9, 1.7, Issue-11, Issue-12, Issue-13, Issue-7, Issue-14, 2.6, Issue-15, Issue-20</li><li>2 leaves have no issue: id and are named by outline position</li><li>WBS.md line 15: depends_on entry &#x27;Issue-99&#x27; names no issue: id in this file</li></ul>
+  </section>
+
+  <section class="prose">
+    <h2>Finished leaves</h2>
+    <ul class="panel finished"><li id="leaf-Issue-6"><span class="mono">Issue-6</span> · Issue-6 · Permit</li></ul>
+  </section>
+</main>

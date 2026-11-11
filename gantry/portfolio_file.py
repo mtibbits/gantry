@@ -10,8 +10,9 @@ order), and nothing else: Portfolio.brs.report is a subset of
 Portfolio.report, relabelled the same way.
 
 Every `line` is a 1-based file line; fence_spans' indices are 0-based. No
-entry holds a path: the file is always "the portfolio file". gantry build does
-not call this module yet (#23 or #61 adds the read).
+entry holds a path: the file is always "the portfolio file". gantry build
+reads only the file's business requirements, for the trace (#20); #23 or #61
+adds the rest.
 """
 
 import functools

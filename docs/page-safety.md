@@ -190,6 +190,18 @@ checks what its script built with `planted_nodes`.
   own templates built, never for a page from outside the repository.
 - `page.drive(control, value)` sets a control the way a user would (see
   [Control convention](#control-convention)), then settles.
+- `page.leave(control, value)` moves focus off an item of a
+  `data-control-items` container: it finds the item as `drive` does and
+  fires a bubbling `focusout` with no `relatedTarget` on it, as a blur
+  does, then settles. Any other kind of control is a `PageScriptError`.
+- `page.chip(item, req, action="click")` clicks, or with `"focus"` focuses,
+  the `[data-req]` element whose `data-req` is `req` inside the item whose
+  `data-item` is `item`, in any `data-control-items` container; both are
+  matched by comparing attributes. A missing chip, an action other than
+  `click` or `focus`, or a chip that cannot take focus is a
+  `PageScriptError`.
+- `page.key(name)` fires a bubbling `keydown` with that `key` on the
+  focused element, or on the body when nothing has focus, then settles.
 - `page.query(selector)` returns the matching elements, in document order,
   each with its `tag`, `attrs`, `classes` and `text`. The `tag` is lower
   case; attribute names are as the live DOM holds them, so an SVG name keeps
@@ -249,6 +261,11 @@ A view's interactive controls carry `data-control`, with one of three kinds:
 - a `data-control-items` container whose items carry `data-item`: `drive`
   fires a bubbling `focusin` on the first item whose `data-item` is the
   value.
+
+One exception: a worksite page's requirement chip (`g.chip[data-req]`, a
+`role="button"` inside a network item) carries no `data-control`, because
+its `data-req` repeats across items. `page.chip(item, req, action)` reaches
+it by the item and the requirement together.
 
 ```html
 <select data-control="lanes"><option value="1">1</option><option value="2">2</option></select>
@@ -339,7 +356,9 @@ harness reports the `img` and its handler it built.
 - jsdom does no layout: sizes and positions are zero.
 - A page's console output is discarded.
 - jsdom does not enforce the CSP.
-- `drive` fires only `change`, `click` and `focusin`.
+- `drive` fires only `change`, `click` and `focusin`; `leave` fires only
+  `focusout`, `chip` only `click` or a focus, and `key` only `keydown`: no
+  pointer movement, `keyup` or default action follows.
 - The harness's `violations` and `page_findings` differ in detail on some
   statically written markup, though both fail the page: an element inside a
   `template` is reported only by `page_findings`, since the live document
