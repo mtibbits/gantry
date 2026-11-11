@@ -229,12 +229,22 @@ def test_exempt_file_not_scanned(shared_tree):
 # --- stdlib-only imports ----------------------------------------------------------
 
 
+def package_modules(pkg_dir):
+    """(relpath, tree) for every .py file under pkg_dir, paths relative to pkg_dir.
+
+    Shared with tests/test_confine_scan.py (#60): one walk for both scans.
+    """
+    pkg_dir = Path(pkg_dir)
+    return [
+        (path.relative_to(pkg_dir).as_posix(), ast.parse(path.read_bytes(), filename=str(path)))
+        for path in sorted(pkg_dir.rglob("*.py"))
+    ]
+
+
 def non_stdlib_imports(pkg_dir):
     """(relpath, module) for each absolute import outside the stdlib and gantry."""
-    pkg_dir = Path(pkg_dir)
     found = []
-    for path in sorted(pkg_dir.rglob("*.py")):
-        tree = ast.parse(path.read_bytes(), filename=str(path))
+    for rel, tree in package_modules(pkg_dir):
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 names = [alias.name for alias in node.names]
@@ -245,7 +255,7 @@ def non_stdlib_imports(pkg_dir):
             for name in names:
                 top = name.split(".")[0]
                 if top not in sys.stdlib_module_names and top != "gantry":
-                    found.append((path.relative_to(pkg_dir).as_posix(), name))
+                    found.append((rel, name))
     return found
 
 
