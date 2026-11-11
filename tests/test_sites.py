@@ -87,7 +87,8 @@ def test_problem_sites_listed_run_exits_0(tmp_path, capsys):
     err = captured.err.splitlines()
     assert f"gantry: warning: site {NODIR} is not built: no devdoc_dir" in err
     assert f"gantry: warning: site {BAD_NAME} is not built: name does not match [A-Za-z0-9][A-Za-z0-9_.-]*" in err
-    assert len(captured.out.splitlines()) == len(READABLE) + 1
+    # The paths of the pages and the index, then the in-trace sample site's trace line (#20).
+    assert len(captured.out.splitlines()) == len(READABLE) + 2
 
 
 def test_control_character_names_print_escaped(tmp_path, capsys):
@@ -131,7 +132,8 @@ def test_unmatched_site_table_warns(tmp_path, capsys):
     assert "gantry: warning:" in captured.err
     assert f"site.{FERRY}" in captured.err
     # Every readable site's page, then the index.
-    assert len(captured.out.splitlines()) == len(READABLE) + 1
+    # The paths of the pages and the index, then the in-trace sample site's trace line (#20).
+    assert len(captured.out.splitlines()) == len(READABLE) + 2
 
 
 def test_sample_site_problems():
