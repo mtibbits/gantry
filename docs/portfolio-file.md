@@ -30,7 +30,7 @@ business requirements
   line 14: duplicate_id: life:BR-2 is also defined on line 12; the first definition is kept
 settings
   line 31: bad_value: capacity.agent_lanes: must be an integer, 0 or more, not a boolean; it is not set
-note: the milestone leaf is not checked here (this command reads no WBS.md); it is checked once the build reads the portfolio file
+note: the milestone leaf is not checked here (this command reads no WBS.md), nor yet by the build, which reads only the file's business requirements
 2 entries
 ```
 

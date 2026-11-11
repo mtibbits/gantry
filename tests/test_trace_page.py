@@ -6,6 +6,7 @@ Sample literals are hand-derived from samples/lighthouse/.
 """
 
 import json
+import os
 import re
 
 import pytest
@@ -13,16 +14,18 @@ import pytest
 from commit_check import path_form_hits
 from gantry import build
 from gantry.build import build_all
+from gantry.cli import main
 from gantry.config import load_config
 from gantry.sites import config_roots, load_sites
 from gantry.trace import (COUNT_FINISHED, COUNT_HELD, COUNT_OPEN, build_site_trace, counts_line, load_catalog,
                           page_trace)
 from gantry.views import worksite
 from gantry.views.worksite import BH, BW, ROWH, page_model
-from helpers_config import demo_build, page_ids, sample_build, write_site_tree
+from helpers_config import copy_samples, demo_build, page_ids, sample_build, write_site_tree
 from page_safety import assert_no_external_resources, assert_page_safe
 from page_script.harness import Planted, PageScriptError, open_page, run_function
 from sample_roles import BUSY, READABLE, SMALL
+from test_cli import run_module
 from test_samples import GANTRY_SAMPLE, ROOT
 from test_worksite_page import find, text_of, tree
 
@@ -280,4 +283,47 @@ def test_catalog_fault_does_not_end_run(tmp_path):
     (unreadable,) = dict(trace_of(page)["report"])["unreadable"]
     assert unreadable[0] == "the requirements file" and unreadable[1] is None
     assert str(tmp_path) not in page and path_form_hits(page) == []
+
+
+# --- Task 4: the stdout line -------------------------------------------------------
+
+
+def test_full_build_prints_trace_line(tmp_path, monkeypatch):
+    code, out, stdout, err = demo_build(tmp_path, monkeypatch)
+    assert code == 0, err
+    lines = stdout.splitlines()
+    assert lines[-1] == SAMPLE_LINE
+    assert [line for line in lines if line.startswith("trace ")] == [SAMPLE_LINE]
+    assert os.path.samefile(lines[-2], out / "index.html")
+
+
+def test_site_build_prints_trace_line(tmp_path, monkeypatch):
+    copy = copy_samples(tmp_path)
+    code, out, stdout, err = demo_build(tmp_path, monkeypatch, "--site", SMALL, copy=copy)
+    assert code == 0, err
+    path, line = stdout.splitlines()
+    assert os.path.samefile(path, out / "sites" / f"{SMALL}.html") and line == SAMPLE_LINE
+    code, out, stdout, err = demo_build(tmp_path, monkeypatch, "--site", BUSY, copy=copy)
+    assert code == 0, err
+    (path,) = stdout.splitlines()
+    assert os.path.samefile(path, out / "sites" / f"{BUSY}.html")
+
+
+def test_untraced_site_with_entry_prints_line(tmp_path, capsys):
+    wbs = {"alpha": "# A\n\n- [ ] One {issue: Issue-1, satisfies: alpha:FR-9}\n", "beta": ONE_LEAF}
+    config_path = installation(tmp_path, wbs)
+    assert main(["build", "--config", str(config_path)]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert [line for line in lines if line.startswith("trace ")] == [
+        "trace alpha: unreadable 0, malformed 0, duplicate 0, misplaced 0, cycle 0, undefined 1, unserved 0, "
+        "untraced 0"]
+    assert lines[-1].startswith("trace alpha: ") and len(lines) == 4
+
+
+def test_trace_line_bytes(tmp_path):
+    copy = copy_samples(tmp_path)
+    result = run_module("build", "--config", str(copy / "gantry.sample.toml"))
+    assert result.returncode == 0, result.stderr
+    assert b"\r" not in result.stdout
+    assert result.stdout.decode("utf-8").splitlines()[-1] == SAMPLE_LINE
 

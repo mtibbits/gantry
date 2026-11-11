@@ -81,13 +81,20 @@ def test_versions_agree():
 SAMPLE_CONFIG = "samples/gantry.sample.toml"
 
 
+SAMPLE_TRACE_LINE = ("trace lighthouse: unreadable 0, malformed 0, duplicate 0, misplaced 0, cycle 0, "
+                     "undefined 1, unserved 2, untraced 3")
+
+
 def check_written(stdout_bytes, out_dir):
     """The full build's stdout: one absolute path per written file, the pages in
-    config order, then the index."""
+    config order, then the index, then the trace line."""
     assert b"\r" not in stdout_bytes
     lines = stdout_bytes.decode("utf-8").splitlines()
     pages = [name for name in sample_projects() if name in READABLE]
-    assert len(lines) == len(pages) + 1 == 5
+    # Then the one sample site in the trace prints its trace line (#20).
+    assert len(lines) == len(pages) + 2 == 6
+    assert lines[5:] == [SAMPLE_TRACE_LINE]
+    lines = lines[:5]
     assert all(os.path.isabs(line) for line in lines), lines
     for line, name in zip(lines, pages):
         assert os.path.samefile(line, out_dir / "sites" / f"{name}.html"), (line, name)
@@ -361,7 +368,7 @@ def test_launcher_prefers_python(tmp_path):
     shims = shim_dir(tmp_path, ["python", "python3"])
     result, names = run_launcher(copy, [SAMPLE_CONFIG], shims, copy, tmp_path)
     assert result.returncode == 0, result.stderr
-    assert sample_line_count(result) == 5
+    assert sample_line_count(result) == 6
     assert names == {"python"}
 
 
@@ -371,7 +378,7 @@ def test_launcher_falls_back_to_python3(tmp_path):
     shims = shim_dir(tmp_path, ["python3"])
     result, names = run_launcher(copy, [SAMPLE_CONFIG], shims, copy, tmp_path)
     assert result.returncode == 0, result.stderr
-    assert sample_line_count(result) == 5
+    assert sample_line_count(result) == 6
     assert names == {"python3"}
 
 
@@ -402,7 +409,7 @@ def test_launcher_one_literal_argument(tmp_path):
     shims = shim_dir(tmp_path, ["python"])
     result, _ = run_launcher(copy, ["samples/" + name], shims, copy, tmp_path)
     assert result.returncode == 0, result.stderr
-    assert sample_line_count(result) == 5
+    assert sample_line_count(result) == 6
     assert list(tmp_path.rglob("pwned")) == []
 
 
@@ -417,7 +424,7 @@ def test_launcher_P_ignores_cwd_package(tmp_path):
     result, _ = run_launcher(copy, [str(config)], shims, elsewhere, tmp_path)
     assert b"decoy" not in result.stderr
     assert result.returncode == 0, result.stderr
-    assert sample_line_count(result) == 5
+    assert sample_line_count(result) == 6
 
 
 @needs_posix_bash
@@ -443,7 +450,7 @@ def test_launcher_dash_leading_config_is_a_value(tmp_path):
     shims = shim_dir(tmp_path, ["python"])
     result, _ = run_launcher(copy, ["-dash.toml"], shims, samples, tmp_path)
     assert result.returncode == 0, result.stderr
-    assert sample_line_count(result) == 5
+    assert sample_line_count(result) == 6
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX file modes only")
@@ -528,8 +535,8 @@ def test_trace_warning_escapes_name(tmp_path, capsys):
 # --- gantry portfolio (#22) ----------------------------------------------------
 
 PORTFOLIO_FIXTURES = ROOT / "tests" / "fixtures" / "portfolio_file"
-MILESTONE_NOTE = ("note: the milestone leaf is not checked here (this command reads no WBS.md); "
-                  "it is checked once the build reads the portfolio file")
+MILESTONE_NOTE = ("note: the milestone leaf is not checked here (this command reads no WBS.md), "
+                  "nor yet by the build, which reads only the file's business requirements")
 
 
 def portfolio_run(capsys, config):

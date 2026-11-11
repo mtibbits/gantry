@@ -2,7 +2,10 @@
 `gantry portfolio --config FILE`.
 
 `gantry build` builds every configured site's page and the index; with
-`--site` it builds that one page and no index. `gantry portfolio` checks the
+`--site` it builds that one page and no index, reading that site's WBS.md
+and inputs, every requirements file and the portfolio file. Both print each
+written file's path, then a `trace <site>:` line for each written page whose
+site is in the trace or whose trace report has an entry (#20). `gantry portfolio` checks the
 portfolio file the config names, without building (#22). There is no default
 config location: `--config` is required, and nothing here reads the
 environment or the home folder to find one. Exit codes:
@@ -35,7 +38,7 @@ from gantry.portfolio_file import PORTFOLIO_LABEL, SECTIONS, format_entry, read_
 from gantry.roots import OutsideRoots
 from gantry.sites import config_roots, shown
 from gantry.stamp import stamp_text
-from gantry.trace import load_catalog
+from gantry.trace import counts_line, load_catalog
 
 
 def _parser():
@@ -113,6 +116,9 @@ def _build_site(config, roots, sites, name):
         # A refusal's own text names output_dir.
         return fail(f"cannot write {page}: {error_reason(e)}")
     print(page)
+    line = counts_line(site.name, m["trace"])
+    if line is not None:
+        print(line)
     return 0
 
 
@@ -133,6 +139,10 @@ def _build_all(config):
     index = config.output_dir / "index.html"
     for path in written:
         print(path)
+    # Then each written page's trace line, in config order (#20).
+    for s in result.summaries:
+        if s.trace_line is not None and config.output_dir / "sites" / f"{s.name}.html" in written:
+            print(s.trace_line)
     for s in result.summaries:
         if s.status != "built":
             print(f"gantry: warning: site {shown(s.name)} is not built: {s.reason}", file=sys.stderr)
@@ -161,10 +171,11 @@ def _build(args):
     return _build_site(config, roots, sites, args.site)
 
 
-# True until the build reads the portfolio file (#23 or #61); that issue
-# rewords it, with docs/portfolio-file.md.
-MILESTONE_NOTE = ("note: the milestone leaf is not checked here (this command reads no WBS.md); "
-                  "it is checked once the build reads the portfolio file")
+# The build reads the portfolio file's business requirements for the trace
+# (#20) but checks no milestone yet (#23 or #61 adds that, and rewords this
+# with docs/portfolio-file.md).
+MILESTONE_NOTE = ("note: the milestone leaf is not checked here (this command reads no WBS.md), "
+                  "nor yet by the build, which reads only the file's business requirements")
 
 
 def _portfolio(args):
