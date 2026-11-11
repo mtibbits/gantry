@@ -72,6 +72,9 @@ HELD_STATES = ("stuck", "blocked_external", "parked")
 CHIPS_MAX = 3
 CHIP_MORE = "+{n}"
 REQUIREMENTS_HEADING = "Requirements"
+SELECT_NOTE = ("Select a requirement, or a chip under a box, to mark the leaves that serve it: a solid outline "
+               "serves it directly, a dashed one through refinement or a use case's needs. Select it again, or "
+               "press Escape, to clear.")
 LAYER_HEADINGS = {"BR": "Business requirements", "BRule": "Business rules", "UC": "Use cases",
                   "SR": "System requirements", "FR": "Functional requirements", "QA": "Quality attributes",
                   "EI": "External interfaces", "CON": "Constraints"}
@@ -809,7 +812,8 @@ def _requirements(trace):
     groups = {}
     for r in trace["requirements"]:
         groups.setdefault(r["layer"], []).append(r)
-    parts = [f'<section class="prose" id="requirements"><h2>{esc(REQUIREMENTS_HEADING)}</h2>']
+    parts = [f'<section class="prose" id="requirements"><h2>{esc(REQUIREMENTS_HEADING)}</h2>'
+             f'<p class="label">{esc(SELECT_NOTE)}</p>']
     for layer, rows in groups.items():
         parts.append(f'<h3>{esc(LAYER_HEADINGS[layer])}</h3><ul class="panel reqs">'
                      + "".join(_req_row(r) for r in rows) + "</ul>")

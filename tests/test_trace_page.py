@@ -587,7 +587,7 @@ def test_chip_row_clears_large_circle(tmp_path):
 
 def test_chip_size_pair():
     css = (ROOT / "gantry" / "templates" / "worksite.html").read_bytes().decode("utf-8")
-    (rule,) = re.findall(r"\.chip-t \{[^}]*\}", css)
+    (rule,) = [r for r in re.findall(r"\.chip-t \{[^}]*\}", css) if "font-size" in r]
     assert f"font-size: {worksite.CHIP_FONT}px" in rule
     assert worksite.CHIP_CHAR_W == pytest.approx(0.6 * worksite.CHIP_FONT)
 
@@ -794,3 +794,177 @@ def test_empty_light_set_not_selecting(node, sample_page):
     path, trace, _ = sample_page
     marks = marks_after(path, trace, [select("lighthouse:FR-2")])
     assert marks == {**EMPTY_MARKS, "selected": "lighthouse:FR-2"}
+
+
+# --- Task 8: the thin layer, under the harness ---------------------------------------
+
+MARK_SELECTOR = ".req-direct, .req-indirect, .req-on, .req-need"
+
+
+def marked(page, selector, cls):
+    return {e.attrs["data-item"] for e in page.query(selector) if cls in e.classes}
+
+
+def assert_sr1_marks(page):
+    assert marked(page, "rect.seg", "req-direct") == {"Issue-8", "Issue-11"}
+    assert marked(page, "g.node", "req-direct") == {"Issue-8"}
+    assert marked(page, "rect.seg", "req-indirect") == {"Issue-7", "Issue-10"}
+    assert marked(page, "g.node", "req-indirect") == {"Issue-7", "Issue-10"}
+
+
+def pressed(page, rid):
+    (button,) = [b for b in page.query('button[data-control="requirement"]') if b.attrs["data-value"] == rid]
+    return button.attrs["aria-pressed"]
+
+
+def lit_counts(page):
+    """{lane index: its g-lit text} of the schedule's collapsed epic rows that show one."""
+    return {int(e.attrs["data-lane"]): e.text for e in page.query(".g-toggle .g-lit")}
+
+
+def test_selection_survives_hover_and_leave(node, sample_page):
+    path, _, _ = sample_page
+    with open_page(path) as page:
+        page.drive("requirement", "lighthouse:SR-1")
+        assert_sr1_marks(page)
+        page.drive("network-detail", "Issue-9")
+        (net,) = page.query("svg.net")
+        assert "tracing" in net.classes
+        page.leave("network-detail", "Issue-9")
+        assert_sr1_marks(page)
+        (net,) = page.query("svg.net")
+        assert "tracing" not in net.classes and "selecting" in net.classes
+        assert pressed(page, "lighthouse:SR-1") == "true"
+
+
+def test_collapsed_lane_shows_lit_count(node, sample_page):
+    path, _, _ = sample_page
+    with open_page(path) as page:
+        page.drive("requirement", "lighthouse:SR-1")
+        assert lit_counts(page) == {1: "4 lit"}
+        page.drive("expand", "all")
+        assert page.query(".g-lit") == []
+        page.drive("expand", "none")
+        assert lit_counts(page) == {1: "4 lit"}
+
+
+def test_marks_survive_schedule_redraw(node, sample_page):
+    path, _, _ = sample_page
+    with open_page(path) as page:
+        page.drive("requirement", "lighthouse:SR-1")
+        lit = marked(page, "rect.seg", "req-direct") | marked(page, "rect.seg", "req-indirect")
+        assert lit == {"Issue-7", "Issue-8", "Issue-10", "Issue-11"}
+        page.drive("lanes", "2")
+        page.drive("group", "lane")
+        assert marked(page, "rect.seg", "req-direct") | marked(page, "rect.seg", "req-indirect") == lit
+        page.drive("requirement", "lighthouse:SR-1")
+        assert page.query(MARK_SELECTOR) == []
+        assert pressed(page, "lighthouse:SR-1") == "false"
+
+
+def test_use_case_marks_rows_and_chips(node, sample_page):
+    path, _, _ = sample_page
+    with open_page(path) as page:
+        page.drive("requirement", "lighthouse:UC-3")
+        needed = [(e.tag, e.attrs.get("data-req")) for e in page.query(".req-need")]
+        assert needed == [("g", "lighthouse:SR-1"), ("li", "lighthouse:SR-1")]
+
+
+def test_detail_lists_satisfies(node, sample_page):
+    path, _, _ = sample_page
+    with open_page(path) as page:
+        page.drive("network-detail", "Issue-10")
+        (detail,) = page.query("#detail")
+        assert "Satisfies: FR-1" in detail.text
+        page.drive("schedule-detail", "Issue-11")
+        (gdetail,) = page.query("#gdetail")
+        assert "Satisfies: SR-1" in gdetail.text
+        page.drive("schedule-detail", "Issue-4")
+        (gdetail,) = page.query("#gdetail")
+        assert "Satisfies:" not in gdetail.text and "Issue-4" in gdetail.text
+
+
+def test_row_detail_toggles(node, sample_page):
+    path, _, _ = sample_page
+
+    def state(page):
+        (li,) = [e for e in page.query("li.req") if e.attrs["data-req"] == "lighthouse:SR-1"]
+        (more,) = [b for b in page.query("button.req-more") if b.attrs["data-value"] == "lighthouse:SR-1"]
+        # A test's own selector, from a constant: the page never builds one.
+        (mine,) = page.query('li.req[data-req="lighthouse:SR-1"] ul.req-detail')
+        return "gone" in mine.classes, more.attrs["aria-expanded"]
+
+    with open_page(path) as page:
+        assert state(page) == (True, "false")
+        page.drive("requirement-detail", "lighthouse:SR-1")
+        assert state(page) == (False, "true")
+        page.drive("requirement-detail", "lighthouse:SR-1")
+        assert state(page) == (True, "false")
+    # jsdom does no layout, so the CSS text: no rule gives .req-detail a display.
+    css = re.sub(r"/\*.*?\*/", "", (ROOT / "gantry" / "templates" / "worksite.html").read_bytes().decode("utf-8"),
+                 flags=re.S)
+    rules = re.findall(r"[^{}]*\.req-detail[^{}]*\{[^}]*\}", css)
+    assert rules
+    for rule in rules:
+        assert "display" not in rule, rule
+
+
+def test_chip_click_selects(node, sample_page):
+    path, _, _ = sample_page
+    with open_page(path) as page:
+        page.chip("Issue-8", "lighthouse:SR-1")
+        assert pressed(page, "lighthouse:SR-1") == "true"
+        assert_sr1_marks(page)
+        chip = [e for e in page.query("g.chip") if e.attrs["data-req"] == "lighthouse:SR-1"]
+        assert [e.attrs["aria-pressed"] for e in chip] == ["true"]
+
+
+def test_chip_enter_space_select(node, sample_page):
+    path, _, _ = sample_page
+    with open_page(path) as page:
+        page.chip("Issue-8", "lighthouse:SR-1", "focus")
+        (net,) = page.query("svg.net")
+        assert "tracing" not in net.classes  # a chip is not its leaf
+        page.key("Enter")
+        assert pressed(page, "lighthouse:SR-1") == "true"
+        assert_sr1_marks(page)
+        page.key(" ")
+        assert pressed(page, "lighthouse:SR-1") == "false"
+        page.key(" ")
+        assert pressed(page, "lighthouse:SR-1") == "true"
+
+
+def test_escape_clears_through_listener(node, sample_page):
+    path, _, _ = sample_page
+    with open_page(path) as page:
+        page.drive("requirement", "lighthouse:UC-3")
+        assert page.query(MARK_SELECTOR) != []
+        page.key("Escape")
+        assert page.query(MARK_SELECTOR) == []
+        assert pressed(page, "lighthouse:UC-3") == "false"
+
+
+def test_hostile_trace_under_harness(node, tmp_path):
+    page_text, trace, planted, first = hostile_trace_site(tmp_path)
+    path = tmp_path / "hostile.html"
+    path.write_bytes(page_text.encode("utf-8"))
+    with open_page(path) as page:
+        assert page.planted_nodes(planted) == Planted([], [], [])
+        for control, value in (("network-detail", HOSTILE[1]), ("schedule-detail", HOSTILE[2]),
+                               ("requirement-detail", first), ("requirement", first)):
+            page.drive(control, value)
+            assert page.planted_nodes(planted) == Planted([], [], []), (control, value)
+        lit = marked(page, "rect.seg", "req-direct") | marked(page, "rect.seg", "req-indirect")
+        assert lit == {"Issue-1", "Issue-2", HOSTILE[1], HOSTILE[2], "Issue-8"}
+        used = {c for e in page.query("[class]") for c in e.classes}
+        assert used - CLASS_TOKENS - STRUCTURAL == set()
+        page.drive("requirement", "alpha:FR-90")
+        assert marked(page, "rect.seg", "req-direct") == {"__proto__"}
+        assert marked(page, "rect.seg", "req-indirect") == set()
+        assert page.planted_nodes(planted) == Planted([], [], [])
+
+
+def test_requirements_panel_states_the_marks(tmp_path):
+    t = tree(sample(tmp_path).pages[SMALL])
+    panel = by_id(t, "requirements")
+    assert [text_of(t, i) for i in find(t, "p", ["label"], within=panel)] == [worksite.SELECT_NOTE]

@@ -241,6 +241,8 @@ STRUCTURAL = {
     # The trace: chips, the requirements panel and the trace report (#20).
     "chip", "chip-box", "chip-t", "chip-more", "reqs", "req", "req-row", "req-count", "req-more", "req-detail",
     "trace", "trace-cat",
+    # The selection's fixed mark classes and the collapsed row's lit count (#20).
+    "req-direct", "req-indirect", "req-on", "req-need", "selecting", "g-lit",
 }
 VOID = {"meta", "br", "img", "input", "link", "hr"}
 

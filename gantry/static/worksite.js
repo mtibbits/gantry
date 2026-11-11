@@ -68,6 +68,9 @@
   if (block === null) return;
   const DATA = JSON.parse(block.textContent);
   const leaves = new Map(DATA.leaves.map((leaf) => [leaf.key, leaf]));
+  // The page's trace (#20); null on a page rendered without one.
+  const TRACE = DATA.trace === undefined ? null : DATA.trace;
+  const traceIds = new Map(TRACE === null ? [] : TRACE.leaves);
   const lanes = DATA.lanes;
   const items = DATA.schedule.items;
   const HPD = DATA.hours_per_day;
@@ -123,6 +126,8 @@
     }
     if (leaf.flags.length) line(box, [["Flags:", leaf.flags.join(", ")]]);
     if (leaf.meta.length) line(box, [["Metadata:", leaf.meta.map(([k, v]) => k + ": " + v).join("; ")]]);
+    const ids = traceIds.get(leaf.key);
+    if (ids !== undefined) line(box, [[DATA.texts.satisfies, ids.map(([, label]) => label).join(", ")]]);
     if (leaf.foreign.length) line(box, [["Waits on:", leaf.foreign.join("; ")]]);
   }
 
@@ -149,18 +154,16 @@
     return seen;
   }
 
-  let traced = null;
-
   function showNet(key) {
     const leaf = leaves.get(key);
     // mouseover fires again for each child of the node the pointer crosses.
-    if (leaf === undefined || svg === null || detail === null || key === traced) return;
-    traced = key;
+    if (leaf === undefined || svg === null || detail === null || key === sel.hover) return;
+    // The hovered leaf is the selection state's; applyMarks sets the tracing class from it.
+    choose({ type: "hover", leaf: key });
     const up = walk(key, "preds");
     const down = walk(key, "succs");
     const inUp = (k) => k === key || up.has(k);
     const inDown = (k) => k === key || down.has(k);
-    svg.classList.add("tracing");
     for (const g of svg.querySelectorAll(".node")) {
       const k = g.getAttribute("data-item");
       g.classList.toggle("lit", inUp(k) || inDown(k));
@@ -178,8 +181,7 @@
   }
 
   function leaveNet() {
-    traced = null;
-    if (svg !== null) svg.classList.remove("tracing");
+    choose({ type: "leave" });
     clearNet();
   }
 
@@ -318,6 +320,11 @@
   }
 
   function render() {
+    draw();
+    applyMarks();
+  }
+
+  function draw() {
     for (const b of controls("expand")) b.disabled = group !== "epic";
     hot = null;
     if (datesLine !== null) {
@@ -434,6 +441,75 @@
     render();
   }
 
+  // --- the trace selection, applied (#20) ------------------------------------
+  // One state; every change goes through gantryTrace.step, then applyMarks,
+  // which sets fixed classes on elements matched with getAttribute.
+
+  const HOW_CLASS = new Map([["direct", "req-direct"], ["indirect", "req-indirect"]]);
+  let sel = { selected: null, hover: null };
+
+  function view() {
+    return {
+      lane_of: DATA.leaves.map((leaf) => [leaf.key, leaf.lane]),
+      collapsed: group === "epic" ? lanes.map((_, i) => i).filter((i) => !open.has(i)) : [],
+    };
+  }
+
+  function mark(el, how) {
+    for (const c of HOW_CLASS.values()) el.classList.remove(c);
+    if (how !== undefined) el.classList.add(HOW_CLASS.get(how));
+  }
+
+  function applyMarks() {
+    const m = gantryTrace.marks(TRACE, sel, view());
+    const needs = new Set(m.needs);
+    if (svg !== null) {
+      svg.classList.toggle("tracing", m.tracing !== null);
+      svg.classList.toggle("selecting", m.selecting);
+      for (const g of svg.querySelectorAll(".node")) mark(g, m.leaves.get(g.getAttribute("data-item")));
+    }
+    if (host !== null) {
+      host.classList.toggle("selecting", m.selecting);
+      for (const s of host.querySelectorAll(".seg")) mark(s, m.leaves.get(s.getAttribute("data-item")));
+      const lit = new Map(m.lanes);
+      for (const g of host.querySelectorAll(".g-toggle")) {
+        for (const old of g.querySelectorAll(".g-lit")) old.remove();
+        const n = lit.get(Number(g.getAttribute("data-lane")));
+        if (n === undefined) continue;
+        const sub = g.querySelector(".g-sub");
+        const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        t.setAttribute("class", "g-lit");
+        t.setAttribute("data-lane", g.getAttribute("data-lane"));
+        t.setAttribute("x", String(LABW - 16));
+        t.setAttribute("y", sub === null ? "0" : sub.getAttribute("y"));
+        t.setAttribute("text-anchor", "end");
+        // One form for every n.
+        t.textContent = DATA.texts.lit.split("{n}").join(String(n));
+        g.append(t);
+      }
+    }
+    for (const el of document.querySelectorAll("li.req, g.chip")) {
+      const r = el.getAttribute("data-req");
+      el.classList.toggle("req-on", r === m.selected);
+      el.classList.toggle("req-need", needs.has(r));
+      if (el.classList.contains("chip")) el.setAttribute("aria-pressed", String(r === m.selected));
+    }
+    for (const b of controls("requirement")) b.setAttribute("aria-pressed", String(b.getAttribute("data-value") === m.selected));
+  }
+
+  function choose(event) {
+    sel = gantryTrace.step(sel, event);
+    applyMarks();
+  }
+
+  function toggleDetail(button) {
+    const li = button.closest("li");
+    const box = li === null ? undefined : Array.from(li.children).find((c) => c.classList.contains("req-detail"));
+    if (box === undefined) return;
+    const shown = box.classList.toggle("gone") === false;
+    button.setAttribute("aria-expanded", String(shown));
+  }
+
   // --- delegated listeners ----------------------------------------------------
 
   function itemOf(target, cls) {
@@ -442,6 +518,11 @@
   }
 
   function enter(e) {
+    // A chip is not its leaf: over or on a chip, the selection shows, not the dependency trace.
+    if (e.target instanceof Element && e.target.closest(".chip") !== null) {
+      if (sel.hover !== null) leaveNet();
+      return;
+    }
     const node = itemOf(e.target, "node");
     if (node !== null) showNet(node);
     const seg = itemOf(e.target, "seg");
@@ -477,6 +558,8 @@
       const value = button.getAttribute("data-value");
       if (control === "zoom") setZoom(value);
       if (control === "group") setGroup(value);
+      if (control === "requirement") choose({ type: "select", id: value });
+      if (control === "requirement-detail") toggleDetail(button);
       if (control === "expand") {
         if (value === "all") lanes.forEach((_, i) => open.add(i));
         else open.clear();
@@ -484,11 +567,27 @@
       }
       return;
     }
+    const chip = target.closest(".chip");
+    if (chip !== null) {
+      choose({ type: "select", id: chip.getAttribute("data-req") });
+      return;
+    }
     const row = target.closest(".g-toggle");
     if (row !== null) toggle(Number(row.getAttribute("data-lane")));
   });
   document.addEventListener("keydown", (e) => {
     const target = e.target instanceof Element ? e.target : null;
+    if (e.key === "Escape") {
+      choose({ type: "key", key: "Escape", id: null });
+      return;
+    }
+    // A button already turns Enter and Space into a click: a row must not toggle twice.
+    const chip = target === null || target.closest("button") !== null ? null : target.closest(".chip");
+    if (chip !== null && (e.key === "Enter" || e.key === " ")) {
+      e.preventDefault();
+      choose({ type: "key", key: e.key, id: chip.getAttribute("data-req") });
+      return;
+    }
     const row = target === null ? null : target.closest(".g-toggle");
     if (row !== null && (e.key === "Enter" || e.key === " ")) {
       e.preventDefault();

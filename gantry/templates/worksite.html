@@ -222,6 +222,23 @@ h3 { font-family: var(--f-display); font-size: 17px; font-weight: 600; margin: 0
 /* No display here: .gone alone hides the detail. */
 .req-detail { margin: 4px 0 0; padding-left: 20px; font-size: 14px; }
 .trace ul { margin: 4px 0 0; padding-left: 20px; }
+/* A selection: fixed classes set by the page's script. Direct and indirect
+   differ by a solid or dashed outline, not by colour alone; while a leaf's
+   dependency trace shows (.tracing), its rules win. */
+.net.selecting:not(.tracing) .node:not(.req-direct):not(.req-indirect) { opacity: .25; }
+.net.selecting:not(.tracing) .edge { opacity: .2; }
+.net:not(.tracing) .node.req-direct .outline, .net:not(.tracing) .node.req-direct .dot { stroke: var(--cross); stroke-width: 3; }
+.net:not(.tracing) .node.req-indirect .outline, .net:not(.tracing) .node.req-indirect .dot { stroke: var(--cross); stroke-width: 3; stroke-dasharray: 5 3; }
+#gantt.selecting .seg:not(.req-direct):not(.req-indirect), #gantt.selecting .pmark { opacity: .3; }
+.seg.req-direct { stroke: var(--cross); stroke-width: 2.5; stroke-dasharray: none; }
+.seg.req-indirect { stroke: var(--cross); stroke-width: 2.5; stroke-dasharray: 4 2; }
+.chip.req-on .chip-box { fill: var(--ink); stroke: var(--ink); }
+.chip.req-on text.chip-t { fill: var(--bg); }
+.chip.req-need .chip-box { stroke: var(--cross); stroke-width: 1.5; stroke-dasharray: 2 2; }
+.req.req-on > .req-row { background: var(--ink); color: var(--bg); }
+.req.req-on > .req-row .req-count { color: inherit; }
+.req.req-need > .req-row { border: 1px dashed var(--cross); }
+.g-lit { font-size: 11px; font-weight: 600; fill: var(--cross); font-variant-numeric: tabular-nums; }
 </style>
 </head>
 <body>
