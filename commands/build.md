@@ -11,7 +11,8 @@ allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/tools/gantry-build.sh"), Bash(ba
 Loads the installation config, checks it, and builds every site that
 devagent's config names: each site's worksite page under
 `<output_dir>/sites/`, then `<output_dir>/index.html`, which links them. It
-prints one absolute path per file written. A site that cannot be built is
+prints one absolute path per file written, then one `trace <site>:` line
+per traced site. A site that cannot be built is
 listed on the index and on stderr with its reason, and does not stop the
 others. Building one site's page alone is `gantry build --site`, which this
 command does not pass.

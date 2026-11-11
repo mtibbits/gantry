@@ -10,9 +10,10 @@ use. The installation config names it with `portfolio_file`
 Keep it beside the installation config, outside this repository. The sample
 in this repository (`samples/portfolio.md`) is fictional.
 
-Today `gantry portfolio` checks the file; the build does not read it yet.
-The first view that needs it in the build adds that read (#23 or #61), and
-every later view reuses it.
+Today `gantry portfolio` checks the file, and the build reads only its
+business requirements, which the trace resolves a leaf's `satisfies:`
+against (#20). The first view that needs the rest in the build adds that
+(#23 or #61), and every later view reuses it.
 
 ## Checking the file
 
@@ -39,7 +40,7 @@ kind is marked ` (advisory)`), the key path (when the entry has one) and the
 message. An entry about the whole file is grouped under `the portfolio
 file`. The `note:` line is printed only when a milestone is set: the
 command reads no `WBS.md`, so it cannot look for the milestone's leaf. The
-note stays true until the build reads the portfolio file (#23 or #61), which
+note stays true until the build checks the milestone (#23 or #61), which
 rewords it.
 
 It exits 0 when there are no entries and 1 when there is any entry, an

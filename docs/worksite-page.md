@@ -495,6 +495,84 @@ finished leaf, in `WBS.md` order: its key, then its issue id or
 collapsed, so a link into it lands in every browser. With no finished leaf
 it says `No leaf is finished yet.`
 
+### Reading the trace
+
+A site is in the trace when its `[site.<name>]` table sets `requirements`
+([requirements-format.md](requirements-format.md)). Every page the build
+writes carries the site's trace (#20) in its data, as `trace`, built from
+the `SiteTrace` that `gantry/trace.py` computes from the leaves'
+`satisfies:` keys; the page never walks the links itself. A site not in
+the trace whose leaves name no requirement renders as before: no chips, no
+requirements panel and no trace report.
+
+- **Chips.** Each full box in the network carries, in the gap under it, a
+  chip for each ID its leaf's `satisfies:` names that resolves, in the
+  order written: up to three, then `+{n}` for the rest. A chip shows an ID
+  of the site's own namespace without it (`FR-1`) and any other with it
+  (`life:BR-1`). A label over 12 characters is cut with `…`, the full ID in
+  the chip's tooltip, and the row stays inside the box's width: what does
+  not fit folds into `+{n}`. A circle or a schedule bar lists every ID in
+  its detail, on a `Satisfies:` line. A business requirement (the
+  installation's `br_namespace`) is a chip and a row only: its text is
+  never on a worksite page.
+- **Requirements panel** (element id `requirements`, headed
+  `Requirements`). Shown on a site in the trace, and on any site whose
+  leaves name an ID that resolves. Under the heading, the line
+  `Select a requirement, or a chip under a box, to mark the leaves that serve it: a solid outline serves it directly, a dashed one through refinement or a use case's needs. Select it again, or press Escape, to clear.`
+  The panel lists the site's own requirements (when it is in the trace),
+  then every other requirement one of its leaves names, grouped by layer
+  under `Business requirements`, `Business rules`, `Use cases`,
+  `System requirements`, `Functional requirements`, `Quality attributes`,
+  `External interfaces` and `Constraints`. A row is the ID, the
+  requirement's text and its serving leaves counted: `{n} open` always,
+  then `{n} waiting on a cycle` and `{n} finished` when above zero, joined
+  by `, `. "Open" counts the serving leaves the page draws. When a row has
+  held-out or finished serving leaves, a `serving leaves not drawn` button
+  opens a list of them: key, issue id (or `no issue id`), title, then
+  `waiting on a cycle` or `finished`, joined by ` · `.
+- **Selecting a requirement.** A click or tap on a chip or a panel row, or
+  Enter or Space on a focused one, selects it. Every serving leaf the page
+  draws is marked, in the network (boxes and circles) and in the schedule:
+  a direct one with a solid outline, an indirect one (through `refines:`
+  or a use case's `needs:`) with a dashed one, so the two never differ by
+  colour alone; the rest dims. A collapsed epic row in the schedule shows
+  `{n} lit` for its marked leaves, one form for every count. Selecting the
+  same requirement again, or Escape, clears the selection; selecting
+  another replaces it. A requirement with no drawn serving leaf marks its
+  row and chips and dims nothing.
+- **Use cases.** Selecting a use case also marks the panel rows and chips
+  of the requirements it needs, and lights its serving set: the leaves
+  that name it (direct) and every leaf serving a requirement it needs,
+  directly or through refinement (indirect). So a leaf naming an `FR`
+  that refines an `SR` the use case needs is lit, marked indirect.
+- **Selection and hover.** A selection persists through hover and blur.
+  Hovering or focusing a leaf still traces its dependencies while a
+  selection is shown, and the trace's look wins while it lasts; leaving
+  the leaf restores the selection. A chip is not its leaf: over or on a
+  chip, the selection shows, not the dependency trace.
+- **Trace report** (element id `trace`, headed `Trace report`). Shown on
+  any site whose report has an item, in the trace or not; a site in the
+  trace with nothing to report has no `trace` element, though the build
+  still prints its line. One line per category, `{label}: {n}`, then its
+  items, or `none`: `Unreadable files`, `Malformed entries`,
+  `Duplicate IDs`, `Misplaced requirements`, `Refinement cycles` and
+  `Undefined IDs`, each item `{source} line {line}: {message}`, or
+  `{source}: {message}` for a whole file; then, for a site in the trace,
+  `Unserved requirements`, each item an ID, and `Untraced open leaves`,
+  each item a key and its title. The unserved label carries the report's
+  scope: `served only within this site` while it is `site`, and
+  `scope: {scope}` for a scope this Gantry does not know. A requirements
+  file is named `the requirements file`, never by its path. Nothing in the
+  report stops the page rendering.
+- **The `trace` data.** An object with exactly the keys `in_trace`,
+  `scope`, `requirements` (one record per row: `id`, `label`, `layer`,
+  `text`, `needs`, `light`, `held`, `finished`, `counts`), `leaves` (each
+  drawn leaf naming an ID that resolves, with its IDs and labels) and
+  `report` (each category with its items). Records are arrays, and the
+  light sets are computed at build time from the serving sets: the page's
+  script maps a selection to marks with `gantryTrace.marks`, a function
+  with no DOM access, and looks every key up in a `Map`.
+
 ### Foreign entries
 
 A worksite page does not resolve another site's leaves yet (#68 does): a
@@ -586,8 +664,12 @@ tests use that document's checkers and harness. This page applies them so:
   `expand` (`all`, `none`, disabled when grouped by lane); and two item
   containers, `network-detail` (the network's `g.node` items) and
   `schedule-detail` (the schedule's `rect.seg` items), whose details open
-  on `focusin`. Listeners are delegated on `document`; there are no inline
-  handlers.
+  on `focusin`. The trace (#20) adds buttons `data-control="requirement"`
+  and `requirement-detail`, one per requirements-panel row, valued by the
+  requirement's ID, and the chips (`g.chip`, keyed by `data-req`, read with
+  `getAttribute`). A selection sets only fixed classes: `req-direct`,
+  `req-indirect`, `req-on`, `req-need`, `selecting` and `g-lit`.
+  Listeners are delegated on `document`; there are no inline handlers.
 - **No resource from any URL.** The head opens with
   `<meta charset="utf-8">`, then the CSP meta with the content
   `default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'`.
@@ -642,7 +724,14 @@ its config order. It first reads every site, then renders each site it
 read, each in its own `try`, and writes `<output_dir>/sites/<name>.html` for
 each, then `<output_dir>/index.html` ([The index](#the-index)). It prints
 one absolute path per file it wrote: the pages in config order, then the
-index. Each file is written to a temporary file in its folder, then renamed
+index. Then, for each page it wrote whose site is in the trace or whose
+trace report has an item, in config order, one line
+`trace <site>: unreadable N, malformed N, duplicate N, misplaced N, cycle N, undefined N, unserved N, untraced N`,
+every category in that order, zeros included; a site not in the trace
+counts `unserved` and `untraced` as 0. The catalog (every requirements
+file and the portfolio file) is read once per run, and each site's trace
+is built inside its own render step, so a fault there is that site's
+`render error:` ([Reading the trace](#reading-the-trace)). Each file is written to a temporary file in its folder, then renamed
 into place, so no partial page is ever left; it gets the mode any new file
 gets. The build deletes nothing in the output folder: a page an earlier run
 wrote for a site that is no longer built stays until the output folder is
@@ -685,8 +774,10 @@ path. Two more lines can follow on stderr:
 
 `gantry build --config FILE --site NAME` writes only that site's page to
 `<output_dir>/sites/<NAME>.html`, and no index, and prints the page's
-absolute path. It reads only that site's `WBS.md` and inputs (the site list
-still checks each planning directory). It creates `<output_dir>/sites/`
+absolute path, then that site's `trace <site>:` line when the full build
+would print one. It reads only that site's `WBS.md` and inputs (the site
+list still checks each planning directory), every requirements file and
+the portfolio file, which the trace needs. It creates `<output_dir>/sites/`
 when it is missing and writes the page the same way. Each of these exits 1
 with the reason and writes no page (an existing page is kept as it was):
 

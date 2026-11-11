@@ -960,5 +960,5 @@ def test_config_doc_portfolio_row():
     doc = doc_text(CONFIG_DOC)
     row = next(line for line in doc.splitlines() if line.startswith("| `portfolio_file` |"))
     assert "portfolio-file.md" in row and "gantry portfolio" in row
-    assert "the build does not read it yet" in row and "#23 or #61" in row
+    assert "the build reads only its business requirements" in row and "#23 or #61" in row
     assert "gantry portfolio --config <file>" in doc

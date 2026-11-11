@@ -19,14 +19,15 @@ from gantry.config import load_config
 from gantry.model import FINISHED_GLYPHS, STATE_GLYPHS, Estimate, Leaf, SiteData
 from gantry.render import CLASS_TOKENS
 from gantry.sites import config_roots, load_sites
-from gantry.trace import (COUNT_FINISHED, COUNT_HELD, COUNT_OPEN, MESSAGES, build_site_trace, counts_line,
-                          load_catalog, page_trace)
+from gantry.trace import (CATEGORIES, COUNT_FINISHED, COUNT_HELD, COUNT_OPEN, COUNTS_LINE, MESSAGES,
+                          REQUIREMENTS_LABEL, build_site_trace, counts_line, load_catalog, page_trace)
 from gantry.views import worksite
 from gantry.views.worksite import BH, BW, ROWH, page_model
 from helpers_config import copy_samples, demo_build, page_ids, sample_build, write_site_tree
 from page_safety import HOSTILE, _strings, assert_no_external_resources, assert_page_safe
 from page_script.harness import Planted, PageScriptError, open_page, run_function
 from sample_roles import BUSY, READABLE, SMALL
+from test_build import heading_slugs
 from test_cli import run_module
 from test_samples import GANTRY_SAMPLE, ROOT
 from test_worksite_page import STRUCTURAL, find, text_of, tree, visible_text
@@ -968,3 +969,30 @@ def test_requirements_panel_states_the_marks(tmp_path):
     t = tree(sample(tmp_path).pages[SMALL])
     panel = by_id(t, "requirements")
     assert [text_of(t, i) for i in find(t, "p", ["label"], within=panel)] == [worksite.SELECT_NOTE]
+
+
+# --- Task 9: the docs ----------------------------------------------------------------
+
+TRACE_TEXTS = [getattr(worksite, name) for name in (
+    "CHIP_MORE", "REQUIREMENTS_HEADING", "SELECT_NOTE", "ROW_DETAIL", "ROW_HELD", "ROW_FINISHED", "TRACE_HEADING",
+    "UNSERVED_SCOPE_OTHER", "TRACE_COUNT", "TRACE_NONE", "ENTRY_LINE", "ENTRY_WHOLE", "SATISFIES", "LIT",
+    "NO_ISSUE_ID")] + list(worksite.LAYER_HEADINGS.values()) + list(worksite.TRACE_LABELS.values()) + list(
+    worksite.UNSERVED_SCOPES.values()) + [COUNT_OPEN, COUNT_HELD, COUNT_FINISHED, REQUIREMENTS_LABEL]
+STDOUT_FORM = ("trace <site>: unreadable N, malformed N, duplicate N, misplaced N, cycle N, undefined N, "
+               "unserved N, untraced N")
+
+
+def test_doc_states_trace_texts():
+    doc = (ROOT / "docs" / "worksite-page.md").read_bytes().decode("utf-8")
+    assert "reading-the-trace" in heading_slugs(doc)
+    assert [text for text in TRACE_TEXTS if f"`{text}`" not in doc] == []
+    assert f"`{STDOUT_FORM}`" in doc
+    # The stdout form is the code's line with N for each count.
+    assert STDOUT_FORM == COUNTS_LINE.format(site="<site>", **dict.fromkeys(CATEGORIES, "N"))
+
+
+def test_docs_state_the_build_reads_the_portfolio_file():
+    for rel in ("docs/config.md", "docs/portfolio-file.md"):
+        text = (ROOT / rel).read_bytes().decode("utf-8")
+        assert "the build does not read it yet" not in text, rel
+        assert "business requirements" in text, rel

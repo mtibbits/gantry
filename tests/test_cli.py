@@ -249,7 +249,8 @@ def point_portfolio_file_elsewhere(config):
 
 
 # In sample mode the page carries no build time, so two builds compare byte for
-# byte. The build does not read the portfolio file yet (#23 or #61 adds it).
+# byte. The build reads the portfolio file's business requirements for the
+# trace (#20); harbor's leaves name none, so its page does not change.
 def test_portfolio_file_does_not_change_page(tmp_path, capsys, monkeypatch):
     copy = copy_samples(tmp_path)
     monkeypatch.setattr(stamp, "sample_dir", lambda: copy)
