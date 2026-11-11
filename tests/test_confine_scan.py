@@ -18,7 +18,9 @@ The rules, each a tag on the report it produces (RULES):
   reached as an attribute through any alias or getattr with a literal name.
   A refused from-import is reported once, at the import; a chain at each use.
 - through-gantry: a name taken from another gantry module, or reached as its
-  attribute, passes only if its origin there would pass here.
+  attribute, passes only if its origin there would pass here. A private
+  name (leading underscore) from gantry.roots is refused outright: its
+  helpers touch files without the roots check.
 - star: "from M import *" from a file-touching or gantry module.
 - rebind: a file-touching module bound, passed or returned as a value
   ("x = os", "f(os.path)") rather than used as the root of a chain.
@@ -38,16 +40,23 @@ name used needs its own entry. Two gaps: a bare read of the module
 ("x = fcntl") is reported under the module's own name, so the import's
 exception admits it too; and a dotted unlisted module's use is cut to two
 parts ("concurrent.futures.ThreadPoolExecutor" is reported as
-"concurrent.futures", the import's name). An exception whose module file does not exist,
-or that removes no report, is stale and fails the tree test.
+"concurrent.futures", the import's name). An exception admits every use of
+its name in its file, however many: its reason records the reviewed use, and
+a new use of that name in that file needs the same review. An exception whose
+module file does not exist, or that removes no report, is stale and fails the
+tree test.
 
 What the scan does not decide, including: getattr with a computed name,
 sys.modules, eval of a built string (each is deliberate evasion: review and
 #43's run-time read spy own those); a Root or Roots reference that is not a
-call, such as dataclasses.replace on a Root; an attribute assignment of
-fromfile_prefix_chars; a gantry module that re-binds a file-touching name by
-assignment rather than import; and reaches through a plain module's or an
-OPEN_MODULES module's attributes ("argparse._os"), or through __builtins__.
+call, such as dataclasses.replace on a Root; fromfile_prefix_chars set by
+attribute assignment, given positionally or through **kwargs; a gantry module
+that re-binds a file-touching name by assignment rather than import; a gantry
+module bound to another name ("r = roots", then "r.os" or "r.Roots(...)");
+reaches through a plain module's or an OPEN_MODULES module's attributes
+("argparse._os"), or through __builtins__; and a name imported twice in one
+module with different origins, since the import table is per module, not per
+scope, and the later binding wins.
 """
 
 import ast
@@ -90,7 +99,7 @@ PLAIN_MODULES = {
 TOUCHING_MODULES = {
     "os": "opens, lists, stats, removes and runs",
     "os.path": "exists, isfile, realpath and the rest stat",
-    "posixpath": "os.path under its POSIX name (intent.md, round 1)",
+    "posixpath": "os.path under its POSIX name: exists, isfile and the rest stat",
     "pathlib": "concrete Path reads, writes and lists",
     "shutil": "copies, moves, removes; which stats",
     "io": "io.open and FileIO open files",
@@ -167,7 +176,9 @@ EXCEPTIONS = {
 }
 
 # Every module the scan must parse: the 27 under gantry/ at 39f4afa. A later
-# issue may extend this list but not shrink it.
+# issue may extend this list but not shrink it by accident: an issue that
+# deletes a kept module (#12 deletes gantry/wbs_stopgap.py) removes it from KEPT
+# and BASELINE in the same reviewed change, and fixes BASELINE's count.
 KEPT = frozenset({
     "gantry/__init__.py",
     "gantry/__main__.py",
@@ -339,6 +350,8 @@ class Package:
         if not rest:
             return None
         name, tail = rest[0], rest[1:]
+        if prefix == "gantry.roots" and name.startswith("_"):
+            return f"{prefix}.{name}", "through-gantry"  # its private helpers touch files unconfined
         if (hop := self.follow(prefix, name, seen)) is None:
             return None
         origin, seen = hop
@@ -569,6 +582,32 @@ FAILS = (
     Fail("urllib_request", src("import urllib.request"), 1, "urllib.request", "module"),
     Fail("urllib_chain", src("import urllib.parse", 'urllib.request.urlopen("x")'), 2, "urllib.request", "module"),
     Fail("filetype", src("import argparse", 'argparse.FileType("r")'), 2, "argparse.FileType", "name"),
+    Fail(
+        "subprocess_two",
+        src("import subprocess", 'subprocess.run(["x"])', 'subprocess.Popen(["x"])'),
+        3,
+        "subprocess.Popen",
+        "name",
+    ),
+    Fail("local_import", src("def f(p):", "    import os", "    os.remove(p)"), 3, "os.remove", "name"),
+    Fail(
+        "local_from_import",
+        src("def f(p):", "    from os import path as q", "    q.isfile(p)"),
+        3,
+        "os.path.isfile",
+        "name",
+    ),
+    Fail("json_child", src("import json.tool"), 1, "json.tool", "module"),
+    Fail("urllib_parent", src("import urllib"), 1, "urllib", "module"),
+    Fail("gantry_prefix", src("import gantryx"), 1, "gantryx", "module"),
+    Fail("roots_private", src("from gantry.roots import _makedirs"), 1, "gantry.roots._makedirs", "through-gantry"),
+    Fail(
+        "fromfile_bare_name",
+        src("from argparse import ArgumentParser", 'ArgumentParser(fromfile_prefix_chars="@")'),
+        2,
+        "fromfile_prefix_chars",
+        "keyword",
+    ),
     Fail("via_roots_from", src("from gantry.roots import os"), 1, "gantry.roots.os", "through-gantry"),
     Fail(
         "via_roots_attr",
@@ -821,9 +860,11 @@ def test_every_entry_has_a_reason():
 
 
 def test_exception_removes_only_its_own_name(planted):
-    report = scan(planted.copy, {("gantry/planted_subprocess_run.py", "subprocess.run"): "x"})
-    assert Hit("gantry/planted_subprocess_run.py", 2, "subprocess.run", "name") not in report.refused
-    assert Hit("gantry/planted_os_remove.py", 2, "os.remove", "name") in report.refused
+    two = "gantry/planted_subprocess_two.py"
+    report = scan(planted.copy, {(two, "subprocess.run"): "x"})
+    assert Hit(two, 2, "subprocess.run", "name") not in report.refused
+    assert Hit(two, 3, "subprocess.Popen", "name") in report.refused  # same file, same module
+    assert Hit("gantry/planted_subprocess_run.py", 2, "subprocess.run", "name") in report.refused
     assert report.stale == []
 
 
@@ -836,10 +877,11 @@ def test_exception_for_missing_module_is_stale(planted):
 
 
 def test_exception_no_longer_used_is_stale(planted):
-    failures = tree_failures(planted.copy, {("gantry/planted_str_replace.py", "subprocess.run"): "x"})
+    one = "gantry/planted_subprocess_run.py"  # uses subprocess.run only
+    failures = tree_failures(planted.copy, {(one, "subprocess.run"): "x", (one, "subprocess.Popen"): "x"})
     stale = [text for text in failures if "is stale" in text]
     assert len(stale) == 1
-    assert stale[0].startswith("gantry/planted_str_replace.py: exception for subprocess.run is stale")
+    assert stale[0].startswith(f"{one}: exception for subprocess.Popen is stale")
     assert "no longer uses" in stale[0]
 
 
