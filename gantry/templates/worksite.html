@@ -227,7 +227,7 @@ figcaption { color: var(--muted); font-size: 14px; max-width: 72ch; }
    dependency trace shows (.tracing), its rules win. */
 .net.selecting:not(.tracing) .node:not(.req-direct):not(.req-indirect) { opacity: .25; }
 .net.selecting:not(.tracing) .edge { opacity: .2; }
-.net:not(.tracing) .node.req-direct .outline, .net:not(.tracing) .node.req-direct .dot { stroke: var(--cross); stroke-width: 3; }
+.net:not(.tracing) .node.req-direct .outline, .net:not(.tracing) .node.req-direct .dot { stroke: var(--cross); stroke-width: 3; stroke-dasharray: none; }
 .net:not(.tracing) .node.req-indirect .outline, .net:not(.tracing) .node.req-indirect .dot { stroke: var(--cross); stroke-width: 3; stroke-dasharray: 5 3; }
 #gantt.selecting .seg:not(.req-direct):not(.req-indirect), #gantt.selecting .pmark { opacity: .3; }
 .seg.req-direct { stroke: var(--cross); stroke-width: 2.5; stroke-dasharray: none; }

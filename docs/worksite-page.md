@@ -510,8 +510,9 @@ requirements panel and no trace report.
   order written: up to three, then `+{n}` for the rest. A chip shows an ID
   of the site's own namespace without it (`FR-1`) and any other with it
   (`life:BR-1`). A label over 12 characters keeps its code and number whole
-  and shortens its namespace with `…` (`devag…:FR-12`), the full ID in the
-  chip's tooltip, and the row stays inside the box's width: what does
+  and shortens its namespace with `…` (`devag…:FR-12`); a code and number of
+  10 or more characters is cut plainly, and two namespaces that share a
+  prefix can read alike. The full ID is always in the chip's tooltip, and the row stays inside the box's width: what does
   not fit folds into `+{n}`. A circle or a schedule bar lists every ID in
   its detail, on a `Satisfies:` line. A business requirement (the
   installation's `br_namespace`) is a chip and a row only: its text is

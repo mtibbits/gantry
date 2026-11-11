@@ -131,7 +131,6 @@ def test_unmatched_site_table_warns(tmp_path, capsys):
     captured = capsys.readouterr()
     assert "gantry: warning:" in captured.err
     assert f"site.{FERRY}" in captured.err
-    # Every readable site's page, then the index.
     # The paths of the pages and the index, then the in-trace sample site's trace line (#20).
     assert len(captured.out.splitlines()) == len(READABLE) + 2
 

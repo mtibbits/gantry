@@ -262,6 +262,11 @@ A view's interactive controls carry `data-control`, with one of three kinds:
   fires a bubbling `focusin` on the first item whose `data-item` is the
   value.
 
+One exception: a worksite page's requirement chip (`g.chip[data-req]`, a
+`role="button"` inside a network item) carries no `data-control`, because
+its `data-req` repeats across items. `page.chip(item, req, action)` reaches
+it by the item and the requirement together.
+
 ```html
 <select data-control="lanes"><option value="1">1</option><option value="2">2</option></select>
 <button data-control="zoom" data-value="wave">wave</button>

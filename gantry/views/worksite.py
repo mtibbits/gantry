@@ -770,7 +770,9 @@ def unserved_label(scope):
 
 def _chip_label(label):
     """A chip's label within CHIP_CHARS. A long one keeps its code and number
-    whole and shortens its namespace, so two IDs of one namespace stay apart."""
+    whole and shortens its namespace, so two IDs of one namespace stay apart.
+    A code and number of 10 or more characters is cut plainly, and two
+    namespaces sharing a prefix can read alike: the chip's title has the ID."""
     if len(label) <= CHIP_CHARS:
         return label
     namespace, colon, tail = label.rpartition(":")

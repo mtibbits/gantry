@@ -949,7 +949,6 @@ def test_drive_each_control_kind(node, tmp_path):
         assert page.planted_nodes([]).violations == []
 
 
-
 def test_leave_fires_focusout_on_the_item(node, tmp_path):
     script = LISTENER_SCRIPT + "\n" + (
         'document.addEventListener("focusout", (e) => record("focusout", e.target, e.target.getAttribute("data-item")));')

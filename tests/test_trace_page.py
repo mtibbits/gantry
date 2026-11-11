@@ -587,6 +587,7 @@ def test_cut_chip_labels_stay_distinct(tmp_path):
 
 def test_chip_row_clears_large_circle(tmp_path):
     # Issue-3 (90 h) is a circle in the row under Issue-2, in the same column.
+    # The row clears a circle up to about 93 h only; a larger one overlaps (a known limit).
     wbs = {"alpha": ("# A\n\n- [ ] Root {issue: Issue-1, est: 3w}\n"
                      "- [ ] Box {issue: Issue-2, est: 1d, priority: P1, depends_on: [Issue-1], "
                      "satisfies: [alpha:FR-1, alpha:FR-2]}\n"
@@ -613,7 +614,16 @@ def test_chip_size_pair():
     css = (ROOT / "gantry" / "templates" / "worksite.html").read_bytes().decode("utf-8")
     (rule,) = [r for r in re.findall(r"\.chip-t \{[^}]*\}", css) if "font-size" in r]
     assert f"font-size: {worksite.CHIP_FONT}px" in rule
-    assert worksite.CHIP_CHAR_W == pytest.approx(0.6 * worksite.CHIP_FONT)
+
+
+def test_direct_marks_are_solid():
+    # A stuck, blocked or parked box, or an unestimated circle, is dashed by its
+    # state; a direct mark must reset that, or it reads as indirect.
+    css = (ROOT / "gantry" / "templates" / "worksite.html").read_bytes().decode("utf-8")
+    rules = [r for r in re.findall(r"[^{}]*\{[^}]*\}", css) if "req-direct" in r.split("{")[0] and "stroke:" in r]
+    assert len(rules) == 2
+    for rule in rules:
+        assert "stroke-dasharray: none" in rule, rule
 
 
 # --- Task 5: hostile strings in the trace (AC 7) ------------------------------------

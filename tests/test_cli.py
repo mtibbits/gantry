@@ -281,7 +281,7 @@ def test_site_page_reads_estimates_file(tmp_path, capsys):
 # The build does not read fires_list yet, so it changes nothing. The
 # requirements key and the portfolio file are the trace's (#20): each changes
 # the pages whose trace it reaches, and no other page, and neither warns.
-def test_unread_keys_and_requirements_do_not_change_build(tmp_path, monkeypatch):
+def test_unread_keys_leave_pages_and_trace_inputs_change_them(tmp_path, monkeypatch):
     copy = copy_samples(tmp_path)
     config = copy / "gantry.sample.toml"
     code, out, _, plain_err = demo_build(tmp_path, monkeypatch, copy=copy)
