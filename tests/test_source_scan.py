@@ -232,7 +232,7 @@ def test_exempt_file_not_scanned(shared_tree):
 def package_modules(pkg_dir):
     """(relpath, tree) for every .py file under pkg_dir, paths relative to pkg_dir.
 
-    Shared with tests/test_confine_scan.py (#60): one walk for both scans.
+    Shared with tests/test_confine_scan.py (#60): both scans walk the package the same way.
     """
     pkg_dir = Path(pkg_dir)
     return [

@@ -334,22 +334,27 @@ class Package:
         if not rest:
             return None
         name, tail = rest[0], rest[1:]
-        bound = self.tables.get(prefix, {}).get(name)
-        if bound is None or (prefix, name) in seen:
+        if (hop := self.follow(prefix, name, seen)) is None:
             return None
-        seen = seen | {(prefix, name)}
-        if self.refusal(bound.origin, seen) or (tail and self.refusal(".".join([bound.origin, *tail]), seen)):
+        origin, seen = hop
+        if self.refusal(origin, seen) or (tail and self.refusal(".".join([origin, *tail]), seen)):
             return f"{prefix}.{name}", "through-gantry"
         return None
 
     def canonical(self, dotted, seen=frozenset()):
         """dotted with every re-export through a gantry module followed to its origin."""
         prefix, rest = self.split(dotted)
-        if prefix in self.modules and rest:
-            bound = self.tables.get(prefix, {}).get(rest[0])
-            if bound is not None and (prefix, rest[0]) not in seen:
-                return self.canonical(".".join([bound.origin, *rest[1:]]), seen | {(prefix, rest[0])})
+        if prefix in self.modules and rest and (hop := self.follow(prefix, rest[0], seen)):
+            origin, seen = hop
+            return self.canonical(".".join([origin, *rest[1:]]), seen)
         return dotted
+
+    def follow(self, module, name, seen):
+        """(origin, seen plus this hop) for a name gantry module binds; None if unbound or a cycle."""
+        bound = self.tables[module].get(name)
+        if bound is None or (module, name) in seen:
+            return None
+        return bound.origin, seen | {(module, name)}
 
 
 def chain_of(node, table):
@@ -368,13 +373,13 @@ def dotted_of(chain):
     return ".".join([bound.origin, *attrs])
 
 
-def check_imports(node, scope, refuse):
+def check_imports(node, package, rules, refuse):
     if isinstance(node, ast.Import):
         for alias in node.names:
             if not allowed_module(alias.name):
                 refuse(alias, alias.name, "module")
         return
-    source = import_from_module(node, scope.package)
+    source = import_from_module(node, package)
     for alias in node.names:
         if alias.name == "*":
             if source in TOUCHING_MODULES or is_gantry(source):
@@ -389,34 +394,31 @@ def check_imports(node, scope, refuse):
             if not allowed_name(source, alias.name):
                 refuse(alias, full, "name")
         elif is_gantry(source):
-            if found := scope.rules.refusal(full):
+            if found := rules.refusal(full):
                 refuse(alias, *found)
         else:
             refuse(alias, source, "module")
             refuse(alias, full, "module")
 
 
-class ModuleScan(NamedTuple):
-    rules: Package
-    package: str
-
-
-def check_module(file, tree, scope, hits):
-    table = scope.rules.tables[module_of(file)[0]]
+def check_module(file, tree, rules, hits):
+    module, package = module_of(file)
+    table = rules.tables[module]
 
     def refuse(node, name, rule):
         hits.append(Hit(file, node.lineno, name, rule))
 
+    nodes = list(ast.walk(tree))
     inner, subjects = set(), set()
-    for node in ast.walk(tree):
+    for node in nodes:
         if isinstance(node, ast.Attribute):
             inner.add(id(node.value))
         elif is_literal_getattr(node) and (chain := chain_of(node.args[0], table)) and chain[0].module:
             subjects.add(id(node.args[0]))
 
-    for node in ast.walk(tree):
+    for node in nodes:
         if isinstance(node, (ast.Import, ast.ImportFrom)):
-            check_imports(node, scope, refuse)
+            check_imports(node, package, rules, refuse)
         if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id in REFUSED_BUILTINS:
             refuse(node, node.id, "builtin")
         if isinstance(node, ast.Call):
@@ -424,17 +426,17 @@ def check_module(file, tree, scope, hits):
                 if keyword.arg in REFUSED_KEYWORDS:
                     refuse(keyword, keyword.arg, "keyword")
             if (chain := chain_of(node.func, table)) is not None:
-                if (name := scope.rules.canonical(dotted_of(chain))) in ROOT_BUILDERS:
-                    refuse(node, name, "roots-builder")
+                if (builder := rules.canonical(dotted_of(chain))) in ROOT_BUILDERS:
+                    refuse(node, builder, "roots-builder")
             if node.args and id(node.args[0]) in subjects:
                 subject = dotted_of(chain_of(node.args[0], table))
-                if found := scope.rules.refusal(f"{subject}.{node.args[1].value}"):
+                if found := rules.refusal(f"{subject}.{node.args[1].value}"):
                     refuse(node, *found)
         if isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load):
             continue
         if isinstance(node, (ast.Name, ast.Attribute)) and id(node) not in inner and id(node) not in subjects:
             chain = chain_of(node, table)
-            if chain is not None and chain[0].module and (found := scope.rules.refusal(dotted_of(chain))):
+            if chain is not None and chain[0].module and (found := rules.refusal(dotted_of(chain))):
                 refuse(node, *found)
 
 
@@ -449,16 +451,15 @@ def is_literal_getattr(node):
     )
 
 
-def scan(pkg_dir, exceptions=None):
+def scan(pkg_dir, exceptions=EXCEPTIONS):
     """Report every reach outside the allow-list in the package at pkg_dir."""
-    exceptions = EXCEPTIONS if exceptions is None else exceptions
     prefix = Path(pkg_dir).name
     files = [(f"{prefix}/{rel}", tree) for rel, tree in package_modules(pkg_dir)]
     rules = Package([(*module_of(file), tree) for file, tree in files])
     hits = []
     for file, tree in files:
         if file != ROOTS_FILE:
-            check_module(file, tree, ModuleScan(rules, module_of(file)[1]), hits)
+            check_module(file, tree, rules, hits)
     parsed = {file for file, _ in files}
     used = {(hit.file, hit.name) for hit in hits}
     stale = [
@@ -470,9 +471,12 @@ def scan(pkg_dir, exceptions=None):
     return Report(refused, parsed, stale)
 
 
-def tree_failures(pkg_dir, exceptions=None):
+def tree_failures(pkg_dir, exceptions=EXCEPTIONS):
+    return failures_of(scan(pkg_dir, exceptions))
+
+
+def failures_of(report):
     """The tree verdict: every refused name, unparsed kept module and stale exception."""
-    report = scan(pkg_dir, exceptions)
     return (
         [message(hit) for hit in report.refused]
         + [not_parsed_message(file) for file in sorted(KEPT - report.parsed)]
@@ -495,19 +499,15 @@ class Fail(NamedTuple):
     rule: str
     file: str = ""  # default gantry/planted_<id>.py
 
-    @property
-    def path(self):
-        return self.file or f"gantry/planted_{self.id}.py"
-
 
 class Pass(NamedTuple):
     id: str
     source: str
     file: str = ""
 
-    @property
-    def path(self):
-        return self.file or f"gantry/planted_{self.id}.py"
+
+def plant_path(plant):
+    return plant.file or f"gantry/planted_{plant.id}.py"
 
 
 # Support modules other plants import from. The carriers pin the
@@ -718,8 +718,9 @@ def planted(tmp_path_factory):
     base = tmp_path_factory.mktemp("confine")
     copy = copy_package(base)
     for plant in (*SUPPORT, *FAILS, *PASSES):
-        (base / plant.path).write_bytes(plant.source.encode("utf-8"))
-    return Planted(base, copy, scan(copy), tree_failures(copy))
+        (base / plant_path(plant)).write_bytes(plant.source.encode("utf-8"))
+    report = scan(copy)
+    return Planted(base, copy, report, failures_of(report))
 
 
 def by_file(report, file):
@@ -738,7 +739,8 @@ def test_tree_is_confined():
 
 @pytest.mark.parametrize("row", FAILS, ids=[row.id for row in FAILS])
 def test_planted_form_refused(planted, row):
-    assert Hit(row.path, row.line, row.name, row.rule) in planted.report.refused, by_file(planted.report, row.path)
+    path = plant_path(row)
+    assert Hit(path, row.line, row.name, row.rule) in planted.report.refused, by_file(planted.report, path)
 
 
 def test_path_plant_fails_at_its_import_only(planted):
@@ -748,15 +750,15 @@ def test_path_plant_fails_at_its_import_only(planted):
 
 @pytest.mark.parametrize("row", PASSES, ids=[row.id for row in PASSES])
 def test_planted_form_passes(planted, row):
-    assert row.path in planted.report.parsed
-    assert by_file(planted.report, row.path) == []
+    assert plant_path(row) in planted.report.parsed
+    assert by_file(planted.report, plant_path(row)) == []
 
 
 def test_message_names_file_line_and_name(planted):
     for row in FAILS:
-        text = message(Hit(row.path, row.line, row.name, row.rule))
+        text = message(Hit(plant_path(row), row.line, row.name, row.rule))
         assert text in planted.failures, row.id
-        assert text.startswith(f"{row.path}:{row.line}: {row.name} ")
+        assert text.startswith(f"{plant_path(row)}:{row.line}: {row.name} ")
         assert text.endswith(REMEDY[row.rule])
     for remedy in REMEDY.values():
         assert "gantry/roots.py" in remedy and "allow-list" in remedy
@@ -773,7 +775,7 @@ def test_planted_copy_is_outside_the_work_tree(planted):
     assert not planted.base.resolve().is_relative_to(ROOT.resolve())
     assert list((ROOT / "gantry").rglob("planted_*.py")) == []
     for plant in (*SUPPORT, *FAILS, *PASSES):
-        assert (planted.base / plant.path).is_file()
+        assert (planted.base / plant_path(plant)).is_file()
 
 
 # --- the allow-list --------------------------------------------------------------
@@ -823,11 +825,11 @@ def unparsed(failures):
 
 def test_empty_copy_fails_the_kept_list(planted, tmp_path):
     assert unparsed(planted.failures) == []
-    copy = copy_package(tmp_path)
-    for path in copy.rglob("*.py"):
-        path.unlink()
-    assert scan(copy).parsed == set()
-    assert unparsed(tree_failures(copy)) == [not_parsed_message(file) for file in sorted(KEPT)]
+    empty = tmp_path / "gantry"
+    empty.mkdir()
+    report = scan(empty)
+    assert report.parsed == set()
+    assert unparsed(failures_of(report)) == [not_parsed_message(file) for file in sorted(KEPT)]
 
 
 def test_one_missing_module_fails_the_kept_list(tmp_path):
