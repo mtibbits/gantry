@@ -170,7 +170,7 @@ def test_roles_name_config_projects():
         for attr, value in vars(sample_roles).items()
         if attr.isupper() and isinstance(value, str) and attr != "HOSTILE_TITLE"
     }
-    assert len(names) == 7, sorted(names)
+    assert len(names) == 11, sorted(names)
     for attr in sorted(names):
         assert names[attr] in cfg["project"], attr
     assert READABLE == {BUSY, OWN_UNIT, UNESTIMATED, SMALL}

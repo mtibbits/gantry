@@ -37,7 +37,7 @@ from gantry.roots import (
     stat_confined,
     write_confined,
 )
-from helpers_config import copy_samples
+from helpers_config import add_site_key, copy_samples, literal, replace_bytes
 from helpers_links import CI_SUFFIX, SYMLINK_REASON, is_link, junction, link_dir, symlink
 
 WINDOWS = os.name == "nt"
@@ -365,20 +365,6 @@ def test_every_path_key_has_a_root_kind():
 # --- Task 4: config_roots and the confined site list ----------------------------------
 
 
-def literal(path):
-    """A TOML literal string for a path: no escapes, so a Windows path needs none."""
-    text = str(path)
-    assert "'" not in text
-    return f"'{text}'"
-
-
-def replace_bytes(path, old, new):
-    before = path.read_bytes().decode("utf-8")
-    after = before.replace(old, new)
-    assert after != before
-    path.write_bytes(after.encode("utf-8"))
-
-
 def roots_of(config_path):
     from gantry.config import load_config
     from gantry.sites import config_roots
@@ -396,6 +382,9 @@ def test_sample_roots_lie_inside_the_sample_directory():
     assert {("devdoc_dir", n) for n in sample_projects()} <= found
     assert {("--config", None), ("devagent_config", None), ("output_dir", None), ("portfolio_file", None),
             ("site.lighthouse.requirements", None)} <= found
+    from sample_roles import HISTORY_RECENT, HISTORY_STALE, HISTORY_YOUNG
+
+    assert {(f"site.{s}.history", None) for s in (HISTORY_RECENT, HISTORY_STALE, HISTORY_YOUNG)} <= found
     assert [r.key for r in roots.roots if r.writable] == ["output_dir"]
 
 
@@ -463,6 +452,40 @@ def test_writable_root_may_not_contain_an_input(tmp_path):
     assert roots_of(config)
 
 
+def _with_history(tmp_path, history):
+    """A site tree whose harbor site sets `history` to the given path (#28)."""
+    from helpers_config import write_site_tree
+
+    return write_site_tree(tmp_path / "inst", {"harbor": b"- [ ] A\n"},
+                           tail=f"\n[site.harbor]\nhistory = {literal(history)}\n")
+
+
+def test_history_root_is_a_directory_root(tmp_path):
+    history = tmp_path / "hist"
+    (history / "deep").mkdir(parents=True)
+    (history / "deep" / "WBS.md").write_bytes(b"x\n")
+    roots = roots_of(_with_history(tmp_path, history))
+    found = [r for r in roots.roots if r.key == "site.harbor.history"]
+    assert [(r.kind, r.writable) for r in found] == [("directory", False)]
+    assert read_bytes_confined(roots, history / "deep" / "WBS.md", key="x") == b"x\n"
+
+
+def test_writable_root_may_not_contain_a_history_root(tmp_path):
+    from gantry.config import ConfigError
+
+    history = tmp_path / "hist"
+    history.mkdir()
+    config = _with_history(tmp_path, history)
+    for output in (history, tmp_path):
+        replace_bytes(config, 'output_dir = "out"', f"output_dir = {literal(output)}")
+        with pytest.raises(ConfigError) as e:
+            roots_of(config)
+        text = str(e.value)
+        assert "key 'output_dir'" in text and "key 'site.harbor.history'" in text, text
+        replace_bytes(config, f"output_dir = {literal(output)}", 'output_dir = "out"')
+    assert roots_of(config)
+
+
 def test_writable_root_containment_exits_1_at_the_cli(tmp_path):
     from helpers_config import run_main
 
@@ -479,7 +502,7 @@ def test_estimates_naming_a_folder_admits_nothing_under_it(tmp_path):
     folder.mkdir()
     (folder / "x.md").write_bytes(b"x")
     config = copy / "gantry.sample.toml"
-    config.write_bytes(config.read_bytes() + f"\n[site.harbor]\nestimates = {literal(folder)}\n".encode())
+    add_site_key(config, "harbor", f"estimates = {literal(folder)}\n")
     roots = roots_of(config)
     with pytest.raises(OutsideRoots):
         read_bytes_confined(roots, folder / "x.md", key="estimates file", site="harbor")
@@ -649,7 +672,7 @@ def test_estimates_folder_key_is_unreadable_and_page_builds(tmp_path):
     folder = tmp_path / "folder"
     folder.mkdir()
     config = copy / "gantry.sample.toml"
-    config.write_bytes(config.read_bytes() + f"\n[site.harbor]\nestimates = {literal(folder)}\n".encode())
+    add_site_key(config, "harbor", f"estimates = {literal(folder)}\n")
     result = build_all(load_config(config))
     assert "harbor" in result.pages
     assert len(_unreadable_estimates(result, "harbor")) == 1

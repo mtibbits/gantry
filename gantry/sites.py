@@ -191,8 +191,10 @@ def config_roots(config, *, output_dir=None, purpose="build"):
 
 
 def _check_containment(config, roots):
+    # A `history` directory (#28) is an input: git reads its repository.
     inputs = [r for r in roots.roots
-              if r.key in (CONFIG_KEY, "devagent_config", "devdoc_dir") or r.kind == "package"]
+              if r.key in (CONFIG_KEY, "devagent_config", "devdoc_dir") or r.kind == "package"
+              or r.key.endswith(".history")]
     for w in roots.roots:
         if not w.writable:
             continue

@@ -29,6 +29,12 @@ public tools (in prose, in the `samples/devagent/` folder name and in
 - `lighthouse/requirements.md`: lighthouse's requirements file (#15). The
   sample config's `[site.lighthouse]` table names it, so lighthouse is the
   one sample site in the trace; the other sites are not.
+- `history/`: the sample `WBS.md` history (#28). `plan.toml` lists, per
+  site, the dates of earlier versions, each kept as `history/<site>/<date>.md`;
+  `tools/sample_history.py` commits them, then each site's current
+  `WBS.md` at the plan's `last_date`, into the ignored `history/out/`
+  repository. The sample config's `history` keys point harbor, orchard and
+  lighthouse into it ([the rules](../docs/wbs-history.md)).
 
 ## The hostile title
 
@@ -47,6 +53,18 @@ the demo shows record text rendered as text:
 | lighthouse | `SMALL`, `HOSTILE_SITE` | small | one epic and one top-level leaf with no epic; the hostile title on an open leaf; a requirements file, which puts it in the trace, with `UC`, `SR`, `FR`, `QA` and `CON` items, a use case with `needs:` and an `FR` that `refines:` an `SR` |
 | bakery | `NO_WBS` | no `WBS.md` | a folder holding only a short `README.md` |
 | marsh | `UNREADABLE` | cannot be read | ordinary node lines, one of whose titles holds a Latin-1 byte that is not valid UTF-8 |
+
+The sample history gives four sites a role each (`as_of` 2026-01-20, a
+four-week window):
+
+| Site | Constant | History role |
+|---|---|---|
+| harbor | `HISTORY_RECENT` | a glyph change inside the window (2026-01-08) |
+| orchard | `HISTORY_STALE` | its last glyph change (2025-11-03) is older than the window |
+| lighthouse | `HISTORY_YOUNG` | history that begins inside the window (2026-01-05), with no glyph change since |
+| quarry | `HISTORY_LESS` | a `WBS.md` and no `history` key: no data, in no repository |
+
+marsh and bakery have no history either.
 
 Every readable site (harbor, orchard, quarry, lighthouse) has at least one
 open and at least three finished `issue:` leaves. Ids are unique within a
@@ -79,3 +97,7 @@ outside pytest adds `<repo>/tests` to `sys.path` first.
   otherwise, on every platform.
 - Reserved folder names: no site may be named `devagent`, `out`,
   `history`, `actuals` or `forecast`.
+- The history rule: the newest version of each site's sample history is
+  its current `WBS.md`, so a change to a sample `WBS.md` reviews
+  `samples/history/` in the same change. A glyph edit is a state change at
+  the plan's `last_date`, which can change a history role.

@@ -81,6 +81,8 @@ ERROR_CASES = {
     "unit-inf": (_raw(default_unit_hours="inf"), ["'default_unit_hours'"]),
     "estimates-true": (_raw(tail=HARBOR + "estimates = true\n"), ["'site.harbor.estimates'"]),
     "estimates-int": (_raw(tail=HARBOR + "estimates = 3\n"), ["'site.harbor.estimates'"]),
+    "history-int": (_raw(tail=HARBOR + "history = 3\n"), ["'site.harbor.history'", "must be a path string"]),
+    "history-false": (_raw(tail=HARBOR + "history = false\n"), ["'site.harbor.history'", "must be a path string"]),
     "br-space": (_raw(tail=REQ + 'br_namespace = "life x"\n'), ["'requirements.br_namespace'"]),
     "br-colon": (_raw(tail=REQ + 'br_namespace = "a:b"\n'), ["'requirements.br_namespace'"]),
     "br-empty": (_raw(tail=REQ + 'br_namespace = ""\n'), ["'requirements.br_namespace'"]),
@@ -251,6 +253,17 @@ def test_path_keys_load_and_resolve(tmp_path):
         assert not Path(path).exists(), key
 
 
+def test_history_key_loads_and_resolves(tmp_path):
+    """`[site.<name>] history` is a path resolved against the config's folder (#28)."""
+    p = write_config(tmp_path, tail='\n[site.harbor]\nhistory = "hist/harbor"\n[site.orchard]\n')
+    c = cfg.load_config(p)
+    history = c.sites["harbor"].history
+    assert isinstance(history, PurePath) and not isinstance(history, Path)
+    assert history.is_absolute()
+    assert norm(history) == norm(tmp_path / "hist" / "harbor")
+    assert c.sites["orchard"].history is None
+
+
 # --- the sample installation config (#7) ---------------------------------------
 
 
@@ -260,9 +273,11 @@ def test_sample_config_loads_inside_samples():
     samples = os.path.normcase(str(SAMPLES.resolve()))
     paths = [c.devagent_config, c.output_dir, c.portfolio_file, c.fires_list]
     for site in c.sites.values():
-        paths += [site.requirements, site.estimates]
+        paths += [site.requirements, site.estimates, site.history]
+    histories = [s.history for s in c.sites.values() if isinstance(s.history, PurePath)]
+    assert len(histories) == 3
     paths = [p for p in paths if isinstance(p, PurePath)]
-    assert len(paths) >= 2
+    assert len(paths) >= 5
     for p in paths:
         assert Path(os.path.normcase(str(p))).is_relative_to(samples), p
     assert "out" in c.output_dir.parts

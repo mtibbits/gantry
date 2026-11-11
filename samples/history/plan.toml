@@ -1,0 +1,17 @@
+# The sample WBS.md history (#28): tools/sample_history.py commits, per
+# site, each dated version samples/history/<site>/<date>.md, then the
+# site's current samples/<site>/WBS.md at last_date. docs/wbs-history.md
+# states the rules; last_date may not be after gantry.sample.toml's as_of.
+last_date = 2026-01-16
+
+# A glyph change at 2025-12-15 and at 2026-01-08: the recent site.
+[site.harbor]
+dates = [2025-11-10, 2025-12-15, 2026-01-08]
+
+# A glyph change at 2025-11-03 only: the stale site.
+[site.orchard]
+dates = [2025-10-06, 2025-11-03, 2025-12-08]
+
+# History that begins inside the window, with no glyph change since: the young site.
+[site.lighthouse]
+dates = [2026-01-05]

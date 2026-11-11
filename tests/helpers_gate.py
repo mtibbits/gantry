@@ -13,7 +13,9 @@ from test_samples import ROOT
 
 
 def gate_run(tmp_path, ci, module="tests/test_page_checkers.py"):
-    """Run `module`, minus its end_to_end tests, with no node on PATH: (exit code, junit cases)."""
+    """Run `module` (one, or a list), minus its end_to_end tests, with an empty
+    PATH (no node, no git): (exit code, junit cases)."""
+    modules = [module] if isinstance(module, str) else list(module)
     empty = tmp_path / "empty"
     empty.mkdir(exist_ok=True)
     env = {k: v for k, v in os.environ.items() if k not in ("PYTEST_ADDOPTS", "CI")}
@@ -22,7 +24,7 @@ def gate_run(tmp_path, ci, module="tests/test_page_checkers.py"):
         env["CI"] = ci
     xml = tmp_path / f"gate-{ci}.xml"
     command = [sys.executable, "-m", "pytest", "-q", "-rs", "-p", "no:cacheprovider", "-k", "not end_to_end",
-               "--junitxml", str(xml), module]
+               "--junitxml", str(xml), *modules]
     proc = subprocess.run(command, cwd=ROOT, env=env, capture_output=True)
     cases = []
     for case in ET.parse(xml).getroot().iter("testcase"):
