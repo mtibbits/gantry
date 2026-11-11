@@ -28,7 +28,11 @@ public tools (in prose, in the `samples/devagent/` folder name and in
   (`Issue-5`). It has no `[thresholds]` table, so the defaults apply.
 - `lighthouse/requirements.md`: lighthouse's requirements file (#15). The
   sample config's `[site.lighthouse]` table names it, so lighthouse is the
-  one sample site in the trace; the other sites are not.
+  one sample site in the trace; the other sites are not. `UC-3` (#20)
+  needs `SR-1`, which `FR-1` refines, so a leaf naming `FR-1` serves
+  `UC-3` indirectly. A lighthouse leaf naming `life:BR-1` in its
+  `satisfies:` does not change the portfolio's roles: `serves` is a
+  site-level allocation, and lighthouse still has neither.
 - `history/`: the sample `WBS.md` history (#28). `plan.toml` lists, per
   site, the dates of earlier versions, each kept as `history/<site>/<date>.md`;
   `tools/sample_history.py` commits them, then each site's current
@@ -50,7 +54,7 @@ the demo shows record text rendered as text:
 | harbor | `BUSY` | well estimated, with model tiers; the busy site | two epics, each with an `issue:` id; a `depends_on` naming a leaf under the other epic; P1 to P4 each present, and leaves with no priority; at least 8 open, 5 finished (`x`), one in-progress (`~`) and one skipped (`-`) `issue:` leaf; `est: ?w` on open leaves that have estimates rows; the estimates file, with a row for every open `issue:` leaf, one epic row and one finished row |
 | orchard | `OWN_UNIT` | `est:` values and a unit of its own | `Nd`, `Nw`, `?w` and the non-time `Npt`; no priority at all; at least three issue-less leaves; a `depends_on` entry that is an outline number (`2.1`) and names no issue |
 | quarry | `UNESTIMATED` | wholly unestimated; the P0 demo | no `est:` and no estimates file; priorities on some leaves only; an open P0 leaf and the open leaf it depends on (#10); a `depends_on` naming a leaf under another epic; a `depends_on` naming an issue that exists on no site; `h: 0`, `h: 4` and a quoted `h: "2"` on open leaves, and `h: high`, which its panel lists as `bad_h` (#36) |
-| lighthouse | `SMALL`, `HOSTILE_SITE` | small | one epic and one top-level leaf with no epic; the hostile title on an open leaf; a requirements file, which puts it in the trace, with `UC`, `SR`, `FR`, `QA` and `CON` items, a use case with `needs:` and an `FR` that `refines:` an `SR` |
+| lighthouse | `SMALL`, `HOSTILE_SITE` | small; the trace demo (#20) | two epics and one top-level leaf with no epic; the hostile title on an open leaf; a requirements file, which puts it in the trace, with `UC`, `SR`, `FR`, `QA` and `CON` items, a use case with `needs:` and an `FR` that `refines:` an `SR`; a second epic, "Keep the lamp log", whose leaves carry `satisfies:` keys: a full box naming four IDs, one of another namespace (`life:BR-1`); a circle naming an `FR` that refines the `SR` a use case needs; a schedule-only leaf naming the `SR` directly; finished leaves serving directly and through refinement; an undefined ID (`lighthouse:FR-90`); and untraced open leaves. `UC-2` and `FR-2` stay unserved |
 | bakery | `NO_WBS` | no `WBS.md` | a folder holding only a short `README.md` |
 | marsh | `UNREADABLE` | cannot be read | ordinary node lines, one of whose titles holds a Latin-1 byte that is not valid UTF-8 |
 

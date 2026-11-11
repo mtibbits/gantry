@@ -7,6 +7,7 @@ Every name and fact here is made up.
 
 - UC-1: A keeper logs the lamp's nightly check. {needs: [FR-1, QA-1]}
 - UC-2: A visitor reads the week's checks.
+- UC-3: An inspector audits a season of the log. {needs: [SR-1]}
 
 ## System requirements
 
