@@ -657,3 +657,140 @@ def test_hostile_trace_page_is_safe(tmp_path):
     used = {c for el in tree(page).elements for c in el["classes"]}
     assert used - CLASS_TOKENS - STRUCTURAL == set()
 
+
+# --- Task 6: the selection function (Node) -----------------------------------------
+
+START = {"selected": None, "hover": None}
+NO_VIEW = {"lane_of": [], "collapsed": []}
+EMPTY_MARKS = {"selected": None, "selecting": False, "leaves": [], "needs": [], "lanes": [], "tracing": None}
+SR1_LIGHT = [["Issue-7", "indirect"], ["Issue-8", "direct"], ["Issue-10", "indirect"], ["Issue-11", "direct"]]
+
+
+@pytest.fixture
+def sample_page(tmp_path):
+    """(path, trace, data) of the sample in-trace page, written from the sample build."""
+    page = sample(tmp_path).pages[SMALL]
+    path = tmp_path / "lighthouse.html"
+    path.write_bytes(page.encode("utf-8"))
+    data = assert_page_safe(page, [])
+    return path, data["trace"], data
+
+
+def stepped(path, events, state=START):
+    for event in events:
+        state = run_function(path, "gantryTrace.step", [state, event])
+    return state
+
+
+def marks_after(path, trace, events, view=NO_VIEW):
+    return run_function(path, "gantryTrace.marks", [trace, stepped(path, events), view])
+
+
+def select(rid):
+    return {"type": "select", "id": rid}
+
+
+def test_select_marks_direct_and_indirect(node, sample_page):
+    path, trace, _ = sample_page
+    marks = marks_after(path, trace, [select("lighthouse:SR-1")])
+    assert marks["leaves"] == SR1_LIGHT
+    assert marks["selected"] == "lighthouse:SR-1" and marks["selecting"] is True
+
+
+def test_reselect_and_escape_clear(node, sample_page):
+    path, trace, _ = sample_page
+    assert marks_after(path, trace, [select("lighthouse:SR-1"), select("lighthouse:SR-1")]) == EMPTY_MARKS
+    escape = {"type": "key", "key": "Escape", "id": None}
+    assert marks_after(path, trace, [select("lighthouse:SR-1"), escape]) == EMPTY_MARKS
+
+
+def test_second_selection_replaces(node, sample_page):
+    path, trace, _ = sample_page
+    marks = marks_after(path, trace, [select("lighthouse:SR-1"), select("lighthouse:FR-1")])
+    assert marks["selected"] == "lighthouse:FR-1"
+    assert marks["leaves"] == [k for k in row(trace, "lighthouse:FR-1")["light"]]
+
+
+def test_enter_and_space_select(node, sample_page):
+    path, trace, _ = sample_page
+    for key in ("Enter", " "):
+        marks = marks_after(path, trace, [{"type": "key", "key": key, "id": "lighthouse:SR-1"}])
+        assert marks["leaves"] == SR1_LIGHT, key
+    assert marks_after(path, trace, [{"type": "key", "key": "a", "id": "lighthouse:SR-1"}]) == EMPTY_MARKS
+
+
+def test_use_case_marks_needs(node, sample_page):
+    path, trace, _ = sample_page
+    marks = marks_after(path, trace, [select("lighthouse:UC-3")])
+    assert marks["needs"] == ["lighthouse:SR-1"]
+    assert marks["leaves"] == [["Issue-7", "indirect"], ["Issue-8", "direct"], ["Issue-10", "indirect"],
+                               ["Issue-11", "indirect"]]
+
+
+def test_hover_keeps_selection(node, sample_page):
+    path, trace, _ = sample_page
+    hovered = marks_after(path, trace, [select("lighthouse:SR-1"), {"type": "hover", "leaf": "Issue-9"}])
+    assert hovered["tracing"] == "Issue-9" and hovered["leaves"] == SR1_LIGHT
+    left = marks_after(path, trace, [select("lighthouse:SR-1"), {"type": "hover", "leaf": "Issue-9"},
+                                     {"type": "leave"}])
+    assert left["tracing"] is None and left["leaves"] == SR1_LIGHT
+
+
+def test_collapsed_lane_count(node, sample_page):
+    path, trace, data = sample_page
+    lane_of = [[leaf["key"], leaf["lane"]] for leaf in data["leaves"]]
+    lanes = list(range(len(data["lanes"])))
+    view = {"lane_of": lane_of, "collapsed": lanes}
+    assert marks_after(path, trace, [select("lighthouse:SR-1")], view)["lanes"] == [[1, 4]]
+    view = {"lane_of": lane_of, "collapsed": [i for i in lanes if i != 1]}
+    assert marks_after(path, trace, [select("lighthouse:SR-1")], view)["lanes"] == []
+
+
+def hand_trace(light):
+    return {"in_trace": True, "scope": "site", "leaves": [], "report": [],
+            "requirements": [{"id": "alpha:FR-1", "label": "FR-1", "layer": "FR", "text": "t", "needs": [],
+                              "light": light, "held": [], "finished": [], "counts": "1 open"}]}
+
+
+def test_proto_key_lights_exactly_that_leaf(node, sample_page):
+    path, _, _ = sample_page
+    trace = hand_trace([["__proto__", "direct"]])
+    view = {"lane_of": [["__proto__", 0], ["constructor", 1]], "collapsed": [0, 1]}
+    marks = marks_after(path, trace, [select("alpha:FR-1")], view)
+    assert marks["leaves"] == [["__proto__", "direct"]]
+    assert marks["lanes"] == [[0, 1]]
+
+
+def test_unknown_id_marks_nothing(node, sample_page):
+    path, trace, _ = sample_page
+    for rid in ("constructor", "lighthouse:FR-99", "__proto__"):
+        assert marks_after(path, trace, [select(rid)]) == EMPTY_MARKS, rid
+
+
+def test_null_trace_marks_nothing(node, sample_page):
+    path, _, _ = sample_page
+    assert marks_after(path, None, [select("lighthouse:SR-1")]) == EMPTY_MARKS
+
+
+def test_step_unknown_type_unchanged(node, sample_page):
+    path, _, _ = sample_page
+    state = {"selected": "lighthouse:SR-1", "hover": "Issue-7"}
+    assert stepped(path, [{"type": "bogus", "id": "lighthouse:FR-1"}], state) == state
+
+
+def test_step_key_without_id_unchanged(node, sample_page):
+    path, _, _ = sample_page
+    state = {"selected": "lighthouse:SR-1", "hover": None}
+    assert stepped(path, [{"type": "key", "key": "Enter", "id": None}], state) == state
+
+
+def test_step_bad_selected_unchanged(node, sample_page):
+    path, _, _ = sample_page
+    state = {"selected": 5, "hover": None}
+    assert stepped(path, [select("lighthouse:SR-1")], state) == state
+
+
+def test_empty_light_set_not_selecting(node, sample_page):
+    path, trace, _ = sample_page
+    marks = marks_after(path, trace, [select("lighthouse:FR-2")])
+    assert marks == {**EMPTY_MARKS, "selected": "lighthouse:FR-2"}

@@ -16,6 +16,54 @@
   const classTokens = () => Array.from(CLASS_SET).sort();
   globalThis.gantryPage = Object.freeze({ esc, classTokens });
 
+  // --- the trace selection (#20): a reducer and its marks, with no DOM ---------
+  // state: {selected: string|null, hover: string|null}. Rows and lanes are
+  // looked up in Maps built from the data's arrays: no key indexes an object.
+
+  const isText = (v) => typeof v === "string";
+
+  function step(state, event) {
+    const ok = state !== null && typeof state === "object" && (state.selected === null || isText(state.selected));
+    const e = event !== null && typeof event === "object" ? event : {};
+    if (!ok) return state;
+    const next = (selected, hover) => ({ selected, hover });
+    if (e.type === "select" && isText(e.id)) return next(state.selected === e.id ? null : e.id, state.hover);
+    if (e.type === "key" && e.key === "Escape") return next(null, state.hover);
+    if (e.type === "key" && (e.key === "Enter" || e.key === " ") && isText(e.id)) {
+      return step(state, { type: "select", id: e.id });
+    }
+    if (e.type === "hover" && isText(e.leaf)) return next(state.selected, e.leaf);
+    if (e.type === "leave") return next(state.selected, null);
+    return state;
+  }
+
+  // view: {lane_of: [[leafKey, laneIndex], ...], collapsed: [laneIndex, ...]}
+  function marks(trace, state, view) {
+    const hover = state !== null && typeof state === "object" && isText(state.hover) ? state.hover : null;
+    const out = { selected: null, selecting: false, leaves: new Map(), needs: [], lanes: [], tracing: hover };
+    if (trace === null || typeof trace !== "object" || !Array.isArray(trace.requirements)) return out;
+    const rows = new Map(trace.requirements.map((r) => [r.id, r]));
+    const id = state !== null && typeof state === "object" && isText(state.selected) ? state.selected : null;
+    const row = id === null ? undefined : rows.get(id);
+    if (row === undefined) return out;
+    out.selected = id;
+    out.leaves = new Map(row.light.map(([k, how]) => [k, how]));
+    out.selecting = out.leaves.size > 0;
+    out.needs = row.needs.filter((n) => rows.has(n));
+    const v = view !== null && typeof view === "object" ? view : {};
+    const laneOf = new Map(Array.isArray(v.lane_of) ? v.lane_of : []);
+    const collapsed = new Set(Array.isArray(v.collapsed) ? v.collapsed : []);
+    const counts = new Map();
+    for (const k of out.leaves.keys()) {
+      const lane = laneOf.get(k);
+      if (lane !== undefined && collapsed.has(lane)) counts.set(lane, (counts.get(lane) || 0) + 1);
+    }
+    out.lanes = Array.from(counts).sort((a, b) => a[0] - b[0]);
+    return out;
+  }
+
+  globalThis.gantryTrace = Object.freeze({ step, marks });
+
   const block = document.getElementById("gantry-data");
   if (block === null) return;
   const DATA = JSON.parse(block.textContent);
