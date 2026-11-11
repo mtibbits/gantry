@@ -44,7 +44,9 @@ assignment rather than import; and reaches through a plain module's
 attributes.
 """
 
+import ast
 import shutil
+from pathlib import Path
 from typing import NamedTuple
 
 import pytest
@@ -225,9 +227,227 @@ def stale_message(file, name, why):
     return f"{file}: exception for {name} is stale ({why}): remove it from EXCEPTIONS in tests/test_confine_scan.py"
 
 
+class Bound(NamedTuple):
+    origin: str  # dotted: a module (os.path, gantry.roots) or a name in one (os.remove)
+    module: bool
+
+
+def is_gantry(name):
+    return name == "gantry" or name.startswith("gantry.")
+
+
+def module_of(file):
+    """gantry/views/index.py -> (gantry.views.index, gantry.views)."""
+    parts = file[: -len(".py")].split("/")
+    package = ".".join(parts[:-1])
+    return (package if parts[-1] == "__init__" else ".".join(parts)), package
+
+
+def import_from_module(node, package):
+    """The absolute module a from-import names, relative levels resolved."""
+    if not node.level:
+        return node.module
+    base = package.split(".")
+    if node.level > 1:
+        base = base[: -(node.level - 1)]
+    return ".".join([*base, *([node.module] if node.module else [])])
+
+
+def allowed_name(module, name):
+    if f"{module}.{name}" in ALLOWED_NAMES:
+        return True
+    return module in OPEN_MODULES and name not in OPEN_MODULES[module]
+
+
+def allowed_module(name):
+    return name in PLAIN_MODULES or name in TOUCHING_MODULES or is_gantry(name)
+
+
+class Package:
+    """Every module's import table, and the rules that resolve a dotted name."""
+
+    def __init__(self, modules):
+        self.modules = {name for name, _, _ in modules}
+        self.tables = {name: self.table(tree, package) for name, package, tree in modules}
+
+    def known(self, name):
+        return name in PLAIN_MODULES or name in TOUCHING_MODULES or name in self.modules
+
+    def table(self, tree, package):
+        table = {}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.asname:
+                        table[alias.asname] = Bound(alias.name, True)
+                    else:
+                        top = alias.name.split(".")[0]
+                        table[top] = Bound(top, True)
+            elif isinstance(node, ast.ImportFrom):
+                source = import_from_module(node, package)
+                for alias in node.names:
+                    if alias.name != "*":
+                        full = f"{source}.{alias.name}"
+                        table[alias.asname or alias.name] = Bound(full, self.known(full))
+        return table
+
+    def split(self, dotted):
+        """(longest known module prefix or None, the names after it)."""
+        parts = dotted.split(".")
+        for i in range(len(parts), 0, -1):
+            prefix = ".".join(parts[:i])
+            if self.known(prefix):
+                return prefix, parts[i:]
+        return None, parts
+
+    def refusal(self, dotted, seen=frozenset()):
+        """(name, rule) if a reach of dotted is refused, else None."""
+        prefix, rest = self.split(dotted)
+        if prefix is None:
+            return ".".join(rest[:2]), "module"
+        if prefix in PLAIN_MODULES:
+            return None
+        if prefix in TOUCHING_MODULES:
+            if not rest:
+                return prefix, "rebind"
+            return None if allowed_name(prefix, rest[0]) else (f"{prefix}.{rest[0]}", "name")
+        if not rest:
+            return None
+        name, tail = rest[0], rest[1:]
+        bound = self.tables.get(prefix, {}).get(name)
+        if bound is None or (prefix, name) in seen:
+            return None
+        seen = seen | {(prefix, name)}
+        if self.refusal(bound.origin, seen) or (tail and self.refusal(".".join([bound.origin, *tail]), seen)):
+            return f"{prefix}.{name}", "through-gantry"
+        return None
+
+    def canonical(self, dotted, seen=frozenset()):
+        """dotted with every re-export through a gantry module followed to its origin."""
+        prefix, rest = self.split(dotted)
+        if prefix in self.modules and rest:
+            bound = self.tables.get(prefix, {}).get(rest[0])
+            if bound is not None and (prefix, rest[0]) not in seen:
+                return self.canonical(".".join([bound.origin, *rest[1:]]), seen | {(prefix, rest[0])})
+        return dotted
+
+
+def chain_of(node, table):
+    """(Bound, attribute names) for a Name/Attribute chain rooted at an imported name."""
+    attrs = []
+    while isinstance(node, ast.Attribute):
+        attrs.append(node.attr)
+        node = node.value
+    if isinstance(node, ast.Name) and node.id in table:
+        return table[node.id], attrs[::-1]
+    return None
+
+
+def dotted_of(chain):
+    bound, attrs = chain
+    return ".".join([bound.origin, *attrs])
+
+
+def check_imports(node, scope, refuse):
+    if isinstance(node, ast.Import):
+        for alias in node.names:
+            if not allowed_module(alias.name):
+                refuse(alias, alias.name, "module")
+        return
+    source = import_from_module(node, scope.package)
+    for alias in node.names:
+        if alias.name == "*":
+            if source in TOUCHING_MODULES or is_gantry(source):
+                refuse(alias, f"{source}.*", "star")
+            elif source not in PLAIN_MODULES:
+                refuse(alias, source, "module")
+            continue
+        full = f"{source}.{alias.name}"
+        if full in PLAIN_MODULES or full in TOUCHING_MODULES or source in PLAIN_MODULES:
+            continue
+        if source in TOUCHING_MODULES:
+            if not allowed_name(source, alias.name):
+                refuse(alias, full, "name")
+        elif is_gantry(source):
+            if found := scope.rules.refusal(full):
+                refuse(alias, *found)
+        else:
+            refuse(alias, source, "module")
+            refuse(alias, full, "module")
+
+
+class ModuleScan(NamedTuple):
+    rules: Package
+    package: str
+
+
+def check_module(file, tree, scope, hits):
+    table = scope.rules.tables[module_of(file)[0]]
+
+    def refuse(node, name, rule):
+        hits.append(Hit(file, node.lineno, name, rule))
+
+    inner, subjects = set(), set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute):
+            inner.add(id(node.value))
+        elif is_literal_getattr(node) and (chain := chain_of(node.args[0], table)) and chain[0].module:
+            subjects.add(id(node.args[0]))
+
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            check_imports(node, scope, refuse)
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id in REFUSED_BUILTINS:
+            refuse(node, node.id, "builtin")
+        if isinstance(node, ast.Call):
+            for keyword in node.keywords:
+                if keyword.arg in REFUSED_KEYWORDS:
+                    refuse(keyword, keyword.arg, "keyword")
+            if (chain := chain_of(node.func, table)) is not None:
+                if (name := scope.rules.canonical(dotted_of(chain))) in ROOT_BUILDERS:
+                    refuse(node, name, "roots-builder")
+            if node.args and id(node.args[0]) in subjects:
+                subject = dotted_of(chain_of(node.args[0], table))
+                if found := scope.rules.refusal(f"{subject}.{node.args[1].value}"):
+                    refuse(node, *found)
+        if isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load):
+            continue
+        if isinstance(node, (ast.Name, ast.Attribute)) and id(node) not in inner and id(node) not in subjects:
+            chain = chain_of(node, table)
+            if chain is not None and chain[0].module and (found := scope.rules.refusal(dotted_of(chain))):
+                refuse(node, *found)
+
+
+def is_literal_getattr(node):
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "getattr"
+        and len(node.args) >= 2
+        and isinstance(node.args[1], ast.Constant)
+        and isinstance(node.args[1].value, str)
+    )
+
+
 def scan(pkg_dir, exceptions=None):
     """Report every reach outside the allow-list in the package at pkg_dir."""
-    return Report([], set(), [])  # stub (#60 Task 3)
+    exceptions = EXCEPTIONS if exceptions is None else exceptions
+    prefix = Path(pkg_dir).name
+    files = [(f"{prefix}/{rel}", tree) for rel, tree in package_modules(pkg_dir)]
+    rules = Package([(*module_of(file), tree) for file, tree in files])
+    hits = []
+    for file, tree in files:
+        if file != ROOTS_FILE:
+            check_module(file, tree, ModuleScan(rules, module_of(file)[1]), hits)
+    parsed = {file for file, _ in files}
+    used = {(hit.file, hit.name) for hit in hits}
+    stale = [
+        (file, name, "its module file does not exist" if file not in parsed else "the module no longer uses this name")
+        for file, name in sorted(exceptions)
+        if file not in parsed or (file, name) not in used
+    ]
+    refused = sorted(hit for hit in hits if (hit.file, hit.name) not in exceptions)
+    return Report(refused, parsed, stale)
 
 
 def tree_failures(pkg_dir, exceptions=None):
