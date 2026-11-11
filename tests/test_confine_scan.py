@@ -10,7 +10,9 @@ gantry/ is scanned too, on purpose.
 The rules, each a tag on the report it produces (RULES):
 - module: an import must be a PLAIN_MODULES key, a TOUCHING_MODULES key or a
   gantry module, by exact dotted name ("urllib.parse" admits neither
-  "urllib.request" nor "urllib").
+  "urllib.request" nor "urllib"). This holds for "import a.b"; a
+  from-import of a plain module's name ("from json import tool") is not
+  checked.
 - name: from a file-touching module only ALLOWED_NAMES (or, for an
   OPEN_MODULES module, every name but those it refuses) may be imported, or
   reached as an attribute through any alias or getattr with a literal name.
@@ -32,7 +34,11 @@ Exceptions (EXCEPTIONS) are keyed by module file and exact name, each with a
 reason. An unlisted module (fcntl, say) is reported at its import under its
 own name, and each use under the name down to its first attribute
 (fcntl.flock): an exception for the import admits only the import, and each
-name used needs its own entry. An exception whose module file does not exist,
+name used needs its own entry. Two gaps: a bare read of the module
+("x = fcntl") is reported under the module's own name, so the import's
+exception admits it too; and a dotted unlisted module's use is cut to two
+parts ("concurrent.futures.ThreadPoolExecutor" is reported as
+"concurrent.futures", the import's name). An exception whose module file does not exist,
 or that removes no report, is stale and fails the tree test.
 
 What the scan does not decide, including: getattr with a computed name,
@@ -40,8 +46,8 @@ sys.modules, eval of a built string (each is deliberate evasion: review and
 #43's run-time read spy own those); a Root or Roots reference that is not a
 call, such as dataclasses.replace on a Root; an attribute assignment of
 fromfile_prefix_chars; a gantry module that re-binds a file-touching name by
-assignment rather than import; and reaches through a plain module's
-attributes.
+assignment rather than import; and reaches through a plain module's or an
+OPEN_MODULES module's attributes ("argparse._os"), or through __builtins__.
 """
 
 import ast
@@ -56,8 +62,8 @@ from test_source_scan import package_modules
 
 ROOTS_FILE = "gantry/roots.py"  # exempt by exact path; parsed for imports only
 
-# Modules that take no file path: exact dotted name -> reason. A parent does
-# not admit a child, nor a child its parent.
+# Modules that take no file path: exact dotted name -> reason. On an import, a
+# parent does not admit a child, nor a child its parent.
 PLAIN_MODULES = {
     "re": "regular expressions over strings",
     "json": "loads/dumps on strings; json.load takes a file only roots.py can open",
@@ -102,7 +108,6 @@ TOUCHING_MODULES = {
 ALLOWED_NAMES = {
     "os.name": "the platform's name; a value",
     "os.fspath": "returns the path text of a path object; opens nothing",
-    "os.path": "the module itself; its names are checked one by one",
     "os.path.join": "pure string join",
     "os.path.basename": "pure string split",
     "os.path.dirname": "pure string split",
@@ -515,6 +520,8 @@ def plant_path(plant):
 SUPPORT = (
     Pass("carrier", src("import os", "from pathlib import Path", "from pathlib import PurePosixPath")),
     Pass("zcarrier", src("import zipfile")),
+    Pass("bcarrier", src("from gantry.roots import add_root")),
+    Pass("ccarrier", src("from gantry import planted_carrier")),
 )
 
 # The via_roots_*, build_*, directory_roots, add_root, with_file and
@@ -607,6 +614,15 @@ FAILS = (
         "gantry.planted_zcarrier.zipfile",
         "through-gantry",
     ),
+    Fail(
+        "via_ccarrier_attr",
+        src("import gantry.planted_ccarrier", 'gantry.planted_ccarrier.planted_carrier.os.remove("x")'),
+        2,
+        "gantry.planted_ccarrier.planted_carrier",
+        "through-gantry",
+    ),
+    Fail("zipfile_from", src("from zipfile import ZipFile"), 1, "zipfile.ZipFile", "module"),
+    Fail("star_unlisted", src("from zipfile import *"), 1, "zipfile", "module"),
     Fail("star_touching", src("from os import *"), 1, "os.*", "star"),
     Fail("star_gantry", src("from gantry.config import *"), 1, "gantry.config.*", "star"),
     Fail("rebind", src("import os", "x = os"), 2, "os", "rebind"),
@@ -666,6 +682,13 @@ FAILS = (
         "gantry.roots.with_file",
         "roots-builder",
     ),
+    Fail(
+        "via_bcarrier_builder",
+        src("from gantry.planted_bcarrier import add_root", 'add_root(None, "x", key="k", kind="file")'),
+        2,
+        "gantry.roots.add_root",
+        "roots-builder",
+    ),
 )
 
 PASSES = (
@@ -697,6 +720,9 @@ PASSES = (
     Pass("getattr_value", src("e = ValueError()", 'getattr(e, "strerror", None)')),
     Pass("getattr_allowed", src("import os", 'getattr(os.path, "join")')),
     Pass("urllib_parse", src("import urllib.parse", 'urllib.parse.quote("a")')),
+    # Each re-exports the other's name: the re-export walk must stop, not recurse.
+    Pass("cycle_a", src("from gantry.planted_cycle_b import x")),
+    Pass("cycle_b", src("from gantry.planted_cycle_a import x")),
 )
 
 
@@ -774,6 +800,7 @@ def test_plants_cover_every_rule(planted):
 def test_planted_copy_is_outside_the_work_tree(planted):
     assert not planted.base.resolve().is_relative_to(ROOT.resolve())
     assert list((ROOT / "gantry").rglob("planted_*.py")) == []
+    assert not (ROOT / "gantry" / "views" / "roots.py").exists()
     for plant in (*SUPPORT, *FAILS, *PASSES):
         assert (planted.base / plant_path(plant)).is_file()
 
