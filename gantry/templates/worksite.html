@@ -205,6 +205,23 @@ figcaption { color: var(--muted); font-size: 14px; max-width: 72ch; }
 .detail { background: var(--sheet); border: 1px solid var(--rule); border-radius: 4px; padding: 14px 16px; font-size: 14px; min-height: 96px; display: grid; gap: 4px; overflow-wrap: anywhere; }
 .detail .k { color: var(--muted); }
 .panel { margin: 0; padding-left: 20px; display: grid; gap: 8px; max-width: 72ch; overflow-wrap: anywhere; }
+
+/* the trace (#20): chips under a box, the requirements panel and the trace report */
+h3 { font-family: var(--f-display); font-size: 17px; font-weight: 600; margin: 0; }
+.chip { cursor: pointer; outline: none; }
+.chip-box { fill: var(--sheet); stroke: var(--muted); stroke-width: .75; }
+.node text.chip-t { font-family: var(--f-mono); font-size: 8px; fill: var(--ink); }
+.node text.chip-more { font-family: var(--f-mono); font-size: 8px; fill: var(--muted); }
+.chip:focus-visible .chip-box { stroke: var(--cross); stroke-width: 2; }
+.reqs { list-style: none; padding-left: 0; }
+.req-row { font: inherit; color: inherit; text-align: left; background: none; border: 1px solid transparent; border-radius: 3px; padding: 2px 6px; cursor: pointer; }
+.req-row:hover { border-color: var(--rule); }
+.req-row:focus-visible, .req-more:focus-visible { outline: 2px solid var(--cross); outline-offset: 2px; }
+.req-count { color: var(--muted); font-size: 13px; white-space: nowrap; }
+.req-more { font: 13px var(--f-body); color: var(--muted); background: none; border: none; padding: 0 6px; cursor: pointer; text-decoration: underline; }
+/* No display here: .gone alone hides the detail. */
+.req-detail { margin: 4px 0 0; padding-left: 20px; font-size: 14px; }
+.trace ul { margin: 4px 0 0; padding-left: 20px; }
 </style>
 </head>
 <body>
@@ -313,12 +330,12 @@ figcaption { color: var(--muted); font-size: 14px; max-width: 72ch; }
       <div><span class="k">Hover, select or tab to a bar to see the leaf.</span></div>
     </div>
   </section>
-  </div>
+  </div>{{REQUIREMENTS}}
 
   <section class="prose">
     <h2>{{HELD_ANCHORS}}Missing or unreadable</h2>
     <ul class="panel" id="panel">{{PANEL}}</ul>
-  </section>
+  </section>{{TRACE}}
 
   <section class="prose">
     <h2>{{FINISHED_HEADING}}</h2>

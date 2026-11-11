@@ -68,6 +68,27 @@ NO_ISSUE_ID = "no issue id"
 NO_FINISHED = "No leaf is finished yet."
 # The states a page schedules as if an agent could start them.
 HELD_STATES = ("stuck", "blocked_external", "parked")
+# The trace (#20): chips, the requirements panel and the trace report.
+CHIPS_MAX = 3
+CHIP_MORE = "+{n}"
+REQUIREMENTS_HEADING = "Requirements"
+LAYER_HEADINGS = {"BR": "Business requirements", "BRule": "Business rules", "UC": "Use cases",
+                  "SR": "System requirements", "FR": "Functional requirements", "QA": "Quality attributes",
+                  "EI": "External interfaces", "CON": "Constraints"}
+ROW_DETAIL = "serving leaves not drawn"
+ROW_HELD, ROW_FINISHED = "waiting on a cycle", "finished"
+TRACE_HEADING = "Trace report"
+TRACE_LABELS = {"unreadable": "Unreadable files", "malformed": "Malformed entries", "duplicate": "Duplicate IDs",
+                "misplaced": "Misplaced requirements", "cycle": "Refinement cycles", "undefined": "Undefined IDs",
+                "unserved": "Unserved requirements", "untraced": "Untraced open leaves"}
+UNSERVED_SCOPES = {"site": "served only within this site"}
+UNSERVED_SCOPE_OTHER = "scope: {scope}"  # a scope this Gantry does not know yet (#21)
+TRACE_COUNT = "{label}: {n}"
+TRACE_NONE = "none"
+ENTRY_LINE, ENTRY_WHOLE = "{source} line {line}: {message}", "{source}: {message}"
+# The page script's selection texts (#20), through the page's texts.
+SATISFIES = "Satisfies:"
+LIT = "{n} lit"
 
 
 # --- the optional inputs (gantry/inputs.py fills them, #10) -----------------------
@@ -396,7 +417,7 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None) -> di
         "texts": {"label": SCHEDULE_LABEL, "chain": CHAIN_LINE, "capacity": CAPACITY_LINE,
                   "includes": INCLUDES, "includes_one": INCLUDES_ONE, "dates": DATES, "dates_one": DATES_ONE,
                   "summary": SUMMARY, "summary_no_chain": SUMMARY_NO_CHAIN, "summary_unest": SUMMARY_UNEST,
-                  "summary_unest_one": SUMMARY_UNEST_ONE},
+                  "summary_unest_one": SUMMARY_UNEST_ONE, "satisfies": SATISFIES, "lit": LIT},
         "trace": trace,
     }
 
@@ -413,6 +434,13 @@ ARROW = " \u2192 "
 # row, a lane's padding, the header and the model band.
 GUT, COLW, BW, BH, ROWH, PAD, TOP, BAND = 204, 170, 152, 66, 80, 14, 46, 17
 TITLE_MAX = 40
+# A chip row sits in the ROWH - BH gap under its box (#20). CHIP_FONT is the
+# CSS .chip-t font size in px (a test holds the pair); a monospace character
+# is taken as 0.6 of it, so a row's width is known here.
+CHIP_FONT = 8
+CHIP_CHAR_W = 0.6 * CHIP_FONT
+CHIP_CHARS = 12  # a label's budget; the full ID is the chip's title
+CHIP_PAD, CHIP_GAP, CHIP_H, CHIP_DY = 3, 3, 10, 2
 UNSAFE_SCRIPT_RE = re.compile(r"</script|<!--", re.IGNORECASE)
 
 
@@ -534,6 +562,7 @@ def _network_svg(m):
     leaves = {leaf["key"]: leaf for leaf in m["leaves"]}
     net = m["network"]
     nodes = net["nodes"]
+    chip_ids = dict(m["trace"]["leaves"]) if m.get("trace") is not None else {}
     es = {n: leaves[n]["es"] for n in nodes}
     lane_of = {n: leaves[n]["lane"] for n in nodes}
     row = _layout(nodes, es, lane_of, {n: leaves[n]["preds"] for n in nodes})
@@ -634,6 +663,7 @@ def _network_svg(m):
                                  f"{label} {_cut(tier if tier is not None else 'none', 9)}", "middle"))
             out.append(f'<line class="band-split" x1="{_n(x + half)}" y1="{_n(by)}" x2="{_n(x + half)}" y2="{_n(yy + BH)}"/>')
         out.append(f'<rect class="outline" x="{_n(x)}" y="{_n(yy)}" width="{BW}" height="{BH}" rx="3"/>')
+        out += _chips(chip_ids.get(n, []), x, yy)
         out.append("</g></g>")
     out.append("</svg>")
     return Markup("\n".join(out))
@@ -724,6 +754,93 @@ def _finished(m):
     return Markup(f'<ul class="panel finished">{lines}</ul>')
 
 
+# --- the trace (#20) ---------------------------------------------------------------
+
+
+def unserved_label(scope):
+    """The unserved category's label, from the report's scope; an unknown scope is named, never a KeyError."""
+    return f"{TRACE_LABELS['unserved']} ({UNSERVED_SCOPES.get(scope, UNSERVED_SCOPE_OTHER.format(scope=scope))})"
+
+
+def _chips(ids, x, y):
+    """The chip row in the gap under a box at (x, y): up to CHIPS_MAX chips
+    that fit in its width, then CHIP_MORE for the rest."""
+    out, cx, right = [], x, x + BW
+    top = y + BH + CHIP_DY
+    base = top + CHIP_H - 2.5
+    shown = 0
+    for i, (rid, label) in enumerate(ids[:CHIPS_MAX]):
+        text = _cut(label, CHIP_CHARS)
+        w = len(text) * CHIP_CHAR_W + 2 * CHIP_PAD
+        rest = len(ids) - i - 1
+        reserve = len(CHIP_MORE.format(n=rest)) * CHIP_CHAR_W + CHIP_GAP if rest else 0
+        if cx + w + reserve > right:
+            break
+        out.append(f'<g class="chip" data-req="{esc(rid)}" tabindex="0" role="button" aria-pressed="false">'
+                   f"<title>{esc(rid)}</title>"
+                   f'<rect class="chip-box" x="{_n(cx)}" y="{_n(top)}" width="{_n(w)}" height="{CHIP_H}" rx="2"/>'
+                   + _text("chip-t", cx + CHIP_PAD, base, text) + "</g>")
+        cx += w + CHIP_GAP
+        shown += 1
+    if shown < len(ids):
+        out.append(_text("chip-more", cx, base, CHIP_MORE.format(n=len(ids) - shown)))
+    return out
+
+
+def _req_row(r):
+    rid = esc(r["id"])
+    text = f" {esc(r['text'])}" if r["text"] is not None else ""
+    out = (f'<li class="req" data-req="{rid}"><button type="button" class="req-row" data-control="requirement" '
+           f'data-value="{rid}" aria-pressed="false"><span class="mono">{esc(r["label"])}</span>{text} '
+           f'<span class="req-count">{esc(r["counts"])}</span></button>')
+    rows = [(row, ROW_HELD) for row in r["held"]] + [(row, ROW_FINISHED) for row in r["finished"]]
+    if rows:
+        lines = "".join(f"<li>{_mono([key])}{DOT}{esc(issue if issue is not None else NO_ISSUE_ID)}{DOT}"
+                        f"{esc(title)}{DOT}{esc(what)}</li>" for (key, issue, title, _), what in rows)
+        out += (f'<button type="button" class="req-more" data-control="requirement-detail" data-value="{rid}" '
+                f'aria-expanded="false">{esc(ROW_DETAIL)}</button><ul class="req-detail gone">{lines}</ul>')
+    return out + "</li>"
+
+
+def _requirements(trace):
+    """The requirements panel: on a site in the trace, or one whose leaves name an ID that resolves."""
+    if trace is None or not (trace["in_trace"] or trace["requirements"]):
+        return Markup("")
+    groups = {}
+    for r in trace["requirements"]:
+        groups.setdefault(r["layer"], []).append(r)
+    parts = [f'<section class="prose" id="requirements"><h2>{esc(REQUIREMENTS_HEADING)}</h2>']
+    for layer, rows in groups.items():
+        parts.append(f'<h3>{esc(LAYER_HEADINGS[layer])}</h3><ul class="panel reqs">'
+                     + "".join(_req_row(r) for r in rows) + "</ul>")
+    return Markup("".join(parts) + "</section>")
+
+
+def _trace_item(name, item):
+    if name == "unserved":
+        return esc(item[1])
+    if name == "untraced":
+        return f"{_mono([item[0]])}{DOT}{esc(item[1])}"
+    source, line, message = item
+    form = ENTRY_WHOLE if line is None else ENTRY_LINE
+    return esc(form.format(source=source, line=line, message=message))
+
+
+def _trace_panel(trace):
+    """The trace report panel: drawn when any category has an item (D2)."""
+    if trace is None or not any(items for _, items in trace["report"]):
+        return Markup("")
+    cats = []
+    for name, items in trace["report"]:
+        label = unserved_label(trace["scope"]) if name == "unserved" else TRACE_LABELS[name]
+        head = f'<span class="k">{esc(TRACE_COUNT.format(label=label, n=len(items)))}</span>'
+        body = ("<ul>" + "".join(f"<li>{_trace_item(name, item)}</li>" for item in items) + "</ul>"
+                if items else f" {esc(TRACE_NONE)}")
+        cats.append(f'<li class="trace-cat">{head}{body}</li>')
+    return Markup(f'<section class="prose" id="trace"><h2>{esc(TRACE_HEADING)}</h2>'
+                  f'<ul class="panel trace">{"".join(cats)}</ul></section>')
+
+
 def render_page(site, data, *, default_unit_hours, inputs=None, stamp="", trace=None) -> str:
     """The worksite page for one site's parsed WBS.md, as one HTML text."""
     return render_model(page_model(site, data, default_unit_hours=default_unit_hours, inputs=inputs, trace=trace),
@@ -789,6 +906,8 @@ def render_model(m, *, stamp="") -> str:
         HELD_ANCHORS=_anchors(m["anchors"]["held"]),
         FINISHED_HEADING=FINISHED_HEADING,
         FINISHED=_finished(m),
+        REQUIREMENTS=_requirements(m.get("trace")),
+        TRACE=_trace_panel(m.get("trace")),
         DATA=embed_json(m),
         SCHEDULE_JS=_script("static/schedule.js"),
         PAGE_JS=_script("static/worksite.js"),

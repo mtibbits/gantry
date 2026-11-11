@@ -16,18 +16,20 @@ from gantry import build
 from gantry.build import build_all
 from gantry.cli import main
 from gantry.config import load_config
+from gantry.model import FINISHED_GLYPHS, STATE_GLYPHS, Estimate, Leaf, SiteData
+from gantry.render import CLASS_TOKENS
 from gantry.sites import config_roots, load_sites
-from gantry.trace import (COUNT_FINISHED, COUNT_HELD, COUNT_OPEN, build_site_trace, counts_line, load_catalog,
-                          page_trace)
+from gantry.trace import (COUNT_FINISHED, COUNT_HELD, COUNT_OPEN, MESSAGES, build_site_trace, counts_line,
+                          load_catalog, page_trace)
 from gantry.views import worksite
 from gantry.views.worksite import BH, BW, ROWH, page_model
 from helpers_config import copy_samples, demo_build, page_ids, sample_build, write_site_tree
-from page_safety import assert_no_external_resources, assert_page_safe
+from page_safety import HOSTILE, _strings, assert_no_external_resources, assert_page_safe
 from page_script.harness import Planted, PageScriptError, open_page, run_function
 from sample_roles import BUSY, READABLE, SMALL
 from test_cli import run_module
 from test_samples import GANTRY_SAMPLE, ROOT
-from test_worksite_page import find, text_of, tree
+from test_worksite_page import STRUCTURAL, find, text_of, tree, visible_text
 
 # One in-trace site whose FR-1 is served only by Issue-1, held out by its
 # cycle with Issue-2.
@@ -326,4 +328,332 @@ def test_trace_line_bytes(tmp_path):
     assert result.returncode == 0, result.stderr
     assert b"\r" not in result.stdout
     assert result.stdout.decode("utf-8").splitlines()[-1] == SAMPLE_LINE
+
+
+# --- Task 5: chips and the two panels ----------------------------------------------
+
+GOLDEN = ROOT / "tests" / "fixtures" / "trace_page" / "untraced_main.txt"
+MAIN_RE = re.compile(r"<main\b.*?</main>", re.S)
+FOUR_REQS = "# R\n\n## Functional requirements\n\n- FR-1: One.\n- FR-2: Two.\n- FR-3: Three.\n- FR-4: Four.\n"
+
+
+def node_of(t, key):
+    (i,) = [i for i in find(t, "g", ["node"]) if t.elements[i]["attrs"].get("data-item") == key]
+    return i
+
+
+def chips(t, within):
+    return [(text_of(t, find(t, "text", ["chip-t"], within=c)[0]), t.elements[c]["attrs"]["data-req"])
+            for c in find(t, "g", ["chip"], within=within)]
+
+
+def more_of(t, within):
+    return [text_of(t, i) for i in find(t, "text", ["chip-more"], within=within)]
+
+
+def by_id(t, ident):
+    (i,) = [i for i, el in enumerate(t.elements) if el["attrs"].get("id") == ident]
+    return i
+
+
+def req_li(t, rid):
+    (i,) = [i for i in find(t, "li", ["req"]) if t.elements[i]["attrs"].get("data-req") == rid]
+    return i
+
+
+def detail_lines(t, li):
+    (ul,) = find(t, "ul", ["req-detail"], within=li)
+    return [text_of(t, i) for i in find(t, "li", within=ul)]
+
+
+def page_of(config_path, site):
+    result = built(config_path)
+    assert site in result.pages, result.summaries
+    return result.pages[site]
+
+
+def test_sample_box_chips(tmp_path):
+    t = tree(sample(tmp_path).pages[SMALL])
+    seven = node_of(t, "Issue-7")
+    assert chips(t, seven) == [("FR-1", "lighthouse:FR-1"), ("life:BR-1", "life:BR-1"), ("QA-1", "lighthouse:QA-1")]
+    assert more_of(t, seven) == ["+1"]
+    eight = node_of(t, "Issue-8")
+    assert chips(t, eight) == [("SR-1", "lighthouse:SR-1"), ("UC-3", "lighthouse:UC-3")]
+    assert more_of(t, eight) == []
+
+
+def test_chip_count_extremes(tmp_path):
+    wbs = {"alpha": ("# A\n\n"
+                     "- [ ] Three {issue: Issue-1, satisfies: [alpha:FR-1, alpha:FR-2, alpha:FR-3]}\n"
+                     "- [ ] Four {issue: Issue-2, depends_on: [Issue-1], "
+                     "satisfies: [alpha:FR-1, alpha:FR-2, alpha:FR-3, alpha:FR-4]}\n"
+                     "- [ ] None {issue: Issue-3, depends_on: [Issue-2]}\n")}
+    t = tree(page_of(installation(tmp_path, wbs, {"alpha": FOUR_REQS}), "alpha"))
+    three, four, none = (node_of(t, f"Issue-{n}") for n in (1, 2, 3))
+    assert [label for label, _ in chips(t, three)] == ["FR-1", "FR-2", "FR-3"] and more_of(t, three) == []
+    assert [label for label, _ in chips(t, four)] == ["FR-1", "FR-2", "FR-3"] and more_of(t, four) == ["+1"]
+    assert chips(t, none) == [] and more_of(t, none) == []
+
+
+def test_sample_panel_row(tmp_path):
+    t = tree(sample(tmp_path).pages[SMALL])
+    panel = by_id(t, "requirements")
+    assert [text_of(t, i) for i in find(t, "h3", within=panel)] == [
+        worksite.LAYER_HEADINGS[k] for k in ("BR", "UC", "SR", "FR", "QA", "CON")]
+    sr1 = req_li(t, "lighthouse:SR-1")
+    assert [text_of(t, i) for i in find(t, "span", ["req-count"], within=sr1)] == ["4 open, 2 finished"]
+    assert detail_lines(t, sr1) == ["Issue-3 · Issue-3 · Rewire the lamp · finished",
+                                    "Issue-6 · Issue-6 · Choose the logbook format · finished"]
+    fr2 = req_li(t, "lighthouse:FR-2")
+    assert [text_of(t, i) for i in find(t, "span", ["req-count"], within=fr2)] == ["0 open"]
+    assert find(t, "button", ["req-more"], within=fr2) == [] and find(t, "ul", ["req-detail"], within=fr2) == []
+
+
+def test_held_out_row_rendered(tmp_path):
+    t = tree(page_of(installation(tmp_path, CYCLE, {"alpha": CYCLE_REQS}), "alpha"))
+    fr1 = req_li(t, "alpha:FR-1")
+    assert [text_of(t, i) for i in find(t, "span", ["req-count"], within=fr1)] == ["0 open, 1 waiting on a cycle"]
+    assert detail_lines(t, fr1) == ["Issue-1 · Issue-1 · One · waiting on a cycle"]
+
+
+def report_items(t):
+    """{category label: (count text, [item texts])} of the #trace panel, in order."""
+    panel = by_id(t, "trace")
+    out = {}
+    for li in find(t, "li", ["trace-cat"], within=panel):
+        (k,) = find(t, "span", ["k"], within=li)
+        out[text_of(t, k).rsplit(":", 1)[0]] = (text_of(t, k), [text_of(t, i) for i in find(t, "li", within=li)])
+    return out
+
+
+def test_sample_report_panel(tmp_path):
+    page = sample(tmp_path).pages[SMALL]
+    t = tree(page)
+    items = report_items(t)
+    unserved = "Unserved requirements (served only within this site)"
+    assert list(items) == [worksite.TRACE_LABELS[k] for k in ("unreadable", "malformed", "duplicate", "misplaced", "cycle",
+                                                     "undefined")] + [unserved, "Untraced open leaves"]
+    assert items["Undefined IDs"][0] == "Undefined IDs: 1"
+    (undefined,) = items["Undefined IDs"][1]
+    assert undefined.startswith("WBS.md line 13: satisfies entry lighthouse:FR-90 names no requirement")
+    assert items[unserved] == (f"{unserved}: 2", ["UC-2", "FR-2"])
+    assert items["Untraced open leaves"] == ("Untraced open leaves: 3", [
+        'Issue-4 · Render <b>this</b> & "that" as text', "Issue-5 · Repaint the keeper's door",
+        "Issue-9 · Train the relief keeper"])
+    for name in ("unreadable", "malformed", "duplicate", "misplaced", "cycle"):
+        assert items[worksite.TRACE_LABELS[name]] == (f"{worksite.TRACE_LABELS[name]}: 0", [])
+        (li,) = [i for i in find(t, "li", ["trace-cat"]) if text_of(t, i).startswith(worksite.TRACE_LABELS[name] + ":")]
+        assert text_of(t, li) == f"{worksite.TRACE_LABELS[name]}: 0 none"
+    for ident in ("gantt", "panel", "detail"):
+        by_id(t, ident)
+    assert find(t, "svg", ["net"]) and find(t, "ul", ["finished"])
+    assert_page_safe(page, [])
+    assert_no_external_resources(page)
+
+
+def test_demo_page_carries_trace_element(tmp_path, monkeypatch):
+    code, out, _, err = demo_build(tmp_path, monkeypatch)
+    assert code == 0, err
+    small = page_ids((out / "sites" / f"{SMALL}.html").read_bytes().decode("utf-8"))
+    busy = page_ids((out / "sites" / f"{BUSY}.html").read_bytes().decode("utf-8"))
+    assert "trace" in small and "requirements" in small
+    assert "trace" not in busy and "requirements" not in busy
+
+
+def render_traced(config_path, site, trace=True):
+    """(html, model) of one site through build.render_site, stamp "", as the golden was captured."""
+    config = load_config(config_path)
+    roots = config_roots(config)
+    sites = load_sites(config, roots)[0]
+    inputs = build.read_sites(config, sites, roots=roots)[0][site]
+    if trace:
+        return build.render_site(site, inputs, config, "", catalog=load_catalog(roots, config, sites))
+    m = page_model(site, inputs.data, default_unit_hours=config.default_unit_hours, inputs=inputs)
+    return worksite.render_model(m, stamp=""), m
+
+
+def test_untraced_site_renders_as_before(tmp_path):
+    wbs = (ROOT / "tests" / "fixtures" / "wbs" / "page.md").read_bytes().decode("utf-8")
+    config_path = installation(tmp_path, {"alpha": wbs})
+    page, _ = render_traced(config_path, "alpha")
+    assert find(tree(page), "g", ["chip"]) == []
+    assert "requirements" not in page_ids(page) and "trace" not in page_ids(page)
+    assert MAIN_RE.search(page).group(0) + "\n" == GOLDEN.read_bytes().decode("utf-8")
+    plain, _ = render_traced(config_path, "alpha", trace=False)
+    with_trace, without = assert_page_safe(page, []), assert_page_safe(plain, [])
+    assert with_trace.pop("trace")["in_trace"] is False and without.pop("trace") is None
+    assert with_trace == without
+
+
+def test_untraced_site_with_resolvable_id(tmp_path):
+    wbs = {"alpha": ONE_LEAF,
+           "beta": ("# B\n\n- [ ] One {issue: Issue-1, satisfies: alpha:FR-1}\n"
+                    "- [ ] Two {issue: Issue-2, depends_on: [Issue-1]}\n")}
+    page = page_of(installation(tmp_path, wbs, {"alpha": FOUR_REQS}), "beta")
+    t = tree(page)
+    assert chips(t, node_of(t, "Issue-1")) == [("alpha:FR-1", "alpha:FR-1")]
+    req_li(t, "alpha:FR-1")
+    assert "trace" not in page_ids(page)
+
+
+def test_business_requirement_has_no_text(tmp_path):
+    secret = "Grow the keeper guild across the coast"
+    wbs = {"alpha": ("# A\n\n- [ ] One {issue: Issue-1, satisfies: life:BR-1}\n"
+                     "- [ ] Two {issue: Issue-2, depends_on: [Issue-1]}\n")}
+    page = page_of(installation(tmp_path, wbs, portfolio=f"- BR-1: {secret}.\n"), "alpha")
+    t = tree(page)
+    assert chips(t, node_of(t, "Issue-1")) == [("life:BR-1", "life:BR-1")]
+    req_li(t, "life:BR-1")
+    (br,) = trace_of(page)["requirements"]
+    assert br["text"] is None
+    assert secret not in page
+
+
+def test_empty_report_draws_no_trace_element(tmp_path):
+    wbs = {"alpha": "# A\n\n- [ ] One {issue: Issue-1, satisfies: alpha:FR-1}\n"}
+    page = page_of(installation(tmp_path, wbs, {"alpha": "# R\n\n## Functional requirements\n\n- FR-1: One.\n"}),
+                   "alpha")
+    assert "requirements" in page_ids(page) and "trace" not in page_ids(page)
+
+
+def test_unknown_scope_label_fallback():
+    assert worksite.unserved_label("site") == "Unserved requirements (served only within this site)"
+    assert worksite.unserved_label("installation") == "Unserved requirements (scope: installation)"
+    assert worksite.UNSERVED_SCOPES == {"site": "served only within this site"}
+
+
+def chip_boxes(t, node):
+    """[(x, width, y, height)] of each chip box under a node, and each chip-more text's x."""
+    boxes = []
+    for i in find(t, "rect", ["chip-box"], within=node):
+        a = t.elements[i]["attrs"]
+        boxes.append((float(a["x"]), float(a["width"]), float(a["y"]), float(a["height"])))
+    more = [float(t.elements[i]["attrs"]["x"]) for i in find(t, "text", ["chip-more"], within=node)]
+    return boxes, more
+
+
+def box_of(t, node):
+    (i,) = find(t, "rect", ["box"], within=node)
+    a = t.elements[i]["attrs"]
+    return float(a["x"]), float(a["y"])
+
+
+LONG = ("namespace-aaaaa", "namespace-bbbbb", "namespace-ccccc")
+
+
+def test_chip_row_width_bounded(tmp_path):
+    reqs = {name: "# R\n\n## Functional requirements\n\n- FR-1: One.\n" for name in LONG}
+    ids = ", ".join(f"{name}:FR-1" for name in LONG)
+    assert all(len(f"{name}:FR-1") >= 17 for name in LONG)
+    wbs = {"alpha": (f"# A\n\n- [ ] Long {{issue: Issue-1, satisfies: [{ids}]}}\n"
+                     "- [ ] Two {issue: Issue-2, depends_on: [Issue-1]}\n"),
+           **{name: ONE_LEAF for name in LONG}}
+    t = tree(page_of(installation(tmp_path, wbs, reqs), "alpha"))
+    node = node_of(t, "Issue-1")
+    x, y = box_of(t, node)
+    boxes, more = chip_boxes(t, node)
+    shown = chips(t, node)
+    assert boxes and len(shown) + int(more_of(t, node)[0][1:]) == 3
+    for bx, bw, by, bh in boxes:
+        assert x <= bx and bx + bw <= x + BW
+        assert y + BH < by and by + bh < y + ROWH
+    assert all(m + worksite.CHIP_CHAR_W * 2 <= x + BW for m in more)
+    assert all(label.endswith("…") and len(label) <= worksite.CHIP_CHARS for label, _ in shown)
+
+
+def test_chip_row_clears_large_circle(tmp_path):
+    # Issue-3 (90 h) is a circle in the row under Issue-2, in the same column.
+    wbs = {"alpha": ("# A\n\n- [ ] Root {issue: Issue-1, est: 3w}\n"
+                     "- [ ] Box {issue: Issue-2, est: 1d, priority: P1, depends_on: [Issue-1], "
+                     "satisfies: [alpha:FR-1, alpha:FR-2]}\n"
+                     "- [ ] Big {issue: Issue-3, est: 3w, depends_on: [Issue-1]}\n"
+                     "- [ ] Tail {issue: Issue-4, est: 3w, depends_on: [Issue-2]}\n"
+                     "- [ ] Tail2 {issue: Issue-5, est: 3w, depends_on: [Issue-4]}\n")}
+    page = page_of(installation(tmp_path, wbs, {"alpha": FOUR_REQS}), "alpha")
+    t = tree(page)
+    leaves = {leaf["key"]: leaf for leaf in assert_page_safe(page, [])["leaves"]}
+    assert leaves["Issue-3"]["hours"] > 81 and not leaves["Issue-3"]["wave_full"] and leaves["Issue-2"]["wave_full"]
+    box = node_of(t, "Issue-2")
+    x, y = box_of(t, box)
+    (c,) = find(t, "circle", ["dot"], within=node_of(t, "Issue-3"))
+    a = t.elements[c]["attrs"]
+    cx, cy, r = float(a["cx"]), float(a["cy"]), float(a["r"])
+    assert cx == x + BW / 2 and cy > y + BH  # the same column, the row below
+    boxes, _ = chip_boxes(t, box)
+    assert boxes
+    for bx, bw, by, bh in boxes:
+        assert by + bh < cy - r  # the chip row ends above the circle's top
+
+
+def test_chip_size_pair():
+    css = (ROOT / "gantry" / "templates" / "worksite.html").read_bytes().decode("utf-8")
+    (rule,) = re.findall(r"\.chip-t \{[^}]*\}", css)
+    assert f"font-size: {worksite.CHIP_FONT}px" in rule
+    assert worksite.CHIP_CHAR_W == pytest.approx(0.6 * worksite.CHIP_FONT)
+
+
+# --- Task 5: hostile strings in the trace (AC 7) ------------------------------------
+
+
+def hostile_leaf(key, issue, line, title="Plain", glyph=" ", hours=6, satisfies=None):
+    meta = {"issue": issue} if issue is not None else {}
+    if satisfies is not None:
+        meta["satisfies"] = satisfies
+    return Leaf(key, issue, str(line), title, glyph, STATE_GLYPHS[glyph], glyph not in FINISHED_GLYPHS, None, (),
+                meta, None, line, estimate=Estimate(hours, hours, "est", "time", None))
+
+
+def hostile_trace_site(tmp_path):
+    """(page, trace, planted, held): site alpha, in the trace, with a HOSTILE value
+    in every trace field a page shows. The requirements file is on disk; the
+    leaves are built in memory, as hostile_site() does."""
+    h = HOSTILE
+    lines = "".join(f"- FR-{i + 1}: {text}\n" for i, text in enumerate(h))
+    reqs = "# R\n\n## Functional requirements\n\n" + lines + "- FR-90: Served only by a leaf keyed __proto__.\n"
+    config_path = installation(tmp_path, {"alpha": ONE_LEAF}, {"alpha": reqs})
+    config = load_config(config_path)
+    roots = config_roots(config)
+    catalog = load_catalog(roots, config, load_sites(config, roots)[0])
+    kept = [r for r in catalog.requirements.values() if r.text in h]
+    assert len(kept) >= 8, [r.text for r in catalog.requirements.values()]
+    first = str(kept[0].id)
+    leaves = (
+        hostile_leaf("Issue-1", "Issue-1", 1, hours=90, satisfies=first),
+        hostile_leaf("Issue-2", "Issue-2", 2, satisfies=first),
+        hostile_leaf("Issue-3", "Issue-3", 3),
+        hostile_leaf(h[1], h[1], 4, satisfies=first),  # an open linked leaf: a circle
+        hostile_leaf(h[2], h[2], 5, satisfies=first),  # an open unlinked leaf: schedule only
+        hostile_leaf("Issue-6", "Issue-6", 6, title=h[0], glyph="x", satisfies=first),  # finished
+        hostile_leaf("Issue-7", "Issue-7", 7, title=h[10]),  # open and untraced: a report item
+        hostile_leaf("Issue-8", "Issue-8", 8, satisfies=f"[{first}, {h[3]}]"),  # a hostile entry in a list
+        hostile_leaf("Issue-9", "Issue-9", 9, satisfies=h[5]),  # a hostile scalar entry
+        hostile_leaf("__proto__", "__proto__", 10, satisfies="alpha:FR-90"),
+    )
+    links = (("Issue-1", "Issue-2"), ("Issue-2", "Issue-3"), ("Issue-1", h[1]))
+    data = SiteData(leaves, (), links, (), ())
+    trace = page_trace(build_site_trace("alpha", leaves, catalog), catalog, data)
+    page = worksite.render_page("alpha", data, default_unit_hours=6, trace=trace)
+    planted = [r.text for r in kept] + [h[1], h[2], h[0], h[10], h[5], "__proto__"]
+    return page, trace, planted, first
+
+
+def test_hostile_trace_page_is_safe(tmp_path):
+    page, trace, planted, first = hostile_trace_site(tmp_path)
+    data = assert_page_safe(page, planted)
+    assert_no_external_resources(page)
+    leaves = {leaf["key"]: leaf for leaf in data["leaves"]}
+    assert leaves[HOSTILE[1]]["linked"] and not leaves[HOSTILE[1]]["wave_full"]  # a circle
+    assert not leaves[HOSTILE[2]]["linked"]
+    # Each planted value reaches the trace data whole; the scalar satisfies:
+    # entry is also whole in its leaf's meta, and its malformed entry is text.
+    strings = set(_strings(trace))
+    assert [p for p in planted if p not in strings] == []
+    assert ["satisfies", HOSTILE[5]] in leaves["Issue-9"]["meta"]
+    malformed = MESSAGES["malformed_satisfies"].format(entry=HOSTILE[5])
+    assert malformed in visible_text(page)
+    # The hostile requirement lights its serving leaves; FR-90 only the __proto__ leaf.
+    assert [k for k, _ in row(trace, first)["light"]] == ["Issue-1", "Issue-2", HOSTILE[1], HOSTILE[2], "Issue-8"]
+    assert row(trace, "alpha:FR-90")["light"] == [["__proto__", "direct"]]
+    used = {c for el in tree(page).elements for c in el["classes"]}
+    assert used - CLASS_TOKENS - STRUCTURAL == set()
 
