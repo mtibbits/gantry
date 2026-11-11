@@ -191,6 +191,16 @@ def test_held_out_only_server(tmp_path):
     assert fr1["counts"] == "0 open, 1 waiting on a cycle"
 
 
+SELF_NEED_REQS = ("# R\n\n## Use cases\n\n- UC-1: Needs itself and FR-1. {needs: [UC-1, FR-1]}\n\n"
+                  "## Functional requirements\n\n- FR-1: Needed.\n")
+
+
+def test_use_case_does_not_need_itself(tmp_path):
+    wbs = {"alpha": "# A\n\n- [ ] One {issue: Issue-1, satisfies: alpha:UC-1}\n"}
+    page, _ = traced(installation(tmp_path, wbs, {"alpha": SELF_NEED_REQS}), "alpha")
+    assert row(page, "alpha:UC-1")["needs"] == ["alpha:FR-1"]
+
+
 COUNTS_REQS = ("# R\n\n## Functional requirements\n\n- FR-1: Nobody serves it.\n- FR-2: Served four ways.\n"
                "- FR-3: Served twice.\n")
 COUNTS_WBS = ("# Alpha\n\n"

@@ -388,7 +388,7 @@ def page_trace(trace: SiteTrace, catalog: Catalog, data) -> dict:
             "id": key, "label": _label(r.id, site), "layer": r.layer,
             # A business requirement's text is never on a worksite page (#23).
             "text": None if r.id.namespace == catalog.br_namespace else r.text,
-            "needs": [str(n) for n in r.needs if str(n) in wanted] if r.layer == "UC" else [],
+            "needs": [str(n) for n in r.needs if str(n) in wanted and str(n) != key] if r.layer == "UC" else [],
             "light": light, "held": held, "finished": finished, "counts": ", ".join(counts),
         })
     report = [[name, [[_source(e), e.line, e.message] for e in getattr(trace.report, name)]] for name in FIELDS]

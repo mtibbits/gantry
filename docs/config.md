@@ -273,8 +273,8 @@ a wrong path.
 `<output_dir>/sites/<name>.html`, then `<output_dir>/index.html`, which
 lists every site with its open leaves, finish and report count, or why it
 was not built. It prints one absolute path per file written, then one
-`trace <site>:` line per traced site
-([worksite-page.md](worksite-page.md#reading-the-trace)). A site that
+`trace <site>:` line per written page whose site is in the trace or whose
+trace report has an item ([worksite-page.md](worksite-page.md#reading-the-trace)). A site that
 cannot be built is listed on the index and on stderr with its reason, and
 does not stop the others; a name that fails the pattern above is printed
 escaped (a tab as `\t`, an ESC as `\x1b`). The reading rules are in

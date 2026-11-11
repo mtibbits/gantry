@@ -503,6 +503,7 @@
     const was = sel;
     sel = gantryTrace.step(sel, event);
     // Only the tracing class follows the hover; a new selection redraws every mark.
+    // The hover branch mirrors marks().tracing: change both together.
     if (sel.selected !== was.selected) applyMarks();
     else if (svg !== null) svg.classList.toggle("tracing", sel.hover !== null);
   }

@@ -520,8 +520,8 @@ requirements panel and no trace report.
   `Requirements`). Shown on a site in the trace, and on any site whose
   leaves name an ID that resolves. Under the heading, the line
   `Select a requirement, or a chip under a box, to mark the leaves that serve it: a solid outline serves it directly, a dashed one through refinement or a use case's needs. Select it again, or press Escape, to clear.`
-  The panel lists the site's own requirements (when it is in the trace),
-  then every other requirement one of its leaves names, grouped by layer
+  The panel lists the site's own requirements (when it is in the trace)
+  and every other requirement one of its leaves names, together, grouped by layer
   under `Business requirements`, `Business rules`, `Use cases`,
   `System requirements`, `Functional requirements`, `Quality attributes`,
   `External interfaces` and `Constraints`. A row is the ID, the
@@ -530,7 +530,8 @@ requirements panel and no trace report.
   by `, `. "Open" counts the serving leaves the page draws. When a row has
   held-out or finished serving leaves, a `serving leaves not drawn` button
   opens a list of them: key, issue id (or `no issue id`), title, then
-  `waiting on a cycle` or `finished`, joined by ` · `.
+  `waiting on a cycle` or `finished`, joined by ` · `. A row with neither
+  has no such button.
 - **Selecting a requirement.** A click or tap on a chip or a panel row, or
   Enter or Space on a focused one, selects it. Every serving leaf the page
   draws is marked, in the network (boxes and circles) and in the schedule:
