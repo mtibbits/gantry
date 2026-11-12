@@ -73,7 +73,10 @@ def _path(item, record):
     arg = item["arg"]
     if arg is None and item["event"] in LISTINGS:
         return record["cwd"]
-    if not isinstance(arg, str):
+    if not isinstance(arg, str) or arg == os.devnull:
+        # A descriptor, or the null device (relative `nul` on Windows, which
+        # joined to a planted working directory would read as planted): no
+        # path rule applies; the by-name rule decides.
         return None
     return arg if os.path.isabs(arg) else os.path.join(record["cwd"], arg)
 
@@ -255,7 +258,7 @@ def wbs_files(config_path):
 
 def wbs_opens(record):
     return {canon(_path(e, record)) for e in record["events"]
-            if e["event"] == "open" and isinstance(e["arg"], str) and os.path.basename(e["arg"]) == "WBS.md"}
+            if e["event"] == "open" and _path(e, record) is not None and os.path.basename(e["arg"]) == "WBS.md"}
 
 
 @pytest.fixture(scope="module")
@@ -283,7 +286,9 @@ def demo_runs(tmp_path_factory, built_sample_history):
 
 
 def demo_kwargs(runs):
-    return {"allowed": [sample_dir(), PACKAGE], "planted": list(runs["folders"].values()), "by_name": BY_NAME}
+    """The git-helper entries are in: when #29 binds the history reader, the
+    tripwire is the only assertion that changes."""
+    return {"allowed": [sample_dir(), PACKAGE], "planted": list(runs["folders"].values()), "by_name": ALL_BY_NAME}
 
 
 # --- the demo build ---------------------------------------------------------------------
@@ -297,11 +302,11 @@ def test_demo_build_reads_only_samples_and_the_package(demo_runs):
     kwargs = demo_kwargs(demo_runs)
     found = violations(record, **kwargs)
     assert found == [], describe(found)
-    assert used_by_name(record, **kwargs) == set(BY_NAME)
+    assert set(BY_NAME) <= used_by_name(record, **kwargs)
     expected = wbs_files(sample_dir() / "gantry.sample.toml")
     assert expected
     assert wbs_opens(record) == expected
-    assert any(e["event"] == "open" and isinstance(e["arg"], str) and inside(_path(e, record), PACKAGE)
+    assert any(e["event"] == "open" and _path(e, record) is not None and inside(_path(e, record), PACKAGE)
                and any(g[0] == "roots.py" for g in e["gantry"]) for e in record["events"])
 
 
@@ -322,7 +327,7 @@ def test_control_copy_outside_the_sample_directory_is_seen(demo_runs):
     assert expected
     assert wbs_opens(record) == expected
     outside = {canon(_path(item, record)) for reason, item in violations(record, **demo_kwargs(demo_runs))
-               if reason == "outside" and isinstance(item["arg"], str)}
+               if reason == "outside" and _path(item, record) is not None}
     assert expected <= outside
 
 
@@ -364,6 +369,53 @@ def test_real_git_call_record_is_classified(tmp_path, built_sample_history):
         if item["event"] == "subprocess.Popen":
             item["popen_cwd"] = str(tmp_path)
     assert [reason for reason, _ in violations(record, **kwargs)] == ["starts a process"]
+
+
+
+# --- the demo's git reads (AC 3; operator's option (a), 2026-11-12) ------------------------
+
+TRIPWIRE = """the demo build now starts a process: #29 has bound the history reader into the build.
+Change this assertion to "at least one subprocess.Popen event"; nothing else: rule 2 of
+violations() and the git-helper BY_NAME entries are already proved on a real git call
+by test_real_git_call_record_is_classified."""
+
+
+def test_sample_installation_git_reads_stay_in_the_sample_directory(tmp_path, monkeypatch, built_sample_history):
+    """In process, over the sample installation: the demo build itself makes no
+    git call until #29 binds the history reader."""
+    from gantry import wbs_history
+    from gantry.config import load_config
+    from gantry.sites import config_roots, load_sites
+    from helpers_history import spy_git, spy_repository
+    from sample_roles import HISTORY_LESS
+
+    calls = spy_git(monkeypatch)
+    given = spy_repository(monkeypatch)
+    config = load_config(sample_dir() / "gantry.sample.toml")
+    roots = config_roots(config)
+    sites, _ = load_sites(config, roots)
+    cache = wbs_history.HistoryCache()
+    answers = {s.name: wbs_history.last_state_change(roots, s, config, config.as_of, 4, cache) for s in sites}
+    assert sites and len(answers) == len(sites)
+    repos = [r for r in given if isinstance(r, wbs_history.Repo)]
+    assert len(repos) >= 3
+    assert [r.top for r in repos if not inside(r.top, sample_dir())] == []
+    history = {n for n, o in config.sites.items() if o.history is not None}
+    assert len(history) == 3
+    assert {n for n, a in answers.items() if isinstance(a.repo, wbs_history.Repo)} == history
+    assert answers[HISTORY_LESS].no_data.text == "no data: in no repository"
+    assert calls
+    assert [cwd for _, cwd, _ in calls if not inside(cwd, sample_dir())] == []
+    assert {canon(ceiling) for _, _, ceiling in calls} == {canon(gantry_root())}
+    # Control: `inside` is not always true.
+    assert not inside(gantry_root(), sample_dir())
+    assert not inside(tmp_path, sample_dir())
+
+
+def test_demo_build_starts_no_process_yet(demo_runs):
+    for run in ("planted", "baseline"):
+        record = demo_runs[run][4]
+        assert [e for e in record["events"] if e["event"] == "subprocess.Popen"] == [], TRIPWIRE
 
 
 # --- the classifier's controls ----------------------------------------------------------
@@ -432,6 +484,9 @@ def _rows(tmp):
         ("popen-git-no-run-git", _popen(git_posix, harbor_history, gantry=(("build.py", "write_page"),)),
          "starts a process"),
         ("chdir", _ev("os.chdir", outside), "changes directory"),
+        ("devnull-run-git", _ev("open", os.devnull, inner=("subprocess.py", "_get_devnull"), gantry=GIT_GANTRY),
+         "by name"),
+        ("devnull-other-frame", _ev("open", os.devnull, inner=("subprocess.py", "_get_devnull")), "outside"),
     ]
 
 
@@ -441,11 +496,13 @@ ROW_IDS = [
     "samples", "package", "sibling-of-samples", "case-changed-samples", "descriptor-write-confined",
     "descriptor-other-frame", "other-drive", "integer-arg-listing", "os-system", "popen-git-posix",
     "popen-git-windows", "popen-other-program", "popen-git-cwd-outside", "popen-git-no-run-git", "chdir",
+    "devnull-run-git", "devnull-other-frame",
 ]
 
 
 def _synthetic(tmp, event):
-    return {"cwd": str(tmp / "cwd"), "stdlib": [sysconfig.get_paths()["stdlib"], sysconfig.get_paths()["platstdlib"]],
+    # The working directory is planted, as in the planted demo run.
+    return {"cwd": str(tmp / "plant"), "stdlib": [sysconfig.get_paths()["stdlib"], sysconfig.get_paths()["platstdlib"]],
             "sys_path": [str(tmp / "entry")], "events": [event]}
 
 
@@ -462,7 +519,7 @@ def test_classifier_controls(tmp_path, row):
         (tmp_path / folder).mkdir()
     (event, expected), = [(e, x) for r, e, x in _rows(tmp_path) if r == row]
     got = classify(_synthetic(tmp_path, event), allowed=[sample_dir(), PACKAGE], planted=[tmp_path / "plant"],
-                   by_name=BY_NAME)
+                   by_name=ALL_BY_NAME)
     assert [reason if isinstance(reason, str) else reason[0] for _, reason, _ in got] == [expected], got
     assert got[0][0] == ("ok" if expected in OK_REASONS else "violation")
 
