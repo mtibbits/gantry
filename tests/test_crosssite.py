@@ -10,7 +10,7 @@ from gantry import build
 from gantry.build import CLASH, build_all, read_sites, site_list
 from gantry.config import load_config
 from gantry.crosssite import MESSAGES, NO_ISSUE, NOT_BUILT, resolve_foreign
-from gantry.model import REPORT_KINDS, report_order
+from gantry.model import REPORT_KINDS, meta_values, report_order
 from gantry.sites import config_roots
 from gantry.wbs_stopgap import parse_wbs
 from gantry.views import worksite
@@ -29,9 +29,10 @@ from gantry.views.worksite import (
     SUMMARY_NO_CHAIN,
     page_model,
 )
-from helpers_config import page_ids, page_links, run_main, write_site_tree
+from helpers_config import page_ids, page_links, run_main, sample_projects, write_site_tree
 from page_safety import HOSTILE, assert_no_external_resources, assert_page_safe
 from page_script.harness import open_page
+from sample_roles import BUSY, NO_WBS, OWN_UNIT, SMALL, UNESTIMATED, UNREADABLE
 from test_samples import ROOT
 from test_worksite_page import find, text_of, tree
 
@@ -555,3 +556,36 @@ def test_hostile_render_reason(tmp_path, monkeypatch, h):
     assert_no_external_resources(page)
     t = tree(page)
     assert find(t, "a", ["fbox"]) == [] and len(find(t, "g", ["fbox"])) == 1
+
+
+# --- the samples (Task 5) -------------------------------------------------------------
+
+# A site name in no sample config: the absent case. It is not a role constant,
+# because every role constant names a configured project.
+ABSENT_SITE = "ferry"
+SAMPLES = ROOT / "samples"
+# (site, node: key or title, entry): the ten cross-site cases.
+CASES = [
+    (UNESTIMATED, "Issue-9", f"{BUSY}:Issue-7"),  # open, and quarry has its own Issue-7
+    (UNESTIMATED, "Issue-3", f"{BUSY}:Issue-3"),  # a finished target
+    (UNESTIMATED, "Issue-7", f"{BUSY}:1.2"),  # an outline position
+    (UNESTIMATED, "Issue-8", f"{UNESTIMATED}:Issue-9"),  # its own prefix: local
+    (OWN_UNIT, "Irrigation", f"{SMALL}:Issue-4"),  # a row naming an open leaf
+    (OWN_UNIT, "Irrigation", f"{ABSENT_SITE}:Issue-2"),  # a site not in the installation
+    (OWN_UNIT, "Issue-5", f"{BUSY}:Issue-2"),  # a row target
+    (OWN_UNIT, "Issue-6", f"{NO_WBS}:Issue-1"),  # no WBS.md
+    (OWN_UNIT, "Stake the young trees", f"{UNREADABLE}:Issue-2"),  # not valid UTF-8
+    (OWN_UNIT, "Mulch the beds", f"{SMALL}:Issue-40"),  # lacks the issue
+]
+
+
+def sample_node(site, name):
+    data = parse_wbs((SAMPLES / site / "WBS.md").read_bytes().decode("utf-8"), site)
+    (node,) = [n for n in (*data.leaves, *data.rows) if name in (n.key, n.title)]
+    return node
+
+
+def test_samples_carry_each_cross_site_case():
+    assert ABSENT_SITE not in sample_projects()
+    for site, name, entry in CASES:
+        assert entry in meta_values(sample_node(site, name).meta.get("depends_on")), (site, name, entry)
