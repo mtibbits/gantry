@@ -692,7 +692,7 @@ def _network_svg(m):
         # From the box's left side, up the gap left of the column, into the
         # leaf's left side: clear of every other box in the column (#68).
         if n not in line_of:
-            line_of[n] = sum(lane_of[m] == li and es[m] == es[n] for m in line_of)
+            line_of[n] = sum(lane_of[o] == li and es[o] == es[n] for o in line_of)
         mx = bx - FGAP * (1 + min(line_of[n], FLINES - 1))
         x, yy = pos[n]
         ends = {"all": (x - 2, yy + BH - 8)}

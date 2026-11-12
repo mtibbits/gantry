@@ -632,8 +632,8 @@ box, and the leaf is flagged `waits on another site`. Its details show the
 flag and list each target as `{raw}: {title} (open on {site})`,
 `{raw} (names a site not in this installation)` or
 `{raw} (unresolved: {reason})`. A finished leaf's entries are checked and
-reported but flag nothing. A leaf held out by a cycle is flagged in the
-outcome record only: the page draws no box for it.
+reported but flag nothing. A leaf held out by a cycle is flagged on the
+resolved leaf only (`waits_on_other_site`): the page draws no box for it.
 
 **The box.** Each box sits in its waiting leaf's lane, in a row of its own
 below the lane's leaf rows, in the leaf's column; a lane's boxes follow
@@ -673,8 +673,8 @@ the source node's key, line and whether it is a row, the entry as written,
 the target site and issue, the status, and, by status: the target's key and
 whether it is a row (open, satisfied), its title and href (open), or the
 reason (unresolved). A leaf's `foreign_targets` is `None` in a `--site`
-build (not resolved) and `()` in a full build when nothing on another site
-waits. For example, on the samples:
+build (not resolved) and on every finished leaf, and `()` on an open leaf
+in a full build when nothing on another site waits. For example, on the samples:
 
 ```
 ForeignOutcome(site="orchard", source_key="Issue-5", source_line=10, source_is_row=False,

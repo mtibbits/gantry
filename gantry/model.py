@@ -94,8 +94,9 @@ class Leaf:
     estimate: object = None
     models: object = None
     flags: object = None
-    # Set by gantry/crosssite.py in a full build (#68). foreign_targets None:
-    # not resolved (a --site build); (): resolved, nothing on another site.
+    # Set by gantry/crosssite.py on each open leaf in a full build (#68).
+    # foreign_targets None: not resolved (a --site build, or a finished
+    # leaf); (): resolved, nothing on another site.
     waits_on_other_site: bool = False
     foreign_targets: tuple[ForeignOutcome, ...] | None = None
 
