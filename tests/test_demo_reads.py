@@ -101,7 +101,8 @@ def _program(argv):
 
 def classify(record, *, allowed, planted, by_name, popen_root=None):
     """[(verdict, reason, event)] for every recorded event; verdict "ok" or
-    "violation". Rules, first match wins (see the module's plan, #43)."""
+    "violation". Rules, first match wins: process events,
+    Popen, planted, allowed folders, the import system, by name, else outside."""
     popen_root = sample_dir() if popen_root is None else popen_root
     stdlib = record["stdlib"]
     sys_path = {canon(p) for p in record["sys_path"] if p}
@@ -275,8 +276,8 @@ def demo_runs(tmp_path_factory, built_sample_history):
     folders, configs = plant(p)
     out = sample_dir() / "out"
     config = sample_dir() / "gantry.sample.toml"
-    baseline = build(base / "baseline.json", config, cwd=b / "cwd", env=child_env(HOME=b / "home", USERPROFILE=b / "home"),
-                     out=out)
+    empty_home = child_env(HOME=b / "home", USERPROFILE=b / "home")
+    baseline = build(base / "baseline.json", config, cwd=b / "cwd", env=empty_home, out=out)
     planted = build(base / "planted.json", config, cwd=folders["cwd"], env=planted_env(folders), out=out)
     copy = copy_with_history(c)
     control = build(base / "control.json", copy / "gantry.sample.toml", cwd=folders["cwd"], env=planted_env(folders),

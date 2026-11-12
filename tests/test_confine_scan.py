@@ -48,15 +48,16 @@ tree test.
 
 What the scan does not decide, including: getattr with a computed name,
 sys.modules, eval of a built string (each is deliberate evasion: review and
-#43's run-time read spy own those); a Root or Roots reference that is not a
-call, such as dataclasses.replace on a Root; fromfile_prefix_chars set by
-attribute assignment, given positionally or through **kwargs; a gantry module
-that re-binds a file-touching name by assignment rather than import; a gantry
-module bound to another name ("r = roots", then "r.os" or "r.Roots(...)");
-reaches through a plain module's or an OPEN_MODULES module's attributes
-("argparse._os"), or through __builtins__; and a name imported twice in one
-module with different origins, since the import table is per module, not per
-scope, and the later binding wins.
+the run-time read spy, tests/test_demo_reads.py, own those); a Root or Roots
+reference that is not a call, such as dataclasses.replace on a Root;
+fromfile_prefix_chars set by attribute assignment, given positionally or
+through **kwargs; a gantry module that re-binds a file-touching name by
+assignment rather than import; a gantry module bound to another name
+("r = roots", then "r.os" or "r.Roots(...)"); reaches through a plain module's
+or an OPEN_MODULES module's attributes ("argparse._os"), or through
+__builtins__; and a name imported twice in one module with different origins,
+since the import table is per module, not per scope, and the later binding
+wins.
 """
 
 import ast
@@ -158,7 +159,7 @@ RULES = ("module", "name", "through-gantry", "star", "rebind", "builtin", "keywo
 WBS_GIT = (
     "run_git is the module's one child process, limited to the git commands _check_args "
     "admits, with no stdin and a timeout; history reads are bounded by #28's repository "
-    "rule and, once it lands, #43's history check"
+    "rule and #28's outside-roots refusal"
 )
 FROM_CONFIG = "this module is where roots are built from the loaded config (#59)"
 EXCEPTIONS = {
