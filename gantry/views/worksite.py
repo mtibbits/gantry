@@ -11,11 +11,11 @@ import math
 import re
 
 from gantry import network, priority, render, schedule
-from gantry.deps import refs
+from gantry.deps import open_sources, refs
 from gantry.est_rules import classify_est
 from gantry.inputs import NO_TIERS, UNEST_WHAT, has_tiers, scheduled, site_totals
 from gantry.links import leaf_anchor
-from gantry.model import FINISHED_GLYPHS, HOURS_PER_DAY, Estimate, Models
+from gantry.model import HOURS_PER_DAY, Estimate, Models
 from gantry.render import MODEL_CLASSES, Markup, embed_json, esc, fill, model_class, slack_class, state_class
 
 LANES_DEFAULT = 4
@@ -241,13 +241,8 @@ def _panel(data):
 
 def _foreign(site, leaf, row_at):
     """The leaf's foreign entries, then each open ancestor row's, top-down."""
-    out = [FOREIGN.format(raw=d.raw) for d in leaf.deps if d.kind == "foreign"]
-    parts = leaf.outline.split(".")
-    for i in range(1, len(parts)):
-        row = row_at[".".join(parts[:i])]
-        if row.glyph not in FINISHED_GLYPHS:
-            out += [FOREIGN.format(raw=d.raw) for d in refs(row.meta, site) if d.kind == "foreign"]
-    return out
+    return [FOREIGN.format(raw=d.raw) for source in open_sources(leaf, row_at)
+            for d in refs(source.meta, site) if d.kind == "foreign"]
 
 
 def _known_first(tiers):
