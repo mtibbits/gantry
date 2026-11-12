@@ -66,6 +66,7 @@ FOREIGN_ABSENT = "{raw} (names a site not in this installation)"
 FOREIGN_UNRESOLVED = "{raw} (unresolved: {reason})"
 FBOX_LINE = {"absent": "not in this installation", "unresolved": "unresolved"}  # open: the title
 FBOX_LEGEND = "box on another site"
+FBOX_TIP = "{key} waits on {text}"
 SLACK_NONE = "none: waits only on another site"
 # The no-chain texts when the network draws only leaves that wait on another site.
 SUMMARY_NO_CHAIN_XSITE = ("With {lanes}, all open work ends around working day {end}. No open link joins two "
@@ -479,6 +480,9 @@ GUT, COLW, BW, BH, ROWH, PAD, TOP, BAND = 204, 170, 152, 66, 80, 14, 46, 17
 # A box on another site (#68): its height, its row and its cuts. Each takes a
 # row of its own below its lane's leaf rows, in its waiting leaf's column.
 FBH, FROWH, FID_MAX, FTITLE_MAX = 36, 46, 22, 25
+# A box's link runs up the gap left of its column, one line per waiting leaf:
+# FGAP apart, at most FLINES of them before they share the outermost.
+FGAP, FLINES = 3, 5
 TITLE_MAX = 40
 # A chip row sits in the ROWH - BH gap under its box (#20). CHIP_FONT is the
 # CSS .chip-t font size in px (a test holds the pair); a monospace character
@@ -678,19 +682,29 @@ def _network_svg(m):
         forms = [("", d_all)] if d_all == d_wave else [(" e-all", d_all), (" e-wave", d_wave)]
         for extra, d in forms:
             out.append(f'<path class="{cls}{extra}" data-u="{esc(u)}" data-v="{esc(v)}" d="{d}" marker-end="url(#{mk})"/>')
-    box_at, in_lane = [], {}
+    box_at, in_lane, line_of = [], {}, {}
     for li, n, box in fboxes:
         j = in_lane[li] = in_lane.get(li, -1) + 1
         bx, by = pos[n][0], lane_top[li] + PAD + lane_used[li] * ROWH + j * FROWH
-        box_at.append((bx, by, box))
-        # Straight up from the box's top to its leaf, in their one column.
-        cx, cy = centre(n)
-        ends = {"all": pos[n][1] + BH + 2,
-                "wave": cy + radius[n] + 16 if n in compact else pos[n][1] + BH + 2}
-        d_all, d_wave = (f"M{cx:.1f},{by:.1f} L{cx:.1f},{ends[mode]:.1f}" for mode in ("all", "wave"))
+        box_at.append((bx, by, n, box))
+        # From the box's left side, up the gap left of the column, into the
+        # leaf's left side: clear of every other box in the column (#68).
+        if n not in line_of:
+            line_of[n] = sum(lane_of[m] == li and es[m] == es[n] for m in line_of)
+        mx = bx - FGAP * (1 + min(line_of[n], FLINES - 1))
+        x, yy = pos[n]
+        ends = {"all": (x - 2, yy + BH - 8)}
+        if n in compact:
+            cx, cy = centre(n)
+            ends["wave"] = (cx - radius[n] * 0.87 - 2, cy + radius[n] / 2)
+        else:
+            ends["wave"] = ends["all"]
+        sy = by + FBH / 2
+        d_all, d_wave = (f"M{bx:.1f},{sy:.1f} L{mx:.1f},{sy:.1f} L{mx:.1f},{ey:.1f} L{ex:.1f},{ey:.1f}"
+                         for ex, ey in (ends["all"], ends["wave"]))
         forms = [("", d_all)] if d_all == d_wave else [(" e-all", d_all), (" e-wave", d_wave)]
         for extra, d in forms:
-            out.append(f'<path class="fedge{extra}" d="{d}" marker-end="url(#arrow-foreign)"/>')
+            out.append(f'<path class="fedge{extra}" data-v="{esc(n)}" d="{d}" marker-end="url(#arrow-foreign)"/>')
     out.append("</g>")
 
     for n in nodes:
@@ -735,9 +749,9 @@ def _network_svg(m):
         out.append(f'<rect class="outline" x="{_n(x)}" y="{_n(yy)}" width="{BW}" height="{BH}" rx="3"/>')
         out += _chips(chip_ids.get(n, []), x, yy)
         out.append("</g></g>")
-    for bx, by, (site, issue, title, href, status, text) in box_at:
+    for bx, by, n, (site, issue, title, href, status, text) in box_at:
         out.append(f'<a class="fbox open" href="{esc(href)}">' if href is not None else '<g class="fbox none">')
-        out.append(f"<title>{esc(text)}</title>")
+        out.append(f"<title>{esc(FBOX_TIP.format(key=n, text=text))}</title>")
         out.append(f'<rect class="fb" x="{_n(bx)}" y="{_n(by)}" width="{BW}" height="{FBH}" rx="3"/>')
         out.append(_text("fid", bx + 8, by + 14, _cut(f"{site}:{issue}", FID_MAX)))
         out.append(_text("ftitle", bx + 8, by + 28, _cut(title, FTITLE_MAX) if title is not None else FBOX_LINE[status]))

@@ -639,10 +639,13 @@ outcome record only: the page draws no box for it.
 below the lane's leaf rows, in the leaf's column; a lane's boxes follow
 their leaves' column and row order, then each leaf's target order, and
 only a lane with boxes grows. A box shows `<site>:<issue>` and the target's
-title, or `not in this installation` or `unresolved`; its tooltip holds the
-details text. An open target's box is a link (`a.fbox.open`); the others are
-`g.fbox.none`. A dashed vertical line with an arrow runs from the box up to
-its leaf, and the legend names it `box on another site`. The flagged leaf's
+title, or `not in this installation` or `unresolved`; its tooltip reads
+`{key} waits on {text}`, the waiting leaf's key and its details text. An open
+target's box is a link (`a.fbox.open`); the others are `g.fbox.none`. A
+dashed line with an arrow runs from the box's left side up the gap left of
+the column and into its leaf's left side, so it crosses no other box; each
+waiting leaf in a lane's column has a line of its own (up to five apart). The
+legend names the box `box on another site`. The flagged leaf's
 outline takes its own colour (`xsite`), keeping a stuck, blocked or parked
 dash, and its tooltip adds `waits on another site`.
 

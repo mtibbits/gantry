@@ -455,9 +455,6 @@ def test_foreign_only_anchor_once(tmp_path):
     assert page_ids(page).count("leaf-Issue-1") == 1
 
 
-PATH_RE = re.compile(r"M(-?[0-9.]+),(-?[0-9.]+) L(-?[0-9.]+),(-?[0-9.]+)")
-
-
 def test_boxes_stack_in_column(tmp_path):
     result = full_build(tmp_path, {
         "alpha": ("- [ ] Lane\n"
@@ -475,11 +472,8 @@ def test_boxes_stack_in_column(tmp_path):
     leaf_bottoms = [float(t.elements[find(t, "rect", ["box"], within=node_el(t, k))[0]]["attrs"]["y"])
                     for k in ("Issue-1", "Issue-2")]
     assert max(leaf_bottoms) < min(ys)
-    edges = find(t, "path", ["fedge"])
-    assert len(edges) >= 3
-    for i in edges:
-        x1, y1, x2, y2 = map(float, PATH_RE.fullmatch(t.elements[i]["attrs"]["d"]).groups())
-        assert x1 == x2 and y1 > y2
+    assert len(find(t, "path", ["fedge"])) >= 3
+    assert check_fedges(result.pages["alpha"]) == 2
 
 
 def test_no_chain_text_absent_when_foreign_only(tmp_path):
@@ -859,3 +853,73 @@ def test_doc_pins():
                   "for a later cross-site view"):
         assert stale not in doc, stale
     assert "check_portfolio" in doc
+
+
+# --- final-review fixes ----------------------------------------------------------------
+
+POINTS_RE = re.compile(r"[ML](-?[0-9.]+),(-?[0-9.]+)")
+
+
+def node_rects(t):
+    out = {}
+    for i in find(t, "g", ["node"]):
+        a = t.elements[find(t, "rect", ["box"], within=i)[0]]["attrs"]
+        out[t.elements[i]["attrs"]["data-item"]] = (float(a["x"]), float(a["y"]), float(a["width"]),
+                                                      float(a["height"]))
+    return out
+
+
+def crosses(seg, rect):
+    (x1, y1), (x2, y2) = seg
+    rx, ry, w, h = rect
+    lo_x, hi_x, lo_y, hi_y = min(x1, x2), max(x1, x2), min(y1, y2), max(y1, y2)
+    return lo_x < rx + w and hi_x > rx and lo_y < ry + h and hi_y > ry
+
+
+def check_fedges(page):
+    """Each box's link (full form) keeps clear of every leaf box and ends at its own leaf's left edge;
+    the leaves waiting in one lane and column each have a line of their own."""
+    t = tree(page)
+    rects = node_rects(t)
+    lines = {}
+    for i in find(t, "path", ["fedge"]):
+        if "e-wave" in t.elements[i]["classes"]:
+            continue
+        attrs = t.elements[i]["attrs"]
+        own = attrs["data-v"]
+        pts = [tuple(map(float, m)) for m in POINTS_RE.findall(attrs["d"])]
+        segs = list(zip(pts, pts[1:]))
+        assert all(a[0] == b[0] or a[1] == b[1] for a, b in segs), attrs["d"]
+        for seg in segs:
+            assert not any(crosses(seg, r) for r in rects.values()), (own, attrs["d"])
+        rx, ry, _, h = rects[own]
+        end = pts[-1]
+        assert end[0] == rx - 2 and ry < end[1] < ry + h, (own, attrs["d"])
+        lines.setdefault(own, []).extend((a[0], min(a[1], b[1]), max(a[1], b[1])) for a, b in segs if a[0] == b[0])
+    # Two leaves' lines never run along each other: one x, overlapping spans.
+    for own, mine in lines.items():
+        for other, theirs in lines.items():
+            if own != other:
+                for x, lo, hi in mine:
+                    assert not any(x == x2 and lo < hi2 and lo2 < hi for x2, lo2, hi2 in theirs), (own, other)
+    return len(lines)
+
+
+def test_fedges_keep_clear_of_other_leaves(tmp_path):
+    result = sample_build(tmp_path)
+    assert check_fedges(result.pages[OWN_UNIT]) == 5
+    assert check_fedges(result.pages[UNESTIMATED]) == 2
+    t = tree(result.pages[OWN_UNIT])
+    titles = [text_of(t, find(t, "title", within=i)[0]) for i in fboxes(t)]
+    keys = {x.key for x in result.inputs[OWN_UNIT].data.leaves}
+    assert all(title.split(" waits on ")[0] in keys for title in titles), titles
+
+
+def test_xsite_focus_ring_wins():
+    css = (ROOT / "gantry" / "templates" / "worksite.html").read_text(encoding="utf-8")
+    for state in ("", ".st-stuck", ".st-blocked", ".st-parked"):
+        # As specific as the xsite rule it must beat, plus the pseudo-class.
+        selector = f".node.xsite{state}:focus-visible .outline"
+        assert selector in css, selector
+        rule = re.search(r"([^{}]*)\{([^}]*)\}", css[css.index(selector):])
+        assert {"stroke", "stroke-width"} <= {d.split(":")[0].strip() for d in rule.group(2).split(";") if d.strip()}
