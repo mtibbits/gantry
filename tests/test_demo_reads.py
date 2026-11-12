@@ -475,7 +475,8 @@ def _rows(tmp):
                                           gantry=(("roots.py", "write_confined"),)), "by name"),
         ("descriptor-other-frame", _ev("open", 3, inner=("<frozen os>", "fdopen"),
                                        gantry=(("build.py", "write_page"),)), "outside"),
-        ("other-drive", _ev("open", _other_drive()), "outside"),
+        # On POSIX a drive-letter path is relative: it joins the planted working directory.
+        ("other-drive", _ev("open", _other_drive()), "outside" if os.name == "nt" else "planted"),
         ("integer-arg-listing", _ev("os.listdir", 5), "outside"),
         ("os-system", _ev("os.system", "echo"), "starts a process"),
         ("popen-git-posix", _popen(git_posix, harbor_history), "git helper"),
