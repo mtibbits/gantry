@@ -147,11 +147,12 @@ def test_absent_and_case(tmp_path):
 
 GOOD_BETA = "- [ ] Pour {issue: Issue-1}\n"
 NOT_UTF8 = b"- [ ] Pour {issue: Issue-1}\n\xff\n"
+BAD_BYTE = NOT_UTF8.index(b"\xff")  # outside the f-string: 3.11 forbids backslashes in its expressions
 UNRESOLVED = {
     "no_wbs": ({"beta": None}, "beta:Issue-1",
                NOT_BUILT.format(site="beta", reason="no WBS.md in the planning directory")),
     "not_utf8": ({"beta": NOT_UTF8}, "beta:Issue-1",
-                 NOT_BUILT.format(site="beta", reason=f"WBS.md is not valid UTF-8 at byte {NOT_UTF8.index(b'\xff')}")),
+                 NOT_BUILT.format(site="beta", reason=f"WBS.md is not valid UTF-8 at byte {BAD_BYTE}")),
     "clash": ({"beta": GOOD_BETA, "Beta": GOOD_BETA}, "Beta:Issue-1",
               NOT_BUILT.format(site="Beta", reason=CLASH.format(earlier="beta"))),
     "no_issue": ({"beta": GOOD_BETA}, "beta:Issue-9", NO_ISSUE.format(site="beta", issue="Issue-9")),
