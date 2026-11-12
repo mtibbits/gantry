@@ -132,9 +132,9 @@ figcaption { color: var(--muted); font-size: 14px; max-width: 72ch; }
 /* A box on another site and its link: not a node and not an .edge, so the
    trace and the selection never light or dim it. */
 .fbox .fb { fill: var(--sheet); stroke: var(--xsite); stroke-width: 1.5; stroke-dasharray: 4 3; }
-.fbox.open .fb { stroke-dasharray: none; }
-.fbox.open { cursor: pointer; }
-.fbox.open:focus-visible .fb { stroke: var(--cross); stroke-width: 3; }
+.fbox.fbox-open .fb { stroke-dasharray: none; }
+.fbox.fbox-open { cursor: pointer; }
+.fbox.fbox-open:focus-visible .fb { stroke: var(--cross); stroke-width: 3; }
 .fbox .fid { font-family: var(--f-mono); font-size: 11px; font-weight: 600; fill: var(--ink); }
 .fbox .ftitle { font-size: 10px; fill: var(--muted); }
 .fedge { fill: none; stroke: var(--xsite); stroke-width: 1.2; stroke-dasharray: 3 3; }
@@ -292,7 +292,7 @@ figcaption { color: var(--muted); font-size: 14px; max-width: 72ch; }
         <span><i class="ln crit"></i>critical link</span>
         <span><i class="ln cross"></i>link across epics</span>
         <span><i class="ln"></i>link within an epic</span>
-        <span><i class="sw fb"></i>box on another site</span>
+        <span><i class="sw fb"></i>{{FBOX_LEGEND}}</span>
       </div>
       <div class="legend">
         <span><i class="sw st-wip"></i>in progress</span>

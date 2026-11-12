@@ -750,7 +750,7 @@ def _network_svg(m):
         out += _chips(chip_ids.get(n, []), x, yy)
         out.append("</g></g>")
     for bx, by, n, (site, issue, title, href, status, text) in box_at:
-        out.append(f'<a class="fbox open" href="{esc(href)}">' if href is not None else '<g class="fbox none">')
+        out.append(f'<a class="fbox fbox-open" href="{esc(href)}">' if href is not None else '<g class="fbox fbox-none">')
         out.append(f"<title>{esc(FBOX_TIP.format(key=n, text=text))}</title>")
         out.append(f'<rect class="fb" x="{_n(bx)}" y="{_n(by)}" width="{BW}" height="{FBH}" rx="3"/>')
         out.append(_text("fid", bx + 8, by + 14, _cut(f"{site}:{issue}", FID_MAX)))
@@ -1006,6 +1006,7 @@ def render_model(m, *, stamp="") -> str:
                 f"them; {net['links'] - len(net['edges'])} repeat what a longer chain implies and are not drawn."),
         HOURS_PER_DAY=HOURS_PER_DAY,
         LABEL=SCHEDULE_LABEL,
+        FBOX_LEGEND=FBOX_LEGEND,
         STUCK=_note(m["notes"]["stuck"]),
         P0=Markup(f'<p class="note">{esc(P0_NOTE)}{_mono(m["notes"]["p0"])}</p>') if m["notes"]["p0"] else "",
         LANE_OPTIONS=Markup(options),

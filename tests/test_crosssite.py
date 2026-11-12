@@ -396,7 +396,7 @@ def test_unlinked_box_has_no_href(tmp_path):
     })
     t = tree(result.pages["alpha"])
     assert find(t, "a", ["fbox"]) == []
-    boxes = find(t, "g", ["fbox", "none"])
+    boxes = find(t, "g", ["fbox", "fbox-none"])
     assert len(boxes) == 2
     assert [text_of(t, find(t, "text", ["ftitle"], within=i)[0]) for i in boxes] == [
         FBOX_LINE["absent"], FBOX_LINE["unresolved"]]
@@ -493,7 +493,7 @@ def test_xsite_css_resets():
     # After the base-state rules it overrides, before the focus ring that must win over it.
     assert css.index(".node.st-parked .outline") < css.index(".node.xsite .outline") < css.index(
         ".node:focus-visible .outline")
-    assert "box on another site" in css
+    assert "{{FBOX_LEGEND}}" in css
 
 
 def test_page_details_for_foreign_only(node, tmp_path):
