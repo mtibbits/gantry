@@ -63,7 +63,7 @@ ALL_BY_NAME = {**BY_NAME, **GIT_HELPER_BY_NAME}
 
 
 # Deliberately independent of gantry.roots' own resolution: the spy does not
-# trust the code it checks.
+# trust the code it checks. Cached: no test re-points a link it has resolved.
 @lru_cache(maxsize=None)
 def canon(path):
     return os.path.normcase(os.path.realpath(path))
@@ -127,7 +127,8 @@ def classify(record, *, allowed, planted, by_name):
             continue
         if event == "subprocess.Popen":
             ok = (list(RUN_GIT) in item["gantry"] and _program(item.get("argv")) == "git"
-                  and isinstance(item.get("popen_cwd"), str) and inside(item["popen_cwd"], sample_dir()))
+                  and isinstance(item.get("popen_cwd"), str) and os.path.isabs(item["popen_cwd"])
+                  and inside(item["popen_cwd"], sample_dir()))
             git_popen = item if ok else None
             out.append(("ok", "git helper", item) if ok else ("violation", "starts a process", item))
             continue
@@ -335,7 +336,9 @@ def test_demo_build_reads_only_samples_and_the_package(demo_runs):
 
 def test_planted_configs_change_nothing(demo_runs):
     baseline, planted = demo_runs["baseline"], demo_runs["planted"]
-    assert baseline[:4] == planted[:4]  # all but the record
+    # All but the record. Both builds write samples/out uncleared, so the tree
+    # alone would not show a page the planted run failed to write; stdout does.
+    assert baseline[:4] == planted[:4]
     tree = planted.tree
     assert "index.html" in tree
     assert any(re.fullmatch(r"sites/[^/]+\.html", name) for name in tree)
@@ -349,9 +352,11 @@ def test_control_copy_outside_the_sample_directory_is_seen(demo_runs):
     expected = wbs_files(demo_runs["copy"] / "gantry.sample.toml")
     assert expected
     assert wbs_opens(record) == expected
-    outside = {canon(_path(item, record)) for reason, item in violations(record, **demo_kwargs(demo_runs["folders"].values()))
+    found = violations(record, **demo_kwargs(demo_runs["folders"].values()))
+    outside = {canon(_path(item, record)) for reason, item in found
                if reason == "outside" and _path(item, record) is not None}
     assert expected <= outside
+    assert [item for reason, item in found if reason == "planted"] == [], describe(found)
 
 
 @pytest.mark.parametrize("name", ["home", "env", "xdg", "cwd"])
@@ -510,6 +515,8 @@ def _rows(tmp):
         ("popen-git-cwd-outside", _popen(git_posix, tmp / "outside"), "starts a process"),
         ("popen-git-no-run-git", _popen(git_posix, harbor_history, gantry=(("build.py", "write_page"),)),
          "starts a process"),
+        # Relative: it would resolve against the pytest process's directory.
+        ("popen-git-relative-cwd", _popen(git_posix, os.path.relpath(harbor_history, ROOT)), "starts a process"),
         ("chdir", _ev("os.chdir", outside), "changes directory"),
         ("devnull-run-git", _ev("open", os.devnull, inner=("subprocess.py", "_get_devnull"), gantry=GIT_GANTRY),
          "by name"),

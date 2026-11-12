@@ -66,8 +66,6 @@ def hook(event, args):
         if not gantry:
             return
         item = {"event": event, "arg": _plain(args[0]) if args else None, "inner": inner, "gantry": gantry}
-        if event == "open":
-            item["mode"] = _plain(args[1]) if len(args) > 1 else None
         if event in ("subprocess.Popen", "_winapi.CreateProcess"):
             # (executable, args, cwd, env) and (application, command line, cwd)
             argv = args[1]
