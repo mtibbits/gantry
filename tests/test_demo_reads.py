@@ -559,3 +559,18 @@ def test_env_name_scan_flags_each_name(tmp_path, name, form):
 def test_env_name_scan_ignores_longer_words(tmp_path):
     (tmp_path / "mod.py").write_text("HOMEPAGE = 1\nhome = 2\nMY_HOME_DIR = 3\n", encoding="utf-8")
     assert lookup_name_hits(tmp_path) == {}
+
+
+# --- the documentation ------------------------------------------------------------------
+
+
+def test_config_doc_states_the_git_history_rule():
+    from gantry import wbs_history
+
+    text = (ROOT / "docs" / "config.md").read_bytes().decode("utf-8")
+    start = text.index("## Where a build may read and write")
+    end = text.index("\n## ", start + 3)
+    section = " ".join(text[start:end].split())
+    assert "**Git reads a history directory's repository.**" in section
+    assert "no data: " + wbs_history.OUTSIDE_ROOTS in section
+    assert "git never receives the path" in section
