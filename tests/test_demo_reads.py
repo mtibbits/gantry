@@ -28,7 +28,10 @@ PACKAGE = ROOT / "gantry"
 CHILD_TIMEOUT = 120  # seconds; a measured run takes about 5
 LOOKUP_NAMES = ("HOME", "USERPROFILE", "XDG_CONFIG_HOME", "GANTRY_CONFIG", "DA_HOME")
 IMPORT_FRAMES = frozenset({"<frozen importlib._bootstrap>", "<frozen importlib._bootstrap_external>"})
-PROCESS_EVENTS = frozenset({"os.system", "os.exec", "os.spawn", "os.posix_spawn", "os.startfile"})
+PROCESS_EVENTS = frozenset({"os.system", "os.exec", "os.spawn", "os.posix_spawn", "os.startfile", "os.fork",
+                            "os.forkpty"})
+# Popen, and on Windows the CreateProcess call it makes: both carry the command line and cwd.
+SPAWNS = frozenset({"subprocess.Popen", "_winapi.CreateProcess"})
 LISTINGS = frozenset({"os.listdir", "os.scandir"})
 RUN_GIT = ("wbs_history.py", "run_git")
 
@@ -107,6 +110,7 @@ def classify(record, *, allowed, planted, by_name, popen_root=None):
     stdlib = record["stdlib"]
     sys_path = {canon(p) for p in record["sys_path"] if p}
     out = []
+    git_popen = None  # the latest spawn event, when it was a git-helper Popen
     for item in record["events"]:
         event = item["event"]
         if event == "os.chdir":
@@ -118,6 +122,15 @@ def classify(record, *, allowed, planted, by_name, popen_root=None):
         if event == "subprocess.Popen":
             ok = (list(RUN_GIT) in item["gantry"] and _program(item.get("argv")) == "git"
                   and isinstance(item.get("popen_cwd"), str) and inside(item["popen_cwd"], popen_root))
+            git_popen = item if ok else None
+            out.append(("ok", "git helper", item) if ok else ("violation", "starts a process", item))
+            continue
+        if event == "_winapi.CreateProcess":
+            # Its command line arrives garbled, so it is the git helper only as
+            # the CreateProcess of the latest spawn event, a git-helper Popen.
+            ok = (git_popen is not None and item["gantry"] == git_popen["gantry"]
+                  and item.get("popen_cwd") == git_popen["popen_cwd"])
+            git_popen = None
             out.append(("ok", "git helper", item) if ok else ("violation", "starts a process", item))
             continue
         path = _path(item, record)
@@ -365,11 +378,12 @@ def test_real_git_call_record_is_classified(tmp_path, built_sample_history):
     found = violations(record, **kwargs)
     assert found == [], describe(found)
     assert set(GIT_HELPER_BY_NAME) <= used_by_name(record, **kwargs)
-    # Control: the same call run elsewhere is a violation, and the only one.
-    for item in record["events"]:
-        if item["event"] == "subprocess.Popen":
-            item["popen_cwd"] = str(tmp_path)
-    assert [reason for reason, _ in violations(record, **kwargs)] == ["starts a process"]
+    # Control: the same call run elsewhere is a violation, once per spawn event
+    # (Popen, and on Windows its CreateProcess), and nothing else is.
+    spawns = [item for item in record["events"] if item["event"] in SPAWNS]
+    for item in spawns:
+        item["popen_cwd"] = str(tmp_path)
+    assert [reason for reason, _ in violations(record, **kwargs)] == ["starts a process"] * len(spawns)
 
 
 
@@ -416,7 +430,7 @@ def test_sample_installation_git_reads_stay_in_the_sample_directory(tmp_path, mo
 def test_demo_build_starts_no_process_yet(demo_runs):
     for run in ("planted", "baseline"):
         record = demo_runs[run][4]
-        assert [e for e in record["events"] if e["event"] == "subprocess.Popen"] == [], TRIPWIRE
+        assert [e for e in record["events"] if e["event"] in SPAWNS | PROCESS_EVENTS] == [], TRIPWIRE
 
 
 # --- the classifier's controls ----------------------------------------------------------
@@ -436,6 +450,11 @@ GIT_GANTRY = (RUN_GIT, ("wbs_history.py", "last_state_change"))
 def _popen(argv, cwd, gantry=GIT_GANTRY):
     return _ev("subprocess.Popen", None, inner=("subprocess.py", "_execute_child"), gantry=gantry, argv=argv,
                popen_cwd=str(cwd))
+
+
+def _create_process(cwd):
+    return _ev("_winapi.CreateProcess", None, inner=("subprocess.py", "_execute_child"), gantry=GIT_GANTRY,
+               argv="", popen_cwd=str(cwd))
 
 
 def _other_drive():
@@ -489,6 +508,17 @@ def _rows(tmp):
         ("devnull-run-git", _ev("open", os.devnull, inner=("subprocess.py", "_get_devnull"), gantry=GIT_GANTRY),
          "by name"),
         ("devnull-other-frame", _ev("open", os.devnull, inner=("subprocess.py", "_get_devnull")), "outside"),
+        ("os-fork", _ev("os.fork", None), "starts a process"),
+        ("os-forkpty", _ev("os.forkpty", None), "starts a process"),
+        ("winapi-create-process", _ev("_winapi.CreateProcess", None, argv="git rev-parse --show-toplevel",
+                                      popen_cwd=str(harbor_history)), "starts a process"),
+        # Python garbles CreateProcess's command line in the audit event, so it is
+        # judged by the git-helper Popen it follows, never alone.
+        ("winapi-create-process-alone", _create_process(harbor_history), "starts a process"),
+        ("winapi-create-process-after-git-popen",
+         [_popen(git_windows, harbor_history), _create_process(harbor_history)], ["git helper", "git helper"]),
+        ("winapi-create-process-other-cwd",
+         [_popen(git_windows, harbor_history), _create_process(tmp / "outside")], ["git helper", "starts a process"]),
     ]
 
 
@@ -498,14 +528,22 @@ ROW_IDS = [
     "samples", "package", "sibling-of-samples", "case-changed-samples", "descriptor-write-confined",
     "descriptor-other-frame", "other-drive", "integer-arg-listing", "os-system", "popen-git-posix",
     "popen-git-windows", "popen-other-program", "popen-git-cwd-outside", "popen-git-no-run-git", "chdir",
-    "devnull-run-git", "devnull-other-frame",
+    "devnull-run-git", "devnull-other-frame", "os-fork", "os-forkpty", "winapi-create-process",
+    "winapi-create-process-alone", "winapi-create-process-after-git-popen", "winapi-create-process-other-cwd",
 ]
 
 
-def _synthetic(tmp, event):
+def test_runner_records_every_event_the_classifier_judges():
+    import demo_reads_runner
+
+    judged = PROCESS_EVENTS | SPAWNS | LISTINGS | {"open", "os.chdir"}
+    assert demo_reads_runner.EVENTS == judged
+
+
+def _synthetic(tmp, events):
     # The working directory is planted, as in the planted demo run.
     return {"cwd": str(tmp / "plant"), "stdlib": [sysconfig.get_paths()["stdlib"], sysconfig.get_paths()["platstdlib"]],
-            "sys_path": [str(tmp / "entry")], "events": [event]}
+            "sys_path": [str(tmp / "entry")], "events": events if isinstance(events, list) else [events]}
 
 
 OK_REASONS = frozenset({"allowed folder", "import system", "by name", "git helper"})
@@ -522,8 +560,9 @@ def test_classifier_controls(tmp_path, row):
     (event, expected), = [(e, x) for r, e, x in _rows(tmp_path) if r == row]
     got = classify(_synthetic(tmp_path, event), allowed=[sample_dir(), PACKAGE], planted=[tmp_path / "plant"],
                    by_name=ALL_BY_NAME)
-    assert [reason if isinstance(reason, str) else reason[0] for _, reason, _ in got] == [expected], got
-    assert got[0][0] == ("ok" if expected in OK_REASONS else "violation")
+    expected = expected if isinstance(expected, list) else [expected]
+    assert [reason if isinstance(reason, str) else reason[0] for _, reason, _ in got] == expected, got
+    assert [verdict for verdict, _, _ in got] == ["ok" if x in OK_REASONS else "violation" for x in expected]
 
 
 # --- no module names a default-lookup variable --------------------------------------------

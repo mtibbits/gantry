@@ -22,7 +22,8 @@ import sys
 import sysconfig
 
 EVENTS = frozenset({"open", "os.listdir", "os.scandir", "subprocess.Popen", "os.chdir",
-                    "os.system", "os.exec", "os.spawn", "os.posix_spawn", "os.startfile"})
+                    "os.system", "os.exec", "os.spawn", "os.posix_spawn", "os.startfile",
+                    "os.fork", "os.forkpty", "_winapi.CreateProcess"})
 ON = [False]
 ERRORS = [0]
 RECORDED = []
@@ -67,7 +68,8 @@ def hook(event, args):
         item = {"event": event, "arg": _plain(args[0]) if args else None, "inner": inner, "gantry": gantry}
         if event == "open":
             item["mode"] = _plain(args[1]) if len(args) > 1 else None
-        if event == "subprocess.Popen":
+        if event in ("subprocess.Popen", "_winapi.CreateProcess"):
+            # (executable, args, cwd, env) and (application, command line, cwd)
             argv = args[1]
             if isinstance(argv, (str, bytes)) or hasattr(argv, "__fspath__"):
                 item["argv"] = _plain(argv)
