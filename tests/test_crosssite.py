@@ -844,3 +844,18 @@ def test_sample_hrefs_form_and_land(tmp_path, monkeypatch):
             assert lands(out, rel, href), (rel, href)
             hrefs += 1
     assert hrefs == 5
+
+
+# --- the docs (Task 7) ----------------------------------------------------------------
+
+
+def test_doc_pins():
+    doc = (ROOT / "docs" / "worksite-page.md").read_bytes().decode("utf-8")
+    for text in (*MESSAGES.values(), NOT_BUILT, NO_ISSUE):
+        assert f"`{text}`" in doc, text
+    for kind in MESSAGES:
+        assert re.search(rf"^\| `{kind}` \|", doc, re.M), kind
+    for stale in ("does not resolve another site's leaves yet", "stays unresolved and unreported",
+                  "for a later cross-site view"):
+        assert stale not in doc, stale
+    assert "check_portfolio" in doc
