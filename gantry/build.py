@@ -182,16 +182,17 @@ def not_built(name, reason) -> SiteSummary:
     return SiteSummary(name, "not_built", reason)
 
 
-def rerender_failed(config, raw, sites, reasons, pages, models, failed, stamp, *, roots, catalog):
+def rerender_failed(config, raw, sites, reasons, resolved, foreign, pages, models, failed, stamp, *, roots,
+                    catalog):
     """Re-resolve and re-render after render failures, until no new page fails (#68).
 
-    `failed` is the last render's {site: reason}. Each pass adds the newly
-    failed sites to `reasons`, re-resolves from the raw read `raw`, and
-    re-renders only the built pages that hold an entry naming one of them.
-    A page that fails here is dropped from `pages` and `models`. Changes
-    `reasons`, `pages` and `models` in place; returns (resolved, foreign).
+    `resolved` and `foreign` are resolve_foreign's result for the last
+    render, and `failed` its {site: reason}. Each pass adds the newly failed
+    sites to `reasons`, re-resolves from the raw read `raw`, and re-renders
+    only the built pages that hold an entry naming one of them. A page that
+    fails here is dropped from `pages` and `models`. Changes `reasons`,
+    `pages` and `models` in place; returns the final (resolved, foreign).
     """
-    resolved, foreign = resolve_foreign(sites, raw, reasons)
     passes = 0
     new = {name: why for name, why in failed.items() if name not in reasons}
     while new:
@@ -225,10 +226,10 @@ def build_all(config, *, now=None, samples=None) -> BuildResult:
     catalog = load_catalog(roots, config, sites)
     stamp = stamp_text(config, now=now, samples=samples, roots=roots)
     raw, reasons = read_sites(config, sites, roots=roots)
-    resolved, _ = resolve_foreign(sites, raw, reasons)
+    resolved, foreign = resolve_foreign(sites, raw, reasons)
     pages, models, failed = render_sites(config, resolved, stamp, roots=roots, catalog=catalog)
-    resolved, foreign = rerender_failed(config, raw, sites, reasons, pages, models, failed, stamp,
-                                        roots=roots, catalog=catalog)
+    resolved, foreign = rerender_failed(config, raw, sites, reasons, resolved, foreign, pages, models, failed,
+                                        stamp, roots=roots, catalog=catalog)
     summaries = tuple(_summary(s.name, resolved[s.name], models[s.name], config.as_of) if s.name in pages
                       else not_built(s.name, reasons[s.name]) for s in sites)
     return BuildResult(config, tuple(sites), tuple(warnings), resolved, pages, summaries, stamp, roots, foreign)

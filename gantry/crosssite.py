@@ -9,8 +9,9 @@ docs/worksite-page.md states the rules.
 """
 
 from dataclasses import replace
+from functools import partial
 
-from gantry.deps import open_sources, refs
+from gantry.deps import inside, open_sources, refs
 from gantry.links import leaf_href
 from gantry.model import ForeignOutcome, ReportEntry, Row, report_order
 
@@ -18,6 +19,7 @@ MESSAGES = {
     "foreign_site_absent": "WBS.md line {line}: depends_on entry {entry!r} names a site not in this installation",
     "foreign_unresolved": "WBS.md line {line}: depends_on entry {entry!r} is unresolved: {reason}",
 }
+KIND = {"absent": "foreign_site_absent", "unresolved": "foreign_unresolved"}  # a reported outcome's kind
 NOT_BUILT = "{site} is not built: {reason}"
 NO_ISSUE = "{site}'s WBS.md has no issue: id {issue!r}"
 # The outcomes a waiting leaf shows; a satisfied entry needs no box.
@@ -31,31 +33,27 @@ def _holders(data):
 
 
 def _first_open_under(data, row):
-    prefix = row.outline + "."
-    return next((leaf for leaf in data.leaves if leaf.open and leaf.outline.startswith(prefix)), None)
+    return next((leaf for leaf in data.leaves if leaf.open and inside(leaf, row)), None)
 
 
 def _outcome(site, node, ref, names, inputs, reasons, holders):
     """One entry's ForeignOutcome."""
     target = ref.site
-    base = dict(site=site, source_key=node.key, source_line=node.line, source_is_row=isinstance(node, Row),
-                raw=ref.raw, target_site=target, target_issue=ref.issue,
-                target_key=None, target_is_row=None, title=None, href=None, reason=None)
+    outcome = partial(ForeignOutcome, site=site, source_key=node.key, source_line=node.line,
+                      source_is_row=isinstance(node, Row), raw=ref.raw, target_site=target, target_issue=ref.issue)
     if target not in names:
-        return ForeignOutcome(status="absent", **base)
+        return outcome(status="absent")
     if target in reasons or target not in inputs:
-        return ForeignOutcome(status="unresolved", **{
-            **base, "reason": NOT_BUILT.format(site=target, reason=reasons[target])})
+        return outcome(status="unresolved", reason=NOT_BUILT.format(site=target, reason=reasons[target]))
     holder = holders[target].get(ref.issue)
     if holder is None:
-        return ForeignOutcome(status="unresolved", **{**base, "reason": NO_ISSUE.format(site=target, issue=ref.issue)})
+        return outcome(status="unresolved", reason=NO_ISSUE.format(site=target, issue=ref.issue))
     is_row = isinstance(holder, Row)
     first = _first_open_under(inputs[target].data, holder) if is_row else (holder if holder.open else None)
-    found = {**base, "target_key": holder.key, "target_is_row": is_row}
     if first is None:
-        return ForeignOutcome(status="satisfied", **found)
-    return ForeignOutcome(status="open", **{
-        **found, "title": holder.title, "href": leaf_href(target, first.key, from_top=False)})
+        return outcome(status="satisfied", target_key=holder.key, target_is_row=is_row)
+    return outcome(status="open", target_key=holder.key, target_is_row=is_row, title=holder.title,
+                   href=leaf_href(target, first.key, from_top=False))
 
 
 def _resolve_site(site, inputs, names, all_inputs, reasons, holders):
@@ -71,11 +69,9 @@ def _resolve_site(site, inputs, names, all_inputs, reasons, holders):
                 continue
             o = _outcome(site, node, ref, names, all_inputs, reasons, holders)
             found.append(o)
-            if o.status == "absent":
-                report.append(ReportEntry(site, node.line, "foreign_site_absent",
-                                          MESSAGES["foreign_site_absent"].format(line=node.line, entry=ref.raw)))
-            elif o.status == "unresolved":
-                report.append(ReportEntry(site, node.line, "foreign_unresolved", MESSAGES["foreign_unresolved"].format(
+            kind = KIND.get(o.status)
+            if kind is not None:
+                report.append(ReportEntry(site, node.line, kind, MESSAGES[kind].format(
                     line=node.line, entry=ref.raw, reason=o.reason)))
         by_node[node.key] = found
     row_at = {row.outline: row for row in data.rows}

@@ -33,7 +33,7 @@ MESSAGES = {
 }
 
 
-def _inside(node, row):
+def inside(node, row):
     return node.outline.startswith(row.outline + ".")
 
 
@@ -147,7 +147,7 @@ def resolve(site, leaves, rows, by_issue):
                 target = by_key[key]
                 if key == leaf.key or key in above:
                     continue
-                if isinstance(source, Row) and _inside(target, source):
+                if isinstance(source, Row) and inside(target, source):
                     continue
                 if isinstance(target, Row):
                     links.update((t, leaf.key) for t in open_under[key])

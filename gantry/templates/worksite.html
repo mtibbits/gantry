@@ -126,15 +126,9 @@ figcaption { color: var(--muted); font-size: 14px; max-width: 72ch; }
 .node.st-blocked .outline { stroke: var(--held); stroke-width: 2.5; stroke-dasharray: 2 3; }
 .node.st-parked .outline { stroke: var(--muted); stroke-width: 2.5; stroke-dasharray: 6 3; }
 /* A leaf that waits on another site (#68): its own outline colour and width.
-   Each rule sets every stroke property a base state sets, so none is
-   inherited by accident; a held state keeps its dash on purpose. */
-.node.xsite .outline { stroke: var(--xsite); stroke-width: 2.5; stroke-dasharray: none; }
-.node.xsite.st-stuck .outline { stroke: var(--xsite); stroke-width: 2.5; stroke-dasharray: 6 3; }
-.node.xsite.st-blocked .outline { stroke: var(--xsite); stroke-width: 2.5; stroke-dasharray: 2 3; }
-.node.xsite.st-parked .outline { stroke: var(--xsite); stroke-width: 2.5; stroke-dasharray: 6 3; }
-/* The focus ring wins over each of them: as specific, plus the pseudo-class. */
-.node.xsite:focus-visible .outline, .node.xsite.st-stuck:focus-visible .outline,
-.node.xsite.st-blocked:focus-visible .outline, .node.xsite.st-parked:focus-visible .outline { stroke: var(--cross); stroke-width: 3; }
+   As specific as the st-* rules and after them, so it wins, and a held
+   state keeps its dash; the later focus-ring rule wins over it in turn. */
+.node.xsite .outline { stroke: var(--xsite); stroke-width: 2.5; }
 /* A box on another site and its link: not a node and not an .edge, so the
    trace and the selection never light or dim it. */
 .fbox .fb { fill: var(--sheet); stroke: var(--xsite); stroke-width: 1.5; stroke-dasharray: 4 3; }

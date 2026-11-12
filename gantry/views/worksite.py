@@ -317,7 +317,6 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None) -> di
     # A leaf whose only open dependencies are on another site: drawn in the
     # first column beside the network, never in it (#68).
     foreign_only = [leaf.key for leaf in work if leaf.foreign_targets and leaf.key not in net.slack]
-    only_foreign = set(foreign_only)
     spans = {leaf.key: _span(leaf, default_unit_hours) for leaf in work}
     hours = {k: ((lo + hi) / 2, unest) for k, (lo, hi, unest) in spans.items()}
     totals = inputs.totals if inputs is not None else site_totals(work, default_unit_hours)
@@ -345,7 +344,7 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None) -> di
         tiers = _tiers(leaf)
         soon = (priority.rank(leaf.priority) <= 1 or leaf.state == "in_progress"
                 or starts[k] < HORIZON_DAYS * HOURS_PER_DAY)
-        wave_full = (linked and (net.slack[k] == 0 or soon)) or (k in only_foreign and soon)
+        wave_full = (linked and (net.slack[k] == 0 or soon)) or (k in foreign_only and soon)
         leaves.append({
             "key": k, "anchor": leaf_anchor(k), "issue": leaf.issue, "outline": leaf.outline, "title": leaf.title,
             "lane": lane_of[leaf.epic], "state": leaf.state, "sc": state_class(leaf.state),
@@ -357,7 +356,7 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None) -> di
             "non_time": _non_time(leaf), "linked": linked,
             "slack": net.slack[k] if linked else None,
             "sclass": slack_class(net.slack[k]) if linked else None,
-            "es": net.es[k] if linked else 0 if k in only_foreign else None, "wave_full": wave_full,
+            "es": net.es[k] if linked else 0 if k in foreign_only else None, "wave_full": wave_full,
             "models": tiers, "mc": [model_class(t) for t in tiers] if tiers else None,
             "flags": _flags(leaf), "meta": [[mk, mv] for mk, mv in leaf.meta.items()],
             "foreign": _foreign(site, leaf, row_at),
@@ -374,7 +373,7 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None) -> di
             "key": key,
             "name": row.title if row is not None else NO_EPIC,
             "tag": row.issue if row is not None and row.issue is not None else "",
-            "open": len(mine), "unlinked": sum(not leaf["linked"] and leaf["key"] not in only_foreign
+            "open": len(mine), "unlinked": sum(not leaf["linked"] and leaf["key"] not in foreign_only
                                                for leaf in mine),
             "hours": sum(leaf["hours"] for leaf in mine),
             "unestimated": sum(leaf["unestimated"] for leaf in mine),
@@ -400,7 +399,7 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None) -> di
              for unit, e in totals.non_time.items()]
     empty = not data.leaves and not data.rows
     held_out = set(data.held_out)
-    drawn = set(net.nodes) | only_foreign
+    drawn = {*net.nodes, *foreign_only}
     # Each leaf the network does not draw anchors on an element of its own, in WBS order.
     anchors = {"schedule": [leaf_anchor(k) for k in keys if k not in drawn],
                "held": [leaf_anchor(leaf.key) for leaf in data.leaves if leaf.open and leaf.key in held_out]}
@@ -608,6 +607,12 @@ def _lane_label(lane, top, tiers_shown):
     return out, y + 12 - top
 
 
+def _paths(cls, data, d_all, d_wave, marker):
+    """One path, or an e-all/e-wave pair when the two modes draw it apart."""
+    forms = [("", d_all)] if d_all == d_wave else [(" e-all", d_all), (" e-wave", d_wave)]
+    return [f'<path class="{cls}{extra}" {data} d="{d}" marker-end="url(#{marker})"/>' for extra, d in forms]
+
+
 def _network_svg(m):
     leaves = {leaf["key"]: leaf for leaf in m["leaves"]}
     net = m["network"]
@@ -678,10 +683,7 @@ def _network_svg(m):
         u, v = e["u"], e["v"]
         cls = "edge" + (" crit" if e["crit"] else "") + (" cross" if e["cross"] else "")
         mk = "arrow-crit" if e["crit"] else "arrow-cross" if e["cross"] else "arrow"
-        d_all, d_wave = curve(u, v, "all"), curve(u, v, "wave")
-        forms = [("", d_all)] if d_all == d_wave else [(" e-all", d_all), (" e-wave", d_wave)]
-        for extra, d in forms:
-            out.append(f'<path class="{cls}{extra}" data-u="{esc(u)}" data-v="{esc(v)}" d="{d}" marker-end="url(#{mk})"/>')
+        out += _paths(cls, f'data-u="{esc(u)}" data-v="{esc(v)}"', curve(u, v, "all"), curve(u, v, "wave"), mk)
     box_at, in_lane, line_of = [], {}, {}
     for li, n, box in fboxes:
         j = in_lane[li] = in_lane.get(li, -1) + 1
@@ -702,9 +704,7 @@ def _network_svg(m):
         sy = by + FBH / 2
         d_all, d_wave = (f"M{bx:.1f},{sy:.1f} L{mx:.1f},{sy:.1f} L{mx:.1f},{ey:.1f} L{ex:.1f},{ey:.1f}"
                          for ex, ey in (ends["all"], ends["wave"]))
-        forms = [("", d_all)] if d_all == d_wave else [(" e-all", d_all), (" e-wave", d_wave)]
-        for extra, d in forms:
-            out.append(f'<path class="fedge{extra}" data-v="{esc(n)}" d="{d}" marker-end="url(#arrow-foreign)"/>')
+        out += _paths("fedge", f'data-v="{esc(n)}"', d_all, d_wave, "arrow-foreign")
     out.append("</g>")
 
     for n in nodes:

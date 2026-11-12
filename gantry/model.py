@@ -70,11 +70,11 @@ class ForeignOutcome:
     target_site: str
     target_issue: str
     status: str
-    target_key: str | None
-    target_is_row: bool | None
-    title: str | None
-    href: str | None
-    reason: str | None
+    target_key: str | None = None
+    target_is_row: bool | None = None
+    title: str | None = None
+    href: str | None = None
+    reason: str | None = None
 
 
 @dataclass(frozen=True)

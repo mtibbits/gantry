@@ -30,7 +30,6 @@ from gantry.views.worksite import (
     NO_CHAIN_XSITE,
     SLACK_NONE,
     SUMMARY_NO_CHAIN,
-    page_model,
 )
 from helpers_config import (
     copy_samples,
@@ -47,7 +46,7 @@ from page_safety import HOSTILE, assert_no_external_resources, assert_page_safe
 from page_script.harness import open_page
 from sample_roles import BUSY, NO_WBS, OWN_UNIT, SMALL, UNESTIMATED, UNREADABLE
 from test_samples import ROOT
-from test_worksite_page import ancestors, find, text_of, tree
+from test_worksite_page import ancestors, by_key, find, model_with, text_of, tree, with_leaf
 
 
 def test_report_kinds_registered():
@@ -276,9 +275,9 @@ def tree_config(tmp_path, sites):
     return load_config(write_site_tree(tmp_path, raw))
 
 
-def force_render(monkeypatch, fail):
-    """Make render_model raise for a site while `fail(site, nth render of it)` is true;
-    returns the {site: render_site calls} counter."""
+def force_render(monkeypatch, fail, why="forced"):
+    """Make render_model raise ValueError(why) for a site while `fail(site, nth
+    render of it)` is true; returns the {site: render_site calls} counter."""
     calls = {}
     real_site, real_model = build.render_site, worksite.render_model
 
@@ -288,7 +287,7 @@ def force_render(monkeypatch, fail):
 
     def render_model(m, **kw):
         if fail(m["site"], calls[m["site"]]):
-            raise ValueError("forced")
+            raise ValueError(why)
         return real_model(m, **kw)
 
     monkeypatch.setattr(build, "render_site", render_site)
@@ -356,11 +355,7 @@ def full_build(tmp_path, sites):
 
 
 def model_of(result, site):
-    return page_model(site, None, default_unit_hours=result.config.default_unit_hours, inputs=result.inputs[site])
-
-
-def leaf_data(m, key):
-    return next(x for x in m["leaves"] if x["key"] == key)
+    return model_with(result.inputs[site], site, result.config.default_unit_hours)
 
 
 def node_el(t, key):
@@ -369,7 +364,7 @@ def node_el(t, key):
 
 
 def fboxes(t):
-    return [i for i in find(t, None, ["fbox"])]
+    return find(t, None, ["fbox"])
 
 
 def box_texts(t):
@@ -385,12 +380,12 @@ def test_box_drawn_and_linked(tmp_path):
     (a,) = find(t, "a", ["fbox"])
     assert t.elements[a]["attrs"]["href"] == "beta.html#leaf-Issue-1"
     assert "beta:Issue-1" in text_of(t, a) and "Pour the base" in text_of(t, a)
-    assert leaf_data(model_of(result, "alpha"), "Issue-1")["other_site"] == FLAG
+    assert by_key(model_of(result, "alpha"))["Issue-1"]["other_site"] == FLAG
     node = node_el(t, "Issue-1")
     assert "xsite" in t.elements[node]["classes"]
     assert FLAG in text_of(t, find(t, "title", within=node)[0])
     # The unflagged, unlinked leaf is in the schedule only.
-    assert leaf_data(model_of(result, "alpha"), "Issue-2")["other_site"] is None
+    assert by_key(model_of(result, "alpha"))["Issue-2"]["other_site"] is None
     assert [el["attrs"].get("data-item") for el in t.elements if "xsite" in el["classes"]] == ["Issue-1"]
 
 
@@ -416,7 +411,7 @@ def test_foreign_only_first_column_empty_network(tmp_path):
     m = model_of(result, "alpha")
     net = m["network"]
     assert (net["nodes"], net["length"], net["foreign_only"]) == ([], 0, ["Issue-1"])
-    leaf = leaf_data(m, "Issue-1")
+    leaf = by_key(m)["Issue-1"]
     assert (leaf["es"], leaf["slack"], leaf["sclass"], leaf["linked"]) == (0, None, None, False)
     assert m["lanes"][0]["unlinked"] == 0
     page = result.pages["alpha"]
@@ -493,10 +488,8 @@ def css_rule(css, selector):
 
 def test_xsite_css_resets():
     css = (ROOT / "gantry" / "templates" / "worksite.html").read_text(encoding="utf-8")
-    stroke = {"stroke", "stroke-width", "stroke-dasharray"}
-    assert css_rule(css, ".node.xsite .outline") == stroke
-    for state in ("st-stuck", "st-blocked", "st-parked"):
-        assert css_rule(css, f".node.xsite.{state} .outline") == stroke
+    # Colour and width only, so a held state keeps its dash.
+    assert css_rule(css, ".node.xsite .outline") == {"stroke", "stroke-width"}
     # After the base-state rules it overrides, before the focus ring that must win over it.
     assert css.index(".node.st-parked .outline") < css.index(".node.xsite .outline") < css.index(
         ".node:focus-visible .outline")
@@ -527,9 +520,7 @@ def retitle(monkeypatch, site, key, title):
     def read_site(entry, *args, **kw):
         found, reason = real(entry, *args, **kw)
         if entry.name == site and found is not None:
-            data = found.data
-            leaves = tuple(dataclasses.replace(x, title=title) if x.key == key else x for x in data.leaves)
-            found = dataclasses.replace(found, data=dataclasses.replace(data, leaves=leaves))
+            found = dataclasses.replace(found, data=with_leaf(found.data, key, title=title))
         return found, reason
 
     monkeypatch.setattr(build, "read_site", read_site)
@@ -546,14 +537,7 @@ def test_hostile_target_title(tmp_path, monkeypatch, h):
 
 @pytest.mark.parametrize("h", HOSTILE)
 def test_hostile_render_reason(tmp_path, monkeypatch, h):
-    real = worksite.render_model
-
-    def render_model(m, **kw):
-        if m["site"] == "beta":
-            raise ValueError(h)
-        return real(m, **kw)
-
-    monkeypatch.setattr(worksite, "render_model", render_model)
+    force_render(monkeypatch, lambda site, n: site == "beta", why=h)
     result = full_build(tmp_path, FOREIGN_ONLY)
     # The reason reaches the page inside the leaf's waits-on text.
     reason = NOT_BUILT.format(site="beta", reason=build.render_reason(ValueError(h), result.roots))
@@ -606,24 +590,20 @@ def outcome(result, site, raw):
     return o
 
 
-def sample_leaf(result, site, key):
-    return next(x for x in result.inputs[site].data.leaves if x.key == key)
-
-
 def test_sample_open_leaf_box(tmp_path):
     result = sample_build(tmp_path)
     o = outcome(result, UNESTIMATED, f"{BUSY}:Issue-7")
     assert (o.status, o.target_site, o.source_key) == ("open", BUSY, "Issue-9")
-    assert o.title == sample_leaf(result, BUSY, "Issue-7").title
+    assert o.title == leaf(result.inputs, BUSY, "Issue-7").title
     t = tree(result.pages[UNESTIMATED])
     assert [t.elements[i]["attrs"]["href"] for i in find(t, "a", ["fbox"])] == [f"{BUSY}.html#leaf-Issue-7"]
-    assert leaf_data(model_of(result, UNESTIMATED), "Issue-9")["other_site"] == FLAG
+    assert by_key(model_of(result, UNESTIMATED))["Issue-9"]["other_site"] == FLAG
 
 
 def test_sample_same_id_never_target(tmp_path):
     result = sample_build(tmp_path)
     o = outcome(result, UNESTIMATED, f"{BUSY}:Issue-7")
-    assert o.title != sample_leaf(result, UNESTIMATED, "Issue-7").title
+    assert o.title != leaf(result.inputs, UNESTIMATED, "Issue-7").title
     assert ("Issue-7", "Issue-9") not in result.inputs[UNESTIMATED].data.links
     assert not any(o.target_site == UNESTIMATED for o in result.foreign[UNESTIMATED])
 
@@ -632,9 +612,9 @@ def test_sample_finished_no_box(tmp_path):
     result = sample_build(tmp_path)
     o = outcome(result, UNESTIMATED, f"{BUSY}:Issue-3")
     assert (o.status, o.source_key, o.href) == ("satisfied", "Issue-3", None)
-    leaf = sample_leaf(result, UNESTIMATED, "Issue-3")
-    assert (leaf.waits_on_other_site, leaf.foreign_targets) == (False, ())
-    assert leaf_data(model_of(result, UNESTIMATED), "Issue-3")["fboxes"] == []
+    x = leaf(result.inputs, UNESTIMATED, "Issue-3")
+    assert (x.waits_on_other_site, x.foreign_targets) == (False, ())
+    assert by_key(model_of(result, UNESTIMATED))["Issue-3"]["fboxes"] == []
 
 
 def test_sample_row_target(tmp_path):
@@ -694,7 +674,7 @@ def test_sample_absent_unresolved(tmp_path):
         waiting = [x for x in result.inputs[OWN_UNIT].data.leaves if x.open and o in (x.foreign_targets or ())]
         assert waiting and all(x.waits_on_other_site for x in waiting), raw
         for x in waiting:
-            boxes = [b for b in leaf_data(m, x.key)["fboxes"] if f"{b[0]}:{b[1]}" == raw]
+            boxes = [b for b in by_key(m)[x.key]["fboxes"] if f"{b[0]}:{b[1]}" == raw]
             assert [b[3] for b in boxes] == [None], (raw, x.key)
 
 
@@ -713,14 +693,7 @@ def test_sample_own_prefix_local(tmp_path):
 
 
 def test_sample_render_failure(tmp_path, monkeypatch):
-    real = worksite.render_model
-
-    def render_model(m, **kw):
-        if m["site"] == BUSY:
-            raise ValueError("forced")
-        return real(m, **kw)
-
-    monkeypatch.setattr(worksite, "render_model", render_model)
+    force_render(monkeypatch, lambda site, n: site == BUSY)
     result = sample_build(tmp_path)
     naming = [o for outcomes in result.foreign.values() for o in outcomes if o.target_site == BUSY]
     assert len(naming) == 4
@@ -757,11 +730,9 @@ def strip_foreign(copy):
 
 
 def stripped_build(tmp_path):
-    from gantry.config import load_config as load_gantry_config
-
     copy = copy_samples(tmp_path)
     strip_foreign(copy)
-    return build_all(load_gantry_config(copy / "gantry.sample.toml"), samples=copy)
+    return build_all(load_config(copy / "gantry.sample.toml"), samples=copy)
 
 
 def svg_kinds(t, skip):
@@ -798,7 +769,7 @@ def test_schedule_unchanged_without_foreign(tmp_path):
         assert mb["network"].pop("foreign_only") == []
         assert ma["network"] == mb["network"], site
         for la, lb in zip(ma["lanes"], mb["lanes"], strict=True):
-            mine = sum(leaf_data(ma, k)["lane"] == ma["lanes"].index(la) for k in only)
+            mine = sum(by_key(ma)[k]["lane"] == ma["lanes"].index(la) for k in only)
             assert la["unlinked"] == lb["unlinked"] - mine, (site, la["key"])
         ta, tb = tree(a.pages[site]), tree(b.pages[site])
         xa, xb = node_x(ta), node_x(tb)
@@ -917,9 +888,8 @@ def test_fedges_keep_clear_of_other_leaves(tmp_path):
 
 def test_xsite_focus_ring_wins():
     css = (ROOT / "gantry" / "templates" / "worksite.html").read_text(encoding="utf-8")
-    for state in ("", ".st-stuck", ".st-blocked", ".st-parked"):
-        # As specific as the xsite rule it must beat, plus the pseudo-class.
-        selector = f".node.xsite{state}:focus-visible .outline"
-        assert selector in css, selector
-        rule = re.search(r"([^{}]*)\{([^}]*)\}", css[css.index(selector):])
-        assert {"stroke", "stroke-width"} <= {d.split(":")[0].strip() for d in rule.group(2).split(";") if d.strip()}
+    # The ring is as specific as the one xsite rule and after it; no xsite
+    # selector is more specific.
+    assert css.index(".node.xsite .outline") < css.index(".node:focus-visible .outline")
+    assert {"stroke", "stroke-width"} <= css_rule(css, ".node:focus-visible .outline")
+    assert not re.search(r"\.node\.xsite[.:]", css)
