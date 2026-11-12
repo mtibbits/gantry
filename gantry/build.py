@@ -8,12 +8,13 @@ never an absolute path. docs/worksite-page.md states the build.
 """
 
 import stat
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
 
 from gantry.attention import check_h
 from gantry.config import Config, error_reason
 from gantry.inputs import Inputs, apply_inputs
+from gantry.model import ForeignOutcome
 from gantry.requirements import in_trace_sites
 from gantry.roots import OutsideRoots, Roots, mkdir_confined, stat_confined, write_confined
 from gantry.sites import SiteEntry, SiteWarning, config_roots, load_sites
@@ -57,6 +58,8 @@ class BuildResult:
     summaries: tuple[SiteSummary, ...]
     stamp: str
     roots: Roots  # the run's roots (#59): every read, the stamp and every write
+    # {waiting site: its foreign entries' outcomes}, every read site in config order (#68)
+    foreign: dict[str, tuple[ForeignOutcome, ...]] = field(default_factory=dict)
 
 
 def site_list(config, roots=None):

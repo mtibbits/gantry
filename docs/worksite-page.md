@@ -178,6 +178,8 @@ in this table's order.
 | `key_collision` | an outline key equals an `issue:` id | shows the node under its `~<line>` key |
 | `unresolved_ref` | a local `depends_on` entry names no `issue:` id in the file | draws no link and lists the entry |
 | `malformed_ref` | a `depends_on` entry is neither an id nor `<site>:<id>` | draws no link and lists the entry |
+| `foreign_site_absent` | in a full build, a `<site>:<id>` entry names a site that is not in this installation (exact, case-sensitive match) | draws an unlinked box, flags the waiting open leaves, and lists the entry: "WBS.md line {line}: depends_on entry {entry!r} names a site not in this installation" |
+| `foreign_unresolved` | in a full build, a `<site>:<id>` entry names a configured site that is not built, or whose `WBS.md` has no node with that `issue:` id | draws an unlinked box, flags the waiting open leaves, and lists the entry: "WBS.md line {line}: depends_on entry {entry!r} is unresolved: {reason}" |
 | `bad_priority` | a node's `priority:` is not `P0`–`P4` | treats it as P3 and lists the value |
 | `cycle` | open leaves depend on each other in a loop | lists the members |
 | `waits_on_cycle` | an open leaf is in, or waits on, a cycle | shows the leaf as held out, with no effective priority |

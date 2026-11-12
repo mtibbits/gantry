@@ -61,6 +61,7 @@ def test_model_field_lists():
     assert [f.name for f in fields(Leaf)] == [
         "key", "issue", "outline", "title", "glyph", "state", "open", "priority",
         "deps", "meta", "epic", "line", "estimate", "models", "flags",
+        "waits_on_other_site", "foreign_targets",
     ]
     assert [f.name for f in fields(Row)] == [
         "key", "issue", "outline", "title", "glyph", "state", "line", "parent", "meta",
@@ -72,8 +73,8 @@ def test_model_field_lists():
 def test_report_kinds():
     assert REPORT_KINDS == (
         "no_issue", "duplicate_issue", "key_collision", "unresolved_ref",
-        "malformed_ref", "bad_priority", "cycle", "waits_on_cycle",
-        "skipped_line", "no_nodes", "site_unreadable",
+        "malformed_ref", "foreign_site_absent", "foreign_unresolved", "bad_priority", "cycle",
+        "waits_on_cycle", "skipped_line", "no_nodes", "site_unreadable",
         "no_estimates_file", "estimates_ignored", "estimates_unreadable",
         "estimates_column_missing", "estimates_cell_bad", "estimates_row_unmatched",
         "estimates_row_duplicate", "est_unparseable", "unestimated", "no_priority",
