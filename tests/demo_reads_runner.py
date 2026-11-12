@@ -134,7 +134,6 @@ def main(argv):
         _refuse(f"gantry would be imported from {origin}, not from GANTRY_ROOT")
     sys.addaudithook(hook)
     ON[0] = True
-    exit_value = "raised: no exit"
     try:
         exit_value = _git_probe(*rest[:2]) if probe else _run(rest)
     except SystemExit as e:

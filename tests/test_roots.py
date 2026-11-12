@@ -374,24 +374,24 @@ def roots_of(config_path):
 
 
 def test_sample_roots_lie_inside_the_sample_directory():
+    from gantry.config import load_config
+    from gantry.sites import config_roots
     from helpers_config import sample_projects
     from test_samples import GANTRY_SAMPLE
 
-    roots = roots_of(GANTRY_SAMPLE)
+    config = load_config(GANTRY_SAMPLE)
+    roots = config_roots(config)
     assert outside(roots, sample_dir()) == []
     found = {(r.key, r.site) for r in roots.roots}
     assert {("devdoc_dir", n) for n in sample_projects()} <= found
     assert {("--config", None), ("devagent_config", None), ("output_dir", None), ("portfolio_file", None),
             ("site.lighthouse.requirements", None)} <= found
-    from gantry.config import load_config
     from sample_roles import HISTORY_RECENT, HISTORY_STALE, HISTORY_YOUNG
 
     # The history keys come from the loaded config, the field that names them (#43).
-    config = load_config(GANTRY_SAMPLE)
     history = {f"site.{n}.history" for n, o in config.sites.items() if o.history is not None}
     assert history <= {r.key for r in roots.roots}
     assert history == {f"site.{s}.history" for s in (HISTORY_RECENT, HISTORY_STALE, HISTORY_YOUNG)}
-    assert len(history) == 3
     assert [r.key for r in roots.roots if r.writable] == ["output_dir"]
 
 
@@ -885,20 +885,12 @@ def _history_site(tmp_path, wbs=_WBS.encode()):
 
 
 def test_history_directory_outside_the_roots_is_no_data_and_no_git_call(tmp_path, monkeypatch, git_ready):
-    from gantry import sites as sites_module
     from gantry import wbs_history
     from gantry.roots import Roots
     from helpers_history import spy_git
 
     config, full, site, _ = _history_site(tmp_path)
-    real = sites_module.config_roots
-
-    def without_history(config, **kwargs):
-        got = real(config, **kwargs)
-        return Roots(tuple(r for r in got.roots if r.key != "site.harbor.history"))
-
-    monkeypatch.setattr(sites_module, "config_roots", without_history)
-    roots = sites_module.config_roots(config)
+    roots = Roots(tuple(r for r in full.roots if r.key != "site.harbor.history"))
     assert len(roots.roots) == len(full.roots) - 1
     calls = spy_git(monkeypatch)
     got = wbs_history.last_state_change(roots, site, config, _AS_OF, 4, wbs_history.HistoryCache())

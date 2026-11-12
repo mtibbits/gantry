@@ -16,11 +16,15 @@ import shutil
 import subprocess
 import sys
 import sysconfig
+from functools import lru_cache
 from pathlib import Path
+from typing import NamedTuple
 
 import pytest
 
 from gantry.roots import gantry_root, sample_dir
+from helpers_config import written_bytes
+from test_samples import GANTRY_SAMPLE
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNNER = ROOT / "tests" / "demo_reads_runner.py"
@@ -58,6 +62,9 @@ ALL_BY_NAME = {**BY_NAME, **GIT_HELPER_BY_NAME}
 # --- the one classifier ---------------------------------------------------------------
 
 
+# Deliberately independent of gantry.roots' own resolution: the spy does not
+# trust the code it checks.
+@lru_cache(maxsize=None)
 def canon(path):
     return os.path.normcase(os.path.realpath(path))
 
@@ -102,11 +109,10 @@ def _program(argv):
     return os.path.normcase(name[:-4] if name.lower().endswith(".exe") else name)
 
 
-def classify(record, *, allowed, planted, by_name, popen_root=None):
+def classify(record, *, allowed, planted, by_name):
     """[(verdict, reason, event)] for every recorded event; verdict "ok" or
     "violation". Rules, first match wins: process events,
     Popen, planted, allowed folders, the import system, by name, else outside."""
-    popen_root = sample_dir() if popen_root is None else popen_root
     stdlib = record["stdlib"]
     sys_path = {canon(p) for p in record["sys_path"] if p}
     out = []
@@ -121,7 +127,7 @@ def classify(record, *, allowed, planted, by_name, popen_root=None):
             continue
         if event == "subprocess.Popen":
             ok = (list(RUN_GIT) in item["gantry"] and _program(item.get("argv")) == "git"
-                  and isinstance(item.get("popen_cwd"), str) and inside(item["popen_cwd"], popen_root))
+                  and isinstance(item.get("popen_cwd"), str) and inside(item["popen_cwd"], sample_dir()))
             git_popen = item if ok else None
             out.append(("ok", "git helper", item) if ok else ("violation", "starts a process", item))
             continue
@@ -154,11 +160,9 @@ def classify(record, *, allowed, planted, by_name, popen_root=None):
     return out
 
 
-def violations(record, *, allowed, planted, by_name, popen_root=None):
+def violations(record, **kwargs):
     """[(reason, event)] for every event the classifier does not allow."""
-    return [(reason, item) for verdict, reason, item in
-            classify(record, allowed=allowed, planted=planted, by_name=by_name, popen_root=popen_root)
-            if verdict == "violation"]
+    return [(reason, item) for verdict, reason, item in classify(record, **kwargs) if verdict == "violation"]
 
 
 def used_by_name(record, **kwargs):
@@ -198,16 +202,19 @@ def read_record(ran, record):
     return json.loads(Path(record).read_text(encoding="utf-8"))
 
 
-def snapshot(folder):
-    folder = Path(folder)
-    return {p.relative_to(folder).as_posix(): p.read_bytes() for p in sorted(folder.rglob("*")) if p.is_file()}
+class Build(NamedTuple):
+    code: int
+    stdout: bytes
+    stderr: bytes
+    tree: dict
+    record: dict
 
 
 def build(record, config, *, cwd, env, out):
-    """One build: (exit, stdout, stderr, output tree, record)."""
+    """One build: its exit, output, output tree and record."""
     ran = launch([record, ROOT, "build", "--config", Path(config).resolve()], cwd=cwd, env=env)
     data = read_record(ran, record)
-    return ran.returncode, ran.stdout, ran.stderr, snapshot(out), data
+    return Build(ran.returncode, ran.stdout, ran.stderr, written_bytes(Path(out)), data)
 
 
 PLANT_FOLDERS = ("home", "da_home", "env", "xdg", "cwd")
@@ -288,7 +295,7 @@ def demo_runs(tmp_path_factory, built_sample_history):
         folder.mkdir(parents=True)
     folders, configs = plant(p)
     out = sample_dir() / "out"
-    config = sample_dir() / "gantry.sample.toml"
+    config = GANTRY_SAMPLE
     empty_home = child_env(HOME=b / "home", USERPROFILE=b / "home")
     baseline = build(base / "baseline.json", config, cwd=b / "cwd", env=empty_home, out=out)
     planted = build(base / "planted.json", config, cwd=folders["cwd"], env=planted_env(folders), out=out)
@@ -299,25 +306,27 @@ def demo_runs(tmp_path_factory, built_sample_history):
             "copy": copy}
 
 
-def demo_kwargs(runs):
-    """The git-helper entries are in: when #29 binds the history reader, the
-    tripwire is the only assertion that changes."""
-    return {"allowed": [sample_dir(), PACKAGE], "planted": list(runs["folders"].values()), "by_name": ALL_BY_NAME}
+def demo_kwargs(planted=()):
+    """The classifier's arguments for a demo-shaped run. The git-helper entries
+    are in: when #29 binds the history reader, the tripwire is the only
+    assertion that changes."""
+    return {"allowed": [sample_dir(), PACKAGE], "planted": list(planted), "by_name": ALL_BY_NAME}
 
 
 # --- the demo build ---------------------------------------------------------------------
 
 
 def test_demo_build_reads_only_samples_and_the_package(demo_runs):
-    code, _, _, _, record = demo_runs["planted"]
-    assert code == 0
+    planted = demo_runs["planted"]
+    record = planted.record
+    assert planted.code == 0
     assert record["hook_errors"] == 0
     assert record["safe_path"] is True and record["dont_write_bytecode"] is True
-    kwargs = demo_kwargs(demo_runs)
+    kwargs = demo_kwargs(demo_runs["folders"].values())
     found = violations(record, **kwargs)
     assert found == [], describe(found)
     assert set(BY_NAME) <= used_by_name(record, **kwargs)
-    expected = wbs_files(sample_dir() / "gantry.sample.toml")
+    expected = wbs_files(GANTRY_SAMPLE)
     assert expected
     assert wbs_opens(record) == expected
     assert any(e["event"] == "open" and _path(e, record) is not None and inside(_path(e, record), PACKAGE)
@@ -325,22 +334,22 @@ def test_demo_build_reads_only_samples_and_the_package(demo_runs):
 
 
 def test_planted_configs_change_nothing(demo_runs):
-    baseline, planted = demo_runs["baseline"][:4], demo_runs["planted"][:4]
-    assert baseline == planted
-    tree = planted[3]
+    baseline, planted = demo_runs["baseline"], demo_runs["planted"]
+    assert baseline[:4] == planted[:4]  # all but the record
+    tree = planted.tree
     assert "index.html" in tree
     assert any(re.fullmatch(r"sites/[^/]+\.html", name) for name in tree)
-    for blob in (planted[1], planted[2], *tree.values()):
+    for blob in (planted.stdout, planted.stderr, *tree.values()):
         assert b"PLANTED" not in blob and b"planted" not in blob
 
 
 def test_control_copy_outside_the_sample_directory_is_seen(demo_runs):
-    code, _, _, _, record = demo_runs["control"]
-    assert code == 0
+    record = demo_runs["control"].record
+    assert demo_runs["control"].code == 0
     expected = wbs_files(demo_runs["copy"] / "gantry.sample.toml")
     assert expected
     assert wbs_opens(record) == expected
-    outside = {canon(_path(item, record)) for reason, item in violations(record, **demo_kwargs(demo_runs))
+    outside = {canon(_path(item, record)) for reason, item in violations(record, **demo_kwargs(demo_runs["folders"].values()))
                if reason == "outside" and _path(item, record) is not None}
     assert expected <= outside
 
@@ -351,14 +360,14 @@ def test_each_plant_is_a_working_config(tmp_path, name):
     ran = launch([tmp_path / "rec.json", ROOT, "build", "--config", configs[name]], cwd=tmp_path,
                  env=child_env(HOME=tmp_path, USERPROFILE=tmp_path))
     read_record(ran, tmp_path / "rec.json")
-    tree = snapshot(configs[name].parent / "out")
+    tree = written_bytes(configs[name].parent / "out")
     assert any(b"PLANTED" in blob for blob in tree.values()), sorted(tree)
 
 
 def test_runner_refuses_a_foreign_gantry(tmp_path):
     empty = tmp_path / "empty"
     empty.mkdir()
-    ran = launch([tmp_path / "rec.json", empty, "build", "--config", sample_dir() / "gantry.sample.toml"],
+    ran = launch([tmp_path / "rec.json", empty, "build", "--config", GANTRY_SAMPLE],
                  cwd=tmp_path, env=child_env())
     assert ran.returncode == 3
     assert len(ran.stderr.decode("utf-8", "replace").strip().splitlines()) == 1
@@ -374,7 +383,7 @@ def test_real_git_call_record_is_classified(tmp_path, built_sample_history):
     record = read_record(ran, record_file)
     assert record["exit"] == 0 and record["hook_errors"] == 0
     assert len([e for e in record["events"] if e["event"] == "subprocess.Popen"]) == 1
-    kwargs = {"allowed": [sample_dir(), PACKAGE], "planted": [], "by_name": ALL_BY_NAME}
+    kwargs = demo_kwargs()
     found = violations(record, **kwargs)
     assert found == [], describe(found)
     assert set(GIT_HELPER_BY_NAME) <= used_by_name(record, **kwargs)
@@ -384,7 +393,6 @@ def test_real_git_call_record_is_classified(tmp_path, built_sample_history):
     for item in spawns:
         item["popen_cwd"] = str(tmp_path)
     assert [reason for reason, _ in violations(record, **kwargs)] == ["starts a process"] * len(spawns)
-
 
 
 # --- the demo's git reads (AC 3; operator's option (a), 2026-11-12) ------------------------
@@ -406,7 +414,7 @@ def test_sample_installation_git_reads_stay_in_the_sample_directory(tmp_path, mo
 
     calls = spy_git(monkeypatch)
     given = spy_repository(monkeypatch)
-    config = load_config(sample_dir() / "gantry.sample.toml")
+    config = load_config(GANTRY_SAMPLE)
     roots = config_roots(config)
     sites, _ = load_sites(config, roots)
     cache = wbs_history.HistoryCache()
@@ -429,17 +437,15 @@ def test_sample_installation_git_reads_stay_in_the_sample_directory(tmp_path, mo
 
 def test_demo_build_starts_no_process_yet(demo_runs):
     for run in ("planted", "baseline"):
-        record = demo_runs[run][4]
+        record = demo_runs[run].record
         assert [e for e in record["events"] if e["event"] in SPAWNS | PROCESS_EVENTS] == [], TRIPWIRE
 
 
 # --- the classifier's controls ----------------------------------------------------------
 
 
-def _ev(event, arg, *, inner=("gantry-roots", "open_confined"), gantry=(("roots.py", "open_confined"),), **more):
-    inner = list(inner)
-    if inner[0] == "gantry-roots":
-        inner[0] = str(PACKAGE / "roots.py")
+def _ev(event, arg, *, inner=None, gantry=(("roots.py", "open_confined"),), **more):
+    inner = [str(PACKAGE / "roots.py"), "open_confined"] if inner is None else list(inner)
     return {"event": event, "arg": arg, "inner": inner, "gantry": [list(g) for g in gantry], **more}
 
 
@@ -522,15 +528,8 @@ def _rows(tmp):
     ]
 
 
-ROW_IDS = [
-    "planted-open", "planted-import", "outside-open", "outside-listdir", "outside-scandir", "stdlib-import",
-    "stdlib-not-import", "syspath-listing-import", "syspath-listing-not-import", "syspath-child-import",
-    "samples", "package", "sibling-of-samples", "case-changed-samples", "descriptor-write-confined",
-    "descriptor-other-frame", "other-drive", "integer-arg-listing", "os-system", "popen-git-posix",
-    "popen-git-windows", "popen-other-program", "popen-git-cwd-outside", "popen-git-no-run-git", "chdir",
-    "devnull-run-git", "devnull-other-frame", "os-fork", "os-forkpty", "winapi-create-process",
-    "winapi-create-process-alone", "winapi-create-process-after-git-popen", "winapi-create-process-other-cwd",
-]
+# The ids touch no file, so a placeholder folder names them at collection.
+ROW_IDS = [row for row, _, _ in _rows(Path("tmp"))]
 
 
 def test_runner_records_every_event_the_classifier_judges():
@@ -549,17 +548,12 @@ def _synthetic(tmp, events):
 OK_REASONS = frozenset({"allowed folder", "import system", "by name", "git helper"})
 
 
-def test_classifier_rows_match_the_rule_list(tmp_path):
-    assert [row for row, _, _ in _rows(tmp_path)] == ROW_IDS
-
-
 @pytest.mark.parametrize("row", ROW_IDS)
 def test_classifier_controls(tmp_path, row):
-    for folder in ("plant", "outside", "entry", "cwd"):
+    for folder in ("plant", "outside", "entry"):
         (tmp_path / folder).mkdir()
     (event, expected), = [(e, x) for r, e, x in _rows(tmp_path) if r == row]
-    got = classify(_synthetic(tmp_path, event), allowed=[sample_dir(), PACKAGE], planted=[tmp_path / "plant"],
-                   by_name=ALL_BY_NAME)
+    got = classify(_synthetic(tmp_path, event), **demo_kwargs([tmp_path / "plant"]))
     expected = expected if isinstance(expected, list) else [expected]
     assert [reason if isinstance(reason, str) else reason[0] for _, reason, _ in got] == expected, got
     assert [verdict for verdict, _, _ in got] == ["ok" if x in OK_REASONS else "violation" for x in expected]
