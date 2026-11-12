@@ -44,7 +44,7 @@ from test_samples import git as sample_git
 ROOT = Path(__file__).resolve().parents[1]
 BS = "\\"
 # Floors for the git gate's end-to-end run, set below the real counts.
-GATED_MODULES = ["tests/test_wbs_history.py", "tests/test_sample_history.py"]
+GATED_MODULES = ["tests/test_wbs_history.py", "tests/test_sample_history.py", "tests/test_demo_reads.py"]
 GATED_TESTS = 70
 UNGATED_TESTS = 40
 
