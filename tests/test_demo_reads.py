@@ -22,13 +22,15 @@ from typing import NamedTuple
 
 import pytest
 
-from gantry.roots import gantry_root, sample_dir
+from gantry.roots import gantry_root
 from helpers_config import written_bytes
 from test_samples import GANTRY_SAMPLE
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNNER = ROOT / "tests" / "demo_reads_runner.py"
 PACKAGE = ROOT / "gantry"
+# The allowed folder, named here rather than taken from gantry.roots, which the spy checks.
+SAMPLES = ROOT / "samples"
 CHILD_TIMEOUT = 120  # seconds; a measured run takes about 5
 LOOKUP_NAMES = ("HOME", "USERPROFILE", "XDG_CONFIG_HOME", "GANTRY_CONFIG", "DA_HOME")
 IMPORT_FRAMES = frozenset({"<frozen importlib._bootstrap>", "<frozen importlib._bootstrap_external>"})
@@ -128,7 +130,7 @@ def classify(record, *, allowed, planted, by_name):
         if event == "subprocess.Popen":
             ok = (list(RUN_GIT) in item["gantry"] and _program(item.get("argv")) == "git"
                   and isinstance(item.get("popen_cwd"), str) and os.path.isabs(item["popen_cwd"])
-                  and inside(item["popen_cwd"], sample_dir()))
+                  and inside(item["popen_cwd"], SAMPLES))
             git_popen = item if ok else None
             out.append(("ok", "git helper", item) if ok else ("violation", "starts a process", item))
             continue
@@ -193,7 +195,8 @@ def launch(args, *, cwd, env):
         return subprocess.run([sys.executable, "-P", "-B", str(RUNNER), *map(str, args)], cwd=cwd, env=env,
                               capture_output=True, timeout=CHILD_TIMEOUT)
     except subprocess.TimeoutExpired:
-        pytest.fail("the child did not finish: an audit hook that recurses (U2)", pytrace=False)
+        pytest.fail(f"the child did not finish in {CHILD_TIMEOUT} s; one known cause is an audit hook that "
+                    "recurses", pytrace=False)
 
 
 def read_record(ran, record):
@@ -264,12 +267,12 @@ def planted_env(folders):
 def copy_with_history(folder):
     """A copy of the samples, sample history included, without the demo's output."""
     copy = Path(folder) / "samples"
-    shutil.copytree(sample_dir(), copy, ignore=lambda d, names: ["out"] if Path(d) == sample_dir() else [])
+    shutil.copytree(SAMPLES, copy, ignore=lambda d, names: ["out"] if Path(d) == SAMPLES else [])
     return copy
 
 
 def wbs_files(config_path):
-    """The resolved WBS.md files of the config's sites (devagent Issue-118)."""
+    """The resolved WBS.md files of the config's sites."""
     from gantry.config import load_config
     from gantry.sites import load_sites
 
@@ -295,7 +298,7 @@ def demo_runs(tmp_path_factory, built_sample_history):
     for folder in (b / "home", b / "cwd"):
         folder.mkdir(parents=True)
     folders, configs = plant(p)
-    out = sample_dir() / "out"
+    out = SAMPLES / "out"
     config = GANTRY_SAMPLE
     empty_home = child_env(HOME=b / "home", USERPROFILE=b / "home")
     baseline = build(base / "baseline.json", config, cwd=b / "cwd", env=empty_home, out=out)
@@ -311,7 +314,7 @@ def demo_kwargs(planted=()):
     """The classifier's arguments for a demo-shaped run. The git-helper entries
     are in: when #29 binds the history reader, the tripwire is the only
     assertion that changes."""
-    return {"allowed": [sample_dir(), PACKAGE], "planted": list(planted), "by_name": ALL_BY_NAME}
+    return {"allowed": [SAMPLES, PACKAGE], "planted": list(planted), "by_name": ALL_BY_NAME}
 
 
 # --- the demo build ---------------------------------------------------------------------
@@ -349,6 +352,7 @@ def test_planted_configs_change_nothing(demo_runs):
 def test_control_copy_outside_the_sample_directory_is_seen(demo_runs):
     record = demo_runs["control"].record
     assert demo_runs["control"].code == 0
+    assert record["hook_errors"] == 0
     expected = wbs_files(demo_runs["copy"] / "gantry.sample.toml")
     assert expected
     assert wbs_opens(record) == expected
@@ -383,7 +387,7 @@ def test_real_git_call_record_is_classified(tmp_path, built_sample_history):
     from sample_roles import HISTORY_RECENT
 
     record_file = tmp_path / "rec.json"
-    repo = sample_dir() / "history" / "out" / HISTORY_RECENT
+    repo = SAMPLES / "history" / "out" / HISTORY_RECENT
     ran = launch(["--git-probe", record_file, ROOT, repo, gantry_root()], cwd=tmp_path, env=child_env())
     record = read_record(ran, record_file)
     assert record["exit"] == 0 and record["hook_errors"] == 0
@@ -400,7 +404,7 @@ def test_real_git_call_record_is_classified(tmp_path, built_sample_history):
     assert [reason for reason, _ in violations(record, **kwargs)] == ["starts a process"] * len(spawns)
 
 
-# --- the demo's git reads (AC 3; operator's option (a), 2026-11-12) ------------------------
+# --- the demo's git reads (AC 3): in process, as the build makes no git call until #29 ------
 
 TRIPWIRE = """the demo build now starts a process: #29 has bound the history reader into the build.
 Change this assertion to "at least one subprocess.Popen event"; nothing else: rule 2 of
@@ -427,23 +431,26 @@ def test_sample_installation_git_reads_stay_in_the_sample_directory(tmp_path, mo
     assert sites and len(answers) == len(sites)
     repos = [r for r in given if isinstance(r, wbs_history.Repo)]
     assert len(repos) >= 3
-    assert [r.top for r in repos if not inside(r.top, sample_dir())] == []
+    assert [r.top for r in repos if not inside(r.top, SAMPLES)] == []
     history = {n for n, o in config.sites.items() if o.history is not None}
     assert len(history) == 3
     assert {n for n, a in answers.items() if isinstance(a.repo, wbs_history.Repo)} == history
     assert answers[HISTORY_LESS].no_data.text == "no data: in no repository"
     assert calls
-    assert [cwd for _, cwd, _ in calls if not inside(cwd, sample_dir())] == []
+    assert [cwd for _, cwd, _ in calls if not inside(cwd, SAMPLES)] == []
     assert {canon(ceiling) for _, _, ceiling in calls} == {canon(gantry_root())}
     # Control: `inside` is not always true.
-    assert not inside(gantry_root(), sample_dir())
-    assert not inside(tmp_path, sample_dir())
+    assert not inside(gantry_root(), SAMPLES)
+    assert not inside(tmp_path, SAMPLES)
 
 
 def test_demo_build_starts_no_process_yet(demo_runs):
     for run in ("planted", "baseline"):
         record = demo_runs[run].record
-        assert [e for e in record["events"] if e["event"] in SPAWNS | PROCESS_EVENTS] == [], TRIPWIRE
+        assert record["hook_errors"] == 0
+        events = [e["event"] for e in record["events"]]
+        assert [e for e in events if e in PROCESS_EVENTS] == [], "the demo build starts a process"
+        assert [e for e in events if e in SPAWNS] == [], TRIPWIRE
 
 
 # --- the classifier's controls ----------------------------------------------------------
@@ -480,12 +487,12 @@ def _rows(tmp):
     planted = str(tmp / "plant" / "gantry.toml")
     outside = str(tmp / "outside" / "x.toml")
     entry = str(tmp / "entry")
-    samples = str(sample_dir() / "harbor" / "WBS.md")
-    sibling = str(sample_dir().parent / (sample_dir().name + "-x") / "WBS.md")
-    flipped = samples.swapcase() if os.name == "nt" else samples.replace(sample_dir().name, sample_dir().name.upper())
+    samples = str(SAMPLES / "harbor" / "WBS.md")
+    sibling = str(SAMPLES.parent / (SAMPLES.name + "-x") / "WBS.md")
+    flipped = samples.swapcase() if os.name == "nt" else samples.replace(SAMPLES.name, SAMPLES.name.upper())
     git_posix = ["git", "rev-parse", "--show-toplevel"]
     git_windows = "git rev-parse --show-toplevel"
-    harbor_history = sample_dir() / "history" / "out" / "harbor"
+    harbor_history = SAMPLES / "history" / "out" / "harbor"
     return [
         ("planted-open", _ev("open", planted), "planted"),
         ("planted-import", _ev("open", planted, inner=IMPORT_INNER), "planted"),
@@ -509,6 +516,14 @@ def _rows(tmp):
         ("other-drive", _ev("open", _other_drive()), "outside" if os.name == "nt" else "planted"),
         ("integer-arg-listing", _ev("os.listdir", 5), "outside"),
         ("os-system", _ev("os.system", "echo"), "starts a process"),
+        ("os-exec", _ev("os.exec", "git"), "starts a process"),
+        ("os-spawn", _ev("os.spawn", 0), "starts a process"),
+        ("os-posix-spawn", _ev("os.posix_spawn", "git"), "starts a process"),
+        ("os-startfile", _ev("os.startfile", "x.html"), "starts a process"),
+        # A listing with no argument lists the working directory, planted here.
+        ("listing-no-arg", _ev("os.listdir", None), "planted"),
+        # A relative path joins the working directory, planted here.
+        ("relative-open", _ev("open", "gantry.toml"), "planted"),
         ("popen-git-posix", _popen(git_posix, harbor_history), "git helper"),
         ("popen-git-windows", _popen(git_windows, harbor_history), "git helper"),
         ("popen-other-program", _popen(["python", "-c", "0"], harbor_history), "starts a process"),
@@ -517,6 +532,7 @@ def _rows(tmp):
          "starts a process"),
         # Relative: it would resolve against the pytest process's directory.
         ("popen-git-relative-cwd", _popen(git_posix, os.path.relpath(harbor_history, ROOT)), "starts a process"),
+        ("popen-git-no-cwd", {**_popen(git_posix, harbor_history), "popen_cwd": None}, "starts a process"),
         ("chdir", _ev("os.chdir", outside), "changes directory"),
         ("devnull-run-git", _ev("open", os.devnull, inner=("subprocess.py", "_get_devnull"), gantry=GIT_GANTRY),
          "by name"),
@@ -539,11 +555,26 @@ def _rows(tmp):
 ROW_IDS = [row for row, _, _ in _rows(Path("tmp"))]
 
 
+JUDGED = frozenset({"open", "os.listdir", "os.scandir", "os.chdir", "subprocess.Popen", "_winapi.CreateProcess",
+                    "os.system", "os.exec", "os.spawn", "os.posix_spawn", "os.startfile", "os.fork", "os.forkpty"})
+
+
 def test_runner_records_every_event_the_classifier_judges():
     import demo_reads_runner
 
-    judged = PROCESS_EVENTS | SPAWNS | LISTINGS | {"open", "os.chdir"}
-    assert demo_reads_runner.EVENTS == judged
+    assert PROCESS_EVENTS | SPAWNS | LISTINGS | {"open", "os.chdir"} == JUDGED
+    assert demo_reads_runner.EVENTS == JUDGED
+
+
+def test_every_judged_event_has_a_control_row(tmp_path):
+    rows = [e for _, event, _ in _rows(tmp_path) for e in (event if isinstance(event, list) else [event])]
+    assert {e["event"] for e in rows} == JUDGED
+
+
+def test_the_allowed_samples_folder_is_the_sample_dir():
+    from gantry.roots import sample_dir
+
+    assert canon(SAMPLES) == canon(sample_dir())
 
 
 def _synthetic(tmp, events):

@@ -390,7 +390,7 @@ def test_sample_roots_lie_inside_the_sample_directory():
 
     # The history keys come from the loaded config, the field that names them (#43).
     history = {f"site.{n}.history" for n, o in config.sites.items() if o.history is not None}
-    assert history <= {r.key for r in roots.roots}
+    assert {(k, None) for k in history} <= found
     assert history == {f"site.{s}.history" for s in (HISTORY_RECENT, HISTORY_STALE, HISTORY_YOUNG)}
     assert [r.key for r in roots.roots if r.writable] == ["output_dir"]
 
