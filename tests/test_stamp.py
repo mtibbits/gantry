@@ -147,6 +147,8 @@ def test_demo_builds_byte_identical(tmp_path, monkeypatch):
     one, two = written_bytes(first[1]), written_bytes(second[1])
     assert len(one) == 5
     assert one == two
+    # The identity covers the cross-site path (#68): the pages link 5 boxes on another site.
+    assert sum(text.count(b'class="fbox open" href="') for rel, text in one.items() if rel.startswith("sites/")) == 5
     for rel, data in one.items():
         text = data.decode("utf-8")
         assert "sample data as of 2026-01-20" in text, rel

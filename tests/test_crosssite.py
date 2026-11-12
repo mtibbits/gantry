@@ -3,12 +3,15 @@
 import copy
 import dataclasses
 import re
+from collections import Counter
+from pathlib import Path
 
 import pytest
 
 from gantry import build
-from gantry.build import CLASH, build_all, read_sites, site_list
+from gantry.build import CLASH, build_all, read_sites, site_list, write_all
 from gantry.config import load_config
+from gantry.deps import classify, refs
 from gantry.crosssite import MESSAGES, NO_ISSUE, NOT_BUILT, resolve_foreign
 from gantry.model import REPORT_KINDS, meta_values, report_order
 from gantry.sites import config_roots
@@ -29,12 +32,22 @@ from gantry.views.worksite import (
     SUMMARY_NO_CHAIN,
     page_model,
 )
-from helpers_config import page_ids, page_links, run_main, sample_projects, write_site_tree
+from helpers_config import (
+    copy_samples,
+    demo_build,
+    lands,
+    page_ids,
+    page_links,
+    run_main,
+    sample_build,
+    sample_projects,
+    write_site_tree,
+)
 from page_safety import HOSTILE, assert_no_external_resources, assert_page_safe
 from page_script.harness import open_page
 from sample_roles import BUSY, NO_WBS, OWN_UNIT, SMALL, UNESTIMATED, UNREADABLE
 from test_samples import ROOT
-from test_worksite_page import find, text_of, tree
+from test_worksite_page import ancestors, find, text_of, tree
 
 
 def test_report_kinds_registered():
@@ -589,3 +602,245 @@ def test_samples_carry_each_cross_site_case():
     assert ABSENT_SITE not in sample_projects()
     for site, name, entry in CASES:
         assert entry in meta_values(sample_node(site, name).meta.get("depends_on")), (site, name, entry)
+
+
+# --- sample-level acceptance (Task 6) --------------------------------------------------
+
+
+def outcome(result, site, raw):
+    (o,) = [o for o in result.foreign[site] if o.raw == raw]
+    return o
+
+
+def sample_leaf(result, site, key):
+    return next(x for x in result.inputs[site].data.leaves if x.key == key)
+
+
+def test_sample_open_leaf_box(tmp_path):
+    result = sample_build(tmp_path)
+    o = outcome(result, UNESTIMATED, f"{BUSY}:Issue-7")
+    assert (o.status, o.target_site, o.source_key) == ("open", BUSY, "Issue-9")
+    assert o.title == sample_leaf(result, BUSY, "Issue-7").title
+    t = tree(result.pages[UNESTIMATED])
+    assert [t.elements[i]["attrs"]["href"] for i in find(t, "a", ["fbox"])] == [f"{BUSY}.html#leaf-Issue-7"]
+    assert leaf_data(model_of(result, UNESTIMATED), "Issue-9")["other_site"] == FLAG
+
+
+def test_sample_same_id_never_target(tmp_path):
+    result = sample_build(tmp_path)
+    o = outcome(result, UNESTIMATED, f"{BUSY}:Issue-7")
+    assert o.title != sample_leaf(result, UNESTIMATED, "Issue-7").title
+    assert ("Issue-7", "Issue-9") not in result.inputs[UNESTIMATED].data.links
+    assert not any(o.target_site == UNESTIMATED for o in result.foreign[UNESTIMATED])
+
+
+def test_sample_finished_no_box(tmp_path):
+    result = sample_build(tmp_path)
+    o = outcome(result, UNESTIMATED, f"{BUSY}:Issue-3")
+    assert (o.status, o.source_key, o.href) == ("satisfied", "Issue-3", None)
+    leaf = sample_leaf(result, UNESTIMATED, "Issue-3")
+    assert (leaf.waits_on_other_site, leaf.foreign_targets) == (False, ())
+    assert leaf_data(model_of(result, UNESTIMATED), "Issue-3")["fboxes"] == []
+
+
+def test_sample_row_target(tmp_path):
+    result = sample_build(tmp_path)
+    data = result.inputs[BUSY].data
+    (row,) = [r for r in data.rows if r.issue == "Issue-2"]
+    k = next(x.key for x in data.leaves if x.open and x.outline.startswith(row.outline + "."))
+    o = outcome(result, OWN_UNIT, f"{BUSY}:Issue-2")
+    assert (o.status, o.target_is_row, o.href) == ("open", True, f"{BUSY}.html#leaf-{k}")
+
+
+def test_sample_row_source(tmp_path):
+    result = sample_build(tmp_path)
+    data = result.inputs[OWN_UNIT].data
+    (row,) = [r for r in data.rows if r.title == "Irrigation"]
+    under = [x for x in data.leaves if x.open and x.outline.startswith(row.outline + ".")]
+    assert len(under) == 3
+    for leaf in under:
+        raws = {o.raw for o in leaf.foreign_targets}
+        assert {f"{SMALL}:Issue-4", f"{ABSENT_SITE}:Issue-2"} <= raws, leaf.key
+    absent = [e for e in data.report if e.kind == "foreign_site_absent"]
+    assert [(e.line, e.message) for e in absent] == [(row.line, MESSAGES["foreign_site_absent"].format(
+        line=row.line, entry=f"{ABSENT_SITE}:Issue-2"))]
+
+
+EXPECTED_STATUS = Counter({"open": 3, "satisfied": 1, "absent": 1, "unresolved": 4})
+
+
+def test_sample_every_entry_has_outcome(tmp_path):
+    result = sample_build(tmp_path)
+    expected = {(site, node.key, ref.raw) for site, found in result.inputs.items()
+                for node in (*found.data.leaves, *found.data.rows)
+                for ref in refs(node.meta, site) if ref.kind == "foreign"}
+    recorded = [(o.site, o.source_key, o.raw) for outcomes in result.foreign.values() for o in outcomes]
+    assert len(recorded) == len(set(recorded)) == 9
+    assert set(recorded) == expected
+    assert Counter(o.status for outcomes in result.foreign.values() for o in outcomes) == EXPECTED_STATUS
+    assert list(result.foreign) == [s.name for s in result.sites if s.name in result.inputs]
+
+
+def test_sample_absent_unresolved(tmp_path):
+    result = sample_build(tmp_path)
+    m = model_of(result, OWN_UNIT)
+    cases = {
+        f"{ABSENT_SITE}:Issue-2": ("absent", None),
+        f"{SMALL}:Issue-40": ("unresolved", NO_ISSUE.format(site=SMALL, issue="Issue-40")),
+        f"{NO_WBS}:Issue-1": ("unresolved", NOT_BUILT.format(site=NO_WBS, reason="no WBS.md in the planning directory")),
+        f"{UNREADABLE}:Issue-2": ("unresolved", NOT_BUILT.format(site=UNREADABLE,
+                                                                  reason="WBS.md is not valid UTF-8 at byte 88")),
+    }
+    report = result.inputs[OWN_UNIT].data.report
+    for raw, (status, reason) in cases.items():
+        o = outcome(result, OWN_UNIT, raw)
+        assert (o.status, o.reason, o.href) == (status, reason, None), raw
+        kind = "foreign_site_absent" if status == "absent" else "foreign_unresolved"
+        assert any(e.kind == kind and e.line == o.source_line and repr(raw) in e.message for e in report), raw
+        waiting = [x for x in result.inputs[OWN_UNIT].data.leaves if x.open and o in (x.foreign_targets or ())]
+        assert waiting and all(x.waits_on_other_site for x in waiting), raw
+        for x in waiting:
+            boxes = [b for b in leaf_data(m, x.key)["fboxes"] if f"{b[0]}:{b[1]}" == raw]
+            assert [b[3] for b in boxes] == [None], (raw, x.key)
+
+
+def test_sample_outline_unresolved(tmp_path):
+    result = sample_build(tmp_path)
+    o = outcome(result, UNESTIMATED, f"{BUSY}:1.2")
+    assert (o.status, o.reason) == ("unresolved", NO_ISSUE.format(site=BUSY, issue="1.2"))
+    data = result.inputs[BUSY].data
+    assert any(n.outline == "1.2" for n in (*data.leaves, *data.rows))
+
+
+def test_sample_own_prefix_local(tmp_path):
+    result = sample_build(tmp_path)
+    assert not any(o.raw.startswith(f"{UNESTIMATED}:") for o in result.foreign[UNESTIMATED])
+    assert ("Issue-9", "Issue-8") in result.inputs[UNESTIMATED].data.links
+
+
+def test_sample_render_failure(tmp_path, monkeypatch):
+    real = worksite.render_model
+
+    def render_model(m, **kw):
+        if m["site"] == BUSY:
+            raise ValueError("forced")
+        return real(m, **kw)
+
+    monkeypatch.setattr(worksite, "render_model", render_model)
+    result = sample_build(tmp_path)
+    naming = [o for outcomes in result.foreign.values() for o in outcomes if o.target_site == BUSY]
+    assert len(naming) == 4
+    reason = NOT_BUILT.format(site=BUSY, reason="render error: ValueError: forced")
+    assert {(o.status, o.reason) for o in naming} == {("unresolved", reason)}
+    assert outcome(result, UNESTIMATED, f"{BUSY}:Issue-3").status == "unresolved"
+    assert not any(f"{BUSY}.html" in href for page in result.pages.values() for href in page_links(page))
+    written, paths, error = write_all(result)
+    assert error is None
+    out = result.config.output_dir
+    for path in paths:
+        rel = path.relative_to(out).as_posix()
+        assert all(lands(out, rel, href) for href in page_links(Path(path).read_text(encoding="utf-8"))), rel
+
+
+def strip_foreign(copy):
+    """Drop every foreign depends_on entry from the samples copy, in place:
+    line numbers and keys stay, and an emptied list is written []."""
+    for site in sample_projects():
+        path = copy / site / "WBS.md"
+        if not path.is_file():
+            continue
+        raw = path.read_bytes()
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            continue
+
+        def keep(m, site=site):
+            entries = [e for e in meta_values("[" + m.group(1) + "]") if classify(e, site).kind != "foreign"]
+            return "depends_on: [" + ", ".join(entries) + "]"
+
+        path.write_bytes(re.sub(r"depends_on: \[([^\]]*)\]", keep, text).encode("utf-8"))
+
+
+def stripped_build(tmp_path):
+    from gantry.config import load_config as load_gantry_config
+
+    copy = copy_samples(tmp_path)
+    strip_foreign(copy)
+    return build_all(load_gantry_config(copy / "gantry.sample.toml"), samples=copy)
+
+
+def svg_kinds(t, skip):
+    """(tag, classes) counts in the network figure; a lane's "+N unlinked"
+    line is left out, as its count is checked lane by lane."""
+    (net,) = find(t, "svg", ["net"])
+    kinds = Counter()
+    for i in find(t, within=net):
+        if "lane-free" in t.elements[i]["classes"] and text_of(t, i).endswith(" unlinked"):
+            continue
+        if not skip(i):
+            kinds[(t.elements[i]["tag"], tuple(c for c in t.elements[i]["classes"] if c != "xsite"))] += 1
+    return kinds
+
+
+def node_x(t):
+    return {t.elements[i]["attrs"]["data-item"]: t.elements[find(t, "rect", ["box"], within=i)[0]]["attrs"]["x"]
+            for i in find(t, "g", ["node"])}
+
+
+def test_schedule_unchanged_without_foreign(tmp_path):
+    a, b = sample_build(tmp_path / "a"), stripped_build(tmp_path / "b")
+    assert sum(len(o) for o in a.foreign.values()) == 9 and sum(len(o) for o in b.foreign.values()) == 0
+    assert set(a.pages) == set(b.pages)
+    extras = 0
+    for site in a.pages:
+        ma, mb = model_of(a, site), model_of(b, site)
+        assert ma["schedule"] == mb["schedule"], site
+        assert ma["finish_day"] == mb["finish_day"], site
+        # The figures, not the prose: a foreign-only site words its no-chain summary apart.
+        assert re.findall(r"\d+", ma["summary"]) == re.findall(r"\d+", mb["summary"]), site
+        assert (ma["totals"], ma["unestimated"]) == (mb["totals"], mb["unestimated"]), site
+        only = ma["network"].pop("foreign_only")
+        assert mb["network"].pop("foreign_only") == []
+        assert ma["network"] == mb["network"], site
+        for la, lb in zip(ma["lanes"], mb["lanes"], strict=True):
+            mine = sum(leaf_data(ma, k)["lane"] == ma["lanes"].index(la) for k in only)
+            assert la["unlinked"] == lb["unlinked"] - mine, (site, la["key"])
+        ta, tb = tree(a.pages[site]), tree(b.pages[site])
+        xa, xb = node_x(ta), node_x(tb)
+        assert {k: xa[k] for k in xb} == xb, site
+        first = GUT + (COLW - BW) / 2
+        assert set(xa) - set(xb) == set(only), site
+        assert all(float(xa[k]) == first for k in only), site
+        extras += len(only)
+
+        def skip(i, ta=ta, only=set(only), grew=bool(only) and not mb["network"]["length"]):
+            chain = [i, *ancestors(ta, i)]
+            for j in chain:
+                el = ta.elements[j]
+                if el["tag"] == "g" and "node" in el["classes"] and el["attrs"].get("data-item") in only:
+                    return True
+                if "fbox" in el["classes"] or "fedge" in el["classes"] or el["attrs"].get("id") == "arrow-foreign":
+                    return True
+            el = ta.elements[i]
+            # A network with no column of its own gains column 1 for its foreign-only leaves.
+            return grew and ({"col-num", "col-rule"} & set(el["classes"]) != set())
+
+        assert svg_kinds(ta, skip) == svg_kinds(tb, lambda i: False), site
+    assert extras > 0
+
+
+HREF_RE = re.compile(r"[A-Za-z0-9_.~%-]+\.html#leaf-[A-Za-z0-9_.~%-]+")
+
+
+def test_sample_hrefs_form_and_land(tmp_path, monkeypatch):
+    code, out, _, err = demo_build(tmp_path, monkeypatch)
+    assert code == 0, err
+    hrefs = 0
+    for page in sorted((out / "sites").glob("*.html")):
+        rel = f"sites/{page.name}"
+        for href in page_links(page.read_text(encoding="utf-8")):
+            assert HREF_RE.fullmatch(href), (rel, href)
+            assert lands(out, rel, href), (rel, href)
+            hrefs += 1
+    assert hrefs == 5
