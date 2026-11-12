@@ -4,13 +4,16 @@ import copy
 
 import pytest
 
-from gantry.build import CLASH, read_sites, site_list
+from gantry import build
+from gantry.build import CLASH, build_all, read_sites, site_list
 from gantry.config import load_config
 from gantry.crosssite import MESSAGES, NO_ISSUE, NOT_BUILT, resolve_foreign
 from gantry.model import REPORT_KINDS, report_order
 from gantry.sites import config_roots
 from gantry.wbs_stopgap import parse_wbs
-from helpers_config import write_site_tree
+from gantry.views import worksite
+from gantry.views.worksite import FOREIGN
+from helpers_config import page_links, run_main, write_site_tree
 
 
 def test_report_kinds_registered():
@@ -229,3 +232,81 @@ def test_pure(tmp_path):
     first = resolve_foreign(entries, inputs, reasons)
     assert (inputs, reasons) == before
     assert resolve_foreign(entries, inputs, reasons) == first
+
+
+# --- build_all and the render-failure pass (Task 3) ------------------------------------
+
+
+def tree_config(tmp_path, sites):
+    raw = {name: text.encode("utf-8") for name, text in sites.items()}
+    return load_config(write_site_tree(tmp_path, raw))
+
+
+def force_render(monkeypatch, fail):
+    """Make render_model raise for a site while `fail(site, nth render of it)` is true;
+    returns the {site: render_site calls} counter."""
+    calls = {}
+    real_site, real_model = build.render_site, worksite.render_model
+
+    def render_site(name, *args, **kw):
+        calls[name] = calls.get(name, 0) + 1
+        return real_site(name, *args, **kw)
+
+    def render_model(m, **kw):
+        if fail(m["site"], calls[m["site"]]):
+            raise ValueError("forced")
+        return real_model(m, **kw)
+
+    monkeypatch.setattr(build, "render_site", render_site)
+    monkeypatch.setattr(worksite, "render_model", render_model)
+    return calls
+
+
+def test_render_failure_reresolves(tmp_path, monkeypatch):
+    calls = force_render(monkeypatch, lambda site, n: site == "beta")
+    result = build_all(tree_config(tmp_path, {
+        "alpha": "- [ ] Wait {issue: Issue-1, depends_on: [beta:Issue-1]}\n",
+        "beta": "- [ ] Pour {issue: Issue-1}\n",
+    }))
+    (o,) = result.foreign["alpha"]
+    assert (o.status, o.reason) == ("unresolved", "beta is not built: render error: ValueError: forced")
+    assert list(result.pages) == ["alpha"]
+    assert page_links(result.pages["alpha"]) == []
+    assert calls == {"alpha": 2, "beta": 1}
+    assert [e.message for e in result.inputs["alpha"].data.report if e.kind in FOREIGN_KINDS] == [
+        MESSAGES["foreign_unresolved"].format(line=1, entry="beta:Issue-1", reason=o.reason)]
+
+
+def test_render_failure_chain_bounded(tmp_path, monkeypatch):
+    sites = {
+        "alpha": "- [ ] A {issue: Issue-1, depends_on: [beta:Issue-1]}\n",
+        "beta": "- [ ] B {issue: Issue-1, depends_on: [gamma:Issue-1]}\n",
+        "gamma": "- [ ] C {issue: Issue-1}\n",
+    }
+    calls = force_render(monkeypatch, lambda site, n: site == "gamma" or (site == "beta" and n == 2))
+    result = build_all(tree_config(tmp_path, sites))
+    summaries = {s.name: s.status for s in result.summaries}
+    assert summaries == {"alpha": "built", "beta": "not_built", "gamma": "not_built"}
+    (o,) = result.foreign["alpha"]
+    assert (o.status, o.reason) == ("unresolved", "beta is not built: render error: ValueError: forced")
+    assert list(result.pages) == ["alpha"]
+    assert not any("beta.html" in page or "gamma.html" in page for page in result.pages.values())
+    # Pass 1 renders each site once; each later pass re-renders only the waiting sites.
+    assert calls == {"alpha": 2, "beta": 2, "gamma": 1}
+    assert sum(calls.values()) - len(sites) <= len(sites)
+
+
+def test_site_mode_keeps_text(tmp_path):
+    entries = ["beta:Issue-1", "ferry:Issue-1", "beta:Issue-9"]
+    config = write_site_tree(tmp_path, {
+        "alpha": ("- [ ] Wait {issue: Issue-1, depends_on: [%s]}\n" % ", ".join(entries)).encode(),
+        "beta": b"- [ ] Pour {issue: Issue-1}\n",
+    })
+    code, _, err = run_main("--config", str(config), "--site", "alpha")
+    assert code == 0, err
+    page = (tmp_path / "out" / "sites" / "alpha.html").read_text(encoding="utf-8")
+    for raw in entries:
+        assert FOREIGN.format(raw=raw) in page
+    assert page_links(page) == []
+    assert "names a site not in this installation" not in page
+    assert " is unresolved: " not in page
