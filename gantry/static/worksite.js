@@ -129,6 +129,8 @@
     if (leaf.meta.length) line(box, [["Metadata:", leaf.meta.map(([k, v]) => k + ": " + v).join("; ")]]);
     const ids = traceIds.get(leaf.key);
     if (ids !== undefined) line(box, [[DATA.texts.satisfies, ids.map(([, label]) => label).join(", ")]]);
+    // A full build's flag (#68): the leaf waits on a leaf of another site.
+    if (leaf.other_site !== null) line(box, [[null, leaf.other_site]]);
     if (leaf.foreign.length) line(box, [["Waits on:", leaf.foreign.join("; ")]]);
   }
 
@@ -176,9 +178,11 @@
     }
     detail.replaceChildren();
     leafLines(detail, leaf);
-    line(detail, [["Earliest slot:", leaf.es + 1], ["slack", leaf.slack]]);
-    line(detail, [["Waits on:", leaf.preds.join(", ") || "none"], ["unblocks", leaf.succs.join(", ") || "none"],
-      [null, up.size + " upstream, " + down.size + " downstream"]]);
+    line(detail, [["Earliest slot:", leaf.es + 1], ["slack", leaf.slack === null ? DATA.texts.slack_none : leaf.slack]]);
+    // A leaf with boxes on another site has its waits-on line already; "none" would contradict it.
+    const waits = leaf.preds.length || !leaf.fboxes.length ? [["Waits on:", leaf.preds.join(", ") || "none"]] : [];
+    line(detail, waits.concat([["unblocks", leaf.succs.join(", ") || "none"],
+      [null, up.size + " upstream, " + down.size + " downstream"]]));
   }
 
   function leaveNet() {
@@ -421,7 +425,8 @@
     gdetail.replaceChildren();
     leafLines(gdetail, r.leaf);
     line(gdetail, [["Scheduled:", "lane " + (r.wl + 1) + ", days " + num(r.a) + "\u2013" + num(r.b)],
-      [null, r.leaf.sclass === "crit" ? "on the critical path" : r.leaf.linked ? "linked in the network" : "no links: could move anywhere"]]);
+      [null, r.leaf.sclass === "crit" ? "on the critical path" : r.leaf.linked ? "linked in the network"
+        : r.leaf.other_site !== null ? r.leaf.other_site : "no links: could move anywhere"]]);
   }
 
   function leaveSched() {

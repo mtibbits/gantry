@@ -243,6 +243,8 @@ STRUCTURAL = {
     "trace", "trace-cat",
     # The selection's fixed mark classes and the collapsed row's lit count (#20).
     "req-direct", "req-indirect", "req-on", "req-need", "selecting", "g-lit",
+    # Boxes on another site, their links and the flagged leaf (#68).
+    "arrow-foreign", "fbox", "fb", "fid", "ftitle", "fedge", "xsite", "open", "none",
 }
 VOID = {"meta", "br", "img", "input", "link", "hr"}
 

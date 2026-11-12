@@ -58,7 +58,25 @@ NOTHING_MISSING = "Nothing is missing or unreadable."
 NO_ISSUE_LINE = "{n} leaves have no issue: id and are named by outline position"
 NO_ISSUE_LINE_ONE = "1 leaf has no issue: id and is named by outline position"
 WAITS_LINE = "WBS.md line {line}: {key!r} waits on a cycle"
-FOREIGN = "{raw} (on another site)"
+FOREIGN = "{raw} (on another site)"  # a --site build: foreign entries are not resolved
+# A full build resolves foreign entries (#68, gantry/crosssite.py).
+FLAG = "waits on another site"
+FOREIGN_OPEN = "{raw}: {title} (open on {site})"
+FOREIGN_ABSENT = "{raw} (names a site not in this installation)"
+FOREIGN_UNRESOLVED = "{raw} (unresolved: {reason})"
+FBOX_LINE = {"absent": "not in this installation", "unresolved": "unresolved"}  # open: the title
+FBOX_LEGEND = "box on another site"
+SLACK_NONE = "none: waits only on another site"
+# The no-chain texts when the network draws only leaves that wait on another site.
+SUMMARY_NO_CHAIN_XSITE = ("With {lanes}, all open work ends around working day {end}. No open link joins two "
+                          "leaves of this site, so there is no critical chain; the work spread evenly across the "
+                          "lanes needs {even}. The lanes are busy {busy}% of the time.")
+LIMITS_CAPTION_NO_CHAIN_XSITE = ("At {hpd} agent-hours a day, all open work is {c} to {d} working days. No open "
+                                 "link joins two leaves of this site, so there is no critical chain, and with one "
+                                 "operator the total sets the finish date.")
+NO_CHAIN_XSITE = "none: no open link joins two leaves of this site"
+HOURS_NOTE_NONE = "No open leaf waits on another."
+HOURS_NOTE_NONE_XSITE = "No open link joins two leaves of this site."
 CHAIN_LINE = "With {lanes}, the dependency chain sets the finish."
 CAPACITY_LINE = "With {lanes}, capacity sets the finish."
 STATE_MARKS = {"in_progress": "in progress", "stuck": "stuck", "blocked_external": "blocked", "parked": "parked"}
@@ -176,8 +194,9 @@ def plan_finish_day(items, p):
     return max(1, math.ceil(round(end, 9)))
 
 
-def summary_text(items, p, path, lanes, unest_site, unest_path):
+def summary_text(items, p, path, lanes, unest_site, unest_path, no_chain=SUMMARY_NO_CHAIN):
     """The schedule summary for plan `p`: worksite.js's compute(), step for step.
+    `no_chain` is the summary without a chain (the page's texts.summary_no_chain).
 
     Plain loops, not sum(): Python's float sum is compensated, the script's is
     not, and the two must round the same values.
@@ -198,7 +217,7 @@ def summary_text(items, p, path, lanes, unest_site, unest_path):
                "busy": _round(busy / (lanes * end) * 100)}
     if not on_path:
         # No chain: no chain figures (the script's same branch).
-        text = SUMMARY_NO_CHAIN.format(**figures)
+        text = no_chain.format(**figures)
         return text + (f" The plan {_includes(unest_site)}." if unest_site else "")
     text = SUMMARY.format(crit=_round(crit), chain=_round(chain), **figures)
     if unest_site:
@@ -241,8 +260,25 @@ def _panel(data):
 
 def _foreign(site, leaf, row_at):
     """The leaf's foreign entries, then each open ancestor row's, top-down."""
+    if leaf.foreign_targets is not None:
+        return [_waits_text(o) for o in leaf.foreign_targets]
     return [FOREIGN.format(raw=d.raw) for source in open_sources(leaf, row_at)
             for d in refs(source.meta, site) if d.kind == "foreign"]
+
+
+def _waits_text(o):
+    """A resolved foreign target's waits-on text (#68)."""
+    if o.status == "open":
+        return FOREIGN_OPEN.format(raw=o.raw, title=o.title, site=o.target_site)
+    if o.status == "absent":
+        return FOREIGN_ABSENT.format(raw=o.raw)
+    return FOREIGN_UNRESOLVED.format(raw=o.raw, reason=o.reason)
+
+
+def _fboxes(leaf):
+    """[[site, issue, title, href, status, text], ...]: a resolved leaf's foreign boxes."""
+    return [[o.target_site, o.target_issue, o.title, o.href, o.status, _waits_text(o)]
+            for o in leaf.foreign_targets or ()]
 
 
 def _known_first(tiers):
@@ -277,6 +313,10 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None) -> di
     links = [(a, b) for a, b in data.links if a in keyset and b in keyset]
     eff = priority.effective(work, links)
     net = network.build(keys, links, {leaf.key: leaf.epic for leaf in work})
+    # A leaf whose only open dependencies are on another site: drawn in the
+    # first column beside the network, never in it (#68).
+    foreign_only = [leaf.key for leaf in work if leaf.foreign_targets and leaf.key not in net.slack]
+    only_foreign = set(foreign_only)
     spans = {leaf.key: _span(leaf, default_unit_hours) for leaf in work}
     hours = {k: ((lo + hi) / 2, unest) for k, (lo, hi, unest) in spans.items()}
     totals = inputs.totals if inputs is not None else site_totals(work, default_unit_hours)
@@ -302,9 +342,9 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None) -> di
         k = leaf.key
         linked = k in net.slack
         tiers = _tiers(leaf)
-        wave_full = linked and (net.slack[k] == 0 or priority.rank(leaf.priority) <= 1
-                                or leaf.state == "in_progress"
-                                or starts[k] < HORIZON_DAYS * HOURS_PER_DAY)
+        soon = (priority.rank(leaf.priority) <= 1 or leaf.state == "in_progress"
+                or starts[k] < HORIZON_DAYS * HOURS_PER_DAY)
+        wave_full = (linked and (net.slack[k] == 0 or soon)) or (k in only_foreign and soon)
         leaves.append({
             "key": k, "anchor": leaf_anchor(k), "issue": leaf.issue, "outline": leaf.outline, "title": leaf.title,
             "lane": lane_of[leaf.epic], "state": leaf.state, "sc": state_class(leaf.state),
@@ -316,10 +356,11 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None) -> di
             "non_time": _non_time(leaf), "linked": linked,
             "slack": net.slack[k] if linked else None,
             "sclass": slack_class(net.slack[k]) if linked else None,
-            "es": net.es[k] if linked else None, "wave_full": wave_full,
+            "es": net.es[k] if linked else 0 if k in only_foreign else None, "wave_full": wave_full,
             "models": tiers, "mc": [model_class(t) for t in tiers] if tiers else None,
             "flags": _flags(leaf), "meta": [[mk, mv] for mk, mv in leaf.meta.items()],
             "foreign": _foreign(site, leaf, row_at),
+            "other_site": FLAG if leaf.waits_on_other_site else None, "fboxes": _fboxes(leaf),
             "preds": net.preds.get(k, []), "succs": net.succs.get(k, []),
         })
 
@@ -332,7 +373,8 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None) -> di
             "key": key,
             "name": row.title if row is not None else NO_EPIC,
             "tag": row.issue if row is not None and row.issue is not None else "",
-            "open": len(mine), "unlinked": sum(not leaf["linked"] for leaf in mine),
+            "open": len(mine), "unlinked": sum(not leaf["linked"] and leaf["key"] not in only_foreign
+                                               for leaf in mine),
             "hours": sum(leaf["hours"] for leaf in mine),
             "unestimated": sum(leaf["unestimated"] for leaf in mine),
             "models": {"think": _tier_counts(t[0] for t in tiers), "check": _tier_counts(t[1] for t in tiers)},
@@ -357,12 +399,13 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None) -> di
              for unit, e in totals.non_time.items()]
     empty = not data.leaves and not data.rows
     held_out = set(data.held_out)
-    drawn = set(net.nodes)
+    drawn = set(net.nodes) | only_foreign
     # Each leaf the network does not draw anchors on an element of its own, in WBS order.
     anchors = {"schedule": [leaf_anchor(k) for k in keys if k not in drawn],
                "held": [leaf_anchor(leaf.key) for leaf in data.leaves if leaf.open and leaf.key in held_out]}
     finished = [{"key": leaf.key, "issue": leaf.issue, "title": leaf.title, "anchor": leaf_anchor(leaf.key)}
                 for leaf in data.leaves if not leaf.open]
+    no_chain = SUMMARY_NO_CHAIN_XSITE if foreign_only else SUMMARY_NO_CHAIN
     if items:
         status = None
     elif empty:
@@ -389,6 +432,7 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None) -> di
                       for u, v in net.edges],
             "links": len(links),
             "length": net.length,
+            "foreign_only": foreign_only,
             "critical": list(net.critical),
             "path": list(path),
             "near": [[s, near[s]] for s in sorted(near)],
@@ -396,7 +440,7 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None) -> di
         },
         "panel": _panel(data),
         "summary": summary_text(items, planned, path, LANES_DEFAULT, totals.unestimated_count,
-                                unest_path),
+                                unest_path, no_chain),
         "unestimated": {"site": totals.unestimated_count, "heaviest": sum(k in unest for k in chain),
                         "path": unest_path},
         "totals": {"hours": totals.hours, "hours_lo": totals.hours_lo, "hours_hi": totals.hours_hi,
@@ -414,8 +458,9 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None) -> di
         },
         "texts": {"label": SCHEDULE_LABEL, "chain": CHAIN_LINE, "capacity": CAPACITY_LINE,
                   "includes": INCLUDES, "includes_one": INCLUDES_ONE, "dates": DATES, "dates_one": DATES_ONE,
-                  "summary": SUMMARY, "summary_no_chain": SUMMARY_NO_CHAIN, "summary_unest": SUMMARY_UNEST,
-                  "summary_unest_one": SUMMARY_UNEST_ONE, "satisfies": SATISFIES, "lit": LIT},
+                  "summary": SUMMARY, "summary_no_chain": no_chain, "summary_unest": SUMMARY_UNEST,
+                  "summary_unest_one": SUMMARY_UNEST_ONE, "satisfies": SATISFIES, "lit": LIT,
+                  "slack_none": SLACK_NONE},
         "trace": trace,
     }
 
@@ -431,6 +476,9 @@ ARROW = " \u2192 "
 # The network's geometry, in SVG units: the label gutter, a column, a box, a
 # row, a lane's padding, the header and the model band.
 GUT, COLW, BW, BH, ROWH, PAD, TOP, BAND = 204, 170, 152, 66, 80, 14, 46, 17
+# A box on another site (#68): its height, its row and its cuts. Each takes a
+# row of its own below its lane's leaf rows, in its waiting leaf's column.
+FBH, FROWH, FID_MAX, FTITLE_MAX = 36, 46, 22, 25
 TITLE_MAX = 40
 # A chip row sits in the ROWH - BH gap under its box (#20). CHIP_FONT is the
 # CSS .chip-t font size in px (a test holds the pair); a monospace character
@@ -559,24 +607,32 @@ def _lane_label(lane, top, tiers_shown):
 def _network_svg(m):
     leaves = {leaf["key"]: leaf for leaf in m["leaves"]}
     net = m["network"]
-    nodes = net["nodes"]
+    # The network's nodes, then the leaves that wait only on another site (#68).
+    nodes = net["nodes"] + net["foreign_only"]
     chip_ids = dict(m["trace"]["leaves"]) if m["trace"] is not None else {}
     es = {n: leaves[n]["es"] for n in nodes}
     lane_of = {n: leaves[n]["lane"] for n in nodes}
     row = _layout(nodes, es, lane_of, {n: leaves[n]["preds"] for n in nodes})
     tiers_shown = m["notes"]["no_tiers"] is None
     length = net["length"]
-    W = GUT + max(length, 1) * COLW + 8
+    columns = max(length, 1 if net["foreign_only"] else 0)
+    W = GUT + max(columns, 1) * COLW + 8
+    # Each foreign box: (lane, its waiting leaf, the box), by the leaf's column and row.
+    fboxes = [(lane_of[n], n, box) for n in sorted(nodes, key=lambda n: (es[n], row[n]))
+              for box in leaves[n]["fboxes"]]
 
-    lane_parts, lane_top, y = [], {}, TOP
+    lane_parts, lane_top, lane_used, y = [], {}, {}, TOP
     for li, lane in enumerate(m["lanes"]):
         label, label_h = _lane_label(lane, y, tiers_shown)
         used = max([row[n] + 1 for n in nodes if lane_of[n] == li], default=1)
-        h = max(PAD * 2 + used * ROWH - (ROWH - BH), label_h)
+        boxes = sum(b[0] == li for b in fboxes)
+        content = used * ROWH - (ROWH - BH) if not boxes else used * ROWH + boxes * FROWH - (FROWH - FBH)
+        h = max(PAD * 2 + content, label_h)
         alt = " alt" if li % 2 else ""
         lane_parts.append(f'<rect class="lane{alt}" x="0" y="{_n(y - 4)}" width="{W}" height="{_n(h + 4)}"/>')
         lane_parts += label
         lane_top[li] = y
+        lane_used[li] = used
         y += h
     H = y + 8
 
@@ -603,13 +659,13 @@ def _network_svg(m):
 
     out = [f'<svg class="net mode-wave" data-control="network-detail" data-control-items viewBox="0 0 {W} {_n(H)}" '
            f'width="{W}" height="{_n(H)}" role="img" aria-label="Dependency network of the open leaves">', "<defs>"]
-    for cls in ("arrow", "arrow-crit", "arrow-cross"):
+    for cls in ("arrow", "arrow-crit", "arrow-cross") + (("arrow-foreign",) if fboxes else ()):
         out.append(f'<marker id="{cls}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" '
                    f'orient="auto-start-reverse"><path class="{cls}" d="M0,1 L10,5 L0,9 z"/></marker>')
     out.append("</defs>")
     out += lane_parts
     out.append(_text("col-cap", 14, 26, "earliest slot"))
-    for c in range(length):
+    for c in range(columns):
         out.append(_text("col-num", GUT + c * COLW + COLW / 2, 26, c + 1, "middle"))
         out.append(f'<line class="col-rule" x1="{GUT + c * COLW}" y1="34" x2="{GUT + c * COLW}" y2="{_n(H)}"/>')
 
@@ -622,12 +678,26 @@ def _network_svg(m):
         forms = [("", d_all)] if d_all == d_wave else [(" e-all", d_all), (" e-wave", d_wave)]
         for extra, d in forms:
             out.append(f'<path class="{cls}{extra}" data-u="{esc(u)}" data-v="{esc(v)}" d="{d}" marker-end="url(#{mk})"/>')
+    box_at, in_lane = [], {}
+    for li, n, box in fboxes:
+        j = in_lane[li] = in_lane.get(li, -1) + 1
+        bx, by = pos[n][0], lane_top[li] + PAD + lane_used[li] * ROWH + j * FROWH
+        box_at.append((bx, by, box))
+        # Straight up from the box's top to its leaf, in their one column.
+        cx, cy = centre(n)
+        ends = {"all": pos[n][1] + BH + 2,
+                "wave": cy + radius[n] + 16 if n in compact else pos[n][1] + BH + 2}
+        d_all, d_wave = (f"M{cx:.1f},{by:.1f} L{cx:.1f},{ends[mode]:.1f}" for mode in ("all", "wave"))
+        forms = [("", d_all)] if d_all == d_wave else [(" e-all", d_all), (" e-wave", d_wave)]
+        for extra, d in forms:
+            out.append(f'<path class="fedge{extra}" d="{d}" marker-end="url(#arrow-foreign)"/>')
     out.append("</g>")
 
     for n in nodes:
         leaf, (x, yy) = leaves[n], pos[n]
-        classes = (["node", leaf["sclass"], leaf["sc"]] + (["compact"] if n in compact else [])
-                   + (["unest"] if leaf["unestimated"] else []))
+        classes = ([c for c in ("node", leaf["sclass"], leaf["sc"]) if c is not None]
+                   + (["compact"] if n in compact else []) + (["unest"] if leaf["unestimated"] else [])
+                   + (["xsite"] if leaf["other_site"] is not None else []))
         out.append(f'<g class="{" ".join(classes)}" id="{esc(leaf["anchor"])}" data-item="{esc(n)}" tabindex="0">')
         tip = f"{n} {leaf['title']}"
         if leaf["priority"] is not None:
@@ -636,6 +706,8 @@ def _network_svg(m):
             tip += f"{DOT}{leaf['mark']}"
         if leaf["unestimated"]:
             tip += f"{DOT}unestimated"
+        if leaf["other_site"] is not None:
+            tip += f"{DOT}{leaf['other_site']}"
         out.append(f"<title>{esc(tip)}</title>")
         mc = leaf["mc"]
         if n in compact:
@@ -663,6 +735,13 @@ def _network_svg(m):
         out.append(f'<rect class="outline" x="{_n(x)}" y="{_n(yy)}" width="{BW}" height="{BH}" rx="3"/>')
         out += _chips(chip_ids.get(n, []), x, yy)
         out.append("</g></g>")
+    for bx, by, (site, issue, title, href, status, text) in box_at:
+        out.append(f'<a class="fbox open" href="{esc(href)}">' if href is not None else '<g class="fbox none">')
+        out.append(f"<title>{esc(text)}</title>")
+        out.append(f'<rect class="fb" x="{_n(bx)}" y="{_n(by)}" width="{BW}" height="{FBH}" rx="3"/>')
+        out.append(_text("fid", bx + 8, by + 14, _cut(f"{site}:{issue}", FID_MAX)))
+        out.append(_text("ftitle", bx + 8, by + 28, _cut(title, FTITLE_MAX) if title is not None else FBOX_LINE[status]))
+        out.append("</a>" if href is not None else "</g>")
     out.append("</svg>")
     return Markup("\n".join(out))
 
@@ -681,6 +760,7 @@ def _limits_svg(m):
     tot_lo, tot_hi = tot["hours_lo"], tot["hours_hi"]
     scale = 560 / tot_hi if tot_hi > 0 else 0
     unest = m["unestimated"]
+    xsite = bool(m["network"]["foreign_only"])
     dy = 0
     if path:
         out = [_text("lim-label", 0, 30, f"Critical chain ({_count_line(len(path), '{n} leaves', '1 leaf')})"),
@@ -698,7 +778,7 @@ def _limits_svg(m):
     else:
         # No chain: the row says so and draws no bar.
         out = [_text("lim-label", 0, 30, "Critical chain"), '<g data-unestimated="0">',
-               _text("lim-val", 190, 31, NO_CHAIN)]
+               _text("lim-val", 190, 31, NO_CHAIN_XSITE if xsite else NO_CHAIN)]
     if unest["path"]:
         out.append(_text("lim-note", 190, 52 + dy, _includes(unest["path"])))
         dy += 16
@@ -724,7 +804,7 @@ def _limits_svg(m):
     if path:
         caption = LIMITS_CAPTION.format(a=_round(ch_lo / HOURS_PER_DAY), b=_round(ch_hi / HOURS_PER_DAY), **days)
     else:
-        caption = LIMITS_CAPTION_NO_CHAIN.format(**days)
+        caption = (LIMITS_CAPTION_NO_CHAIN_XSITE if xsite else LIMITS_CAPTION_NO_CHAIN).format(**days)
     if unest["site"]:
         caption += f" The total {_includes(unest['site'])}."
     return Markup(svg), caption
@@ -866,11 +946,11 @@ def render_model(m, *, stamp="") -> str:
     site = m["site"]
     net = m["network"]
     items = m["schedule"]["items"]
-    linked = len(net["nodes"])
+    linked = len(net["nodes"]) + len(net["foreign_only"])
     status = m["status"]
     heavy = net["heaviest"]
     if not heavy["keys"]:
-        hours_note = "No open leaf waits on another."
+        hours_note = HOURS_NOTE_NONE_XSITE if net["foreign_only"] else HOURS_NOTE_NONE
     elif heavy["same"]:
         hours_note = f"Weighting each leaf by its hours picks the same chain, {_h(heavy['hours'])} end to end."
     else:

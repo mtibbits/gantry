@@ -1,6 +1,8 @@
 """Cross-site depends_on resolution (#68): gantry/crosssite.py and its page."""
 
 import copy
+import dataclasses
+import re
 
 import pytest
 
@@ -12,8 +14,26 @@ from gantry.model import REPORT_KINDS, report_order
 from gantry.sites import config_roots
 from gantry.wbs_stopgap import parse_wbs
 from gantry.views import worksite
-from gantry.views.worksite import FOREIGN
-from helpers_config import page_links, run_main, write_site_tree
+from gantry.views.worksite import (
+    BW,
+    COLW,
+    FBOX_LINE,
+    FLAG,
+    FOREIGN,
+    FOREIGN_UNRESOLVED,
+    GUT,
+    LIMITS_CAPTION_NO_CHAIN,
+    NO_CHAIN,
+    NO_CHAIN_XSITE,
+    SLACK_NONE,
+    SUMMARY_NO_CHAIN,
+    page_model,
+)
+from helpers_config import page_ids, page_links, run_main, write_site_tree
+from page_safety import HOSTILE, assert_no_external_resources, assert_page_safe
+from page_script.harness import open_page
+from test_samples import ROOT
+from test_worksite_page import find, text_of, tree
 
 
 def test_report_kinds_registered():
@@ -310,3 +330,228 @@ def test_site_mode_keeps_text(tmp_path):
     assert page_links(page) == []
     assert "names a site not in this installation" not in page
     assert " is unresolved: " not in page
+
+
+# --- the page (Task 4) ---------------------------------------------------------------
+
+BETA = "- [ ] Pour the base {issue: Issue-1}\n"
+
+
+def full_build(tmp_path, sites):
+    return build_all(tree_config(tmp_path, sites))
+
+
+def model_of(result, site):
+    return page_model(site, None, default_unit_hours=result.config.default_unit_hours, inputs=result.inputs[site])
+
+
+def leaf_data(m, key):
+    return next(x for x in m["leaves"] if x["key"] == key)
+
+
+def node_el(t, key):
+    (i,) = [i for i in find(t, "g", ["node"]) if t.elements[i]["attrs"].get("data-item") == key]
+    return i
+
+
+def fboxes(t):
+    return [i for i in find(t, None, ["fbox"])]
+
+
+def box_texts(t):
+    return [text_of(t, find(t, "text", ["fid"], within=i)[0]) for i in fboxes(t)]
+
+
+def test_box_drawn_and_linked(tmp_path):
+    result = full_build(tmp_path, {
+        "alpha": "- [ ] Lay the deck {issue: Issue-1, depends_on: [beta:Issue-1]}\n- [ ] Rest {issue: Issue-2}\n",
+        "beta": BETA,
+    })
+    t = tree(result.pages["alpha"])
+    (a,) = find(t, "a", ["fbox"])
+    assert t.elements[a]["attrs"]["href"] == "beta.html#leaf-Issue-1"
+    assert "beta:Issue-1" in text_of(t, a) and "Pour the base" in text_of(t, a)
+    assert leaf_data(model_of(result, "alpha"), "Issue-1")["other_site"] == FLAG
+    node = node_el(t, "Issue-1")
+    assert "xsite" in t.elements[node]["classes"]
+    assert FLAG in text_of(t, find(t, "title", within=node)[0])
+    # The unflagged, unlinked leaf is in the schedule only.
+    assert leaf_data(model_of(result, "alpha"), "Issue-2")["other_site"] is None
+    assert [el["attrs"].get("data-item") for el in t.elements if "xsite" in el["classes"]] == ["Issue-1"]
+
+
+def test_unlinked_box_has_no_href(tmp_path):
+    result = full_build(tmp_path, {
+        "alpha": "- [ ] Lay {issue: Issue-1, depends_on: [ferry:Issue-1, beta:Issue-9]}\n",
+        "beta": BETA,
+    })
+    t = tree(result.pages["alpha"])
+    assert find(t, "a", ["fbox"]) == []
+    boxes = find(t, "g", ["fbox", "none"])
+    assert len(boxes) == 2
+    assert [text_of(t, find(t, "text", ["ftitle"], within=i)[0]) for i in boxes] == [
+        FBOX_LINE["absent"], FBOX_LINE["unresolved"]]
+    assert page_links(result.pages["alpha"]) == []
+
+
+FOREIGN_ONLY = {"alpha": "- [ ] Lay the deck {issue: Issue-1, depends_on: [beta:Issue-1]}\n", "beta": BETA}
+
+
+def test_foreign_only_first_column_empty_network(tmp_path):
+    result = full_build(tmp_path, FOREIGN_ONLY)
+    m = model_of(result, "alpha")
+    net = m["network"]
+    assert (net["nodes"], net["length"], net["foreign_only"]) == ([], 0, ["Issue-1"])
+    leaf = leaf_data(m, "Issue-1")
+    assert (leaf["es"], leaf["slack"], leaf["sclass"], leaf["linked"]) == (0, None, None, False)
+    assert m["lanes"][0]["unlinked"] == 0
+    page = result.pages["alpha"]
+    t = tree(page)
+    node = node_el(t, "Issue-1")
+    (box,) = find(t, "rect", ["box"], within=node)
+    assert float(t.elements[box]["attrs"]["x"]) == GUT + (COLW - BW) / 2
+    assert "1 of the 1 open leaves have an open link" in page
+    assert not any("unlinked" in text_of(t, i) for i in find(t, "text", ["lane-free"]))
+
+
+def test_no_foreign_no_boxes(tmp_path):
+    entries, raw, reasons = read_tree(tmp_path, FOREIGN_ONLY)
+    resolved, _ = resolve_foreign(entries, raw, reasons)
+    assert resolved["beta"].data.leaves[0].foreign_targets == ()
+    as_resolved = worksite.render_page("beta", None, default_unit_hours=6, inputs=resolved["beta"])
+    unresolved = worksite.render_page("beta", None, default_unit_hours=6, inputs=raw["beta"])
+    assert as_resolved == unresolved
+    assert 'class="fbox' not in as_resolved and 'id="arrow-foreign"' not in as_resolved
+
+
+def test_held_out_flagged_not_drawn(tmp_path):
+    result = full_build(tmp_path, {
+        "alpha": ("- [ ] A {issue: Issue-1, depends_on: [Issue-2, beta:Issue-1]}\n"
+                  "- [ ] B {issue: Issue-2, depends_on: [Issue-1]}\n"),
+        "beta": BETA,
+    })
+    assert result.inputs["alpha"].data.leaves[0].waits_on_other_site is True
+    t = tree(result.pages["alpha"])
+    assert fboxes(t) == []
+    assert not any("xsite" in el["classes"] for el in t.elements)
+
+
+def test_foreign_only_anchor_once(tmp_path):
+    page = full_build(tmp_path, FOREIGN_ONLY).pages["alpha"]
+    assert page_ids(page).count("leaf-Issue-1") == 1
+
+
+PATH_RE = re.compile(r"M(-?[0-9.]+),(-?[0-9.]+) L(-?[0-9.]+),(-?[0-9.]+)")
+
+
+def test_boxes_stack_in_column(tmp_path):
+    result = full_build(tmp_path, {
+        "alpha": ("- [ ] Lane\n"
+                  "  - [ ] A {issue: Issue-1, depends_on: [beta:Issue-1, ferry:Issue-2]}\n"
+                  "  - [ ] B {issue: Issue-2, depends_on: [beta:Issue-9]}\n"),
+        "beta": BETA,
+    })
+    t = tree(result.pages["alpha"])
+    boxes = fboxes(t)
+    assert box_texts(t) == ["beta:Issue-1", "ferry:Issue-2", "beta:Issue-9"]
+    rects = [t.elements[find(t, "rect", ["fb"], within=i)[0]]["attrs"] for i in boxes]
+    assert len({r["x"] for r in rects}) == 1
+    ys = [float(r["y"]) for r in rects]
+    assert ys == sorted(ys) and len(set(ys)) == 3
+    leaf_bottoms = [float(t.elements[find(t, "rect", ["box"], within=node_el(t, k))[0]]["attrs"]["y"])
+                    for k in ("Issue-1", "Issue-2")]
+    assert max(leaf_bottoms) < min(ys)
+    edges = find(t, "path", ["fedge"])
+    assert len(edges) >= 3
+    for i in edges:
+        x1, y1, x2, y2 = map(float, PATH_RE.fullmatch(t.elements[i]["attrs"]["d"]).groups())
+        assert x1 == x2 and y1 > y2
+
+
+def test_no_chain_text_absent_when_foreign_only(tmp_path):
+    page = full_build(tmp_path, FOREIGN_ONLY).pages["alpha"]
+    assert "No open leaf waits on another" not in page
+    assert NO_CHAIN not in page
+    assert NO_CHAIN_XSITE in page
+    for text in (SUMMARY_NO_CHAIN, LIMITS_CAPTION_NO_CHAIN):
+        assert text.split(".")[1].strip() not in page
+
+
+def css_rule(css, selector):
+    m = re.search(re.escape(selector) + r" \{([^}]*)\}", css)
+    assert m, selector
+    return {d.split(":")[0].strip() for d in m.group(1).split(";") if d.strip()}
+
+
+def test_xsite_css_resets():
+    css = (ROOT / "gantry" / "templates" / "worksite.html").read_text(encoding="utf-8")
+    stroke = {"stroke", "stroke-width", "stroke-dasharray"}
+    assert css_rule(css, ".node.xsite .outline") == stroke
+    for state in ("st-stuck", "st-blocked", "st-parked"):
+        assert css_rule(css, f".node.xsite.{state} .outline") == stroke
+    # After the base-state rules it overrides, before the focus ring that must win over it.
+    assert css.index(".node.st-parked .outline") < css.index(".node.xsite .outline") < css.index(
+        ".node:focus-visible .outline")
+    assert "box on another site" in css
+
+
+def test_page_details_for_foreign_only(node, tmp_path):
+    page = full_build(tmp_path / "b", FOREIGN_ONLY).pages["alpha"]
+    path = tmp_path / "alpha.html"
+    path.write_bytes(page.encode("utf-8"))
+    with open_page(path) as live:
+        live.drive("network-detail", "Issue-1")
+        (detail,) = live.query("#detail")
+        assert FLAG in detail.text and "beta:Issue-1: Pour the base (open on beta)" in detail.text
+        assert SLACK_NONE in detail.text
+        assert "Waits on: none" not in detail.text
+        live.drive("schedule-detail", "Issue-1")
+        (gdetail,) = live.query("#gdetail")
+        assert FLAG in gdetail.text
+        assert "no links: could move anywhere" not in gdetail.text
+        (summary,) = live.query("#g-sum")
+        assert "No open leaf waits on another" not in summary.text
+
+
+def retitle(monkeypatch, site, key, title):
+    real = build.read_site
+
+    def read_site(entry, *args, **kw):
+        found, reason = real(entry, *args, **kw)
+        if entry.name == site and found is not None:
+            data = found.data
+            leaves = tuple(dataclasses.replace(x, title=title) if x.key == key else x for x in data.leaves)
+            found = dataclasses.replace(found, data=dataclasses.replace(data, leaves=leaves))
+        return found, reason
+
+    monkeypatch.setattr(build, "read_site", read_site)
+
+
+@pytest.mark.parametrize("h", HOSTILE)
+def test_hostile_target_title(tmp_path, monkeypatch, h):
+    retitle(monkeypatch, "beta", "Issue-1", h)
+    page = full_build(tmp_path, FOREIGN_ONLY).pages["alpha"]
+    assert_page_safe(page, [h])
+    assert_no_external_resources(page)
+    assert len(find(tree(page), "a", ["fbox"])) == 1
+
+
+@pytest.mark.parametrize("h", HOSTILE)
+def test_hostile_render_reason(tmp_path, monkeypatch, h):
+    real = worksite.render_model
+
+    def render_model(m, **kw):
+        if m["site"] == "beta":
+            raise ValueError(h)
+        return real(m, **kw)
+
+    monkeypatch.setattr(worksite, "render_model", render_model)
+    result = full_build(tmp_path, FOREIGN_ONLY)
+    # The reason reaches the page inside the leaf's waits-on text.
+    reason = NOT_BUILT.format(site="beta", reason=build.render_reason(ValueError(h), result.roots))
+    planted = FOREIGN_UNRESOLVED.format(raw="beta:Issue-1", reason=reason)
+    page = result.pages["alpha"]
+    assert_page_safe(page, [planted])
+    assert_no_external_resources(page)
+    t = tree(page)
+    assert find(t, "a", ["fbox"]) == [] and len(find(t, "g", ["fbox"])) == 1
