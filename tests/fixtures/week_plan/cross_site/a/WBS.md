@@ -1,0 +1,21 @@
+# A
+
+- [ ] Waits on b
+  - [ ] Hold on an open leaf {issue: Issue-1, est: 6h, h: 0, depends_on: [b:Issue-1]}
+  - [ ] Finished blocker {issue: Issue-2, est: 6h, h: 0, depends_on: [b:Issue-2]}
+  - [ ] Absent site {issue: Issue-3, est: 6h, h: 0, depends_on: [zz:Issue-1]}
+  - [ ] Unresolved entry {issue: Issue-4, est: 6h, h: 0, depends_on: [b:Issue-99]}
+  - [ ] Both {issue: Issue-5, est: 6h, h: 0, depends_on: [b:Issue-99, zz:Issue-1]}
+- [ ] Row with an entry {issue: Issue-6, depends_on: [b:Issue-1, 9.9]}
+  - [ ] Under the row {issue: Issue-7, est: 6h, h: 0}
+  - [ ] Two bad entries {issue: Issue-16, est: 6h, h: 0, depends_on: [Issue-97]}
+- [ ] More waits
+  - [ ] Names a row of b {issue: Issue-8, est: 6h, h: 0, depends_on: [b:Issue-5]}
+  - [ ] Parked blocker {issue: Issue-9, est: 6h, h: 0, depends_on: [b:Issue-3, Issue-98]}
+  - [ ] Long blocker {issue: Issue-10, est: 6h, h: 0, depends_on: [b:Issue-4]}
+  - [ ] Blocker beyond the horizon {issue: Issue-11, est: 6h, h: 0, depends_on: [b:Issue-10]}
+  - [ ] P0 on a P3 {issue: Issue-12, priority: P0, est: 6h, h: 0, depends_on: [b:Issue-8]}
+  - [ ] Local unresolved {issue: Issue-13, est: 6h, h: 0, depends_on: [Issue-99]}
+  - [ ] Malformed {issue: Issue-14, est: 6h, h: 0, depends_on: [x:y:z]}
+  - [ ] After the hold {issue: Issue-15, est: 6h, h: 0, depends_on: [Issue-1]}
+  - [ ] Waits on a derived reason {issue: Issue-17, est: 6h, h: 0, depends_on: [b:Issue-13]}

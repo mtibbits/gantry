@@ -14,6 +14,7 @@ from graphlib import TopologicalSorter
 
 from gantry import priority, schedule
 from gantry.attention import MAX_RATE, leaf_attention, mapping_in_use, site_ratio_source
+from gantry.deps import find_cycles, inside, open_sources
 from gantry.inputs import scheduled
 from gantry.model import HOURS_PER_DAY
 from gantry.portfolio_file import DEFAULTS, WEEKDAYS
@@ -39,10 +40,16 @@ NO_PLAN = {
 }
 
 # Why an open leaf of a built site is not in the 10 days: the first that applies.
-UNPLANNED_REASONS = ("blocked_externally", "parked", "waits_on_cycle", "waits_on_other_site",
-                     "waits_on_unplanned", "beyond_horizon")
-(BLOCKED_EXTERNALLY, PARKED, WAITS_ON_CYCLE, WAITS_ON_OTHER_SITE,
- WAITS_ON_UNPLANNED, BEYOND_HORIZON) = UNPLANNED_REASONS
+UNPLANNED_REASONS = ("blocked_externally", "parked", "waits_on_cycle", "cross_site_cycle",
+                     "waits_on_site_absent", "waits_on_unresolved", "waits_on_unplanned", "beyond_horizon")
+(BLOCKED_EXTERNALLY, PARKED, WAITS_ON_CYCLE, CROSS_SITE_CYCLE, WAITS_ON_SITE_ABSENT,
+ WAITS_ON_UNRESOLVED, WAITS_ON_UNPLANNED, BEYOND_HORIZON) = UNPLANNED_REASONS
+# The kinds of a plan report entry: what the plan finds across sites (#62).
+PLAN_REPORT_KINDS = (CROSS_SITE_CYCLE,)
+
+# The site report's kinds of a local depends_on entry that names nothing (#8):
+# no dependency in the plan, only counted on the leaf's record (#62).
+LOCAL_UNRESOLVED_KINDS = ("unresolved_ref", "malformed_ref")
 
 # The caps that keep the arithmetic whole and finite whatever the portfolio
 # file holds: no day has more than 24 hours, a lane count above this plans
@@ -81,6 +88,7 @@ class WeekPlan:
     days: list
     leaves: list
     sites: list
+    report: list
 
 
 def _is_number(value) -> bool:
@@ -198,36 +206,27 @@ def _pools(run_out):
             for name in POOLS]
 
 
-def _reasons(data, open_leaves, preds) -> dict:
-    """{key: reason} for each open leaf the plan leaves out whatever the
-    capacity: the first reason that applies, in UNPLANNED_REASONS' order."""
-    held = set(data.held_out)
-    reasons = {}
-    for leaf in open_leaves:
-        if leaf.state == "blocked_external":
-            reasons[leaf.key] = BLOCKED_EXTERNALLY
-        elif leaf.state == "parked":
-            reasons[leaf.key] = PARKED
-        elif leaf.key in held:
-            reasons[leaf.key] = WAITS_ON_CYCLE
-        elif leaf.waits_on_other_site:
-            reasons[leaf.key] = WAITS_ON_OTHER_SITE
-    # The rest hold no cycle, so each leaf is reached after its predecessors.
-    rest = TopologicalSorter({leaf.key: [p for p in preds[leaf.key] if p not in reasons]
-                              for leaf in open_leaves if leaf.key not in reasons})
-    for key in rest.static_order():
-        if any(p in reasons for p in preds[key]):
-            reasons[key] = WAITS_ON_UNPLANNED
-    return reasons
+def _unresolved_local(data, open_leaves) -> dict:
+    """{key: how many of the site report's local entries that name nothing sit
+    on the leaf's line or on an open row above it}: #8 reports each entry once,
+    at its node's line, and lines are unique within a WBS.md."""
+    per_line = {}
+    for entry in data.report:
+        if entry.kind in LOCAL_UNRESOLVED_KINDS:
+            per_line[entry.line] = per_line.get(entry.line, 0) + 1
+    row_at = {row.outline: row for row in data.rows}
+    return {leaf.key: sum(per_line.get(node.line, 0) for node in open_sources(leaf, row_at)) for leaf in open_leaves}
 
 
 def _site_work(name, inputs, mapping, unit) -> list[dict]:
-    """One item per open leaf of a site, in WBS.md order. An item with no
-    `reason` is work for the day loop, and a schedule.pick_ready item.
+    """One item per open leaf of a site, in WBS.md order, its reason not yet
+    decided. An item with no `reason` is work for the day loop, and a
+    schedule.pick_ready item.
 
     Effective priority is the worksite page's (every scheduled leaf, with
     blocked, parked and cross-site waiters), so an unplanned dependent still
-    lifts its blocker. A leaf's predecessors are its open prerequisites.
+    lifts its blocker; it never crosses sites. A leaf's predecessors are its
+    open prerequisites within the site, as (site, key) ids for now.
     """
     data = inputs.data
     open_leaves = [leaf for leaf in data.leaves if leaf.open]
@@ -235,8 +234,9 @@ def _site_work(name, inputs, mapping, unit) -> list[dict]:
     preds = {leaf.key: [] for leaf in open_leaves}
     for before, after in data.links:
         if before in preds and after in preds:
-            preds[after].append(before)
-    reasons = _reasons(data, open_leaves, preds)
+            preds[after].append((name, before))
+    held = set(data.held_out)
+    unresolved = _unresolved_local(data, open_leaves)
     index = {leaf.key: i for i, leaf in enumerate(data.leaves)}
     items = []
     for leaf in open_leaves:
@@ -247,16 +247,90 @@ def _site_work(name, inputs, mapping, unit) -> list[dict]:
         items.append({
             "site": name, "key": leaf.key, "wbs_index": index[leaf.key],
             "eff_priority": effective.get(leaf.key, priority.rank(leaf.priority)),
-            "preds": preds[leaf.key], "reason": reasons.get(leaf.key), "finished": None,
+            "preds": preds[leaf.key], "reason": None, "finished": None,
             "need": need, "left": need, "ppm": _ppm(attention.rate), "attention": attention,
             "unestimated": estimate is None or estimate.source == "default", "state": leaf.state,
-            "days": [], "today": 0,
+            "days": [], "today": 0, "unresolved_local": unresolved[leaf.key],
+            "held_out": leaf.key in held, "foreign": leaf.foreign_targets or (),
         })
-    # A planned leaf's predecessors are all planned: hold them as items.
-    by_key = {item["key"]: item for item in items}
-    for item in items:
-        item["preds"] = [by_key[key] for key in item["preds"]]
     return items
+
+
+def _cross_site_preds(result, items):
+    """Add each leaf's cross-site predecessors from #68's outcomes, never
+    resolved again: an open leaf target is that leaf, an open row target the
+    open leaves under it in WBS.md order (#8's rule). A duplicate id is
+    dropped, the first kept. An open outcome naming a site this plan does
+    not plan (one with no page) adds none: _reasons holds the leaf."""
+    under = {}
+
+    def open_under(site, row_key):
+        if (site, row_key) not in under:
+            data = result.inputs[site].data
+            row = next(row for row in data.rows if row.key == row_key)
+            under[site, row_key] = [(site, leaf.key) for leaf in data.leaves if leaf.open and inside(leaf, row)]
+        return under[site, row_key]
+
+    for site_items in items.values():
+        for item in site_items:
+            seen = set(item["preds"])
+            for outcome in item["foreign"]:
+                if outcome.status != "open" or outcome.target_site not in items:
+                    continue
+                site = outcome.target_site
+                found = open_under(site, outcome.target_key) if outcome.target_is_row else [(site, outcome.target_key)]
+                for node in found:
+                    if node not in seen:
+                        seen.add(node)
+                        item["preds"].append(node)
+
+
+def _cross_site_cycles(by_node) -> list[list[tuple[str, str]]]:
+    """The dependency cycles over every built site's open leaves that span two
+    or more sites: find_cycles' components, members in config order of site
+    then WBS.md order, ordered by first member. A cycle within one site uses
+    only its own links, so it lies in #8's cycle and stays waits_on_cycle."""
+    links = [(pred, node) for node, item in by_node.items() for pred in item["preds"]]
+    return [cycle for cycle in find_cycles(list(by_node), links) if len({site for site, _ in cycle}) >= 2]
+
+
+def _reasons(by_node, cycles, sites) -> dict:
+    """{(site, key): reason} for each open leaf the plan leaves out whatever
+    the capacity: the first reason that applies, in UNPLANNED_REASONS' order.
+    An open outcome naming a site not in `sites`, the ones this plan plans
+    (the same set _cross_site_preds holds on), is unresolved too:
+    work the plan cannot see. waits_on_unplanned is decided in one order over
+    every site, so a chain through several sites is followed whatever their
+    config order."""
+    in_cycle = {node for cycle in cycles for node in cycle}
+    reasons = {}
+    for node, item in by_node.items():
+        statuses = {outcome.status for outcome in item["foreign"]}
+        unseen = any(o.status == "open" and o.target_site not in sites for o in item["foreign"])
+        if item["state"] == "blocked_external":
+            reasons[node] = BLOCKED_EXTERNALLY
+        elif item["state"] == "parked":
+            reasons[node] = PARKED
+        elif item["held_out"]:
+            reasons[node] = WAITS_ON_CYCLE
+        elif node in in_cycle:
+            reasons[node] = CROSS_SITE_CYCLE
+        elif "absent" in statuses:
+            reasons[node] = WAITS_ON_SITE_ABSENT
+        elif "unresolved" in statuses or unseen:
+            reasons[node] = WAITS_ON_UNRESOLVED
+    # Every cycle's leaves have a reason now, so each leaf left is reached after its predecessors.
+    rest = TopologicalSorter({node: [p for p in item["preds"] if p not in reasons]
+                              for node, item in by_node.items() if node not in reasons})
+    for node in rest.static_order():
+        if any(p in reasons for p in by_node[node]["preds"]):
+            reasons[node] = WAITS_ON_UNPLANNED
+    return reasons
+
+
+def _report(cycles) -> list[dict]:
+    return [{"kind": CROSS_SITE_CYCLE, "leaves": [{"site": site, "key": key} for site, key in cycle]}
+            for cycle in cycles]
 
 
 def _site_order(ready) -> list[dict]:
@@ -471,6 +545,7 @@ def _leaf_record(item) -> dict:
         "tag": attention.tag, "basis": attention.basis, "agent_hours": _hours(item["need"]),
         "unestimated": item["unestimated"], "state": item["state"],
         "hours_after_horizon": _hours(item["left"]), "days": list(item["days"]),
+        "unresolved_local": item["unresolved_local"],
     }
 
 
@@ -492,9 +567,17 @@ def plan_week(result, portfolio, config) -> WeekPlan:
         run_out, binding = _binding([])
         return WeekPlan(status="no_plan", reason=NO_PLAN[key], unestimated_planned=0, horizon_days=[],
                         planned_week=[], pools=_pools(run_out), binding=binding,
-                        days=[], leaves=[], sites=[], **fields)
+                        days=[], leaves=[], sites=[], report=[], **fields)
     names = _built_sites(result)
     items = {name: _site_work(name, result.inputs[name], mapping, config.default_unit_hours) for name in names}
+    _cross_site_preds(result, items)
+    by_node = {(name, item["key"]): item for name in names for item in items[name]}
+    cycles = _cross_site_cycles(by_node)
+    reasons = _reasons(by_node, cycles, items.keys())
+    # A planned leaf's predecessors are all planned: hold them as items.
+    for node, item in by_node.items():
+        item["reason"] = reasons.get(node)
+        item["preds"] = [by_node[pred] for pred in item["preds"]]
     work = {name: [item for item in items[name] if item["reason"] is None] for name in names}
     horizon = _working_days(config.as_of, capacity)
     placed_order = []
@@ -516,14 +599,15 @@ def plan_week(result, portfolio, config) -> WeekPlan:
             "lane_hours_charged": _hours(sum(item["need"] - item["left"] for item in placed)),
             "unestimated_planned": sum(item["unestimated"] for item in placed),
             # Never placed in the 10 days: beyond the horizon.
-            "unplanned": [{"key": item["key"], "reason": item["reason"] or BEYOND_HORIZON, "state": item["state"]}
+            "unplanned": [{"key": item["key"], "reason": item["reason"] or BEYOND_HORIZON, "state": item["state"],
+                           "unresolved_local": item["unresolved_local"]}
                           for item in items[name] if not item["days"]],
         })
     dates = [day.isoformat() for day in horizon]
     return WeekPlan(status="planned", reason=None,
                     unestimated_planned=sum(item["unestimated"] for item in placed_order),
                     horizon_days=dates, planned_week=dates[:WEEK_DAYS], pools=_pools(run_out), binding=binding,
-                    days=days, leaves=leaves, sites=sites, **fields)
+                    days=days, leaves=leaves, sites=sites, report=_report(cycles), **fields)
 
 
 def plan_to_json(plan) -> str:

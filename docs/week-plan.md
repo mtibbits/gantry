@@ -250,7 +250,9 @@ the worksite schedule's rule, and it is one function,
 `gantry.schedule.pick_ready`, that both call, so the two orders cannot
 drift. Effective priority is taken as the worksite page takes it, over
 every open leaf not held out by a cycle: a leaf the plan leaves out still
-lifts the leaf it waits on.
+lifts the leaf it waits on. Effective priority is computed within each
+site: a cross-site entry only holds a leaf and never raises its blocker's
+priority.
 
 ### Which site goes next
 
@@ -285,10 +287,46 @@ reads `[~]` is planned like any other.
 
 A leaf is ready on a day when every open leaf it depends on finished on an
 earlier planned day: a dependent starts no sooner than the working day
-after its blocker's last, even when that day has room. Only the links
-within a site count. A leaf with an entry naming another site's open issue,
-a site not in this installation or an issue that could not be resolved is
-left unplanned until #62; an entry naming a finished issue is satisfied.
+after its blocker's last, even when that day has room.
+
+### Dependencies across sites
+
+A `depends_on` entry naming another site's open leaf holds the leaf until that
+leaf's planned finish: the leaf is first ready on the working day after the
+day its blocker finishes in the plan, as within a site. An entry naming a
+finished leaf is satisfied. An open leaf takes the cross-site entries of each
+open row above it, and an entry naming a row of another site means the open
+leaves under that row: the leaf is first ready on the working day after the
+last of them finishes. A leaf whose cross-site blocker is itself
+`beyond_horizon`, or is placed with `hours_after_horizon` above 0, never
+becomes ready and is `beyond_horizon`; one whose blocker is unplanned for any
+other reason is `waits_on_unplanned`. An entry naming a site not in this
+installation leaves the leaf `waits_on_site_absent`, and one that could not be
+resolved leaves it `waits_on_unresolved`: the plan does not guess at work the
+build cannot see. The planner reads each entry's outcome as the full build
+recorded it ([worksite-page.md](worksite-page.md#foreign-entries)) and never
+resolves an entry again.
+
+### Local entries that name nothing
+
+A local entry that names nothing is not a dependency: an `unresolved_ref`
+(an id no node of the site holds, such as an outline number) or a
+`malformed_ref` leaves the leaf planned as if the entry were absent, as on
+the worksite schedule. The plan counts them in the leaf's `unresolved_local`:
+its own such entries and those of each open row above it. The worksite page
+lists each one.
+
+### Cycles across sites
+
+A cycle across sites is a strongly connected component of two or more open
+leaves, over every built site's links and the cross-site ones, whose leaves
+span two or more sites. Each is reported once in the plan's `report`, as a
+`cross_site_cycle` entry. Its leaves are unplanned as `cross_site_cycle`
+unless an earlier reason applies ([Unplanned leaves](#unplanned-leaves)): a
+blocked or parked leaf, or a leaf of a site's own cycle, keeps that reason.
+The leaves downstream of them are `waits_on_unplanned`. A site's own cycle
+stays `waits_on_cycle` and is not in `report`; a cycle across sites that
+holds one is reported whole. The planner always finishes.
 
 ### Unplanned leaves
 
@@ -300,10 +338,13 @@ these that applies:
 2. `parked`: its state is `P`;
 3. `waits_on_cycle`: it is in, or waits on, a dependency cycle within its
    site;
-4. `waits_on_other_site`: it waits on another site, as above;
-5. `waits_on_unplanned`: it waits on a leaf that is unplanned for one of
+4. `cross_site_cycle`: it is in a dependency cycle across sites;
+5. `waits_on_site_absent`: it waits on a site not in this installation;
+6. `waits_on_unresolved`: it waits on an entry naming another site that
+   could not be resolved;
+7. `waits_on_unplanned`: it waits on a leaf that is unplanned for one of
    the reasons above or this one;
-6. `beyond_horizon`: it was never placed in the 10 days, a leaf whose
+8. `beyond_horizon`: it was never placed in the 10 days, a leaf whose
    blocker is itself `beyond_horizon` included.
 
 ### Past the horizon
@@ -398,6 +439,7 @@ Hours are minutes divided by 60, and a date is `YYYY-MM-DD` text.
 | `days` | one record per working day, below |
 | `leaves` | one record per placed leaf, sites in config order, then by first placement |
 | `sites` | one record per built site, in config order |
+| `report` | what the plan found across sites, one entry per finding; empty when there is none and on a `no_plan` plan |
 
 A day holds its `date` and `weekday` (`mon` to `sun`), its
 `attention_hours_declared` and its `attention_hours` after reserved blocks,
@@ -411,14 +453,26 @@ holds `site`, `key` and `agent_hours`.
 
 A leaf holds its `site` and `key`, its `rate`, `need`, `tag` and `basis`,
 its total `agent_hours`, whether it is `unestimated`, its `state`, its
-`hours_after_horizon` and the `days` it is on.
+`hours_after_horizon` and the `days` it is on, and its `unresolved_local`
+count: its own and its open rows' `depends_on` entries that name nothing.
 
 A site holds its `name`, its `ratio_source` (the
 [site ratio source](#the-site-ratio-source): `estimated` until #39 or #40
 passes a ratio), its `attention_hours_charged` (its block lengths over the
 10 days, start costs and minimum-length padding included), its
 `lane_hours_charged` (the agent hours placed), its `unestimated_planned`
-count and its `unplanned` list (`key`, `reason`, `state`).
+count and its `unplanned` list (`key`, `reason`, `state`,
+`unresolved_local`). An unplanned leaf's `reason` is one of
+`blocked_externally`, `parked`, `waits_on_cycle`, `cross_site_cycle`,
+`waits_on_site_absent`, `waits_on_unresolved`, `waits_on_unplanned` and
+`beyond_horizon` ([Unplanned leaves](#unplanned-leaves)).
+
+A report entry holds its `kind`, `cross_site_cycle`, and its `leaves`,
+each a `site` and `key`, in devagent's config order of site, then `WBS.md`
+order; entries go in the order of their first leaf. At version 1, `report`
+holds only `cross_site_cycle` entries. The entry's shape is provisional
+until the first view reads it (#38); a kind with another shape changes the
+pinned shape and this section in the same change.
 
 A planned file, from `tests/fixtures/week_plan/binds_lanes/`, with `days`,
 `leaves` and `sites` cut to their first item:
@@ -499,7 +553,8 @@ A planned file, from `tests/fixtures/week_plan/binds_lanes/`, with `days`,
       "site": "alpha",
       "state": "pending",
       "tag": "scored",
-      "unestimated": false
+      "unestimated": false,
+      "unresolved_local": 0
     }
   ],
   "mapping": {
@@ -537,6 +592,7 @@ A planned file, from `tests/fixtures/week_plan/binds_lanes/`, with `days`,
     }
   ],
   "reason": null,
+  "report": [],
   "sites": [
     {
       "attention_hours_charged": 1.0,
@@ -592,10 +648,48 @@ The `no_plan` form keeps every key:
     }
   ],
   "reason": "no portfolio_file is configured",
+  "report": [],
   "sites": [],
   "status": "no_plan",
   "unestimated_planned": 0
 }
+```
+
+The `report` list from `tests/fixtures/week_plan/cross_site_cycle/`:
+
+```json
+[
+  {
+    "kind": "cross_site_cycle",
+    "leaves": [
+      {
+        "key": "Issue-1",
+        "site": "a"
+      },
+      {
+        "key": "Issue-2",
+        "site": "a"
+      },
+      {
+        "key": "Issue-1",
+        "site": "b"
+      }
+    ]
+  },
+  {
+    "kind": "cross_site_cycle",
+    "leaves": [
+      {
+        "key": "Issue-5",
+        "site": "a"
+      },
+      {
+        "key": "Issue-7",
+        "site": "b"
+      }
+    ]
+  }
+]
 ```
 
 ### The version rule
@@ -607,6 +701,8 @@ may also stop being given: a reader acts only on `status`, on whether the
 binding pool is null and on the two pool names, and shows any other value
 it does not know as text. A new `status` value changes `plan_version`, and
 so does removing or renaming a field or changing its type or meaning.
+A file written before a field was added lacks it: a reader takes a missing
+`report` as empty and a missing `unresolved_local` as 0.
 
 ### The pinned shape
 
@@ -620,7 +716,9 @@ unlisted field fails, so `tests/test_plan_file.py` fails on any shape
 change until the field is added to the pinned shape. Only `status` is
 checked against values. `shape-v1.json` may only gain fields: a removal, a
 rename or a type change goes into a new `shape-v2.json` with
-`PLAN_VERSION = 2`.
+`PLAN_VERSION = 2`. It pins what the current writer writes; a version 1
+file from an earlier writer may lack a field added since, and the version
+rule says how a reader takes it.
 
 ### Determinism
 

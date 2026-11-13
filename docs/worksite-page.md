@@ -656,8 +656,9 @@ in the network's first column: earliest slot 1, slack
 `none: waits only on another site`. The count sentence counts it among the
 leaves that "have an open link and appear in the network", its lane's
 `+N unlinked` no longer counts it, and its schedule details say
-`waits on another site` rather than that it could move anywhere. Holding the
-leaf until the other site's leaf finishes is #62.
+`waits on another site` rather than that it could move anywhere. The week
+plan holds the leaf until the other site's leaf finishes
+([week-plan.md](week-plan.md#dependencies-across-sites)).
 
 **A page that fails to render.** Its site is then not built. The pages that
 hold an entry naming it are re-resolved, so those entries become
@@ -666,7 +667,7 @@ fails then is dropped in turn, until no new page fails (at most one pass per
 site). No page links to a page that was not rendered. A page that fails to
 *write* is not re-resolved: a page that links to it keeps its link.
 
-**The outcome record.** `BuildResult.foreign` (for #62) maps each read site,
+**The outcome record.** `BuildResult.foreign` maps each read site,
 in config order, to the outcomes of its foreign entries, in `WBS.md` line
 order. A site with none maps to `()`. An outcome records the waiting site,
 the source node's key, line and whether it is a row, the entry as written,
