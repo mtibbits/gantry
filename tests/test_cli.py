@@ -87,18 +87,19 @@ SAMPLE_TRACE_LINE = ("trace lighthouse: unreadable 0, malformed 0, duplicate 0, 
 
 def check_written(stdout_bytes, out_dir):
     """The full build's stdout: one absolute path per written file, the pages in
-    config order, then the index, then the trace line."""
+    config order, then the index, then the plan file (#61), then the trace line."""
     assert b"\r" not in stdout_bytes
     lines = stdout_bytes.decode("utf-8").splitlines()
     pages = [name for name in sample_projects() if name in READABLE]
     # Then the one sample site in the trace prints its trace line (#20).
-    assert len(lines) == len(pages) + 2 == 6
-    assert lines[5:] == [SAMPLE_TRACE_LINE]
-    lines = lines[:5]
+    assert len(lines) == len(pages) + 3 == 7
+    assert lines[6:] == [SAMPLE_TRACE_LINE]
+    lines = lines[:6]
     assert all(os.path.isabs(line) for line in lines), lines
     for line, name in zip(lines, pages):
         assert os.path.samefile(line, out_dir / "sites" / f"{name}.html"), (line, name)
-    assert os.path.samefile(lines[-1], out_dir / "index.html")
+    assert os.path.samefile(lines[-2], out_dir / "index.html")
+    assert os.path.samefile(lines[-1], out_dir / "week-plan.json")
 
 
 def test_python_m_builds_sample_sites(tmp_path):
@@ -133,7 +134,8 @@ def test_write_site_tree_builds_sites(tmp_path, capsys):
     assert main(["build", "--config", str(config)]) == 0
     out = tmp_path / "out"
     assert capsys.readouterr().out.splitlines() == [
-        str(out / "sites" / "alpha.html"), str(out / "sites" / "beta.html"), str(out / "index.html")]
+        str(out / "sites" / "alpha.html"), str(out / "sites" / "beta.html"), str(out / "index.html"),
+        str(out / "week-plan.json")]
     assert "14 open leaves" in (out / "index.html").read_bytes().decode("utf-8")
     assert NO_LEAVES in (out / "sites" / "beta.html").read_bytes().decode("utf-8")
 
@@ -287,7 +289,7 @@ def test_unread_keys_leave_pages_and_trace_inputs_change_them(tmp_path, monkeypa
     code, out, _, plain_err = demo_build(tmp_path, monkeypatch, copy=copy)
     assert code == 0
     plain = written_bytes(out)
-    assert len(plain) == 5
+    assert len(plain) == 6  # four pages, the index and week-plan.json (#61)
     add_top_level(config, 'fires_list = "fires.md"\n')
     code, out, _, err = demo_build(tmp_path, monkeypatch, copy=copy)
     assert code == 0 and err == plain_err
@@ -301,7 +303,8 @@ def test_unread_keys_leave_pages_and_trace_inputs_change_them(tmp_path, monkeypa
     code, out, _, err = demo_build(tmp_path, monkeypatch, copy=copy)
     assert code == 0 and err == plain_err
     moved = written_bytes(out)
-    assert {k for k in plain if moved[k] != plain[k]} == {f"sites/{SMALL}.html"}
+    # The week plan reads the portfolio file's capacity (#61): with no settings there is no plan.
+    assert {k for k in plain if moved[k] != plain[k]} == {f"sites/{SMALL}.html", "week-plan.json"}
     undefined = dict(trace(moved, SMALL)["report"])["undefined"]
     assert len(undefined) == 2 and "life:BR-1 names no requirement" in undefined[0][2]
 
@@ -369,7 +372,7 @@ def test_launcher_prefers_python(tmp_path):
     shims = shim_dir(tmp_path, ["python", "python3"])
     result, names = run_launcher(copy, [SAMPLE_CONFIG], shims, copy, tmp_path)
     assert result.returncode == 0, result.stderr
-    assert sample_line_count(result) == 6
+    assert sample_line_count(result) == 7
     assert names == {"python"}
 
 
@@ -379,7 +382,7 @@ def test_launcher_falls_back_to_python3(tmp_path):
     shims = shim_dir(tmp_path, ["python3"])
     result, names = run_launcher(copy, [SAMPLE_CONFIG], shims, copy, tmp_path)
     assert result.returncode == 0, result.stderr
-    assert sample_line_count(result) == 6
+    assert sample_line_count(result) == 7
     assert names == {"python3"}
 
 
@@ -410,7 +413,7 @@ def test_launcher_one_literal_argument(tmp_path):
     shims = shim_dir(tmp_path, ["python"])
     result, _ = run_launcher(copy, ["samples/" + name], shims, copy, tmp_path)
     assert result.returncode == 0, result.stderr
-    assert sample_line_count(result) == 6
+    assert sample_line_count(result) == 7
     assert list(tmp_path.rglob("pwned")) == []
 
 
@@ -425,7 +428,7 @@ def test_launcher_P_ignores_cwd_package(tmp_path):
     result, _ = run_launcher(copy, [str(config)], shims, elsewhere, tmp_path)
     assert b"decoy" not in result.stderr
     assert result.returncode == 0, result.stderr
-    assert sample_line_count(result) == 6
+    assert sample_line_count(result) == 7
 
 
 @needs_posix_bash
@@ -451,7 +454,7 @@ def test_launcher_dash_leading_config_is_a_value(tmp_path):
     shims = shim_dir(tmp_path, ["python"])
     result, _ = run_launcher(copy, ["-dash.toml"], shims, samples, tmp_path)
     assert result.returncode == 0, result.stderr
-    assert sample_line_count(result) == 6
+    assert sample_line_count(result) == 7
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX file modes only")
@@ -536,8 +539,7 @@ def test_trace_warning_escapes_name(tmp_path, capsys):
 # --- gantry portfolio (#22) ----------------------------------------------------
 
 PORTFOLIO_FIXTURES = ROOT / "tests" / "fixtures" / "portfolio_file"
-MILESTONE_NOTE = ("note: the milestone leaf is not checked here (this command reads no WBS.md), "
-                  "nor yet by the build, which reads only the file's business requirements")
+MILESTONE_NOTE = "note: the milestone leaf is not checked here (this command reads no WBS.md), nor yet by the build"
 
 
 def portfolio_run(capsys, config):

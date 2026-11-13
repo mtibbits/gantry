@@ -1,10 +1,12 @@
 # The week plan
 
-The week plan will fit each site's open leaves into the operator's week:
-the agent hours a leaf takes, and the operator hours it needs while it
-runs. The plan itself is #61, and the week view that shows it is #38.
-Neither exists yet. This page states the part that does: each leaf's
-attention need and rate (`gantry/attention.py`, #36).
+The week plan fits each site's open leaves into the operator's week: the
+agent hours a leaf takes, and the operator hours it needs while it runs.
+The full build makes the plan and writes it to `week-plan.json` (#61); the
+week view that will show it is #38 and does not exist yet. This page states
+each leaf's attention need and rate (`gantry/attention.py`, #36), then
+[the planner](#the-planner) and [the plan file](#the-plan-file)
+(`gantry/planner.py`).
 
 ## Attention need
 
@@ -15,8 +17,8 @@ hours. Every leaf gets a rate from the first of four sources that applies,
 tagged with that source and a basis naming its inputs.
 
 No page shows needs, rates, tags or bases yet; the week view (#38) will.
-Of what this module works out, only a bad `h:` reaches a page today, as a
-report entry.
+The plan file records them for each placed leaf. Of what this module works
+out, only a bad `h:` reaches a page today, as a report entry.
 
 ### The scale
 
@@ -156,3 +158,473 @@ check refuses the rest.
 A site's **site ratio source** is `measured` when a measured ratio is
 passed, else `declared` when a declared one is, else `estimated`. It
 depends on the site alone: no leaf's `h:` changes it.
+
+## The planner
+
+`gantry build` (the full build, not `--site`) plans the next 10 working
+days after it has built the sites (`gantry/planner.py`, `plan_week`). The
+plan is data: it is written to `week-plan.json` ([The plan file](#the-plan-file))
+and handed, as one object, to every view rendered from the build's result
+after planning. Today that is the index, which does not show it yet; a
+worksite page is rendered before the plan is made and does not receive it.
+The planner reads no file and no clock: it works from the sites the build
+read, the portfolio file's capacity ([portfolio-file.md](portfolio-file.md))
+and each leaf's rate ([Attention need](#attention-need)).
+
+Two **pools** are divided between the sites: **operator attention hours**
+and **agent lanes**, counted in lane hours. Both come from the portfolio
+file, which the plan records as each pool's capacity source
+(`portfolio file`).
+
+### Days and capacity
+
+A day's attention hours are its weekday's `attention_hours` less its
+reserved blocks, never below 0. A **working day** is any day where that is
+above 0: a Saturday counts when the portfolio file gives it hours, unlike
+the index's "working day N", which counts Monday to Friday. A weekday whose
+reserved blocks take all its hours is not a working day.
+
+The plan starts on the as-of date, if it is a working day, and otherwise on
+the next one. It covers 10 working days; the first 5 are the **planned
+week**. The as-of date counts as a whole day, so a rebuild later the same
+day gives the same plan. Each working day has `agent_lanes` lanes of 6
+agent hours. Reserved blocks' `start` times are shown, not planned around.
+An as-of date so late that the 10 working days would run past 9999-12-31
+is not supported: the build exits 1 with a Python traceback.
+
+### What each leaf costs
+
+A leaf needs the midpoint of its estimate in agent hours, or the default
+unit (`default_unit_hours`) when it has no estimate; such a leaf is marked
+unestimated. A leaf in progress is charged its full midpoint, because no
+record says how much is left. Every placed leaf runs in one agent lane, so
+it takes at most 6 agent hours a day and a longer leaf continues on later
+days. Its rate charges rate × agent hours of operator attention. A leaf
+whose rate is 0 goes in the day's **lanes row** and needs no block.
+
+The planner works in whole minutes, by two rules:
+
+- every input is rounded to whole minutes once, as `int(hours * 60 + 0.5)`:
+  a weekday's attention, each reserved block, `block_min_hours`, the start
+  cost and each leaf's hours (a leaf needs at least 1 minute);
+- a rate becomes whole parts per million once, and no fraction is
+  multiplied after that. The operator minutes of some agent minutes round
+  up, so a block's work plus its start cost always fits its length; the
+  agent minutes that fit some operator minutes round down. A rate under half
+  a part per million is rate 0.
+
+No number in the portfolio file can stop the planner. A value over 24 hours
+(a block of `1e308` hours, say) counts as 24, a lane count over 1,000,000
+counts as that, and a leaf longer than 1,000,000,000 hours is cut to it.
+
+### Blocks
+
+Leaves with a rate above 0 run inside a **block** on their own site: a span
+of one working day in which the operator works on one site only. A block's
+length is its start cost (`block_start_cost_hours`) plus the operator hours
+of the work placed in it, and it is charged to the day's attention. A block
+is never shorter than `block_min_hours`: one whose work needs less is still
+charged that length. No block mixes sites. A block has an order and a
+length, never a clock time.
+
+A block never runs past the day's attention. A leaf that would is placed
+for the most whole agent minutes whose operator minutes still fit, and the
+rest of it continues on a later working day; the block then goes on with
+any other leaf of its site that still fits, and closes when none does. When
+a block's next leaf finds no lane hours left, the block closes there.
+
+### A ready leaf that fits
+
+At a point in a day, a ready leaf fits when the day still has lane minutes
+free and the leaf is under its 6 agent hours that day, and, when its rate
+is above 0, either its site's block is open and the day's attention holds
+one more agent minute of it, or no block of its site has opened and the day
+has left both `block_min_hours` and the start cost plus one agent minute of
+the leaf. A block that could hold no leaf is not opened.
+
+### Order within a site
+
+Within a site, leaves go in effective-priority order with `WBS.md` order
+breaking ties, a blocker always before the leaf that waits on it. This is
+the worksite schedule's rule, and it is one function,
+`gantry.schedule.pick_ready`, that both call, so the two orders cannot
+drift. Effective priority is taken as the worksite page takes it, over
+every open leaf not held out by a cycle: a leaf the plan leaves out still
+lifts the leaf it waits on.
+
+### Which site goes next
+
+Until #37 adds priority tiers and fair share, each day is planned site by
+site, and the plan names the rule in `allocation_rule`:
+"most urgent site first; intended shares not applied".
+
+When a block can open, it goes to the site whose most urgent ready leaf of
+rate above 0 that fits is the most urgent, ties to devagent's config order.
+The block holds that site's leaves in the order above. Nothing in a day
+makes a leaf fit again once it does not, so a site gets at most one block a
+day. After the day's blocks, the lanes row takes ready rate-0 leaves site
+by site: the sites go in order of their most urgent ready rate-0 leaf that
+fits, ties to config order, and each leaf takes up to its 6 agent hours or
+the lane hours left.
+
+### Started in this plan
+
+A leaf the plan placed on an earlier day and has not finished goes first
+among its site's leaves on each following day, ahead of a more urgent leaf
+that became ready since, until it finishes. Several such leaves of one site
+keep the order within a site among themselves.
+
+### States
+
+The planner reads `WBS.md` states only. A leaf blocked externally (`?`) or
+parked (`P`) is not planned. Every other open leaf is, an in-progress (`~`)
+or stuck (`!`) one included: an issue parked in devagent whose leaf still
+reads `[~]` is planned like any other.
+
+### Dependencies within a site
+
+A leaf is ready on a day when every open leaf it depends on finished on an
+earlier planned day: a dependent starts no sooner than the working day
+after its blocker's last, even when that day has room. Only the links
+within a site count. A leaf with an entry naming another site's open issue,
+a site not in this installation or an issue that could not be resolved is
+left unplanned until #62; an entry naming a finished issue is satisfied.
+
+### Unplanned leaves
+
+Every open leaf of a built site that is not in the 10 days is listed under
+its site, in `WBS.md` order, with its state and one reason, the first of
+these that applies:
+
+1. `blocked_externally`: its state is `?`;
+2. `parked`: its state is `P`;
+3. `waits_on_cycle`: it is in, or waits on, a dependency cycle within its
+   site;
+4. `waits_on_other_site`: it waits on another site, as above;
+5. `waits_on_unplanned`: it waits on a leaf that is unplanned for one of
+   the reasons above or this one;
+6. `beyond_horizon`: it was never placed in the 10 days, a leaf whose
+   blocker is itself `beyond_horizon` included.
+
+### Past the horizon
+
+A leaf placed in the 10 days but not finished by the last one is not
+unplanned. It keeps its placements, its record carries the agent hours left
+as `hours_after_horizon` (0 for a leaf that finishes), and the leaves that
+wait on it are `beyond_horizon`.
+
+### The binding pool
+
+Each day records the pools that ran out while a ready leaf still needed
+them, attention first:
+
+- **agent lanes**: no lane minute is left while a ready leaf with minutes
+  to place, under its 6 agent hours that day, waits for one, in a block or
+  in the lanes row;
+- **operator attention hours**: with a lane minute free, such a leaf of
+  rate above 0 waits because its site's block stopped at the day's
+  attention with work left, or because no block of its site could open.
+  A block that stops at the day's attention counts when it stops, while
+  its leaf could still take a lane minute: a later leaf of the block that
+  takes the last lane minute does not hide it. No block opens when less than
+  `block_min_hours` is left. By a deliberate reading of "a ready leaf that
+  fits", a day also counts as attention running out when `block_min_hours`
+  is left but the start cost plus one agent minute of the ready leaf no
+  longer fits.
+
+A leaf with no lane minute free waits on lanes alone, with one exception:
+when a single placement takes the last lane minute and the last of the
+attention its block had for that leaf, the day records both pools. A day's
+own list covers all 10 days; each pool's days run out, and the binding
+pool, read the planned week only. The **binding pool** is the
+one that ran out on the earliest day; on the same day, the one that ran out
+on more days of the planned week; still tied, operator attention hours.
+When neither ran out, the binding pool is null and the plan says
+"no pool ran out".
+
+### When there is no plan
+
+The plan has status `no_plan` and one reason, the first that applies, when:
+
+| Reason | When |
+|---|---|
+| no portfolio_file is configured | the installation config sets no `portfolio_file` |
+| the portfolio file's settings were not read | the file is missing or unreadable, has no settings block, holds invalid TOML or a `portfolio_version` this Gantry does not read |
+| the portfolio file declares no usable attention hours after reserved blocks on any weekday | `attention_hours` is absent or was rejected, or every weekday has under half a minute left after its reserved blocks |
+| the portfolio file declares no usable agent_lanes, or 0 | `agent_lanes` is absent, was rejected or is 0 |
+| no site was built | no site's page was rendered |
+
+No reason holds a path. A site counts as built when its page was rendered;
+a page that later fails to write does not change the plan. A `no_plan` plan
+leaves the build's exit code as it was.
+
+## The plan file
+
+The full build writes the plan to `<output_dir>/week-plan.json` and prints
+its path after the index's. It is UTF-8 JSON with sorted keys and one
+trailing newline, written through a temporary file in the output folder and
+renamed into place, and it is written nowhere else. A `no_plan` plan is
+written too, so an earlier build's plan never stands in for this one.
+`--site` neither writes nor removes the file.
+
+**The plan file holds private leaf keys, and the portfolio file's attention
+hours and reserved blocks, and never belongs in a repository.**
+The commit check treats `week-plan.json` as generated output, and a real
+installation's output folder lies outside this repository.
+
+When the file cannot be written, the build prints
+`gantry: error: cannot write week-plan.json: <reason>` on stderr, naming no
+path, leaves no partial file and exits 1; the views still received the
+plan. When the output folder itself cannot be made, the write is not
+attempted and that folder's one error line stands
+([worksite-page.md](worksite-page.md#every-site-and-the-index)). When only
+the index cannot be written, the plan file still is.
+
+### Fields
+
+Hours are minutes divided by 60, and a date is `YYYY-MM-DD` text.
+
+| Field | Holds |
+|---|---|
+| `plan_version` | the format version, 1 |
+| `status`, `reason` | `planned` with a null reason, or `no_plan` with its reason |
+| `as_of` | the build's as-of date |
+| `allocation_rule` | the rule that divides a day between sites, as text |
+| `horizon_days`, `planned_week` | the 10 working days, and the first 5 of them |
+| `mapping` | the attention mapping in use: its `values`, its `source` and why the portfolio file's was `rejected`, or null |
+| `pools` | attention, then lanes: each pool's `name`, its `capacity_source` and its `days_run_out` in the planned week |
+| `binding` | the binding `pool` and its `first_day`, both null when no pool ran out, and `text`: the pool's name or "no pool ran out" |
+| `unestimated_planned` | how many distinct unestimated leaves are placed in the 10 days |
+| `days` | one record per working day, below |
+| `leaves` | one record per placed leaf, sites in config order, then by first placement |
+| `sites` | one record per built site, in config order |
+
+A day holds its `date` and `weekday` (`mon` to `sun`), its
+`attention_hours_declared` and its `attention_hours` after reserved blocks,
+its `reserved` blocks (`start`, `hours`, `label`), its `lane_hours`, its
+`blocks` in order, its `lanes_row`, what was `left` of each pool
+(`attention_hours`, `lane_hours`), the pools that `ran_out` and its count
+of `unestimated` leaves. A block holds its `number`, `site`,
+`length_hours`, `start_cost_hours` and `leaves` in plan order, each with
+its `site`, `key`, `agent_hours` and `operator_hours`. A lanes-row entry
+holds `site`, `key` and `agent_hours`.
+
+A leaf holds its `site` and `key`, its `rate`, `need`, `tag` and `basis`,
+its total `agent_hours`, whether it is `unestimated`, its `state`, its
+`hours_after_horizon` and the `days` it is on.
+
+A site holds its `name`, its `ratio_source` (the
+[site ratio source](#the-site-ratio-source): `estimated` until #39 or #40
+passes a ratio), its `attention_hours_charged` (its block lengths over the
+10 days, start costs and minimum-length padding included), its
+`lane_hours_charged` (the agent hours placed), its `unestimated_planned`
+count and its `unplanned` list (`key`, `reason`, `state`).
+
+A planned file, from `tests/fixtures/week_plan/binds_lanes/`, with `days`,
+`leaves` and `sites` cut to their first item:
+
+```json
+{
+  "allocation_rule": "most urgent site first; intended shares not applied",
+  "as_of": "2026-01-19",
+  "binding": {
+    "first_day": "2026-01-19",
+    "pool": "agent lanes",
+    "text": "agent lanes"
+  },
+  "days": [
+    {
+      "attention_hours": 8.0,
+      "attention_hours_declared": 8.0,
+      "blocks": [
+        {
+          "leaves": [
+            {
+              "agent_hours": 2.0,
+              "key": "Issue-1",
+              "operator_hours": 0.2,
+              "site": "alpha"
+            }
+          ],
+          "length_hours": 1.0,
+          "number": 1,
+          "site": "alpha",
+          "start_cost_hours": 0.25
+        }
+      ],
+      "date": "2026-01-19",
+      "lane_hours": 6.0,
+      "lanes_row": [
+        {
+          "agent_hours": 4.0,
+          "key": "Issue-2",
+          "site": "alpha"
+        }
+      ],
+      "left": {
+        "attention_hours": 7.0,
+        "lane_hours": 0.0
+      },
+      "ran_out": [
+        "agent lanes"
+      ],
+      "reserved": [],
+      "unestimated": 0,
+      "weekday": "mon"
+    }
+  ],
+  "horizon_days": [
+    "2026-01-19",
+    "2026-01-20",
+    "2026-01-21",
+    "2026-01-22",
+    "2026-01-23",
+    "2026-01-26",
+    "2026-01-27",
+    "2026-01-28",
+    "2026-01-29",
+    "2026-01-30"
+  ],
+  "leaves": [
+    {
+      "agent_hours": 2.0,
+      "basis": "scored: h: 1",
+      "days": [
+        "2026-01-19"
+      ],
+      "hours_after_horizon": 0.0,
+      "key": "Issue-1",
+      "need": 1,
+      "rate": 0.1,
+      "site": "alpha",
+      "state": "pending",
+      "tag": "scored",
+      "unestimated": false
+    }
+  ],
+  "mapping": {
+    "rejected": null,
+    "source": "default",
+    "values": [
+      0.0,
+      0.1,
+      0.25,
+      0.5,
+      1.0
+    ]
+  },
+  "plan_version": 1,
+  "planned_week": [
+    "2026-01-19",
+    "2026-01-20",
+    "2026-01-21",
+    "2026-01-22",
+    "2026-01-23"
+  ],
+  "pools": [
+    {
+      "capacity_source": "portfolio file",
+      "days_run_out": [],
+      "name": "operator attention hours"
+    },
+    {
+      "capacity_source": "portfolio file",
+      "days_run_out": [
+        "2026-01-19",
+        "2026-01-20"
+      ],
+      "name": "agent lanes"
+    }
+  ],
+  "reason": null,
+  "sites": [
+    {
+      "attention_hours_charged": 1.0,
+      "lane_hours_charged": 14.0,
+      "name": "alpha",
+      "ratio_source": "estimated",
+      "unestimated_planned": 0,
+      "unplanned": []
+    }
+  ],
+  "status": "planned",
+  "unestimated_planned": 0
+}
+```
+
+The `no_plan` form keeps every key:
+
+```json
+{
+  "allocation_rule": "most urgent site first; intended shares not applied",
+  "as_of": "2026-01-19",
+  "binding": {
+    "first_day": null,
+    "pool": null,
+    "text": "no pool ran out"
+  },
+  "days": [],
+  "horizon_days": [],
+  "leaves": [],
+  "mapping": {
+    "rejected": null,
+    "source": "default",
+    "values": [
+      0.0,
+      0.1,
+      0.25,
+      0.5,
+      1.0
+    ]
+  },
+  "plan_version": 1,
+  "planned_week": [],
+  "pools": [
+    {
+      "capacity_source": "portfolio file",
+      "days_run_out": [],
+      "name": "operator attention hours"
+    },
+    {
+      "capacity_source": "portfolio file",
+      "days_run_out": [],
+      "name": "agent lanes"
+    }
+  ],
+  "reason": "no portfolio_file is configured",
+  "sites": [],
+  "status": "no_plan",
+  "unestimated_planned": 0
+}
+```
+
+### The version rule
+
+Adding a field is compatible and does not change `plan_version`. So is a
+new value in an enumerated text field other than `status` (an unplanned
+reason, a capacity source, the allocation rule's text), and such a value
+may also stop being given: a reader acts only on `status`, on whether the
+binding pool is null and on the two pool names, and shows any other value
+it does not know as text. A new `status` value changes `plan_version`, and
+so does removing or renaming a field or changing its type or meaning.
+
+### The pinned shape
+
+`tests/fixtures/week_plan/shape-v1.json` pins the file's shape at version
+1; it is written by hand, never generated from the planner. It holds
+`plan_version`, `status_values` and `shape`, a node. A node is a type name
+(`string`, `date`, `number`, `integer`, `boolean`), `["null", <node>]` for
+a value that may be null, `{"array": <node>}` or
+`{"object": {<field>: <node>, …}}`. Every listed field is required and an
+unlisted field fails, so `tests/test_plan_file.py` fails on any shape
+change until the field is added to the pinned shape. Only `status` is
+checked against values. `shape-v1.json` may only gain fields: a removal, a
+rename or a type change goes into a new `shape-v2.json` with
+`PLAN_VERSION = 2`.
+
+### Determinism
+
+The same inputs and as-of date give the same plan and a byte-identical file
+on any machine: the planner works in whole minutes, breaks every tie by a
+stated order, and the file holds no build time. A rebuild 15 minutes later
+does not reshuffle today.

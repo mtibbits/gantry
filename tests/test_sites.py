@@ -87,8 +87,8 @@ def test_problem_sites_listed_run_exits_0(tmp_path, capsys):
     err = captured.err.splitlines()
     assert f"gantry: warning: site {NODIR} is not built: no devdoc_dir" in err
     assert f"gantry: warning: site {BAD_NAME} is not built: name does not match [A-Za-z0-9][A-Za-z0-9_.-]*" in err
-    # The paths of the pages and the index, then the in-trace sample site's trace line (#20).
-    assert len(captured.out.splitlines()) == len(READABLE) + 2
+    # The paths of the pages, the index and the plan file, then the in-trace sample site's trace line (#20).
+    assert len(captured.out.splitlines()) == len(READABLE) + 3
 
 
 def test_control_character_names_print_escaped(tmp_path, capsys):
@@ -131,8 +131,8 @@ def test_unmatched_site_table_warns(tmp_path, capsys):
     captured = capsys.readouterr()
     assert "gantry: warning:" in captured.err
     assert f"site.{FERRY}" in captured.err
-    # The paths of the pages and the index, then the in-trace sample site's trace line (#20).
-    assert len(captured.out.splitlines()) == len(READABLE) + 2
+    # The paths of the pages, the index and the plan file, then the in-trace sample site's trace line (#20).
+    assert len(captured.out.splitlines()) == len(READABLE) + 3
 
 
 def test_sample_site_problems():
@@ -186,7 +186,7 @@ def test_nul_devdoc_dir_is_a_site_problem_not_a_crash(tmp_path, capsys):
     assert sites[1].problem is None
     capsys.readouterr()
     assert main(["build", "--config", str(p)]) == 0
-    assert len(capsys.readouterr().out.splitlines()) == 2
+    assert len(capsys.readouterr().out.splitlines()) == 3  # the page, the index, the plan file
 
 
 @pytest.mark.parametrize("target,error,expected", [

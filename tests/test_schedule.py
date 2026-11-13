@@ -109,3 +109,38 @@ def test_plan_is_pure():
             imported.add(node.module.split(".")[0])
     assert imported <= sys.stdlib_module_names, imported
     assert schedule.__name__ == "gantry.schedule"
+
+
+def test_pick_ready_most_urgent_first():
+    urgent = it("urgent", 6, eff=1, ix=5)
+    assert schedule.pick_ready([it("early", 6, eff=3, ix=0), urgent]) is urgent
+
+
+def test_pick_ready_wbs_order_breaks_ties():
+    early = it("early", 6, ix=1)
+    assert schedule.pick_ready([it("late", 6, ix=4), early]) is early
+
+
+def test_pick_ready_input_order_breaks_full_ties():
+    first = it("first", 6, ix=1)
+    assert schedule.pick_ready([first, it("second", 6, ix=1)]) is first
+
+
+def test_plan_picks_through_pick_ready(monkeypatch):
+    # plan() holds no second copy of the rule: it follows whatever pick_ready says.
+    items = [it("a", 1, eff=1, ix=0), it("b", 1, eff=2, ix=1), it("c", 1, eff=3, ix=2)]
+    assert list(plan(items, 1)) == ["a", "b", "c"]
+    monkeypatch.setattr(schedule, "pick_ready", lambda ready: ready[-1])
+    assert list(plan(items, 1)) == ["c", "b", "a"]
+
+
+def test_repeated_picks_equal_plan_start_order():
+    items = [it("a", 2, eff=3, ix=0), it("b", 5, eff=1, ix=1), it("c", 1, eff=3, ix=2),
+             it("d", 3, eff=0, ix=3), it("e", 4, eff=1, ix=4), it("f", 6, eff=3, ix=0)]
+    left = list(items)
+    order = []
+    while left:
+        pick = schedule.pick_ready(left)
+        order.append(pick["key"])
+        left.remove(pick)
+    assert order == list(plan(items, 1))

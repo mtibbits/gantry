@@ -194,6 +194,7 @@ KEPT = frozenset({
     "gantry/links.py",
     "gantry/model.py",
     "gantry/network.py",
+    "gantry/planner.py",
     "gantry/portfolio_file.py",
     "gantry/priority.py",
     "gantry/render.py",

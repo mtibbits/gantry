@@ -17,8 +17,8 @@ public tools (in prose, in the `samples/devagent/` folder name and in
   relative to `samples/` and its pages go to the ignored `samples/out/`.
 - `<site>/`: one planning folder per site, holding its `WBS.md`.
 - `harbor/estimates-2026-01-15-effort-and-model-tiers.md`: harbor's
-  estimates file, giving each open harbor leaf an effort bucket, an hour
-  range and model tiers. Its `#N` cells name `Issue-N` on harbor; GitHub
+  estimates file, giving each open harbor leaf with an `issue:` an effort
+  bucket, an hour range and model tiers. Its `#N` cells name `Issue-N` on harbor; GitHub
   auto-links them to this repo's issues, which is harmless for a fixture.
 - `portfolio.md`: the sample installation's portfolio file (#22), named by
   the sample config's `portfolio_file`. Its business requirements are
@@ -51,7 +51,7 @@ the demo shows record text rendered as text:
 
 | Site | Constant(s) | Role | Shapes it carries |
 |---|---|---|---|
-| harbor | `BUSY` | well estimated, with model tiers; the busy site | two epics, each with an `issue:` id; a `depends_on` naming a leaf under the other epic; P1 to P4 each present, and leaves with no priority; at least 8 open, 5 finished (`x`), one in-progress (`~`) and one skipped (`-`) `issue:` leaf; `est: ?w` on open leaves that have estimates rows; the estimates file, with a row for every open `issue:` leaf, one epic row and one finished row |
+| harbor | `BUSY` | well estimated, with model tiers; the busy site | two epics, each with an `issue:` id; a `depends_on` naming a leaf under the other epic; P1 to P4 each present, and leaves with no priority; at least 8 open, 5 finished (`x`), one in-progress (`~`) and one skipped (`-`) `issue:` leaf; one open leaf with no `issue:` and a time `est:`, for the demo week plan; `est: ?w` on open leaves that have estimates rows; the estimates file, with a row for every open `issue:` leaf, one epic row and one finished row |
 | orchard | `OWN_UNIT` | `est:` values and a unit of its own | `Nd`, `Nw`, `?w` and the non-time `Npt`; no priority at all; at least three issue-less leaves; a `depends_on` entry that is an outline number (`2.1`) and names no issue; cross-site entries: a row naming an open lighthouse leaf and a site not in the installation, a leaf naming a harbor row, and leaves naming bakery, marsh and an issue lighthouse lacks (#68) |
 | quarry | `UNESTIMATED` | wholly unestimated; the P0 demo | no `est:` and no estimates file; priorities on some leaves only; an open P0 leaf and the open leaf it depends on (#10); a `depends_on` naming a leaf under another epic; a `depends_on` naming an issue that exists on no site; `h: 0`, `h: 4` and a quoted `h: "2"` on open leaves, and `h: high`, which its panel lists as `bad_h` (#36); cross-site entries: an open harbor leaf whose id quarry also holds, a finished harbor leaf, a harbor outline position and its own `quarry:` prefix (#68) |
 | lighthouse | `SMALL`, `HOSTILE_SITE` | small; the trace demo (#20) | two epics and one top-level leaf with no epic; the hostile title on an open leaf; a requirements file, which puts it in the trace, with `UC`, `SR`, `FR`, `QA` and `CON` items, a use case with `needs:` and an `FR` that `refines:` an `SR`; a second epic, "Keep the lamp log", whose leaves carry `satisfies:` keys: a full box naming four IDs, one of another namespace (`life:BR-1`); a circle naming an `FR` that refines the `SR` a use case needs; a schedule-only leaf naming the `SR` directly; finished leaves serving directly and through refinement; an undefined ID (`lighthouse:FR-90`); and untraced open leaves. `UC-2` and `FR-2` stay unserved |

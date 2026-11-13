@@ -25,18 +25,17 @@ error (exit 2) naming the flag.
 ## Keys
 
 <!-- Editor note: tests/test_portfolio_file.py reads the portfolio_file row
-below; the issue that makes the build check the milestone or use the
-settings (#23 or #61) rewords "reads only its business requirements" and
-that test together. -->
+below; the issue that makes the build check the milestone or use the rest
+of the settings (#23) rewords "#23 adds the rest" and that test together. -->
 
 | Key | Type | Required | Default | Meaning | Owner |
 |---|---|---|---|---|---|
 | `config_version` | integer | yes | none | the format version; this Gantry reads `1` | #7 |
 | `devagent_config` | path | yes | none | devagent's `config.toml`, which names the sites | #7 |
-| `output_dir` | path | yes | none | the folder the build writes pages into | #9 |
+| `output_dir` | path | yes | none | the folder the build writes pages and the plan file (`week-plan.json`) into | #9 |
 | `as_of` | TOML date (a string is refused) | no | the build machine's local date when the run starts | the date a build treats as today | every dated view |
 | `default_unit_hours` | positive number, integer or float (0, a negative, infinity or a boolean is refused) | no | `6` | the agent-hours given to a leaf with no estimate | #9 |
-| `portfolio_file` | path | no | none | the installation's portfolio file ([format](portfolio-file.md)); `gantry portfolio` checks it; the build reads only its business requirements, for the trace (#20); #23 or #61 adds the rest | #22 |
+| `portfolio_file` | path | no | none | the installation's portfolio file ([format](portfolio-file.md)); `gantry portfolio` checks it; the build reads its business requirements, for the trace (#20), and its capacity settings, for the week plan (#61); #23 adds the rest | #22 |
 | `fires_list` | path | no | none | the installation's list of things that need the operator now | #30 |
 | `[requirements]` | table | no | none | settings for requirements files | #15 |
 | `[site.<name>]` | table | no | none | per-site overrides, keyed by the devagent `[project.<name>]` table name | #7 |
@@ -279,7 +278,9 @@ a wrong path.
 `gantry build` builds every site: each site's worksite page to
 `<output_dir>/sites/<name>.html`, then `<output_dir>/index.html`, which
 lists every site with its open leaves, finish and report count, or why it
-was not built. It prints one absolute path per file written, then one
+was not built, then the week plan, `<output_dir>/week-plan.json`
+([week-plan.md](week-plan.md#the-plan-file)). It prints one absolute path
+per file written, then one
 `trace <site>:` line per written page whose site is in the trace or whose
 trace report has an item ([worksite-page.md](worksite-page.md#reading-the-trace)). A site that
 cannot be built is listed on the index and on stderr with its reason, and
@@ -288,7 +289,7 @@ escaped (a tab as `\t`, an ESC as `\x1b`). The reading rules are in
 [worksite-page.md](worksite-page.md#reading-wbsmd).
 
 `gantry build --site NAME` writes only that site's worksite page, and no
-index, creating `<output_dir>/sites/` when it is missing;
+index and no plan, creating `<output_dir>/sites/` when it is missing;
 [worksite-page.md](worksite-page.md#every-site-and-the-index) has the
 pages, the index, the reasons and the errors. The page's durations use
 `default_unit_hours`.
@@ -298,7 +299,7 @@ pages, the index, the reasons and the errors. The page's durations use
 | Code | Meaning |
 |---|---|
 | 0 | the index was written and at least one site page was written (sites not built and warnings do not change it), or `--site` wrote its page |
-| 1 | a config error: the installation config or devagent's config is missing, unreadable, invalid or refused; no site page was written (the index is still written); the index or the output folder cannot be written; or, with `--site`, a site that is not configured, clashes in case with an earlier site or cannot be built, a render error, or a page that cannot be written |
+| 1 | a config error: the installation config or devagent's config is missing, unreadable, invalid or refused; no site page was written (the index is still written); the index or the output folder cannot be written; the plan file cannot be written; or, with `--site`, a site that is not configured, clashes in case with an earlier site or cannot be built, a render error, or a page that cannot be written |
 | 2 | a usage error, such as a missing `--config` |
 
 ## Supported platforms

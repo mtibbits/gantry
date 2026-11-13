@@ -361,8 +361,10 @@ def sample(site):
 
 def test_sample_sites_parse():
     busy = sample(BUSY)
-    assert busy.report == ()
-    assert len(busy.leaves) == 14
+    # The one leaf with no issue: is the demo week plan's (#61).
+    assert [(e.kind, e.line) for e in busy.report] == [("no_issue", 8)]
+    assert [leaf.key for leaf in busy.leaves if leaf.issue is None] == ["1.5"]
+    assert len(busy.leaves) == 15
     assert ("Issue-6", "Issue-7") in busy.links
 
     own = sample(OWN_UNIT)
