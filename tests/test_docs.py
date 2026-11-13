@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+import quickstart as qs
 from helpers_docs import (
     doc_files,
     heading_anchors,
@@ -22,6 +23,7 @@ from helpers_docs import (
     markdown_text,
     privacy_link_problems,
     relative_links,
+    section,
     unfenced_lines,
     view_item,
     view_line_problems,
@@ -276,13 +278,6 @@ MARKERS = 'quickstart: the README needs one "<!-- quickstart:begin -->" line and
 NOT_GET_CODE = 'quickstart: the "get the code" block is not exactly: git clone https://github.com/mtibbits/gantry.git / cd gantry'
 
 
-@pytest.fixture
-def qs():
-    import quickstart
-
-    return quickstart
-
-
 @pytest.mark.parametrize("text, message", [
     (GOOD_README.replace(QS_BEGIN + "\n", ""), MARKERS),
     (GOOD_README.replace(QS_END + "\n", ""), MARKERS),
@@ -299,7 +294,7 @@ def qs():
     (GOOD_README.replace("cd gantry\n", ""), NOT_GET_CODE),
     (GOOD_README.replace("python3 tools/demo_build.py\n", "\n"), 'quickstart: the "build the demo" block is empty'),
 ])
-def test_quickstart_refuses(qs, tmp_path, capsys, text, message):
+def test_quickstart_refuses(tmp_path, capsys, text, message):
     readme = tmp_path / "README.md"
     readme.write_text(text, encoding="utf-8", newline="\n")
     assert text != GOOD_README
@@ -311,7 +306,7 @@ def test_quickstart_refuses(qs, tmp_path, capsys, text, message):
     assert not out.exists()
 
 
-def test_quickstart_writes_the_block_verbatim(qs, tmp_path):
+def test_quickstart_writes_the_block_verbatim(tmp_path):
     text = GOOD_README.replace("python3 tools/demo_build.py\n", "line one\nline two\n").replace("\n", "\r\n")
     readme = tmp_path / "README.md"
     readme.write_bytes(text.encode("utf-8"))
@@ -321,7 +316,7 @@ def test_quickstart_writes_the_block_verbatim(qs, tmp_path):
     assert qs.blocks(GOOD_README) == (qs.GET_CODE, ["python3 tools/demo_build.py"])
 
 
-def test_quickstart_output_check(qs, tmp_path, monkeypatch, capsys):
+def test_quickstart_output_check(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     plant(tmp_path, {"out/index.html": "<p>", "out/sites/a.html": "<p>"})
     assert qs.main(["output", "out"]) == 0
@@ -336,7 +331,7 @@ def test_quickstart_output_check(qs, tmp_path, monkeypatch, capsys):
 
 
 @pytest.mark.parametrize("argv", [[], ["frob"], ["blocks", "README.md"], ["output"], ["output", "a", "b"]])
-def test_quickstart_usage(qs, argv):
+def test_quickstart_usage(argv):
     with pytest.raises(SystemExit) as exc:
         qs.main(argv)
     assert exc.value.code == 2
@@ -345,7 +340,7 @@ def test_quickstart_usage(qs, argv):
 WINDOWS_LINE = r"`py -3 tools\demo_build.py`"
 
 
-def test_readme_quickstart(qs):
+def test_readme_quickstart():
     import demo_build
 
     readme = markdown_text(ROOT / "README.md")
@@ -484,23 +479,16 @@ def test_quickstart_workflow_mutations(op, rule):
 DEMO_URL = "https://mtibbits.github.io/gantry/demo/"
 
 
-def _section(text, heading):
-    lines = text.split("\n")
-    start = lines.index(heading) + 1
-    end = next((n for n in range(start, len(lines)) if lines[n].startswith("## ")), len(lines))
-    return "\n".join(lines[start:end])
-
-
 def test_readme_names_its_promises():
     readme = markdown_text(ROOT / "README.md")
     for needed in (DEMO_URL, "](docs/README.md)", "](docs/concepts.md)", "claude --plugin-dir",
                    "pip install .", "python3 -m gantry", "python3 -m venv", "MIT"):
         assert needed in readme, needed
-    privacy = _section(readme, "## Your data stays private")
+    privacy = section(readme, "## Your data stays private")
     for link in ("](docs/config.md)", "](docs/demo.md)", "](docs/commit-check.md)"):
         assert link in privacy, link
     for label in VIEW_MAP:
-        assert f"- **{label}**" in _section(readme, "## What it shows"), label
+        assert f"- **{label}**" in section(readme, "## What it shows"), label
 
 
 # --- the concepts page ----------------------------------------------------------
@@ -532,7 +520,7 @@ def test_concepts_page():
     assert [line for line in lines if line.startswith("## ")] == list(CONCEPT_HEADINGS)
     for needed in ("unestimated", "default unit", "agent capacity", "attention", "sample mode", "as of"):
         assert needed in text, needed
-    credits = _section(text, "## Where the ideas come from")
+    credits = section(text, "## Where the ideas come from")
     for title, authors in BOOKS.items():
         line = next(item for item in re.split(r"\n(?=- )", credits) if title in item)
         for author in authors:

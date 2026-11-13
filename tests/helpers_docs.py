@@ -9,7 +9,7 @@ README.md and docs/ are CRLF in a Windows working tree.
 The universe of docs is docs/**/*.md as git sees it in a checkout (tracked,
 plus untracked files that are not ignored, so a new doc counts before its
 commit and an ignored scratch file never does), or every docs/**/*.md in a
-planted tree with no .git.
+planted tree that is not a git work tree, or with no git.
 
 This is a small re-implementation of GitHub's Markdown, and it diverges at
 its edges. Handled: ATX headings with an optional closing sequence; ``` and
@@ -25,9 +25,10 @@ definitions are checked instead.
 
 import os
 import re
-import subprocess
 from pathlib import Path
 from urllib.parse import unquote
+
+from test_samples import decode_bytes, git, git_work_tree
 
 FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 HEADING = re.compile(r"^ {0,3}(#{1,6})(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$")
@@ -42,6 +43,10 @@ PRIVACY = "## Your data stays private"
 
 def _lf(text):
     return text.replace("\r\n", "\n")
+
+
+def _unwrap(dest):
+    return dest[1:-1] if dest.startswith("<") and dest.endswith(">") else dest
 
 
 def markdown_text(path):
@@ -117,8 +122,7 @@ def relative_links(text):
         dests = [(m.start(), m.group(1)) for m in LINK.finditer(block)]
         dests += [(m.start(), m.group(1)) for m in REF_DEF.finditer(block)]
         for _, dest in sorted(dests):
-            if dest.startswith("<") and dest.endswith(">"):
-                dest = dest[1:-1]
+            dest = _unwrap(dest)
             if dest and not _absolute(dest):
                 found.append(dest)
     return found
@@ -127,15 +131,12 @@ def relative_links(text):
 def doc_files(root):
     """docs/**/*.md under root, posix-relative, sorted (see the module docstring)."""
     root = Path(root)
-    if (root / ".git").exists():
-        out = subprocess.run(
-            ["git", "-C", str(root), "ls-files", "-z", "--cached", "--others",
-             "--exclude-standard", "--", "docs"],
-            capture_output=True, check=True).stdout.decode("utf-8")
-        names = {n for n in out.split("\0") if n.endswith(".md") and (root / n).is_file()}
-    else:
-        names = {p.relative_to(root).as_posix() for p in (root / "docs").rglob("*.md")}
-    return sorted(names)
+    if git_work_tree(root):
+        result = git(root, "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "docs/")
+        assert result.returncode == 0, decode_bytes(result.stderr)
+        found = decode_bytes(result.stdout).split("\0")
+        return sorted(n for n in found if n.endswith(".md") and (root / n).is_file())
+    return sorted(p.relative_to(root).as_posix() for p in (root / "docs").rglob("*.md"))
 
 
 def _resolve(root, base, path):
@@ -194,8 +195,7 @@ def index_links(text):
     for line in unfenced_lines(text):
         m = line is not None and INDEX_ITEM.match(line)
         if m:
-            dest = m.group(1)
-            found.append(dest[1:-1] if dest.startswith("<") else dest)
+            found.append(_unwrap(m.group(1)))
     return found
 
 
@@ -224,12 +224,10 @@ def index_problems(root):
 
 
 def target_exists(root, target):
-    """True when the target's file exists (exact case) and, with an anchor, has that heading."""
-    path, _, anchor = target.partition("#")
-    found, reason = _resolve(Path(root), Path(root), path)
-    if reason or not found.is_file():
-        return False
-    return not anchor or anchor in heading_anchors(markdown_text(found))
+    """True when the target's file exists (exact case) and, with an anchor, has that
+    heading: the link rule, read from the root."""
+    root = Path(root)
+    return (root / target.partition("#")[0]).is_file() and _link_problem(root, root / "README.md", target) is None
 
 
 def view_item(readme_text, label):
@@ -254,8 +252,7 @@ def view_item(readme_text, label):
 def view_line_problems(root, view_map):
     """Each view's README line links its target when the target exists and reads
     "(planned)", with no link, when it does not."""
-    root = Path(root)
-    readme = markdown_text(root / "README.md") if (root / "README.md").is_file() else ""
+    readme = _readme(root)
     problems = []
     for label, target in view_map.items():
         items = view_item(readme, label)
@@ -271,20 +268,30 @@ def view_line_problems(root, view_map):
     return problems
 
 
+def _readme(root):
+    path = Path(root) / "README.md"
+    return markdown_text(path) if path.is_file() else ""
+
+
+def section(text, heading):
+    """The lines under a whole-line `heading` up to the next `## ` heading, or None without it."""
+    lines = _lf(text).split("\n")
+    if heading not in lines:
+        return None
+    start = lines.index(heading) + 1
+    end = next((n for n in range(start, len(lines)) if lines[n].startswith("## ")), len(lines))
+    return "\n".join(lines[start:end])
+
+
 def privacy_link_problems(root, doc="docs/refresh-and-serve.md"):
     """The README's privacy section links `doc` when it exists and never names it before."""
-    root = Path(root)
-    readme = markdown_text(root / "README.md") if (root / "README.md").is_file() else ""
-    lines = readme.split("\n")
-    if PRIVACY not in lines:
+    text = section(_readme(root), PRIVACY)
+    if text is None:
         return [f"README.md: no '{PRIVACY}' section"]
-    start = lines.index(PRIVACY) + 1
-    end = next((n for n in range(start, len(lines)) if lines[n].startswith("## ")), len(lines))
-    section = "\n".join(lines[start:end])
-    name = "Your data stays private"
-    if (root / doc).is_file():
-        if f"]({doc})" not in section:
+    name = PRIVACY.removeprefix("## ")
+    if (Path(root) / doc).is_file():
+        if f"]({doc})" not in text:
             return [f"{name}: {doc} exists, so the section must link it"]
-    elif Path(doc).name in section:
+    elif Path(doc).name in text:
         return [f"{name}: {doc} does not exist, so the section must not link it"]
     return []
