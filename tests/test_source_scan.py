@@ -284,6 +284,7 @@ ALLOWED_TOOL_IMPORTS = {
     ("demo_build.py", "sample_history"),
     ("check_demo.py", "page_safety"),
     ("check_demo.py", "sample_roles"),
+    ("pages_artifact.py", "page_safety"),
 }
 
 
