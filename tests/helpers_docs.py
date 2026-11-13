@@ -49,7 +49,7 @@ def markdown_text(path):
     return _lf(Path(path).read_bytes().decode("utf-8"))
 
 
-def _unfenced(text):
+def unfenced_lines(text):
     """The text's lines with each fenced line replaced by None."""
     lines, fence = [], None
     for line in _lf(text).split("\n"):
@@ -78,7 +78,7 @@ def slug(title):
 def heading_anchors(text):
     """Every heading's anchor in document order; a repeated slug s gains -1, -2, ..."""
     anchors, seen = [], {}
-    for line in _unfenced(text):
+    for line in unfenced_lines(text):
         m = line is not None and HEADING.match(line)
         if not m:
             continue
@@ -93,7 +93,7 @@ def _blocks(text):
     """Unfenced text split into blocks: a blank or fenced line ends one, a list
     item or table row starts one, so a code span never crosses them."""
     blocks, current = [], []
-    for line in _unfenced(text):
+    for line in unfenced_lines(text):
         if line is None or not line.strip() or BLOCK_START.match(line):
             if current:
                 blocks.append("\n".join(current))
@@ -191,7 +191,7 @@ def link_report(root):
 def index_links(text):
     """Each list item's leading link destination in the docs index, in order."""
     found = []
-    for line in _unfenced(text):
+    for line in unfenced_lines(text):
         m = line is not None and INDEX_ITEM.match(line)
         if m:
             dest = m.group(1)

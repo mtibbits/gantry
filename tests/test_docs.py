@@ -8,6 +8,7 @@ real-tree test calls (tests/helpers_docs.py), so the guard and its probe
 share one predicate.
 """
 
+import re
 from pathlib import Path
 
 import pytest
@@ -21,6 +22,7 @@ from helpers_docs import (
     markdown_text,
     privacy_link_problems,
     relative_links,
+    unfenced_lines,
     view_item,
     view_line_problems,
 )
@@ -261,3 +263,102 @@ def test_planted_privacy_section_missing(tmp_path):
 
 def test_privacy_section_links_refresh_and_serve_when_it_exists():
     assert privacy_link_problems(ROOT) == []
+
+
+# --- the README quickstart (tools/quickstart.py) --------------------------------
+
+QS_BEGIN = "<!-- quickstart:begin -->"
+QS_END = "<!-- quickstart:end -->"
+GET_CODE_BLOCK = "```sh\ngit clone https://github.com/mtibbits/gantry.git\ncd gantry\n```\n"
+BUILD_BLOCK = "```sh\npython3 tools/demo_build.py\n```\n"
+GOOD_README = f"# R\n\n{QS_BEGIN}\n\n{GET_CODE_BLOCK}\nThen:\n\n{BUILD_BLOCK}\n{QS_END}\n"
+MARKERS = 'quickstart: the README needs one "<!-- quickstart:begin -->" line and one "<!-- quickstart:end -->" line after it'
+NOT_GET_CODE = 'quickstart: the "get the code" block is not exactly: git clone https://github.com/mtibbits/gantry.git / cd gantry'
+
+
+@pytest.fixture
+def qs():
+    import quickstart
+
+    return quickstart
+
+
+@pytest.mark.parametrize("text, message", [
+    (GOOD_README.replace(QS_BEGIN + "\n", ""), MARKERS),
+    (GOOD_README.replace(QS_END + "\n", ""), MARKERS),
+    (GOOD_README.replace(QS_BEGIN, "@@").replace(QS_END, QS_BEGIN).replace("@@", QS_END), MARKERS),
+    (QS_BEGIN + "\n" + GOOD_README, MARKERS),
+    (GOOD_README.replace(BUILD_BLOCK, ""), "quickstart: found 1 fenced blocks between the markers, not 2"),
+    (GOOD_README.replace(BUILD_BLOCK, BUILD_BLOCK + "\n" + BUILD_BLOCK),
+     "quickstart: found 3 fenced blocks between the markers, not 2"),
+    (GOOD_README.replace(BUILD_BLOCK, "```sh\npython3 tools/demo_build.py\n"),
+     "quickstart: a fenced block between the markers is not closed"),
+    (GOOD_README.replace("cd gantry\n", "cd gantry\nls\n"), NOT_GET_CODE),
+    (GOOD_README.replace("cd gantry\n", "cd gantry2\n"), NOT_GET_CODE),
+    (GOOD_README.replace("cd gantry\n", "cd gantry  \n"), NOT_GET_CODE),
+    (GOOD_README.replace("cd gantry\n", ""), NOT_GET_CODE),
+    (GOOD_README.replace("python3 tools/demo_build.py\n", "\n"), 'quickstart: the "build the demo" block is empty'),
+])
+def test_quickstart_refuses(qs, tmp_path, capsys, text, message):
+    readme = tmp_path / "README.md"
+    readme.write_text(text, encoding="utf-8", newline="\n")
+    assert text != GOOD_README
+    out = tmp_path / "b.sh"
+    with pytest.raises(qs.Refused, match="^" + re.escape(message.removeprefix("quickstart: ")) + "$"):
+        qs.blocks(text)
+    assert qs.main(["blocks", str(readme), str(out)]) == 1
+    assert capsys.readouterr().err.strip() == message
+    assert not out.exists()
+
+
+def test_quickstart_writes_the_block_verbatim(qs, tmp_path):
+    text = GOOD_README.replace("python3 tools/demo_build.py\n", "line one\nline two\n").replace("\n", "\r\n")
+    readme = tmp_path / "README.md"
+    readme.write_bytes(text.encode("utf-8"))
+    out = tmp_path / "b.sh"
+    assert qs.main(["blocks", str(readme), str(out)]) == 0
+    assert out.read_bytes() == b"line one\nline two\n"
+    assert qs.blocks(GOOD_README) == (qs.GET_CODE, ["python3 tools/demo_build.py"])
+
+
+def test_quickstart_output_check(qs, tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    plant(tmp_path, {"out/index.html": "<p>", "out/sites/a.html": "<p>"})
+    assert qs.main(["output", "out"]) == 0
+    assert capsys.readouterr().out.strip() == "quickstart: ok: out holds index.html and 1 site pages"
+    plant(tmp_path, {"bare/sites/a.txt": "x", "bare/index.html": "<p>", "noindex/sites/a.html": "<p>"})
+    for folder, message in [("noindex", "quickstart: noindex has no index.html"),
+                            ("bare", "quickstart: bare has no sites/<name>.html"),
+                            ("nope", "quickstart: nope is not a folder"),
+                            ("", "quickstart: no output folder was named")]:
+        assert qs.main(["output", folder]) == 1
+        assert capsys.readouterr().err.strip() == message
+
+
+@pytest.mark.parametrize("argv", [[], ["frob"], ["blocks", "README.md"], ["output"], ["output", "a", "b"]])
+def test_quickstart_usage(qs, argv):
+    with pytest.raises(SystemExit) as exc:
+        qs.main(argv)
+    assert exc.value.code == 2
+
+
+WINDOWS_LINE = r"`py -3 tools\demo_build.py`"
+
+
+def test_readme_quickstart(qs):
+    import demo_build
+
+    readme = markdown_text(ROOT / "README.md")
+    first, second = qs.blocks(readme)
+    assert first == qs.GET_CODE == ["git clone https://github.com/mtibbits/gantry.git", "cd gantry"]
+    assert second == ["python3 tools/demo_build.py"]
+    lines = readme.split("\n")
+    begin = lines.index(QS_BEGIN)
+    note = lines[begin - 1]
+    assert note.startswith("<!--") and ".github/workflows/quickstart.yml" in note and "tests/test_docs.py" in note
+    prerequisites = [line for line in lines[:begin] if line.startswith("Prerequisites:")]
+    assert len(prerequisites) == 1
+    for needed in ("Python 3.11 or later", "`python3`", "git"):
+        assert needed in prerequisites[0]
+    assert any(WINDOWS_LINE in line for line in unfenced_lines(readme) if line)
+    assert demo_build.output_folder(ROOT).relative_to(ROOT).as_posix() in readme
