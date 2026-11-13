@@ -17,7 +17,7 @@ from helpers_config import run_main, sample_build
 from test_samples import ROOT
 
 FIXTURES = ROOT / "tests" / "fixtures" / "week_plan"
-FIXTURE_NAMES = ("binds_attention", "binds_lanes", "continues", "states")
+FIXTURE_NAMES = ("binds_attention", "binds_lanes", "continues", "cross_site", "cross_site_cycle", "states")
 DELETE = object()  # plan_of: remove the file instead of writing it
 _copies = itertools.count()
 
@@ -98,6 +98,14 @@ def wbs_md(*leaves):
 def placed(plan, site, key):
     """The plan's record of a placed leaf."""
     found = [entry for entry in plan.leaves if (entry["site"], entry["key"]) == (site, key)]
+    assert len(found) == 1, (site, key, found)
+    return found[0]
+
+
+def record(plan, site, key):
+    """The plan's one record of a leaf: its placed record or its unplanned one."""
+    found = [entry for entry in plan.leaves if (entry["site"], entry["key"]) == (site, key)]
+    found += [entry for s in plan.sites if s["name"] == site for entry in s["unplanned"] if entry["key"] == key]
     assert len(found) == 1, (site, key, found)
     return found[0]
 
@@ -187,11 +195,13 @@ def test_no_plan_reasons(tmp_path, key, case, changes):
     ]
     assert plan.binding == {"pool": None, "first_day": None, "text": planner.NO_POOL}
     assert plan.mapping["values"] == [0.0, 0.1, 0.25, 0.5, 1.0]
+    assert plan.report == []
 
 
 def test_planned_plan_has_no_reason(tmp_path):
     plan = plan_of(tmp_path, "binds_lanes")
     assert (plan.status, plan.reason) == ("planned", None)
+    assert plan.report == []
     assert plan.mapping == {"values": [0.0, 0.1, 0.25, 0.5, 1.0], "source": "default", "rejected": None}
 
 
@@ -339,6 +349,22 @@ def test_unplanned_dependent_still_lifts_its_blocker(tmp_path):
     plan = plan_of(tmp_path, "states", wbs={"a": wbs_md(
         leaf(1, priority="P1", h=0), leaf(2, h=0), leaf(3, "P", priority="P0", h=0, depends_on="[Issue-2]"))})
     assert placed_keys(plan, "a") == ["Issue-2", "Issue-1"]
+
+
+def test_unresolved_local_counts_own_and_row_entries(tmp_path):
+    # A local entry that names nothing, or a malformed one, is no dependency: counted, never held on.
+    plan = plan_of(tmp_path, "cross_site")
+    assert record(plan, "a", "Issue-16")["unresolved_local"] == 2  # its own Issue-97 and its row's 9.9
+    for key in ("Issue-13", "Issue-14"):
+        assert placed(plan, "a", key)["days"][0] == "2026-01-19"
+        assert placed(plan, "a", key)["unresolved_local"] == 1
+    assert record(plan, "a", "Issue-7")["unresolved_local"] == 1  # its row's 9.9
+    assert "Issue-9" in unplanned(plan, "a")
+    assert record(plan, "a", "Issue-9")["unresolved_local"] == 1  # Issue-98
+    counted = {("a", key) for key in ("Issue-7", "Issue-9", "Issue-13", "Issue-14", "Issue-16")}
+    others = [entry for entry in plan.leaves if (entry["site"], entry["key"]) not in counted]
+    others += [entry for site in plan.sites for entry in site["unplanned"] if (site["name"], entry["key"]) not in counted]
+    assert others and all(entry["unresolved_local"] == 0 for entry in others)
 
 
 def open_keys(copy, site):

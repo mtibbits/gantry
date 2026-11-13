@@ -243,13 +243,17 @@ V1_FIELDS = {
     "plan.sites[].unestimated_planned": "integer",
     "plan.sites[].unplanned[].key": "string", "plan.sites[].unplanned[].reason": "string",
     "plan.sites[].unplanned[].state": "string",
+    # Added by #62: always written; a reader takes a missing one as empty or 0.
+    "plan.report[].kind": "string", "plan.report[].leaves[].site": "string",
+    "plan.report[].leaves[].key": "string", "plan.leaves[].unresolved_local": "integer",
+    "plan.sites[].unplanned[].unresolved_local": "integer",
 }
 
 
 def test_shape_file_keeps_every_v1_field():
     paths = field_paths(SHAPE["shape"])
     assert {path: paths.get(path) for path in V1_FIELDS} == V1_FIELDS
-    assert len(V1_FIELDS) == 59
+    assert len(V1_FIELDS) == 64
 
 
 # --- the write ----------------------------------------------------------------------------

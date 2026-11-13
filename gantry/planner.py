@@ -13,6 +13,7 @@ from datetime import timedelta
 from graphlib import TopologicalSorter
 
 from gantry import priority, schedule
+from gantry.deps import open_sources
 from gantry.attention import MAX_RATE, leaf_attention, mapping_in_use, site_ratio_source
 from gantry.inputs import scheduled
 from gantry.model import HOURS_PER_DAY
@@ -43,6 +44,10 @@ UNPLANNED_REASONS = ("blocked_externally", "parked", "waits_on_cycle", "waits_on
                      "waits_on_unplanned", "beyond_horizon")
 (BLOCKED_EXTERNALLY, PARKED, WAITS_ON_CYCLE, WAITS_ON_OTHER_SITE,
  WAITS_ON_UNPLANNED, BEYOND_HORIZON) = UNPLANNED_REASONS
+
+# The site report's kinds of a local depends_on entry that names nothing (#8):
+# no dependency in the plan, only counted on the leaf's record (#62).
+LOCAL_UNRESOLVED_KINDS = ("unresolved_ref", "malformed_ref")
 
 # The caps that keep the arithmetic whole and finite whatever the portfolio
 # file holds: no day has more than 24 hours, a lane count above this plans
@@ -81,6 +86,7 @@ class WeekPlan:
     days: list
     leaves: list
     sites: list
+    report: list
 
 
 def _is_number(value) -> bool:
@@ -221,6 +227,18 @@ def _reasons(data, open_leaves, preds) -> dict:
     return reasons
 
 
+def _unresolved_local(data, open_leaves) -> dict:
+    """{key: how many of the site report's local entries that name nothing sit
+    on the leaf's line or on an open row above it}: #8 reports each entry once,
+    at its node's line, and lines are unique within a WBS.md."""
+    per_line = {}
+    for entry in data.report:
+        if entry.kind in LOCAL_UNRESOLVED_KINDS:
+            per_line[entry.line] = per_line.get(entry.line, 0) + 1
+    row_at = {row.outline: row for row in data.rows}
+    return {leaf.key: sum(per_line.get(node.line, 0) for node in open_sources(leaf, row_at)) for leaf in open_leaves}
+
+
 def _site_work(name, inputs, mapping, unit) -> list[dict]:
     """One item per open leaf of a site, in WBS.md order. An item with no
     `reason` is work for the day loop, and a schedule.pick_ready item.
@@ -237,6 +255,7 @@ def _site_work(name, inputs, mapping, unit) -> list[dict]:
         if before in preds and after in preds:
             preds[after].append(before)
     reasons = _reasons(data, open_leaves, preds)
+    unresolved = _unresolved_local(data, open_leaves)
     index = {leaf.key: i for i, leaf in enumerate(data.leaves)}
     items = []
     for leaf in open_leaves:
@@ -250,7 +269,7 @@ def _site_work(name, inputs, mapping, unit) -> list[dict]:
             "preds": preds[leaf.key], "reason": reasons.get(leaf.key), "finished": None,
             "need": need, "left": need, "ppm": _ppm(attention.rate), "attention": attention,
             "unestimated": estimate is None or estimate.source == "default", "state": leaf.state,
-            "days": [], "today": 0,
+            "days": [], "today": 0, "unresolved_local": unresolved[leaf.key],
         })
     # A planned leaf's predecessors are all planned: hold them as items.
     by_key = {item["key"]: item for item in items}
@@ -471,6 +490,7 @@ def _leaf_record(item) -> dict:
         "tag": attention.tag, "basis": attention.basis, "agent_hours": _hours(item["need"]),
         "unestimated": item["unestimated"], "state": item["state"],
         "hours_after_horizon": _hours(item["left"]), "days": list(item["days"]),
+        "unresolved_local": item["unresolved_local"],
     }
 
 
@@ -492,7 +512,7 @@ def plan_week(result, portfolio, config) -> WeekPlan:
         run_out, binding = _binding([])
         return WeekPlan(status="no_plan", reason=NO_PLAN[key], unestimated_planned=0, horizon_days=[],
                         planned_week=[], pools=_pools(run_out), binding=binding,
-                        days=[], leaves=[], sites=[], **fields)
+                        days=[], leaves=[], sites=[], report=[], **fields)
     names = _built_sites(result)
     items = {name: _site_work(name, result.inputs[name], mapping, config.default_unit_hours) for name in names}
     work = {name: [item for item in items[name] if item["reason"] is None] for name in names}
@@ -516,14 +536,15 @@ def plan_week(result, portfolio, config) -> WeekPlan:
             "lane_hours_charged": _hours(sum(item["need"] - item["left"] for item in placed)),
             "unestimated_planned": sum(item["unestimated"] for item in placed),
             # Never placed in the 10 days: beyond the horizon.
-            "unplanned": [{"key": item["key"], "reason": item["reason"] or BEYOND_HORIZON, "state": item["state"]}
+            "unplanned": [{"key": item["key"], "reason": item["reason"] or BEYOND_HORIZON, "state": item["state"],
+                           "unresolved_local": item["unresolved_local"]}
                           for item in items[name] if not item["days"]],
         })
     dates = [day.isoformat() for day in horizon]
     return WeekPlan(status="planned", reason=None,
                     unestimated_planned=sum(item["unestimated"] for item in placed_order),
                     horizon_days=dates, planned_week=dates[:WEEK_DAYS], pools=_pools(run_out), binding=binding,
-                    days=days, leaves=leaves, sites=sites, **fields)
+                    days=days, leaves=leaves, sites=sites, report=[], **fields)
 
 
 def plan_to_json(plan) -> str:

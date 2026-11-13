@@ -398,6 +398,7 @@ Hours are minutes divided by 60, and a date is `YYYY-MM-DD` text.
 | `days` | one record per working day, below |
 | `leaves` | one record per placed leaf, sites in config order, then by first placement |
 | `sites` | one record per built site, in config order |
+| `report` | what the plan found across sites, one entry per finding; empty when there is none and on a `no_plan` plan |
 
 A day holds its `date` and `weekday` (`mon` to `sun`), its
 `attention_hours_declared` and its `attention_hours` after reserved blocks,
@@ -411,14 +412,23 @@ holds `site`, `key` and `agent_hours`.
 
 A leaf holds its `site` and `key`, its `rate`, `need`, `tag` and `basis`,
 its total `agent_hours`, whether it is `unestimated`, its `state`, its
-`hours_after_horizon` and the `days` it is on.
+`hours_after_horizon` and the `days` it is on, and its `unresolved_local`
+count: its own and its open rows' `depends_on` entries that name nothing.
 
 A site holds its `name`, its `ratio_source` (the
 [site ratio source](#the-site-ratio-source): `estimated` until #39 or #40
 passes a ratio), its `attention_hours_charged` (its block lengths over the
 10 days, start costs and minimum-length padding included), its
 `lane_hours_charged` (the agent hours placed), its `unestimated_planned`
-count and its `unplanned` list (`key`, `reason`, `state`).
+count and its `unplanned` list (`key`, `reason`, `state`,
+`unresolved_local`).
+
+A report entry holds its `kind`, `cross_site_cycle`, and its `leaves`,
+each a `site` and `key`, in devagent's config order of site, then `WBS.md`
+order; entries go in the order of their first leaf. At version 1, `report`
+holds only `cross_site_cycle` entries. The entry's shape is provisional
+until the first view reads it (#38); a kind with another shape changes the
+pinned shape and this section in the same change.
 
 A planned file, from `tests/fixtures/week_plan/binds_lanes/`, with `days`,
 `leaves` and `sites` cut to their first item:
@@ -499,7 +509,8 @@ A planned file, from `tests/fixtures/week_plan/binds_lanes/`, with `days`,
       "site": "alpha",
       "state": "pending",
       "tag": "scored",
-      "unestimated": false
+      "unestimated": false,
+      "unresolved_local": 0
     }
   ],
   "mapping": {
@@ -537,6 +548,7 @@ A planned file, from `tests/fixtures/week_plan/binds_lanes/`, with `days`,
     }
   ],
   "reason": null,
+  "report": [],
   "sites": [
     {
       "attention_hours_charged": 1.0,
@@ -592,6 +604,7 @@ The `no_plan` form keeps every key:
     }
   ],
   "reason": "no portfolio_file is configured",
+  "report": [],
   "sites": [],
   "status": "no_plan",
   "unestimated_planned": 0
@@ -607,6 +620,8 @@ may also stop being given: a reader acts only on `status`, on whether the
 binding pool is null and on the two pool names, and shows any other value
 it does not know as text. A new `status` value changes `plan_version`, and
 so does removing or renaming a field or changing its type or meaning.
+A file written before a field was added lacks it: a reader takes a missing
+`report` as empty and a missing `unresolved_local` as 0.
 
 ### The pinned shape
 
@@ -620,7 +635,9 @@ unlisted field fails, so `tests/test_plan_file.py` fails on any shape
 change until the field is added to the pinned shape. Only `status` is
 checked against values. `shape-v1.json` may only gain fields: a removal, a
 rename or a type change goes into a new `shape-v2.json` with
-`PLAN_VERSION = 2`.
+`PLAN_VERSION = 2`. It pins what the current writer writes; a version 1
+file from an earlier writer may lack a field added since, and the version
+rule says how a reader takes it.
 
 ### Determinism
 

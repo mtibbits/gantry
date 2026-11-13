@@ -71,7 +71,8 @@
       "unestimated": "boolean",
       "state": "string",
       "hours_after_horizon": "number",
-      "days": {"array": "date"}
+      "days": {"array": "date"},
+      "unresolved_local": "integer"
     }}},
     "sites": {"array": {"object": {
       "name": "string",
@@ -82,7 +83,15 @@
       "unplanned": {"array": {"object": {
         "key": "string",
         "reason": "string",
-        "state": "string"
+        "state": "string",
+        "unresolved_local": "integer"
+      }}}
+    }}},
+    "report": {"array": {"object": {
+      "kind": "string",
+      "leaves": {"array": {"object": {
+        "site": "string",
+        "key": "string"
       }}}
     }}}
   }}
