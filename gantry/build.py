@@ -256,7 +256,7 @@ def _is_file_shaped(roots, folder) -> bool:
         return False
 
 
-def _why(e: Exception, roots, folder=None, what=None) -> str:
+def why_not_written(e: Exception, roots, folder=None, what=None) -> str:
     if isinstance(e, OutsideRoots):
         return str(e)  # it names output_dir
     # mkdir on a file says "File exists", which names neither the file nor the fix.
@@ -281,13 +281,13 @@ def write_all(result):
     try:
         mkdir_confined(roots, out, key="output_dir")
     except (OSError, OutsideRoots) as e:
-        return replace(result, wrote_nothing=True), [], _why(e, roots, out, "output_dir")
+        return replace(result, wrote_nothing=True), [], why_not_written(e, roots, out, "output_dir")
     written, pages, failed = [], {}, {}
     for name, text in result.pages.items():
         try:
             write_page(roots, folder, name, text)
         except (OSError, OutsideRoots) as e:
-            failed[name] = WRITE_ERROR.format(name=name, why=_why(e, roots, folder, "sites/"))
+            failed[name] = WRITE_ERROR.format(name=name, why=why_not_written(e, roots, folder, "sites/"))
             continue
         pages[name] = text
         written.append(folder / f"{name}.html")
@@ -296,7 +296,7 @@ def write_all(result):
     try:
         write_page(roots, out, "index", render_index(result))
     except (OSError, OutsideRoots) as e:
-        return result, written, _why(e, roots)
+        return result, written, why_not_written(e, roots)
     return result, written + [out / "index.html"], None
 
 

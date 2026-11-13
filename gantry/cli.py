@@ -26,7 +26,6 @@ import argparse
 import sys
 
 from gantry.build import (
-    _why,
     build_all,
     clashes,
     read_site,
@@ -35,6 +34,7 @@ from gantry.build import (
     site_list,
     write_all,
     write_page,
+    why_not_written,
 )
 from gantry.config import ConfigError, error_reason, load_config
 from gantry.planner import PLAN_FILE, plan_to_json, write_plan
@@ -133,19 +133,21 @@ def _warn(warnings):
 
 
 def _write_plan(result, text):
-    """Write the plan file; None, or why it could not be written.
+    """Write the plan file: (its path, or None when not written; why it
+    could not be written, or None).
 
     Not attempted when write_all wrote nothing (the output folder could not
     be made: that one error stands). An index that failed on its own still
     gets the plan written, so an older plan never stands in for this one.
     """
     if result.wrote_nothing:
-        return None
+        return None, None
+    path = result.config.output_dir / PLAN_FILE
     try:
         write_plan(result.plan, result.config.output_dir, roots=result.roots, text=text)
     except (OSError, OutsideRoots) as e:
-        return _why(e, result.roots)
-    return None
+        return None, why_not_written(e, result.roots)
+    return path, None
 
 
 def _build_all(config):
@@ -159,11 +161,11 @@ def _build_all(config):
     plan_text = plan_to_json(result.plan)
     result, written, index_error = write_all(result)
     index = config.output_dir / "index.html"
-    plan_error = _write_plan(result, plan_text)
+    plan_path, plan_error = _write_plan(result, plan_text)
     for path in written:
         print(path)
-    if plan_error is None and not result.wrote_nothing:
-        print(config.output_dir / PLAN_FILE)
+    if plan_path is not None:
+        print(plan_path)
     # Then each written page's trace line, in config order (#20).
     for s in result.summaries:
         if s.trace_line is not None and config.output_dir / "sites" / f"{s.name}.html" in written:
