@@ -485,10 +485,12 @@ def test_readme_names_its_promises():
                    "pip install .", "python3 -m gantry", "python3 -m venv", "MIT"):
         assert needed in readme, needed
     privacy = section(readme, "## Your data stays private")
+    shows = section(readme, "## What it shows")
+    assert privacy is not None and shows is not None
     for link in ("](docs/config.md)", "](docs/demo.md)", "](docs/commit-check.md)"):
         assert link in privacy, link
     for label in VIEW_MAP:
-        assert f"- **{label}**" in section(readme, "## What it shows"), label
+        assert f"- **{label}**" in shows, label
 
 
 # --- the concepts page ----------------------------------------------------------
@@ -528,3 +530,8 @@ def test_concepts_page():
     assert "](config.md)" in text and "](../README.md" in text
     for status in ("(planned)", "not built"):
         assert status not in text, status
+
+
+def test_view_item_matches_the_whole_label():
+    readme = "- **Week view page**: another item\n- **Week view**: the week (planned)\n"
+    assert view_item(readme, "Week view") == ["- **Week view**: the week (planned)"]

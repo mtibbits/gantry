@@ -146,7 +146,7 @@ pytest session (`python tools/sample_history.py` builds it by hand), so run
 one pytest session per checkout at a time. See
 [docs/wbs-history.md](docs/wbs-history.md).
 
-`tests/test_docs.py` checks every Markdown link and anchor in this README and under
+`tests/test_docs.py` checks every relative link and anchor in this README and under
 `docs/`, so a new doc needs its line in `docs/README.md`, and the change that
 adds a view turns its line above into a link.
 `.github/workflows/quickstart.yml` runs the quickstart above verbatim on a

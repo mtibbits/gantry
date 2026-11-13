@@ -21,7 +21,8 @@ and how to try the demo.
   from its planning repository, and the sample history it is tested on.
 - [demo.md](demo.md): the public demo built from the fictional samples, how it
   is checked, and how its Pages deploy is guarded.
-- [commit-check.md](commit-check.md): the commit check that keeps real pages,
-  configs, local paths and private names out of this repository.
+- [commit-check.md](commit-check.md): the commit check that checks what is
+  committed here for real pages, configs, local paths and private names, and
+  what it can and cannot catch.
 - [page-safety.md](page-safety.md): how a page's tests check it is safe to
   open, with no injected markup and nothing loaded from outside it.
