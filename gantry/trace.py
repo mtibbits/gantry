@@ -55,7 +55,8 @@ LEAF_SOURCE = "WBS.md"
 TRACE_KINDS = ("malformed_satisfies", "unbracketed_list", "undefined_cross_link", "undefined_id")
 FIELDS = {  # TraceReport entry field -> the kinds it holds
     "unreadable": ("unreadable",),
-    "malformed": ("malformed_item", "malformed_meta", "malformed_link", "malformed_satisfies", "unbracketed_list"),
+    "malformed": ("malformed_item", "malformed_meta", "malformed_link", "malformed_comment", "malformed_satisfies",
+                  "unbracketed_list"),
     "duplicate": ("duplicate_id",),
     "misplaced": ("misplaced",),
     "cycle": ("refines_cycle",),

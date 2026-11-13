@@ -31,7 +31,7 @@ ID_RE = re.compile(
     rf"(?P<code>{_CODES})-(?P<number>[1-9][0-9]{{0,{MAX_DIGITS - 1}}})"
 )  # always fullmatch; case-sensitive
 
-REPORT_KINDS = ("unreadable", "malformed_item", "malformed_meta", "malformed_link",
+REPORT_KINDS = ("unreadable", "malformed_item", "malformed_meta", "malformed_link", "malformed_comment",
                 "misplaced", "duplicate_id", "undefined_link", "refines_cycle")
 _KIND_ORDER = {kind: i for i, kind in enumerate(REPORT_KINDS)}
 
@@ -48,6 +48,12 @@ BLOCK_RE = re.compile(r"\{[ \t]*[A-Za-z_][A-Za-z0-9_]*[ \t]*:[^{}]*\}")  # findi
 _OPENER_RE = re.compile(r"\{[ \t]*[A-Za-z_][A-Za-z0-9_]*[ \t]*:")  # a block's start, closed or not
 _KEY_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _BOM = "\N{BYTE ORDER MARK}"
+
+# Comment messages: never "the rest of the file", since a portfolio BR section is a slice.
+UNCLOSED = "an HTML comment with no closing '-->' hides every line after it"
+LEAKED = "an HTML comment whose list item ends before its '-->' hides every line after it"
+INLINE = "an HTML comment inside the text; it stays in the text and hides nothing: put it on its own line"
+BEFORE_ID = "an HTML comment before the ID; the item is not read: put the comment on its own line"
 
 _WHY = {
     "ordered": "an ordered list item (a requirement uses -, * or +)",
@@ -190,24 +196,90 @@ class _Layout(NamedTuple):
 
 
 def _scan(lines):
-    """The layout of `lines`, read once from the top. `open_col` is the content
-    column of the outermost open list item: a line indented less ends it, and
-    a blank line does not."""
-    hidden = fenced(lines)
-    nested = [False] * len(lines)
+    """The layout of `lines`, read once from the top, so fences and comments
+    pair in document order.
+
+    `open_col` is the content column of the outermost open list item: a line
+    indented less ends it, and a blank line does not. A block comment is a
+    line outside a fence starting `<!--` after at most three columns; it hides
+    every line through the first holding `-->`. Inside a list item it is
+    bounded by the item's content column: a line indented less ends the item
+    first, and the comment then hides every later line. A block comment never
+    sits in a nested item (its indent is at most 3, a nested content column at
+    least 4), so `open_col` is its bound. An item whose text starts `<!--`
+    with no `-->` opens a comment bounded by its own content column."""
+    n = len(lines)
+    hidden, skip, nested, comments = [False] * n, [False] * n, [False] * n, []
     open_col = None
+    no_closer = {}
+    fence_end = -1  # the last line of the open fence
+    opener = bound = None  # the open comment's first line and bound
     for i, line in enumerate(lines):
+        if opener is not None:  # inside a comment
+            if line.strip() and bound is not None and _width(line) < bound:
+                hidden[i:] = [True] * (n - i)
+                comments.append((opener, LEAKED))
+                return _Layout(hidden, skip, nested, comments)
+            hidden[i] = True
+            skip[i] = bound is not None
+            if "-->" in line:
+                opener = None
+            continue
         if not line.strip():
+            hidden[i] = i <= fence_end
             continue
         if open_col is not None and _width(line) < open_col:
             open_col = None
-        m = None if hidden[i] else ITEM_RE.fullmatch(line)
+        if i <= fence_end:
+            hidden[i] = True
+            continue
+        j = _closer(lines, i, no_closer)
+        if j is not None:
+            fence_end = j
+            hidden[i] = True
+            continue
+        body = line.lstrip(" \t")
+        if body.startswith("<!--") and _width(line) <= 3:
+            hidden[i] = True
+            skip[i] = open_col is not None
+            if line.find("-->", len(line) - len(body) + 2) == -1:
+                opener, bound = i, open_col
+            continue
+        m = ITEM_RE.fullmatch(line)
         if m is None:
             continue
         nested[i] = open_col is not None
         if open_col is None:
             open_col = _content_column(line, m)
-    return _Layout(hidden, [False] * len(lines), nested, [])
+        rest = m["rest"]
+        if rest is not None and rest.startswith("<!--") and rest.find("-->", 2) == -1:
+            opener, bound = i, _content_column(line, m)
+    if opener is not None:
+        comments.append((opener, UNCLOSED))
+    return _Layout(hidden, skip, nested, comments)
+
+
+def _comment_outside_code(text):
+    """Whether a `<!--` in `text` lies outside every backtick code span. A span
+    runs from a run of n backticks to the next run of exactly n; a run with no
+    partner is literal. Linear: each run's partner comes from one right-to-left
+    pass."""
+    runs = [(m.start(), m.end()) for m in re.finditer(r"`+", text)]
+    partner, last = [None] * len(runs), {}
+    for k in range(len(runs) - 1, -1, -1):
+        width = runs[k][1] - runs[k][0]
+        partner[k] = last.get(width)
+        last[width] = k
+    pos = k = 0
+    while k < len(runs):
+        if partner[k] is None:
+            k += 1
+            continue
+        if "<!--" in text[pos : runs[k][0]]:
+            return True
+        pos = runs[partner[k]][1]
+        k = partner[k] + 1
+    return "<!--" in text[pos:]
 
 
 def _reasons(marker, c, nested):
@@ -332,6 +404,12 @@ class _Reader:
             if sub is not None:
                 has_nested = True
                 self.candidate(self.first_line + k, sub, nested=True)
+        rest = m["rest"]
+        if rest is not None and rest.startswith("<!--"):
+            k = rest.find("-->", 2)
+            if k != -1 and CANDIDATE_RE.match(rest[k + 3 :].lstrip(" \t")):
+                self.add(line, "malformed_comment", BEFORE_ID)
+                return
         c = self.candidate(line, m, nested=nested)
         if c is None:
             return
@@ -346,6 +424,11 @@ class _Reader:
             self.add(line, "duplicate_id",
                      f"{rid} is also defined on line {first.line}; the first definition is kept")
             return
+        parts = [(line, m["rest"][c.end() :])] + [(self.first_line + k, text) for k, text in continuation]
+        for at, part in parts:
+            if _comment_outside_code(part):
+                self.add(at, "malformed_comment", INLINE)
+                break
         # The block closes the first line, or else the joined text. With a nested
         # item in the text, the block that ends it may be that item's: it is not read.
         head = m["rest"][c.end() :].strip()
@@ -506,19 +589,24 @@ def parse_requirements(text, namespace, *, source, first_line=1, layers, br_name
     reader = _Reader(namespace, source, first_line, frozenset(layers), br_namespace)
     lines = split_lines(text)
     layout = _scan(lines)
-    hidden = layout.hidden
+    hidden, skip = layout.hidden, layout.skip
+    for k, message in layout.comments:
+        reader.add(first_line + k, "malformed_comment", message)
     i = 0
     while i < len(lines):
         m = None if hidden[i] else ITEM_RE.fullmatch(lines[i])
         if m is None:
             i += 1
             continue
-        # The item's text runs on through lines indented deeper than its marker.
+        # The item's text runs on through lines indented deeper than its marker,
+        # and across the comment lines inside it.
         indent = _width(m["indent"])
         end = i + 1
-        while end < len(lines) and not hidden[end] and lines[end].strip() and _width(lines[end]) > indent:
+        while end < len(lines) and (skip[end] or (not hidden[end] and lines[end].strip()
+                                                  and _width(lines[end]) > indent)):
             end += 1
-        reader.item(i, m, [(k, lines[k]) for k in range(i + 1, end)], nested=layout.nested[i])
+        continuation = [(k, lines[k]) for k in range(i + 1, end) if not skip[k]]
+        reader.item(i, m, continuation, nested=layout.nested[i])
         i = end
     return reader.result()
 
