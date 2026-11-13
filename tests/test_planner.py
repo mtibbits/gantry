@@ -462,6 +462,31 @@ def test_no_leaf_is_waits_on_other_site(tmp_path):
         assert all(entry["reason"] != "waits_on_other_site" for site in plan.sites for entry in site["unplanned"])
 
 
+def test_cross_site_target_without_a_page_is_waits_on_unresolved(tmp_path):
+    # The planner holds only on a site it plans; an open outcome naming a site with no
+    # page is work it cannot see, whatever the build passes it: never a crash.
+    from dataclasses import replace
+
+    result, portfolio, config = built(install(tmp_path, "cross_site"))
+    result = replace(result, pages={name: page for name, page in result.pages.items() if name != "b"})
+    plan = plan_week(result, portfolio, config)
+    assert plan.status == "planned" and [site["name"] for site in plan.sites] == ["a"]
+    reasons = {key: reason for key, (reason, _) in unplanned(plan, "a").items()}
+    assert reasons["Issue-1"] == reasons["Issue-8"] == "waits_on_unresolved"  # a leaf target, a row target
+    assert placed(plan, "a", "Issue-2")["days"][0] == "2026-01-19"  # a finished target stays satisfied
+
+
+def test_cross_site_target_whose_render_failed_is_waits_on_unresolved(tmp_path, monkeypatch):
+    # Through the build: b's page fails to render, so b is not built and a's entries on it are unresolved.
+    from test_crosssite import force_render
+
+    force_render(monkeypatch, lambda site, nth: site == "b")
+    plan = plan_week(*built(install(tmp_path, "cross_site")))
+    assert plan.status == "planned" and [site["name"] for site in plan.sites] == ["a"]
+    reasons = {key: reason for key, (reason, _) in unplanned(plan, "a").items()}
+    assert reasons["Issue-1"] == reasons["Issue-8"] == "waits_on_unresolved"
+
+
 def in_force_shares(portfolio, as_of):
     """The shares of the allocation in force on `as_of`: the latest from on or before it."""
     return max((a for a in portfolio.allocations if a.from_date <= as_of), key=lambda a: a.from_date).shares
@@ -1002,7 +1027,7 @@ def test_week_plan_doc_states_planner():
         "gantry: error: cannot write week-plan.json: <reason>",
         "`unresolved_local`", *(f"`{kind}`" for kind in planner.PLAN_REPORT_KINDS),
         "first ready on the working day after", "never raises its blocker's priority",
-        "local entry that names nothing is not a dependency",
+        "local entry that names nothing is not a dependency", "cross-site blocker is itself `beyond_horizon`",
     ]
     assert [w for w in wanted if w not in doc] == []
     assert len(planner.UNPLANNED_REASONS) == 8 and len(NO_PLAN) == 5

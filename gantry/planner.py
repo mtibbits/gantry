@@ -261,13 +261,15 @@ def _cross_site_preds(result, items):
     resolved again: an open leaf target is that leaf, an open row target the
     open leaves under it in WBS.md order (#8's rule). A duplicate id is
     dropped, the first kept. Each item gains whether an outcome is absent
-    or unresolved."""
+    or unresolved; an open outcome naming a site this plan does not plan
+    (one with no page) is unresolved too: work the plan cannot see."""
     for site_items in items.values():
         for item in site_items:
             statuses = {outcome.status for outcome in item["foreign"]}
-            item["absent"], item["unresolved"] = "absent" in statuses, "unresolved" in statuses
+            unseen = any(o.status == "open" and o.target_site not in items for o in item["foreign"])
+            item["absent"], item["unresolved"] = "absent" in statuses, "unresolved" in statuses or unseen
             for outcome in item["foreign"]:
-                if outcome.status != "open":
+                if outcome.status != "open" or outcome.target_site not in items:
                     continue
                 site = outcome.target_site
                 if not outcome.target_is_row:
