@@ -831,7 +831,8 @@ def test_format_doc_states_rules():
         cfg.ID_TOKEN_RE.pattern, "`life`", "UTF-8", "byte-order mark", "renumbered", "reused",
         "Step-1:", "Q3:", "v2:", "R1:", "refines:", "needs:", "in the trace", "br_namespace", "fenced",
         MIXED_NS, MIXED_NS.lower(), "9 digits", "requirements are not nested", "mtibbits/devagent#888",
-        "withdrawn", "reword",
+        "withdrawn", "reword", "enclosing list item", "content column", "three spaces", "joins across it",
+        "hides every line after it", "outside fences and comments", "on its own line",
     ]
     assert [w for w in wanted if w not in doc] == []
 
@@ -850,3 +851,7 @@ def test_format_doc_examples_read_clean():
     assert parse(project[0], "gantry").requirements != {}
     assert parse(project[-1], "gantry").requirements == {}
     assert all(parse(body, "life", layers={"BR"}).requirements for body in portfolio)
+    # The Comments example: its block comment hides FR-2, and FR-1 joins across its comment line.
+    s = parse(project[0], "gantry")
+    assert list(s.requirements) == ["gantry:FR-1", "gantry:FR-3"]
+    assert s.requirements["gantry:FR-1"].text == "The log lists each check of the last thirty nights."
