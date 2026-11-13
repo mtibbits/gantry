@@ -174,6 +174,42 @@ def fenced(lines):
     return fenced
 
 
+def _content_column(line, m):
+    """The column an item's text starts at, a tab counting as four; for an
+    empty item, one past its marker."""
+    if m["rest"] is None:
+        return len(line[: m.end("marker")].expandtabs(4)) + 1
+    return len(line[: m.start("rest")].expandtabs(4))
+
+
+class _Layout(NamedTuple):
+    hidden: list  # bool per line: fenced or commented
+    skip: list  # bool per line: a comment line a requirement's text joins across
+    nested: list  # bool per line: an item inside an enclosing list item
+    comments: list  # (index, message) per comment that hides every line after it
+
+
+def _scan(lines):
+    """The layout of `lines`, read once from the top. `open_col` is the content
+    column of the outermost open list item: a line indented less ends it, and
+    a blank line does not."""
+    hidden = fenced(lines)
+    nested = [False] * len(lines)
+    open_col = None
+    for i, line in enumerate(lines):
+        if not line.strip():
+            continue
+        if open_col is not None and _width(line) < open_col:
+            open_col = None
+        m = None if hidden[i] else ITEM_RE.fullmatch(line)
+        if m is None:
+            continue
+        nested[i] = open_col is not None
+        if open_col is None:
+            open_col = _content_column(line, m)
+    return _Layout(hidden, [False] * len(lines), nested, [])
+
+
 def _reasons(marker, c, nested):
     """Why an ID-shaped item is not a requirement, in the documented order."""
     why = []
@@ -288,15 +324,15 @@ class _Reader:
             return None
         return c
 
-    def item(self, index, m, continuation):
+    def item(self, index, m, continuation, nested):
         line = self.first_line + index
         has_nested = False
         for k, text in continuation:
-            nested = ITEM_RE.fullmatch(text)
-            if nested is not None:
+            sub = ITEM_RE.fullmatch(text)
+            if sub is not None:
                 has_nested = True
-                self.candidate(self.first_line + k, nested, nested=True)
-        c = self.candidate(line, m, nested=False)
+                self.candidate(self.first_line + k, sub, nested=True)
+        c = self.candidate(line, m, nested=nested)
         if c is None:
             return
         rid = ReqId(self.namespace, c["code"], int(c["digits"]))  # _reasons found no fault
@@ -469,7 +505,8 @@ def parse_requirements(text, namespace, *, source, first_line=1, layers, br_name
     _check_args(namespace, layers, br_namespace)
     reader = _Reader(namespace, source, first_line, frozenset(layers), br_namespace)
     lines = split_lines(text)
-    hidden = fenced(lines)
+    layout = _scan(lines)
+    hidden = layout.hidden
     i = 0
     while i < len(lines):
         m = None if hidden[i] else ITEM_RE.fullmatch(lines[i])
@@ -481,7 +518,7 @@ def parse_requirements(text, namespace, *, source, first_line=1, layers, br_name
         end = i + 1
         while end < len(lines) and not hidden[end] and lines[end].strip() and _width(lines[end]) > indent:
             end += 1
-        reader.item(i, m, [(k, lines[k]) for k in range(i + 1, end)])
+        reader.item(i, m, [(k, lines[k]) for k in range(i + 1, end)], nested=layout.nested[i])
         i = end
     return reader.result()
 
