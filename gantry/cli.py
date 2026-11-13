@@ -1,11 +1,12 @@
 """The gantry command line: `gantry build --config FILE [--site NAME]` and
 `gantry portfolio --config FILE`.
 
-`gantry build` builds every configured site's page and the index; with
-`--site` it builds that one page and no index, reading that site's WBS.md
-and inputs, every requirements file and the portfolio file. Both print each
-written file's path, then a `trace <site>:` line for each written page whose
-site is in the trace or whose trace report has an entry (#20). `gantry portfolio` checks the
+`gantry build` builds every configured site's page and the index, plans the
+week and writes the plan to <output_dir>/week-plan.json (#61); with
+`--site` it builds that one page, no index and no plan, reading that site's
+WBS.md and inputs, every requirements file and the portfolio file. Both
+print each written file's path, then a `trace <site>:` line for each written
+page whose site is in the trace or whose trace report has an entry (#20). `gantry portfolio` checks the
 portfolio file the config names, without building (#22). There is no default
 config location: `--config` is required, and nothing here reads the
 environment or the home folder to find one. Exit codes:
@@ -13,7 +14,8 @@ environment or the home folder to find one. Exit codes:
 - 0: the full build wrote the index and at least one site page; `--site`
   wrote its page; `portfolio` found no report entry;
 - 1: a config error; the full build wrote no site page (the index is still
-  written) or cannot write the index or the output folder; `--site` names no
+  written) or cannot write the index or the output folder, or the plan file
+  cannot be written; `--site` names no
   site, a case clash, a site that cannot be built, a render error or a page
   that cannot be written; `portfolio` found an entry (an advisory one
   included), or the config sets no portfolio_file;
@@ -52,9 +54,9 @@ def _parser():
         "build",
         help="build every site's worksite page and the index, or one site's page",
         description="Build every site an installation config names: each site's page to "
-        "<output_dir>/sites/<name>.html, then <output_dir>/index.html. A site that cannot be "
-        "built is listed on the index with its reason. With --site, build only that site's "
-        "page and no index.",
+        "<output_dir>/sites/<name>.html, then <output_dir>/index.html, then the week plan to "
+        "<output_dir>/week-plan.json. A site that cannot be built is listed on the index with "
+        "its reason. With --site, build only that site's page: no index and no plan.",
     )
     build.add_argument(
         "--config",
@@ -198,10 +200,9 @@ def _build(args):
 
 
 # The build reads the portfolio file's business requirements for the trace
-# (#20) but checks no milestone yet (#23 or #61 adds that, and rewords this
-# with docs/portfolio-file.md).
-MILESTONE_NOTE = ("note: the milestone leaf is not checked here (this command reads no WBS.md), "
-                  "nor yet by the build, which reads only the file's business requirements")
+# (#20) and its capacity settings for the week plan (#61), but checks no
+# milestone yet (#23 adds that, and rewords this with docs/portfolio-file.md).
+MILESTONE_NOTE = "note: the milestone leaf is not checked here (this command reads no WBS.md), nor yet by the build"
 
 
 def _portfolio(args):

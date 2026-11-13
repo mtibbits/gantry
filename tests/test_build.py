@@ -378,6 +378,7 @@ def test_demo_pages_load_nothing_external(tmp_path, monkeypatch):
 STDERR_FORMS = (
     "gantry: warning: site <name> is not built: <reason>",
     "gantry: error: cannot write <index path>: <reason>",
+    "gantry: error: cannot write week-plan.json: <reason>",
     "gantry: error: no site page was written",
 )
 LISTING_TEXTS = {
@@ -649,3 +650,37 @@ def test_demo_plan_as_of_day_contents(tmp_path):
     # The lanes row holds the h: 0 leaf, whose rate is 0 under the sample mapping.
     rate = {(e["site"], e["key"]): e["rate"] for e in plan.leaves}
     assert all(rate[e["site"], e["key"]] == 0 for e in first["lanes_row"])
+
+
+BUILD_HOMES = ("docs/worksite-page.md", "docs/config.md", "commands/build.md", "README.md", "gantry/cli.py")
+
+
+def test_build_homes_name_the_plan_file(capsys):
+    # Every place that says what the build writes, prints or exits 1 on names the plan file (#61).
+    for rel in BUILD_HOMES:
+        text = " ".join((ROOT / rel).read_bytes().decode("utf-8").split())
+        assert "week-plan.json" in text, rel
+    for rel in ("docs/worksite-page.md", "docs/config.md", "commands/build.md", "gantry/cli.py"):
+        text = " ".join((ROOT / rel).read_bytes().decode("utf-8").split())
+        assert "plan file cannot be written" in text, rel
+    doc = " ".join((ROOT / "docs" / "worksite-page.md").read_bytes().decode("utf-8").split())
+    assert "Three more lines can follow on stderr" in doc
+    assert "not attempted when the output folder itself cannot be made" in doc
+    # The sentence the output-folder case rests on stays as it was.
+    assert ("When the output folder itself cannot be made, this is the only error line (the not-built lines "
+            "still come first), and nothing is written") in doc
+    from gantry.cli import main
+
+    with pytest.raises(SystemExit):
+        main(["build", "--help"])
+    assert "<output_dir>/week-plan.json" in " ".join(capsys.readouterr().out.split())
+
+
+def test_no_home_defers_to_this_issue():
+    # The repo's own deferrals to #61 are reworded: #23 alone adds the rest.
+    # Split, so this test is not itself a hit of the sweep's grep.
+    stale = ("#23 or " + "#61", "only its business " + "requirements", "only the file's " + "business")
+    for path in sorted([*ROOT.glob("gantry/**/*.py"), *ROOT.glob("docs/*.md"), *ROOT.glob("commands/*.md"),
+                        ROOT / "README.md", ROOT / "tests" / "test_cli.py"]):
+        text = " ".join(path.read_bytes().decode("utf-8").split())
+        assert [s for s in stale if s in text] == [], path.name

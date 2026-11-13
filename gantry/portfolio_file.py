@@ -11,8 +11,9 @@ Portfolio.report, relabelled the same way.
 
 Every `line` is a 1-based file line; fence_spans' indices are 0-based. No
 entry holds a path: the file is always "the portfolio file". gantry build
-reads only the file's business requirements, for the trace (#20); #23 or #61
-adds the rest.
+reads its business requirements, for the trace (#20), and its capacity
+settings, for the week plan (#61). It runs neither check_portfolio nor the
+milestone check: #23 adds both, reusing the build's one read.
 """
 
 import functools

@@ -814,3 +814,73 @@ def test_no_plan_file_still_written(tmp_path, key, case, changes):
     assert document["plan_version"] == 1 and document["days"] == []
     assert str(stale) in stdout.splitlines()
     assert "week-plan.json" not in stderr
+
+
+# --- the documentation ----------------------------------------------------------------------
+
+WEEK_PLAN_DOC = ROOT / "docs" / "week-plan.md"
+
+
+def doc_section(text, heading):
+    """The text of one level-2 section, heading line included."""
+    start = text.index(f"\n{heading}\n")
+    end = text.find("\n## ", start + 1)
+    return text[start:end if end != -1 else len(text)]
+
+
+def test_week_plan_doc_states_planner():
+    text = WEEK_PLAN_DOC.read_bytes().decode("utf-8")
+    doc = " ".join(text.split())
+    wanted = [
+        "## The planner", "## The plan file", planner.ALLOCATION_RULE, planner.POOL_ATTENTION, planner.POOL_LANES,
+        planner.NO_POOL, *NO_PLAN.values(), *(f"`{reason}`" for reason in planner.UNPLANNED_REASONS),
+        "hours_after_horizon", planner.PLAN_FILE, "plan_version", "shape-v1.json", planner.CAPACITY_SOURCE,
+        "never belongs in a repository", "deliberate reading", "start cost plus one agent minute",
+        "`WBS.md` states only", "int(hours * 60 + 0.5)", "parts per million", "no build time",
+        "gantry: error: cannot write week-plan.json: <reason>",
+    ]
+    assert [w for w in wanted if w not in doc] == []
+    assert len(planner.UNPLANNED_REASONS) == 6 and len(NO_PLAN) == 5
+    # The planner's rules are in its section, the file's in its own.
+    the_planner = " ".join(doc_section(text, "## The planner").split())
+    for topic in ("### Days and capacity", "### What each leaf costs", "### Blocks", "### A ready leaf that fits",
+                  "### Order within a site", "### Which site goes next", "### Started in this plan", "### States",
+                  "### Dependencies within a site", "### Unplanned leaves", "### Past the horizon",
+                  "### The binding pool", "### When there is no plan"):
+        assert topic in the_planner, topic
+    the_file = " ".join(doc_section(text, "## The plan file").split())
+    for topic in ("### Fields", "### The version rule", "### The pinned shape", "### Determinism"):
+        assert topic in the_file, topic
+    assert "The plan itself is #61" not in doc and "Neither exists yet" not in doc
+
+
+def doc_json_blocks(text):
+    return re.findall(r"```json\n(.*?)```", text, re.S)
+
+
+def test_week_plan_doc_examples_are_real(tmp_path):
+    import json
+
+    from gantry.planner import plan_to_json
+
+    section = doc_section(WEEK_PLAN_DOC.read_bytes().decode("utf-8"), "## The plan file")
+    planned, no_plan = doc_json_blocks(section)
+    # The no_plan form is a whole file, byte for byte.
+    assert no_plan == plan_to_json(plan_of(tmp_path, "binds_lanes", config={"portfolio_file": None}))
+    assert json.loads(no_plan)["status"] == "no_plan"
+    # The planned example is binds_lanes' file with days, leaves and sites cut to their first item.
+    document = json.loads(plan_to_json(plan_of(tmp_path, "binds_lanes")))
+    for name in ("days", "leaves", "sites"):
+        document[name] = document[name][:1]
+    assert json.loads(planned) == document
+    assert planned == json.dumps(document, sort_keys=True, ensure_ascii=False, indent=2) + "\n"
+    assert document["status"] == "planned"
+
+
+def test_week_plan_doc_names_every_field():
+    from test_plan_file import V1_FIELDS
+
+    doc = WEEK_PLAN_DOC.read_bytes().decode("utf-8")
+    section = doc_section(doc, "## The plan file")
+    names = {part.removesuffix("[]") for path in V1_FIELDS for part in path.split(".")[1:]}
+    assert [name for name in sorted(names) if f"`{name}`" not in section] == []

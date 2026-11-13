@@ -10,10 +10,12 @@ use. The installation config names it with `portfolio_file`
 Keep it beside the installation config, outside this repository. The sample
 in this repository (`samples/portfolio.md`) is fictional.
 
-Today `gantry portfolio` checks the file, and the build reads only its
-business requirements, which the trace resolves a leaf's `satisfies:`
-against (#20). The first view that needs the rest in the build adds that
-(#23 or #61), and every later view reuses it.
+Today `gantry portfolio` checks the file, and the build reads its business
+requirements, which the trace resolves a leaf's `satisfies:` against (#20),
+and its capacity settings, for the week plan (#61,
+[week-plan.md](week-plan.md#the-planner)). The build reads the file once
+and every view reuses that read. It runs neither these checks nor the
+milestone check: #23 adds both, reusing the build's read.
 
 ## Checking the file
 
@@ -31,7 +33,7 @@ business requirements
   line 14: duplicate_id: life:BR-2 is also defined on line 12; the first definition is kept
 settings
   line 31: bad_value: capacity.agent_lanes: must be an integer, 0 or more, not a boolean; it is not set
-note: the milestone leaf is not checked here (this command reads no WBS.md), nor yet by the build, which reads only the file's business requirements
+note: the milestone leaf is not checked here (this command reads no WBS.md), nor yet by the build
 2 entries
 ```
 
@@ -40,8 +42,8 @@ kind is marked ` (advisory)`), the key path (when the entry has one) and the
 message. An entry about the whole file is grouped under `the portfolio
 file`. The `note:` line is printed only when a milestone is set: the
 command reads no `WBS.md`, so it cannot look for the milestone's leaf. The
-note stays true until the build checks the milestone (#23 or #61), which
-rewords it.
+note stays true until the build checks the milestone (#23), which rewords
+it.
 
 It exits 0 when there are no entries and 1 when there is any entry, an
 advisory one included. It also exits 1 on a config error and when the config

@@ -15,8 +15,8 @@ three kinds of planning page:
   start warming up on.
 
 Status: `gantry build --config FILE` builds every site's worksite page and
-the index that links them (`--site NAME` builds one site's page); the other
-pages are not built yet. `gantry portfolio --config FILE` checks the
+the index that links them, and writes the week plan to `week-plan.json`
+(`--site NAME` builds one site's page); the other pages are not built yet. `gantry portfolio --config FILE` checks the
 installation's portfolio file without building.
 
 ## Your data stays private
