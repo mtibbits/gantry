@@ -116,7 +116,7 @@ should hold, with the issue that owns it:
 | `strategic.html` | #23 | `pending` |
 | `daily.html` | #34 | `pending` |
 | `week.html` | #38 | `pending` |
-| `week-plan.json` | #61 | `pending` |
+| `week-plan.json` | #61 | `required` |
 
 `required` means the build at this commit writes it: missing is a finding.
 `pending` means its issue is open: present is a finding, so a view cannot
