@@ -277,7 +277,8 @@ def test_gantry_imports_stdlib_only(tmp_path):
 
 
 # tools/check_schedulers.py drives the page-script harness from tests/ (#9).
-ALLOWED_TOOL_IMPORTS = {("check_schedulers.py", "page_script.harness")}
+# tools/demo_build.py runs tools/sample_history.py's main in process (#45).
+ALLOWED_TOOL_IMPORTS = {("check_schedulers.py", "page_script.harness"), ("demo_build.py", "sample_history")}
 
 
 def test_tools_import_stdlib_only():
