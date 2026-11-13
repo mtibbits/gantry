@@ -41,6 +41,8 @@ NO_PLAN = {
 # Why an open leaf of a built site is not in the 10 days: the first that applies.
 UNPLANNED_REASONS = ("blocked_externally", "parked", "waits_on_cycle", "waits_on_other_site",
                      "waits_on_unplanned", "beyond_horizon")
+(BLOCKED_EXTERNALLY, PARKED, WAITS_ON_CYCLE, WAITS_ON_OTHER_SITE,
+ WAITS_ON_UNPLANNED, BEYOND_HORIZON) = UNPLANNED_REASONS
 
 # The caps that keep the arithmetic whole and finite whatever the portfolio
 # file holds: no day has more than 24 hours, a lane count above this plans
@@ -56,6 +58,9 @@ PPM = 1_000_000
 class WeekPlan:
     """The plan of one build, in the plan file's form: every nested value is
     a plain list or dict, hours are minutes / 60 and dates are YYYY-MM-DD text.
+
+    Frozen at the top level only: every view of a build gets this one object,
+    so a view must not change its lists or dicts.
 
     Provisional in memory: the fields are the file's top-level keys, pinned
     by tests/fixtures/week_plan/shape-v1.json, but no view binds to this
@@ -200,19 +205,19 @@ def _reasons(data, open_leaves, preds) -> dict:
     reasons = {}
     for leaf in open_leaves:
         if leaf.state == "blocked_external":
-            reasons[leaf.key] = "blocked_externally"
+            reasons[leaf.key] = BLOCKED_EXTERNALLY
         elif leaf.state == "parked":
-            reasons[leaf.key] = "parked"
+            reasons[leaf.key] = PARKED
         elif leaf.key in held:
-            reasons[leaf.key] = "waits_on_cycle"
+            reasons[leaf.key] = WAITS_ON_CYCLE
         elif leaf.waits_on_other_site:
-            reasons[leaf.key] = "waits_on_other_site"
+            reasons[leaf.key] = WAITS_ON_OTHER_SITE
     # The rest hold no cycle, so each leaf is reached after its predecessors.
     rest = TopologicalSorter({leaf.key: [p for p in preds[leaf.key] if p not in reasons]
                               for leaf in open_leaves if leaf.key not in reasons})
     for key in rest.static_order():
         if any(p in reasons for p in preds[key]):
-            reasons[key] = "waits_on_unplanned"
+            reasons[key] = WAITS_ON_UNPLANNED
     return reasons
 
 
@@ -511,7 +516,7 @@ def plan_week(result, portfolio, config) -> WeekPlan:
             "lane_hours_charged": _hours(sum(item["need"] - item["left"] for item in placed)),
             "unestimated_planned": sum(item["unestimated"] for item in placed),
             # Never placed in the 10 days: beyond the horizon.
-            "unplanned": [{"key": item["key"], "reason": item["reason"] or "beyond_horizon", "state": item["state"]}
+            "unplanned": [{"key": item["key"], "reason": item["reason"] or BEYOND_HORIZON, "state": item["state"]}
                           for item in items[name] if not item["days"]],
         })
     dates = [day.isoformat() for day in horizon]

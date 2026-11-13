@@ -189,6 +189,8 @@ the next one. It covers 10 working days; the first 5 are the **planned
 week**. The as-of date counts as a whole day, so a rebuild later the same
 day gives the same plan. Each working day has `agent_lanes` lanes of 6
 agent hours. Reserved blocks' `start` times are shown, not planned around.
+An as-of date so late that the 10 working days would run past 9999-12-31
+is not supported: the build stops with an error.
 
 ### What each leaf costs
 
@@ -364,7 +366,8 @@ renamed into place, and it is written nowhere else. A `no_plan` plan is
 written too, so an earlier build's plan never stands in for this one.
 `--site` neither writes nor removes the file.
 
-**The plan file holds private leaf keys and never belongs in a repository.**
+**The plan file holds private leaf keys, and the portfolio file's attention
+hours and reserved blocks, and never belongs in a repository.**
 The commit check treats `week-plan.json` as generated output, and a real
 installation's output folder lies outside this repository.
 

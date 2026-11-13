@@ -37,8 +37,9 @@ The requirements file format, its IDs and what its reader reports:
 The portfolio file, the operator's private priorities and capacity, and how
 `gantry portfolio` checks it: [docs/portfolio-file.md](docs/portfolio-file.md).
 
-How Gantry estimates each leaf's attention need, and what an `h:` score
-means: [docs/week-plan.md](docs/week-plan.md).
+How Gantry estimates each leaf's attention need, what an `h:` score means,
+how the build plans the week and what `week-plan.json` holds:
+[docs/week-plan.md](docs/week-plan.md).
 
 How Gantry reads a site's `WBS.md` history from its planning repository, and
 the sample history it is tested on: [docs/wbs-history.md](docs/wbs-history.md).

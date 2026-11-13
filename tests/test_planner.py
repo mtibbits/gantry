@@ -219,7 +219,7 @@ def test_extreme_numbers_still_plan(tmp_path, case, portfolio):
         assert all(0 < block["hours"] <= 24 for block in day["reserved"])
 
 
-def test_rate_below_one_part_per_million_is_rate_0(tmp_path):
+def test_rate_below_half_a_part_per_million_is_rate_0(tmp_path):
     plan = plan_of(tmp_path, "binds_lanes",
                    portfolio=portfolio_md(more="attention_mapping = [0, 1e-7, 0.25, 0.5, 1.0]\n"))
     assert plan.mapping["source"] == "portfolio_file"
