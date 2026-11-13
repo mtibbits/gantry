@@ -999,7 +999,13 @@ def test_model_tier_sample_site():
     rows = read_estimates_file(SAMPLE_ROOTS, found.path, BUSY, found.name).rows
     m = model_with(inputs, BUSY)
     assert m["leaves"]
+    # A leaf with no issue: has no estimates-file row (the demo week plan's leaf, #61).
+    no_issue = {leaf.key for leaf in inputs.data.leaves if leaf.issue is None}
+    assert no_issue == {"1.5"}
     for leaf in m["leaves"]:
+        if leaf["key"] in no_issue:
+            assert leaf["models"] is None
+            continue
         assert leaf["models"] == [rows[leaf["key"]].thinking, rows[leaf["key"]].checking], leaf["key"]
     t = tree(page)
     for i in find(t, "g", ["node"]):

@@ -57,7 +57,7 @@ def test_site_line_fields(tmp_path):
     assert list(lines) == [s.name for s in result.summaries]
     li, text = lines[BUSY]
     # Hand-derived (test_build.test_summaries_on_samples): 8 open, day 12, 1 report line, N = 0.
-    assert text == f"{BUSY} · 8 open leaves · finishes working day 12, 2026-02-04 · 1 missing or unreadable"
+    assert text == f"{BUSY} · 9 open leaves · finishes working day 12, 2026-02-04 · 2 missing or unreadable"
     assert "includes" not in text
     quarry = {s.name: s for s in result.summaries}[UNESTIMATED]
     assert quarry.unestimated_count > 0
@@ -154,7 +154,7 @@ def test_index_data_and_stamp(tmp_path):
     assert data["stamp"] == result.stamp == "sample data as of 2026-01-20"
     assert data["as_of"] == "2026-01-20"
     harbor = {s["name"]: s for s in data["sites"]}[BUSY]
-    assert (harbor["status"], harbor["open_leaves"], harbor["finish_date"]) == ("built", 8, "2026-02-04")
+    assert (harbor["status"], harbor["open_leaves"], harbor["finish_date"]) == ("built", 9, "2026-02-04")
     t = tree(page)
     (stamp,) = find(t, "p", ("stamp",))
     assert text_of(t, stamp) == result.stamp

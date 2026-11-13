@@ -82,12 +82,13 @@ def test_summaries_on_samples(tmp_path):
         "not_built", "WBS.md is not valid UTF-8 at byte 88")
     assert summaries[NO_WBS].open_leaves is None and summaries[NO_WBS].finish_date is None
     # Hand-derived from samples/harbor (WBS.md and its estimates file, 4 lanes,
-    # 6 agent-hours a day): every open leaf has file hours, the plan ends at
-    # 70 h, in working day 12 (Wednesday 2026-02-04), and the only report line
-    # is Issue-14's missing priority.
+    # 6 agent-hours a day): every open leaf has file hours but the one with no
+    # issue:, which has an est: (the demo week plan's leaf, #61); the plan ends
+    # at 70 h, in working day 12 (Wednesday 2026-02-04), and the report lines
+    # are that leaf's missing issue: and Issue-14's missing priority.
     harbor = summaries[BUSY]
     assert (harbor.open_leaves, harbor.finish_day, harbor.finish_date, harbor.report_count,
-            harbor.unestimated_count) == (8, 12, date(2026, 2, 4), 1, 0)
+            harbor.unestimated_count) == (9, 12, date(2026, 2, 4), 2, 0)
     assert summaries[UNESTIMATED].unestimated_count > 0
     for name in READABLE:
         s, inputs = summaries[name], result.inputs[name]
@@ -628,3 +629,23 @@ def test_index_failure_still_writes_plan(tmp_path):
     (line,) = stderr.splitlines()
     assert line.startswith(f"gantry: error: cannot write {out / 'index.html'}: ")
     assert (out / "index.html").is_dir()
+
+
+def test_demo_plan_as_of_day_contents(tmp_path):
+    result = sample_build(tmp_path)
+    plan = result.plan
+    assert plan.status == "planned"
+    first = plan.days[0]
+    assert first["date"] == plan.as_of == "2026-01-20"
+    assert len(first["blocks"]) >= 1 and first["lanes_row"]
+    on_day = [(e["site"], e["key"]) for block in first["blocks"] for e in block["leaves"]]
+    on_day += [(e["site"], e["key"]) for e in first["lanes_row"]]
+    unestimated = {(e["site"], e["key"]) for e in plan.leaves if e["unestimated"]}
+    assert unestimated & set(on_day)
+    assert first["unestimated"] == len(unestimated & set(on_day))
+    # A leaf with no issue:, looked up in the build's own data, never read off the key's spelling.
+    leaves = {(site, leaf.key): leaf for site, inputs in result.inputs.items() for leaf in inputs.data.leaves}
+    assert any(leaves[key].issue is None for key in on_day), on_day
+    # The lanes row holds the h: 0 leaf, whose rate is 0 under the sample mapping.
+    rate = {(e["site"], e["key"]): e["rate"] for e in plan.leaves}
+    assert all(rate[e["site"], e["key"]] == 0 for e in first["lanes_row"])
