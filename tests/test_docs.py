@@ -362,3 +362,118 @@ def test_readme_quickstart(qs):
         assert needed in prerequisites[0]
     assert any(WINDOWS_LINE in line for line in unfenced_lines(readme) if line)
     assert demo_build.output_folder(ROOT).relative_to(ROOT).as_posix() in readme
+
+
+# --- the quickstart workflow ----------------------------------------------------
+
+QUICKSTART_WORKFLOW = ROOT / ".github" / "workflows" / "quickstart.yml"
+_CLONE_DIR = "${{ runner.temp }}/clone"
+QUICKSTART_TREE = {
+    "name": "quickstart",
+    "on": {"push": None, "pull_request": None, "workflow_dispatch": None},
+    "permissions": {"contents": "read"},
+    "jobs": {
+        "quickstart": {
+            "runs-on": "ubuntu-latest",
+            "timeout-minutes": "15",
+            "permissions": {"contents": "read"},
+            "steps": [
+                {"shell": "bash", "run": "\n".join([
+                    "command -v python3",
+                    "python3 -c 'import sys; print(sys.version); sys.exit(sys.version_info < (3, 11))'"])},
+                {"shell": "bash", "run": "\n".join([
+                    'test ! -e "$RUNNER_TEMP/clone"',
+                    'git init -q "$RUNNER_TEMP/clone"',
+                    'git -C "$RUNNER_TEMP/clone" fetch -q --depth 1 "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" "$GITHUB_SHA"',
+                    'git -C "$RUNNER_TEMP/clone" checkout -q --detach FETCH_HEAD',
+                    'test "$(git -C "$RUNNER_TEMP/clone" rev-parse HEAD)" = "$GITHUB_SHA"'])},
+                {"shell": "bash", "working-directory": _CLONE_DIR,
+                 "run": 'python3 tools/quickstart.py blocks README.md "$RUNNER_TEMP/build-demo.sh"'},
+                {"shell": "bash", "working-directory": _CLONE_DIR, "run": "\n".join([
+                    "set -o pipefail",
+                    'bash -e "$RUNNER_TEMP/build-demo.sh" | tee "$RUNNER_TEMP/build-demo.out"',
+                    'python3 tools/quickstart.py output "$(tail -n 1 "$RUNNER_TEMP/build-demo.out")"'])},
+            ],
+        },
+    },
+}
+
+
+def quickstart_workflow_problems(text):
+    """Every problem with quickstart.yml's shape, each `<rule>: <what>`; [] when it has none."""
+    from test_pages_workflow import Unreadable, _tree_difference, read_workflow
+
+    try:
+        tree = read_workflow(text)
+    except Unreadable as e:
+        return [f"readable: {e}"]
+    problems = []
+    where = _tree_difference(tree, QUICKSTART_TREE)
+    if where:
+        problems.append(f"exact: differs at {where}")
+    on = tree.get("on")
+    if not isinstance(on, dict) or set(on) != {"push", "pull_request", "workflow_dispatch"} \
+            or "pull_request_target" in text:
+        problems.append("triggers: on must be exactly push, pull_request and workflow_dispatch")
+    jobs = tree.get("jobs") if isinstance(tree.get("jobs"), dict) else {}
+    job_permissions = [j.get("permissions") for j in jobs.values() if isinstance(j, dict)]
+    if tree.get("permissions") != {"contents": "read"} \
+            or any(p != {"contents": "read"} for p in job_permissions) \
+            or "write-all" in text or "read-all" in text:
+        problems.append("permissions: workflow and job must be contents: read")
+    if "secrets" in text or "environment" in text:
+        problems.append("no-secrets: no secrets and no environment")
+    if any(re.match(r"^(- )?uses:", line.strip()) for line in text.split("\n")):
+        problems.append("no-setup-action: no uses: step")
+    steps = [s for j in jobs.values() if isinstance(j, dict) for s in (j.get("steps") or [])]
+    if "continue-on-error" in text or any(isinstance(n, dict) and "if" in n for n in [*jobs.values(), *steps]):
+        problems.append("no-bypass: no continue-on-error and no if")
+    return problems
+
+
+def test_quickstart_workflow_has_no_problems():
+    assert quickstart_workflow_problems(markdown_text(QUICKSTART_WORKFLOW)) == []
+
+
+def _insert_after(anchor, *new):
+    return ("after", anchor, list(new))
+
+
+def _replace(anchor, *new):
+    return ("replace", anchor, list(new))
+
+
+def mutate(text, op):
+    """Apply a line-anchored edit: the anchor must be exactly one whole line."""
+    kind, anchor, new = op
+    lines = text.split("\n")
+    hits = [n for n, line in enumerate(lines) if line == anchor]
+    assert len(hits) == 1, f"anchor {anchor!r} is on {len(hits)} lines"
+    n = hits[0]
+    lines[n:n + 1] = [anchor, *new] if kind == "after" else new
+    return "\n".join(lines)
+
+
+BLOCKS_RUN = '        run: python3 tools/quickstart.py blocks README.md "$RUNNER_TEMP/build-demo.sh"'
+
+
+@pytest.mark.parametrize("op, rule", [
+    (_insert_after("  pull_request:", "  pull_request_target:"), "triggers"),
+    (_replace("  workflow_dispatch:"), "triggers"),
+    (_insert_after("    steps:", "      - uses: actions/setup-python@v5"), "no-setup-action"),
+    (_replace("      contents: read", "      contents: write"), "permissions"),
+    (_insert_after("    runs-on: ubuntu-latest", "    environment: x"), "no-secrets"),
+    (_insert_after(BLOCKS_RUN, "        env:", "          T: ${{ secrets.X }}"), "no-secrets"),
+    (_replace('          bash -e "$RUNNER_TEMP/build-demo.sh" | tee "$RUNNER_TEMP/build-demo.out"',
+              '          bash "$RUNNER_TEMP/build-demo.sh" | tee "$RUNNER_TEMP/build-demo.out"'), "exact"),
+    (_replace('          test "$(git -C "$RUNNER_TEMP/clone" rev-parse HEAD)" = "$GITHUB_SHA"'), "exact"),
+    (_insert_after(BLOCKS_RUN, "        continue-on-error: true"), "no-bypass"),
+])
+def test_quickstart_workflow_mutations(op, rule):
+    from test_pages_workflow import content_lines
+
+    text = markdown_text(QUICKSTART_WORKFLOW)
+    mutated = mutate(text, op)
+    assert content_lines(mutated) != content_lines(text)
+    problems = quickstart_workflow_problems(mutated)
+    assert any(p.startswith(rule + ":") for p in problems), problems
