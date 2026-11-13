@@ -5,6 +5,7 @@ the clone tests build the real demo from committed HEAD in a child process
 under a frozen clock (tests/demo_build_runner.py, tests/clock.py).
 """
 
+import os
 import shutil
 
 import pytest
@@ -184,3 +185,145 @@ def test_main_takes_no_arguments(monkeypatch):
 def test_real_steps():
     assert [s.name for s in demo_build.STEPS] == ["sample history", "build"]
     assert demo_build.Step._fields == ("name", "run")
+
+
+# --- the frozen clock and the clone runs --------------------------------------------
+
+import json
+import subprocess
+import sys
+import tomllib
+from datetime import date, datetime, timedelta, timezone
+from html.parser import HTMLParser
+
+from helpers_config import written_bytes
+from helpers_demo import ROOT, child_env, clean_clone, run_child, stderr_of
+from helpers_history import require_git
+from sample_roles import NOT_BUILT
+
+PROBE_DAY = date(2031, 5, 6)
+DAY_ONE, DAY_TWO, DAY_THREE = date(2031, 5, 6), date(2032, 5, 6), date(2033, 9, 1)
+
+
+def test_frozen_clock_probe():
+    ran = run_child(ROOT, PROBE_DAY, "probe")
+    assert ran.returncode == 0, stderr_of(ran)
+    values = json.loads(ran.stdout)
+    assert values["date.today"] == "2031-05-06"
+    assert values["datetime.now"] == values["datetime.today"] == values["datetime.utcnow"] == "2031-05-06T12:00:00"
+    assert values["datetime.now(utc)"] == "2031-05-06T12:00:00+00:00"
+    assert values["datetime.now(-5)"] == "2031-05-06T07:00:00-05:00"
+    assert values["time.time"] == datetime(2031, 5, 6, 12, tzinfo=timezone.utc).timestamp()
+    assert values["isinstance"] and all(values["isinstance"].values()), values["isinstance"]
+    assert values["restored"] is True
+
+
+def test_frozen_clock_refuses_after_gantry():
+    script = "\n".join(["import gantry", "from clock import frozen_clock", "from datetime import date",
+                        "try:", "    frozen_clock(date(2031, 5, 6)).__enter__()",
+                        "except RuntimeError as exc:", "    print(exc)", ""])
+    env = child_env(ROOT)
+    env["PYTHONPATH"] = str(ROOT) + os.pathsep + str(ROOT / "tests")
+    ran = subprocess.run([sys.executable, "-P", "-B", "-c", script], cwd=ROOT, env=env, capture_output=True,
+                         timeout=60)
+    assert ran.returncode == 0, stderr_of(ran)
+    assert ran.stdout.decode("utf-8").strip() == "frozen_clock: gantry or tomllib is already imported"
+
+
+def test_runner_refuses_wrong_root(tmp_path):
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    ran = run_child(empty, DAY_ONE, "main")
+    assert ran.returncode == 3
+    assert stderr_of(ran).splitlines() == ["demo_build_runner: gantry would not be imported from GANTRY_ROOT"]
+    assert list(empty.iterdir()) == []
+
+
+def sample_config(clone):
+    return tomllib.loads((clone / "samples" / "gantry.sample.toml").read_bytes().decode("utf-8"))
+
+
+class _Stamps(HTMLParser):
+    """The text of every element whose class list holds `stamp`, children's text included."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.stamps, self.inside = [], None  # inside: [tag, nesting of that tag]
+
+    def handle_starttag(self, tag, attrs):
+        if self.inside is not None:
+            self.inside[1] += tag == self.inside[0]
+        elif "stamp" in (dict(attrs).get("class") or "").split():
+            self.inside = [tag, 1]
+            self.stamps.append("")
+
+    def handle_endtag(self, tag):
+        if self.inside is not None and tag == self.inside[0]:
+            self.inside[1] -= 1
+            if not self.inside[1]:
+                self.inside = None
+
+    def handle_data(self, data):
+        if self.inside is not None:
+            self.stamps[-1] += data
+
+
+def stamps(data):
+    parser = _Stamps()
+    parser.feed(data.decode("utf-8"))
+    return [s.strip() for s in parser.stamps]
+
+
+@pytest.fixture(scope="module")
+def two_days(tmp_path_factory):
+    """The clone and the two `main` runs, a year apart."""
+    require_git()
+    clone = clean_clone(tmp_path_factory.mktemp("demo"))
+    config = sample_config(clone)
+    out = clone / "samples" / config["output_dir"]
+    runs = []
+    for day in (DAY_ONE, DAY_TWO):
+        ran = run_child(clone, day, "main")
+        runs.append((ran, written_bytes(out) if out.is_dir() else {}))
+    return clone, config, runs
+
+
+def test_two_days_byte_identical(two_days):
+    clone, config, runs = two_days
+    as_of = config["as_of"]
+    assert DAY_ONE > as_of and DAY_TWO - DAY_ONE >= timedelta(days=365)
+    for ran, _ in runs:
+        assert ran.returncode == 0, stderr_of(ran)
+        assert ran.stdout.decode("utf-8").splitlines()[-1] == f"samples/{config['output_dir']}"
+    (_, first), (_, second) = runs
+    assert first and first == second
+    devagent = tomllib.loads((clone / "samples" / "devagent" / "config.toml").read_bytes().decode("utf-8"))
+    sites = set(devagent["project"]) - NOT_BUILT
+    assert set(first) == {"index.html"} | {f"sites/{s}.html" for s in sites}
+    for name, data in first.items():
+        assert stamps(data) == [f"sample data as of {as_of}"], name
+        assert b" UTC" not in data, name
+
+
+def test_runner_last_line_is_lf(two_days):
+    _, config, runs = two_days
+    out = runs[0][0].stdout
+    assert out.endswith(f"samples/{config['output_dir']}\n".encode("utf-8"))
+    assert b"\r" not in out.splitlines(keepends=True)[-1]
+
+
+def test_control_run_stamps_injected_day(two_days):
+    clone, config, _ = two_days
+    sample = clone / "samples" / "gantry.sample.toml"
+    before = sample.read_bytes()
+    after = b"".join(line for line in before.splitlines(keepends=True) if not line.startswith(b"as_of"))
+    assert after != before
+    sample.write_bytes(after)
+    assert "as_of" not in tomllib.loads(after.decode("utf-8"))
+    ran = run_child(clone, DAY_THREE, "build-step")
+    assert ran.returncode == 0, stderr_of(ran)
+    pages = {k: v for k, v in written_bytes(clone / "samples" / config["output_dir"]).items() if k.endswith(".html")}
+    assert len(pages) >= 5
+    for name, data in pages.items():
+        assert stamps(data) == [f"sample data as of {DAY_THREE}"], name
+        assert f"sample data as of {config['as_of']}" not in stamps(data), name
