@@ -321,7 +321,10 @@ them, attention first:
   in the lanes row;
 - **operator attention hours**: with a lane minute free, such a leaf of
   rate above 0 waits because its site's block stopped at the day's
-  attention with work left, or because no block of its site could open. No block opens when less than
+  attention with work left, or because no block of its site could open.
+  A block that stops at the day's attention counts when it stops, while
+  its leaf could still take a lane minute: a later leaf of the block that
+  takes the last lane minute does not hide it. No block opens when less than
   `block_min_hours` is left. By a deliberate reading of "a ready leaf that
   fits", a day also counts as attention running out when `block_min_hours`
   is left but the start cost plus one agent minute of the ready leaf no

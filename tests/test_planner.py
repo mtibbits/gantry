@@ -652,6 +652,23 @@ def test_binding_is_the_pool_that_ran_out_first(tmp_path):
     assert plan.binding == {"pool": LANES, "first_day": "2026-01-19", "text": LANES}
 
 
+def test_block_stopped_at_attention_counts_though_a_later_leaf_takes_the_last_lane(tmp_path):
+    # Rate 2 lets a block stop at the day's attention on Issue-2 with operator minutes
+    # left for Issue-3, which then takes the last lane minutes: attention ran out
+    # at the stop, so day 1 records both pools and attention, on more days, binds.
+    plan = plan_of(tmp_path, "binds_lanes", portfolio=portfolio_md(
+        hours=2, lanes=1, more="attention_mapping = [0, 0.1, 0.25, 0.5, 2.0]\n"), wbs={"alpha": wbs_md(
+        leaf(1, priority="P0", est="5.3167h", h=1), leaf(2, priority="P1", est="6h", h=4),
+        leaf(3, priority="P2", est="6h", h=1))})
+    first = plan.days[0]
+    assert [entry["key"] for entry in first["blocks"][0]["leaves"]] == ["Issue-1", "Issue-2", "Issue-3"]
+    assert first["left"] == {"attention_hours": 0.0, "lane_hours": 0.0}
+    assert first["ran_out"] == [ATTENTION, LANES]
+    assert run_out(plan, LANES) == ["2026-01-19"]
+    assert run_out(plan, ATTENTION) == plan.planned_week
+    assert plan.binding == {"pool": ATTENTION, "first_day": "2026-01-19", "text": ATTENTION}
+
+
 def test_below_block_min_opens_no_block(tmp_path):
     plan = plan_of(tmp_path, "binds_attention", portfolio=portfolio_md(hours=0.75, lanes=2),
                    wbs={"alpha": wbs_md(leaf(1, est="1h", h=2))})

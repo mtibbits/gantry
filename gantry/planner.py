@@ -287,6 +287,10 @@ class _Day:
         # Whether the placement that took the last lane minute also took the
         # last of the attention its block could give that leaf.
         self.tied = False
+        # Whether a block stopped at the day's attention while its leaf could
+        # still take a lane minute. Recorded then: a later placement that takes
+        # the last lane minute does not hide it.
+        self.stopped = False
         # Each site's ready leaves in plan order, fixed for the day: a leaf
         # is ready when every predecessor finished on an earlier day.
         # Leaves started on an earlier day go first, then the others.
@@ -351,7 +355,9 @@ class _Day:
                 if not item["ppm"]:
                     continue
                 fit = _agent_fit(room, item["ppm"])
-                agent = min(self.room(item), fit)
+                want = self.room(item)
+                self.stopped = self.stopped or fit < want
+                agent = min(want, fit)
                 if agent <= 0:
                     continue
                 self.tied = agent == self.lanes == fit
@@ -371,14 +377,15 @@ class _Day:
     def block_pools_run_out(self, closed) -> set:
         """The pools that ran out while a ready leaf of rate above 0 still waited.
 
-        Lanes: no lane minute is left. Attention: with a lane minute free,
-        the leaf's site's block closed without room for one more agent
-        minute of it, or no block of its site could open, for want of
-        block_min_hours or of the start cost plus one agent minute
+        Lanes: no lane minute is left. Attention: a block stopped at the
+        day's attention while its leaf could take a lane minute; or, with a
+        lane minute free, the leaf's site's block closed without room for
+        one more agent minute of it, or no block of its site could open, for
+        want of block_min_hours or of the start cost plus one agent minute
         (docs/week-plan.md). With no lane minute free, attention ran out
         too only when one placement took the last of both pools.
         """
-        ran = set()
+        ran = {POOL_ATTENTION} if self.stopped else set()
         for name in self.names:
             for item in self.order[name]:
                 if not item["ppm"] or not self.waiting(item):
