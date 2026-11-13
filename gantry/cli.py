@@ -26,6 +26,7 @@ import argparse
 import sys
 
 from gantry.build import (
+    _why,
     build_all,
     clashes,
     read_site,
@@ -142,10 +143,8 @@ def _write_plan(result, text):
         return None
     try:
         write_plan(result.plan, result.config.output_dir, roots=result.roots, text=text)
-    except OutsideRoots as e:
-        return str(e)  # it names output_dir
-    except OSError as e:
-        return error_reason(e) or "unknown error"
+    except (OSError, OutsideRoots) as e:
+        return _why(e, result.roots)
     return None
 
 
