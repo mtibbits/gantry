@@ -306,6 +306,169 @@ def test_fence_spans():
     # A four-backtick fence holding a three-backtick line is one span.
     assert req.fence_spans(["````", "```", "x", "```", "````"]) == [(0, 4)]
 
+
+# --- HTML comments ----------------------------------------------------------------
+
+UNCLOSED = "an HTML comment with no closing '-->' hides every line after it"
+LEAKED = "an HTML comment whose list item ends before its '-->' hides every line after it"
+INLINE = "an HTML comment inside the text; it stays in the text and hides nothing: put it on its own line"
+BEFORE_ID = "an HTML comment before the ID; the item is not read: put the comment on its own line"
+
+
+def MC(n, message):
+    """The report row of a malformed comment on line n."""
+    return (n, "malformed_comment", message)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "- FR-1: a\n<!--\n- FR-2: b\n-->\n- FR-3: c\n",
+        "- FR-1: a\n<!--\n- FR-2: b -->\n- FR-3: c\n",
+        "- FR-1: a\n<!--\n- FR12: typo\n-->\n- FR-3: c\n",
+        "- FR-1: a\n <!--\n- FR-2: b\n-->\n- FR-3: c\n",
+    ],
+)
+def test_block_comment_hides_items(text):
+    s = parse(text)
+    assert list(s.requirements) == ["alpha:FR-1", "alpha:FR-3"]
+    assert rows(s) == []
+
+
+@pytest.mark.parametrize("sp", [" ", "  ", "   "])
+def test_comment_opener_indented_up_to_three_spaces(sp):
+    s = parse(f"{sp}<!--\n- FR-2: b\n-->\n- FR-3: c\n")
+    assert list(s.requirements) == ["alpha:FR-3"]
+    assert rows(s) == []
+
+
+@pytest.mark.parametrize("opener", ["    <!--", "\t<!--"])
+def test_comment_opener_indented_four_is_not_a_block(opener):
+    s = parse(opener + "\n- FR-2: b\n-->\n")
+    assert list(s.requirements) == ["alpha:FR-2"]
+    assert rows(s) == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "- FR-1: The page\n  <!-- note -->\n  lists checks.\n",
+        "- FR-1: The page\n  <!--\n  note\n  -->\n  lists checks.\n",
+        "- FR-1: The page\n  <!--\n\n  -->\n  lists checks.\n",
+    ],
+)
+def test_comment_line_in_the_text_is_skipped(text):
+    s = parse(text)
+    assert list(s.requirements) == ["alpha:FR-1"]
+    assert rows(s) == []
+    assert s.requirements["alpha:FR-1"].text == "The page lists checks."
+
+
+def test_comment_in_the_text_hides_a_nested_item():
+    s = parse("- FR-1: a\n  <!--\n  - FR-2: x\n  -->\n")
+    assert list(s.requirements) == ["alpha:FR-1"]
+    assert rows(s) == []
+    assert s.requirements["alpha:FR-1"].text == "a"
+
+
+@pytest.mark.parametrize(
+    ("text", "keys", "fr1", "report"),
+    [
+        ("- FR-1: a <!-- x --> b\n", ["alpha:FR-1"], "a <!-- x --> b", [MC(1, INLINE)]),
+        ("- FR-1: a\n  b <!-- x -->\n", ["alpha:FR-1"], "a b <!-- x -->", [MC(2, INLINE)]),
+        ("- FR-1: a <!-- x\n  - FR-2: y -->\n", ["alpha:FR-1"], "a <!-- x - FR-2: y -->",
+         [MC(1, INLINE), NN("FR-2", 2)]),
+        ("- FR-1: <!--> b\n", ["alpha:FR-1"], "<!--> b", [MC(1, INLINE)]),
+        ("- FR-1: a <!-- b\n- FR-2: c -->\n", ["alpha:FR-1", "alpha:FR-2"], "a <!-- b", [MC(1, INLINE)]),
+        ("- FR-1: a \\<!-- x --> b\n", ["alpha:FR-1"], "a \\<!-- x --> b", [MC(1, INLINE)]),
+        ("-   FR-1: a\n    <!-- x -->\n", ["alpha:FR-1"], "a <!-- x -->", [MC(2, INLINE)]),
+    ],
+)
+def test_comment_in_the_text_is_reported(text, keys, fr1, report):
+    s = parse(text)
+    assert list(s.requirements) == keys
+    assert s.requirements["alpha:FR-1"].text == fr1
+    assert rows(s) == report
+
+
+def test_comment_in_a_code_span_is_not_reported():
+    s = parse("- FR-1: escapes `<!--` and `-->` here\n")
+    assert s.requirements["alpha:FR-1"].text == "escapes `<!--` and `-->` here"
+    assert rows(s) == []
+
+
+def test_comment_after_the_meta_block_is_reported():
+    s = parse("- FR-1: a {refines: SR-1} <!-- note -->\n- SR-1: s\n")
+    fr1 = s.requirements["alpha:FR-1"]
+    assert fr1.text == "a {refines: SR-1} <!-- note -->"
+    assert fr1.refines is None
+    assert rows(s) == [(1, "malformed_meta", "a meta block inside the text; it stays in the text and is not read"),
+                       MC(1, INLINE)]
+
+
+@pytest.mark.parametrize(
+    ("text", "keys", "report"),
+    [
+        ("- <!-- x --> FR-1: y\n", [], [MC(1, BEFORE_ID)]),
+        ("- <!-- x\n- FR-2: y\n", [], [MC(1, LEAKED)]),
+        ("- <!-- x\n  y -->\n- FR-2: y\n", ["alpha:FR-2"], []),
+        ("- <!-- x --> prose\n", [], []),
+    ],
+)
+def test_comment_at_the_start_of_an_item(text, keys, report):
+    s = parse(text)
+    assert list(s.requirements) == keys
+    assert rows(s) == report
+
+
+@pytest.mark.parametrize(
+    ("text", "keys", "report"),
+    [
+        ("- FR-1: a\n<!--\n- FR-2: b\n", ["alpha:FR-1"], [MC(2, UNCLOSED)]),
+        ("- FR-1: a\n  <!-- note\n  more\n", ["alpha:FR-1"], [MC(2, UNCLOSED)]),
+        ("- FR-1: a\n  <!-- note\n- FR-2: b\n  -->\n- FR-3: c\n", ["alpha:FR-1"], [MC(2, LEAKED)]),
+        ("- FR-1: a\n  <!-- note\n- FR-2: b\n-->\n- FR-3: c\n", ["alpha:FR-1"], [MC(2, LEAKED)]),
+        ("- Notes\n  - <!-- x\n  - more\n    -->\n- FR-3: c\n", [], [MC(2, LEAKED)]),
+        ("<!--\n- FR12: typo\n", [], [MC(1, UNCLOSED)]),
+    ],
+)
+def test_unclosed_comment_hides_every_line_after_it(text, keys, report):
+    s = parse(text)
+    assert list(s.requirements) == keys
+    assert rows(s) == report
+    if keys:
+        assert s.requirements["alpha:FR-1"].text == "a"
+
+
+@pytest.mark.parametrize(
+    ("text", "keys"),
+    [
+        ("<!--\n```\n-->\n- FR-1: a\n```\n- FR-2: b\n", ["alpha:FR-1", "alpha:FR-2"]),
+        ("<!--\n```\n-->\n- FR-1: a\n```\n- FR-2: b\n```\n", ["alpha:FR-1"]),
+        ("```\n<!--\n```\n- FR-1: a\n", ["alpha:FR-1"]),
+    ],
+)
+def test_fences_and_comments_pair_in_document_order(text, keys):
+    s = parse(text)
+    assert list(s.requirements) == keys
+    assert rows(s) == []
+
+
+def test_hostile_comment_files_are_fast():
+    texts = [
+        "<!-- x -->\n" * 50_000,
+        "- a\n  <!--\n" * 25_000,
+        "- FR-1: a <!--\n" + "  b\n" * 50_000,
+        "<!--\n" * 50_000,
+        "<!--\n```\n-->\n" * 20_000,
+        "- a\n\n" + "  - FR-1: x\n\n" * 25_000,
+    ]
+    start = time.perf_counter()
+    for text in texts:
+        parse(text)
+    assert time.perf_counter() - start < 2
+
+
 HOSTILE = [
     "- " + "a" * 100_000,
     "- " + "a-" * 50_000,
@@ -316,6 +479,10 @@ HOSTILE = [
     " " * 100_000 + "x",
     "- FR-1: x " + "{a:" * 33_000,
     "- FR-1: x " + "{a: b} " * 14_000,
+    "- FR-1: x " + "<!-- a " * 14_000,
+    "- FR-1: x " + "<!-- a --> " * 9_000,
+    "<!--" * 25_000,
+    "- FR-1: x " + "`` ` " * 20_000 + "<!--",
 ]
 
 

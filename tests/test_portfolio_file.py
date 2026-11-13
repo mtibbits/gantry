@@ -102,6 +102,14 @@ def test_br_carried_kinds(name, kind, line):
     assert entries(p) == [(kind, BRS, line, None)]
 
 
+def test_br_section_unclosed_comment(tmp_path):
+    p = write(tmp_path, fixture_with("br_malformed.md", "- BR-01: A leading zero.\n", "<!--\n- BR-2: Hidden.\n"))
+    assert entries(p) == [("malformed_comment", BRS, 8, None)]
+    assert p.report[0].message == "an HTML comment with no closing '-->' hides every line after it"
+    assert list(p.brs.requirements) == ["life:BR-1"]
+    assert p.settings_read is True
+
+
 def _unreadable(tmp_path, case):
     if case == "missing":
         return tmp_path / "nope.md"

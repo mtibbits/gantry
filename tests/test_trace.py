@@ -345,7 +345,7 @@ def test_untraced_open_leaves(tmp_path):
 
 
 READER_KINDS_TEXT = ("- FR12: m\n- FR-1: a {owner: x}\n- FR-2: b {refines: nope}\n- BR-1: c\n- FR-1: d\n"
-                     "- FR-3: e {refines: SR-9}\n- FR-4: f {refines: FR-4}\n")
+                     "- FR-3: e {refines: SR-9}\n- FR-4: f {refines: FR-4}\n<!--\n")
 
 
 def test_report_fields_carry_reader_kinds(tmp_path):
