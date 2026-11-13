@@ -1,0 +1,4 @@
+# A fictional devagent config for the week planner's tests (#61).
+
+[project.alpha]
+devdoc_dir = "alpha"

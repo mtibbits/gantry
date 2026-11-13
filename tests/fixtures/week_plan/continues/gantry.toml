@@ -1,0 +1,7 @@
+# A fictional installation for the week planner's tests (#61).
+# Paths are relative to this file's folder.
+config_version = 1
+devagent_config = "devagent.toml"
+output_dir = "out"
+as_of = 2026-01-19
+portfolio_file = "portfolio.md"

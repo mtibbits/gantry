@@ -1,0 +1,89 @@
+{
+  "plan_version": 1,
+  "status_values": ["planned", "no_plan"],
+  "shape": {"object": {
+    "plan_version": "integer",
+    "status": "string",
+    "reason": ["null", "string"],
+    "as_of": "date",
+    "allocation_rule": "string",
+    "unestimated_planned": "integer",
+    "horizon_days": {"array": "date"},
+    "planned_week": {"array": "date"},
+    "mapping": {"object": {
+      "values": {"array": "number"},
+      "source": "string",
+      "rejected": ["null", "string"]
+    }},
+    "pools": {"array": {"object": {
+      "name": "string",
+      "capacity_source": "string",
+      "days_run_out": {"array": "date"}
+    }}},
+    "binding": {"object": {
+      "pool": ["null", "string"],
+      "first_day": ["null", "date"],
+      "text": "string"
+    }},
+    "days": {"array": {"object": {
+      "date": "date",
+      "weekday": "string",
+      "attention_hours_declared": "number",
+      "attention_hours": "number",
+      "reserved": {"array": {"object": {
+        "start": "string",
+        "hours": "number",
+        "label": ["null", "string"]
+      }}},
+      "lane_hours": "number",
+      "blocks": {"array": {"object": {
+        "number": "integer",
+        "site": "string",
+        "length_hours": "number",
+        "start_cost_hours": "number",
+        "leaves": {"array": {"object": {
+          "site": "string",
+          "key": "string",
+          "agent_hours": "number",
+          "operator_hours": "number"
+        }}}
+      }}},
+      "lanes_row": {"array": {"object": {
+        "site": "string",
+        "key": "string",
+        "agent_hours": "number"
+      }}},
+      "left": {"object": {
+        "attention_hours": "number",
+        "lane_hours": "number"
+      }},
+      "ran_out": {"array": "string"},
+      "unestimated": "integer"
+    }}},
+    "leaves": {"array": {"object": {
+      "site": "string",
+      "key": "string",
+      "rate": "number",
+      "need": ["null", "integer"],
+      "tag": "string",
+      "basis": "string",
+      "agent_hours": "number",
+      "unestimated": "boolean",
+      "state": "string",
+      "hours_after_horizon": "number",
+      "days": {"array": "date"}
+    }}},
+    "sites": {"array": {"object": {
+      "name": "string",
+      "ratio_source": "string",
+      "attention_hours_charged": "number",
+      "lane_hours_charged": "number",
+      "unestimated_planned": "integer",
+      "unplanned": {"array": {"object": {
+        "key": "string",
+        "reason": "string",
+        "state": "string"
+      }}}
+    }}}
+  }}
+}
