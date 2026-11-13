@@ -218,7 +218,8 @@ system error.
 links followed, a planning directory that is a link (a planning tree kept on
 another drive) becomes a root at its target. That is allowed on a real
 installation. For the demo it is caught by sample mode (below), by the test
-that lists every root of the sample config, and by the Pages stamp check. A
+that lists every root of the sample config, and by the Pages stamp check
+(docs/demo.md). A
 link *below* a root that leads out of every root is what the open-time check
 refuses.
 

@@ -1,0 +1,86 @@
+# Build the demo from the samples, check it, and deploy it to GitHub Pages
+# under /demo/ with a generated holding page at the root (#45). A pull
+# request builds, checks and stages only; the upload and the deploy run only
+# on a push to main. docs/demo.md states the rules; tests/test_pages_workflow.py
+# pins this file's shape.
+name: pages
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+# Deploys serialise in push order, so the later commit's deploy wins; a pull
+# request queues only behind its own ref.
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.11"
+      - id: demo
+        shell: bash
+        run: |
+          set -o pipefail
+          python tools/demo_build.py | tee "$RUNNER_TEMP/demo_build.out"
+          folder="$(tail -n 1 "$RUNNER_TEMP/demo_build.out")"
+          test -d "$folder"
+          echo "folder=$folder" >> "$GITHUB_OUTPUT"
+      - shell: bash
+        env:
+          DEMO: ${{ steps.demo.outputs.folder }}
+        run: python tools/check_demo.py "$DEMO"
+      - shell: bash
+        env:
+          DEMO: ${{ steps.demo.outputs.folder }}
+        run: python tools/pages_artifact.py "$DEMO" "$RUNNER_TEMP/pages" --repo-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+      # Grade what ships: the staged copy of the demo.
+      - shell: bash
+        run: python tools/check_demo.py "$RUNNER_TEMP/pages/demo"
+      - if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: ${{ runner.temp }}/pages
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.11"
+      # The Pages source must be "GitHub Actions"; the deploy stops otherwise.
+      - shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api "repos/$GITHUB_REPOSITORY/pages" > "$RUNNER_TEMP/pages-source.json"
+      - shell: bash
+        run: python tools/check_demo.py --pages-source "$RUNNER_TEMP/pages-source.json"
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
