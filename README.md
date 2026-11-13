@@ -106,11 +106,14 @@ holds only the tool, its documentation and made-up sample data.
 - A build opens nothing outside the roots that config names
   ([docs/config.md](docs/config.md#where-a-build-may-read-and-write)).
 - The demo is built from the samples only
-  ([docs/demo.md](docs/demo.md)). Pages built from real data are served only
-  as private pages or on a private network, never on GitHub Pages.
-- A commit check, in CI and as an optional local hook, keeps real pages,
-  configs, local paths and private names out of this repository
-  ([docs/commit-check.md](docs/commit-check.md)).
+  ([docs/demo.md](docs/demo.md)), and this repository's Pages site carries
+  only the demo. Pages built from real data are meant to be served only as
+  private pages or on a private network, never on a public site; Gantry
+  writes them to your output folder and publishes nothing itself.
+- A commit check, in CI and as an optional local hook, checks what is
+  committed here for real pages, configs, local paths and, in the local
+  hook, private names; what it can and cannot catch is in
+  [docs/commit-check.md](docs/commit-check.md).
 
 ## Documentation
 
@@ -143,7 +146,7 @@ pytest session (`python tools/sample_history.py` builds it by hand), so run
 one pytest session per checkout at a time. See
 [docs/wbs-history.md](docs/wbs-history.md).
 
-`tests/test_docs.py` checks every link and anchor in this README and under
+`tests/test_docs.py` checks every Markdown link and anchor in this README and under
 `docs/`, so a new doc needs its line in `docs/README.md`, and the change that
 adds a view turns its line above into a link.
 `.github/workflows/quickstart.yml` runs the quickstart above verbatim on a

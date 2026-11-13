@@ -9,8 +9,8 @@ own document says what it shows.
 Gantry treats each project as a worksite with its own tower crane. The
 crane stands for the agents doing the work: they can lift only work whose
 predecessors are finished, and only as much at once as the site has lanes.
-A worksite page shows a site's work as a dependency network, with the chain
-that sets its finish date, and a schedule of what is lifted when.
+A worksite page shows a site's work as a dependency network, with its
+longest chain of waits, and a schedule of what is lifted when.
 
 ## Installations and the installation config
 
@@ -73,7 +73,8 @@ bytes. A copy of the samples anywhere else is not sample mode.
 Planning across many projects is limited by two things. **Agent capacity**
 is how much work the agents can carry at once. **The operator's attention**
 is how many hours a person can give to steering, reviewing and deciding.
-The worksite schedule spends the first; the week plan spends the second.
+The worksite schedule spends the first; the week plan spends both, and is
+the only one that spends the second.
 
 ## Records already kept
 
