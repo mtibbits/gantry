@@ -30,14 +30,18 @@ sample config, `samples/out`), then runs its steps in order:
 
 The steps are the tuple `STEPS` in `tools/demo_build.py`. An issue that adds a
 preparation step (#12's portfolio steps, say) inserts it into `STEPS` before
-`build`, and its own tests cover it. A step that runs a program outside
-Python first checks that the program is on the path and, when it is not,
-stops the run naming it; the two steps here need none, so `Step` has no field
-for it yet.
+`build`, and its own tests cover it. The issue asks that a step needing a
+program beyond Python and git check the program is on the path and stop the
+run naming it. Neither step here needs one, so no such check exists yet: the
+change that adds the first such step (#12's) adds the check with it.
 
 The clone tests build from a depth-1 clone of the committed `HEAD`, so they
 fail, asking for a commit, while `tools/`, `gantry/` or `samples/` holds an
-uncommitted edit or an untracked file.
+uncommitted edit or an untracked file: about 40 tests in
+`tests/test_demo_build.py` and `tests/test_check_demo.py`. While iterating on
+uncommitted work there, leave them out with
+`--ignore tests/test_demo_build.py --ignore tests/test_check_demo.py`, then
+commit and run the whole suite.
 
 **The clean guard.** Before deleting anything the tool refuses, with one
 `demo_build: <reason>` line and exit 1, when the folder is not strictly inside
@@ -85,6 +89,8 @@ first finding. Its rules:
   `built <date> <time> UTC; data as of` text and no `data-built-at` attribute.
 - **Nothing loads from outside.** Each page passes the page-safety
   external-resource check (docs/page-safety.md).
+- **The page rules.** Each page passes the page-safety page rules (allowed
+  tags and attributes, one typed embedded-data block).
 - **The hostile title shows as text.** The sample site `lighthouse` plans a
   leaf whose title holds markup (`Render <b>this</b> & "that" as text`). Each
   page whose visible text shows it, whole or cut short with an ellipsis,
@@ -158,6 +164,13 @@ portfolio steps join `STEPS` (#12).
 - **No bypass:** no `continue-on-error` anywhere, no `if` on the build job or
   on any step but the upload, and the deploy job's steps are exactly
   checkout, Python, the settings read, its check, and the deploy.
+- **Exactly this file:** the test also compares the whole parsed workflow
+  with one expected tree (`EXPECTED_TREE`; action SHAs compare by form). Any
+  key, step, `run` line, `shell`, `env` or `working-directory` the tree does
+  not hold is a finding, so changing the workflow means changing that tree in
+  the same commit. The test checks the file; the `github-pages` environment's
+  `main`-only branch policy and review of `main` are what stop a changed
+  workflow from deploying.
 
 A pull request's run therefore builds, checks and stages, and uploads and
 deploys nothing.
@@ -189,3 +202,7 @@ by the issue's impact step: the deploy job reads `build_type: workflow` and
 deploys; `<Pages URL>/demo/` serves the index and the four sample site
 pages; the root serves the holding page and both its links work. A failed
 first deploy reopens #45 with the run's link.
+
+**Taking the site down.** Reverting this workflow stops new deploys but does
+not unpublish: the last deployment stays public. To take it down, unpublish
+the site under Settings, Pages (or `gh api -X DELETE repos/<owner>/<repo>/pages`).

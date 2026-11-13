@@ -194,6 +194,8 @@ EDITS = {
     "mis-cased-href": (lambda f: swap(f, "index.html", f'href="sites/{SMALL}.html"', f'href="Sites/{SMALL_CASED}.html"'),
                        f"index.html: link 'Sites/{SMALL_CASED}.html' names no file in the folder"),
     "mis-cased-file": (mis_cased_file, f"sites/{SMALL_CASED}.html: no sample site is named {SMALL_CASED}"),
+    "page-rules-index": (lambda f: swap(f, "index.html", "<h1>", '<p onclick="x()">x</p><h1>', 1),
+                         "index.html: breaks the page rules: attribute not allowed: onclick on <p> (line "),
     "required-view-missing": (lambda f: remove(f, "index.html"),
                               "index.html: required by the expected list (#11) and missing"),
     "required-overlay-missing": (lambda f: swap(f, TRACED, 'id="trace"', 'id="not-trace"'),
@@ -368,3 +370,11 @@ def test_doc_commands_name_real_tools():
         if given:
             text = tool_help(tool)
             assert [f for f in sorted(given) if f not in text] == [], tool
+
+
+def test_check_unreadable_sample_config(copy, tmp_path):
+    root = tmp_path / "root"
+    shutil.copytree(ROOT / "samples", root / "samples", ignore=shutil.ignore_patterns("out", "history"))
+    config = root / "samples" / "gantry.sample.toml"
+    config.write_bytes(b"".join(l for l in config.read_bytes().splitlines(True) if not l.startswith(b"as_of")))
+    assert check_demo.check(copy, root=root) == [".: cannot read as_of or the sample sites from the sample config"]

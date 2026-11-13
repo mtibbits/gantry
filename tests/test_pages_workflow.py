@@ -25,6 +25,75 @@ STAGED_DEMO_CHECK = 'python tools/check_demo.py "$RUNNER_TEMP/pages/demo"'
 SOURCE_FILE = '"$RUNNER_TEMP/pages-source.json"'
 GH_API = f'gh api "repos/$GITHUB_REPOSITORY/pages" > {SOURCE_FILE}'
 SOURCE_CHECK = f"python tools/check_demo.py --pages-source {SOURCE_FILE}"
+PIN_RE = re.compile(r"@[0-9a-f]{40} # v\d+\.\d+\.\d+$")  # a pin compares as "@PIN"; uses-pinned checks its form
+
+# The whole parsed workflow, as an allow-list: any key, step or value not here is a problem (rule "exact").
+_CHECKOUT = {"uses": "actions/checkout@PIN", "with": {"fetch-depth": "1", "persist-credentials": "false"}}
+_PYTHON = {"uses": "actions/setup-python@PIN", "with": {"python-version": '"3.11"'}}
+_DEMO_ENV = {"DEMO": "${{ steps.demo.outputs.folder }}"}
+EXPECTED_TREE = {
+    "name": "pages",
+    "on": {"push": {"branches": "[main]"}, "pull_request": None},
+    "permissions": {"contents": "read"},
+    "concurrency": {"group": "pages-${{ github.ref }}", "cancel-in-progress": "false"},
+    "jobs": {
+        "build": {
+            "runs-on": "ubuntu-latest",
+            "permissions": {"contents": "read"},
+            "steps": [
+                _CHECKOUT,
+                _PYTHON,
+                {"id": "demo", "shell": "bash", "run": "\n".join([
+                    "set -o pipefail",
+                    'python tools/demo_build.py | tee "$RUNNER_TEMP/demo_build.out"',
+                    'folder="$(tail -n 1 "$RUNNER_TEMP/demo_build.out")"',
+                    'test -d "$folder"',
+                    'echo "folder=$folder" >> "$GITHUB_OUTPUT"'])},
+                {"shell": "bash", "env": _DEMO_ENV, "run": 'python tools/check_demo.py "$DEMO"'},
+                {"shell": "bash", "env": _DEMO_ENV,
+                 "run": f'python tools/pages_artifact.py "$DEMO" {STAGE} --repo-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"'},
+                {"shell": "bash", "run": STAGED_DEMO_CHECK},
+                {"if": ON_MAIN, "uses": "actions/upload-pages-artifact@PIN", "with": {"path": "${{ runner.temp }}/pages"}},
+            ],
+        },
+        "deploy": {
+            "if": ON_MAIN,
+            "needs": "build",
+            "runs-on": "ubuntu-latest",
+            "permissions": {"contents": "read", "pages": "write", "id-token": "write"},
+            "environment": {"name": "github-pages", "url": "${{ steps.deployment.outputs.page_url }}"},
+            "steps": [
+                _CHECKOUT,
+                _PYTHON,
+                {"shell": "bash", "env": {"GH_TOKEN": "${{ github.token }}"}, "run": GH_API},
+                {"shell": "bash", "run": SOURCE_CHECK},
+                {"id": "deployment", "uses": "actions/deploy-pages@PIN"},
+            ],
+        },
+    },
+}
+
+
+def _tree_difference(found, expected, path="workflow"):
+    """The first path where `found` departs from `expected`, or None."""
+    if isinstance(expected, dict):
+        if not isinstance(found, dict):
+            return path
+        for key in sorted(set(found) | set(expected)):
+            if key not in found or key not in expected:
+                return f"{path}.{key}"
+            where = _tree_difference(found[key], expected[key], f"{path}.{key}")
+            if where:
+                return where
+        return None
+    if isinstance(expected, list):
+        if not isinstance(found, list) or len(found) != len(expected):
+            return path
+        return next((w for n, (f, e) in enumerate(zip(found, expected))
+                     if (w := _tree_difference(f, e, f"{path}[{n}]"))), None)
+    if isinstance(found, str) and isinstance(expected, str) and expected.endswith("@PIN"):
+        found = PIN_RE.sub("@PIN", found)
+    return None if found == expected else path
 
 
 class Unreadable(Exception):
@@ -138,6 +207,9 @@ def workflow_problems(text):
     def need(ok, rule, what):
         if not ok:
             problems.append(f"{rule}: {what}")
+
+    where = _tree_difference(tree, EXPECTED_TREE)
+    need(where is None, "exact", f"the workflow departs from EXPECTED_TREE at {where}")
 
     jobs = _get(tree, "jobs")
     need(isinstance(jobs, dict) and set(jobs) == {"build", "deploy"}, "job-set", "the jobs are exactly build and deploy")
@@ -320,6 +392,19 @@ MUTATIONS = {
     "stage-overwritten": (sub(f"      - if: {ON_MAIN}\n        uses: actions/upload",
                               BASH + '        run: echo x > "$RUNNER_TEMP/pages/demo/index.html"\n'
                               + f"      - if: {ON_MAIN}\n        uses: actions/upload"), "build-steps"),
+    # Red-team (redmr) edits that a per-key deny-list passed; the exact tree catches each.
+    "check-shell-echo": (sub(CHECK_STEP, CHECK_STEP.replace("shell: bash", "shell: echo {0}")), "exact"),
+    "check-demo-fixed": (sub(CHECK_STEP, CHECK_STEP.replace("${{ steps.demo.outputs.folder }}", "tests/fixtures/ok")),
+                         "exact"),
+    "stage-run-extra": (sub('--repo-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"\n',
+                            '--repo-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" && echo x > "$RUNNER_TEMP/pages/index.html"\n'),
+                        "exact"),
+    "demo-github-path": (sub('          test -d "$folder"\n', '          test -d "$folder"\n          echo /tmp/bin >> "$GITHUB_PATH"\n'),
+                         "exact"),
+    "build-job-env": (sub(BUILD_HEAD, BUILD_HEAD + "    env:\n      PYTHONPATH: /tmp/x\n"), "exact"),
+    "top-defaults": (sub("permissions:\n  contents: read\n",
+                         "permissions:\n  contents: read\n\ndefaults:\n  run:\n    working-directory: /tmp\n"), "exact"),
+    "source-working-directory": (sub(SOURCE_STEP, SOURCE_STEP + "        working-directory: /tmp\n"), "exact"),
 }
 
 

@@ -225,9 +225,10 @@ def _sample_inputs(root):
     def load(parts):
         return tomllib.loads(root.joinpath(*parts).read_bytes().decode("utf-8"))
 
-    as_of = load(SAMPLE_CONFIG)["as_of"]
-    sites = set(load(DEVAGENT_CONFIG)["project"])
-    return as_of, sites
+    try:
+        return load(SAMPLE_CONFIG)["as_of"], set(load(DEVAGENT_CONFIG)["project"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
 
 
 def _entry_present(entry, files, pages) -> bool:
@@ -297,10 +298,10 @@ def _page_findings(rel, page, as_of):
     if lines:
         findings.append(f"{rel}: may load an external resource: " + "; ".join(lines))
     shows = page.shows_title()
-    if shows:
-        lines = _assertion_lines(assert_page_safe, page.source, [HOSTILE_TITLE])
-        if lines:
-            findings.append(f"{rel}: breaks the page rules with the sample hostile title planted: " + "; ".join(lines))
+    lines = _assertion_lines(assert_page_safe, page.source, [HOSTILE_TITLE] if shows else [])
+    if lines:
+        planted = " with the sample hostile title planted" if shows else ""
+        findings.append(f"{rel}: breaks the page rules{planted}: " + "; ".join(lines))
     if MARKUP_CORE in page.source:
         findings.append(f"{rel}: shows the sample hostile title as markup")
     if rel == f"sites/{HOSTILE_SITE}.html" and not shows:
@@ -316,7 +317,10 @@ def check(folder, *, root=None, expected=None) -> list:
     files, dirs = _listing(folder) if folder.is_dir() else (set(), set())
     if not any(f.endswith(".html") for f in files):
         return [".: the folder holds no page"]
-    as_of, sites = _sample_inputs(root)
+    inputs = _sample_inputs(root)
+    if inputs is None:
+        return [".: cannot read as_of or the sample sites from the sample config"]
+    as_of, sites = inputs
     findings = []
     pages = _read_pages(folder, files, findings)
     findings += [f"{rel}: {problem}" for rel, _, problem in _links(files, dirs, pages) if problem is not None]
