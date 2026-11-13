@@ -234,7 +234,7 @@ the key path where it applies. No entry holds a path.
 | `bad_milestone` | settings | the milestone's `issue` is not an issue id, or is an outline position |
 | `unknown_project` | settings | a share, a `[site.<project>]` table or the milestone names a project that is not a site; a share still counts toward its allocation's 100 |
 | `milestone_no_leaf` | settings | no leaf on the milestone's site has that `issue:`, or the site could not be read |
-| `malformed_item`, `malformed_meta`, `malformed_link`, `misplaced`, `duplicate_id`, `undefined_link`, `refines_cycle` | business requirements | the requirements reader's own kinds, carried with their line and message ([the format](requirements-format.md)) |
+| `malformed_item`, `malformed_meta`, `malformed_link`, `malformed_comment`, `misplaced`, `duplicate_id`, `undefined_link`, `refines_cycle` | business requirements | the requirements reader's own kinds, carried with their line and message ([the format](requirements-format.md)) |
 
 When the settings are not read (no block, invalid TOML or a bad version), no
 entry comes from them. `bad_milestone` comes from reading the file alone, so

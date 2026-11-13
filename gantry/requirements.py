@@ -3,8 +3,10 @@
 A requirement ID is `<namespace>:<code>-<n>` (`gantry:FR-12`), a strict subset
 of the `<namespace>:<id>` shape mtibbits/devagent#888 checks in `satisfies:`.
 A requirements file is Markdown; a requirement is an unordered list item whose
-text starts with a bare ID and a colon (`- FR-12: <text>`). Every other line is
-prose, except an ID-shaped item that is not a requirement, which is reported.
+text starts with a bare ID and a colon (`- FR-12: <text>`). Lines in fences and
+block HTML comments are hidden. Every other line is prose, except an ID-shaped
+item that is not a requirement, or an HTML comment the reader does not hide,
+which is reported.
 The module has its own meta-block reader and fence pairing and shares no code
 with gantry/wbs_stopgap.py or gantry/model.py, so #12 can delete the stopgap
 freely. docs/requirements-format.md states the rules.
