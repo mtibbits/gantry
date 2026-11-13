@@ -46,6 +46,7 @@ CANDIDATE_RE = re.compile(  # .match on an item's rest
     r"(?P<code>[A-Za-z]+)(?P<dash>-?)(?P<digits>[0-9]+)(?P<suffix>[A-Za-z]*)"
     r"(?P<close>[*_`~ \t]*):"
 )
+BREAK_RE = re.compile(r"[ \t]*([-*_])(?:[ \t]*\1){2,}[ \t]*")  # fullmatch: a thematic break, not a list item
 FENCE_RE = re.compile(r"[ \t]*(?P<run>`{3,}|~{3,})(?P<info>.*)")  # fullmatch
 BLOCK_RE = re.compile(r"\{[ \t]*[A-Za-z_][A-Za-z0-9_]*[ \t]*:[^{}]*\}")  # finditer
 _OPENER_RE = re.compile(r"\{[ \t]*[A-Za-z_][A-Za-z0-9_]*[ \t]*:")  # a block's start, closed or not
@@ -183,10 +184,16 @@ def _content_column(line, m):
     page), it is one past the marker."""
     after = len(line[: m.end("marker")].expandtabs(4)) + 1
     rest = m["rest"]
-    if rest is None or not rest.strip():
+    if rest is None or not rest.strip() or _text_is_code(line, m):
         return after
-    start = len(line[: m.start("rest")].expandtabs(4))
-    return after if start - after >= 4 else start
+    return len(line[: m.start("rest")].expandtabs(4))
+
+
+def _text_is_code(line, m):
+    """Whether an item's text starts five or more columns past its marker,
+    which a page shows as indented code."""
+    after = len(line[: m.end("marker")].expandtabs(4)) + 1
+    return m["rest"] is not None and len(line[: m.start("rest")].expandtabs(4)) - after >= 4
 
 
 class _Layout(NamedTuple):
@@ -246,7 +253,7 @@ def _scan(lines):
                 opener, bound = i, open_col
             continue
         m = ITEM_RE.fullmatch(line)
-        if m is None:
+        if m is None or (_width(line) <= 3 and BREAK_RE.fullmatch(line)):
             continue
         nested[i] = open_col is not None
         if open_col is None:
@@ -418,18 +425,21 @@ class _Reader:
     def item(self, index, m, continuation, nested):
         line = self.first_line + index
         has_nested = False
-        openers = set()  # nested items reported START: not reported INLINE as well
+        openers = set()  # nested items that start with an unclosed <!--: START or nothing, never INLINE
         for k, text in continuation:
             sub = ITEM_RE.fullmatch(text)
             if sub is not None:
                 has_nested = True
                 self.candidate(self.first_line + k, sub, nested=True)
                 if _opens_comment(sub["rest"]):
-                    self.add(self.first_line + k, "malformed_comment", START)
+                    if not _text_is_code(text, sub):
+                        self.add(self.first_line + k, "malformed_comment", START)
                     openers.add(k)
         rest = m["rest"]
         if _opens_comment(rest):
-            self.add(line, "malformed_comment", START)
+            # Not when a page shows the line as code: text past the marker, or 4 in with no item around it.
+            if not (_text_is_code(m.string, m) or (not nested and _width(m["indent"]) >= 4)):
+                self.add(line, "malformed_comment", START)
         elif rest is not None and rest.startswith("<!--"):
             k = _comment_end(rest)
             if k != -1 and CANDIDATE_RE.match(rest[k + 3 :].lstrip(" \t")):

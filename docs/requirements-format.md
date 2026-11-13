@@ -134,7 +134,8 @@ column** of an **enclosing list item**. The content column is where an
 item's text starts: 2 for `- a`, 4 for `-   a`, 3 for `1. a`. For an
 empty item, or one whose text starts five or more columns past the marker
 (code on a rendered page), it is one past the marker. An empty item followed
-by a blank line encloses nothing. An enclosing list item is an earlier list
+by a blank line encloses nothing. A thematic break (`* * *`, `- - -`) is not
+a list item, so it encloses nothing either. An enclosing list item is an earlier list
 item with only blank lines, or lines indented to at least its content
 column, in between. Fenced and
 commented lines count by their indent too. A blank line does not end the
@@ -182,14 +183,17 @@ page:
   item whose text starts with one comment closed on its line and then an ID
   (`- <!-- x --> FR-1: y`) is not read, and is reported
   `malformed_comment`. A list item whose text starts with a `<!--` that does
-  not close on its line (`- <!-- x`) is reported `malformed_comment`, and
-  the lines after it are read, though a page may hide them up to a `-->`.
+  not close on its line (`- <!-- x`) is reported `malformed_comment`, unless
+  a page shows the line as code (text five or more columns past the marker,
+  or four or more columns in with no list item around it), and the lines
+  after it are read, though a page may hide them up to a `-->`.
 - The reader simplifies four things a renderer does: only the first `-->`
   on a line counts, so text after it, even a new `<!--`, is hidden with the
   comment; a backslash before `<!--` is not read as an escape; a comment
   inside a block quote (`> <!--`) is not a block comment; and a list item
   whose text starts five or more columns past its marker, which a page shows
-  as code, is still read as an item.
+  as code, is still read as an item, as is one nested four or more columns
+  past its enclosing item's text (a `- <!--` there is still reported).
 
 ```markdown
 # Requirements

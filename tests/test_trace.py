@@ -193,6 +193,15 @@ def test_catalog_portfolio_unreadable(tmp_path):
     assert cat.lookup(rid("life:BR-1")) == (None, WHY["portfolio_unreadable"])
 
 
+def test_catalog_br_section_hidden_by_a_comment(tmp_path):
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "hidden.md").write_bytes(b"# P\n\n<!-- note\n\n## Business requirements\n\n- BR-1: x\n")
+    cat = catalog(tree(tmp_path, {"alpha": "- FR-1: a\n"}, portfolio_file='"hidden.md"'))
+    assert "malformed_comment" in [e.kind for e in cat.portfolio_report]
+    assert cat.lookup(rid("life:BR-1")) == (
+        None, "the portfolio file has no '## Business requirements' section outside a fence or comment")
+
+
 def test_catalog_portfolio_without_br_section(tmp_path):
     # A mis-cased heading: the BR-1 line is there, but no section is read.
     tmp_path.mkdir(parents=True, exist_ok=True)

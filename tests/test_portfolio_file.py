@@ -148,7 +148,17 @@ def test_unclosed_comment_in_settings_is_reported(tmp_path):
     assert p.report[1].message == UNCLOSED
 
 
+def test_thematic_break_in_the_br_section_encloses_nothing(tmp_path):
+    p = write(tmp_path, commented("- BR-1: Keep the household running.\n", "- BR-1: Keep the household running.\n"
+                                  "\n* * *\n\n  - BR-2: Two.\n")
+              .replace("agent_lanes = 1\n", 'agent_lanes = 1\n\n[site.harbor]\nserves = ["BR-2"]\n'))
+    assert entries(p) == []
+    assert list(p.brs.requirements) == ["life:BR-1", "life:BR-2"]
+
+
 def test_item_start_comment_in_the_br_section_hides_nothing(tmp_path):
+    # Indented 6 inside BR-1 the line is code on a page; nested in an item it is still reported
+    # (a stated simplification). Either way nothing after it is hidden.
     p = write(tmp_path, commented("- BR-1: Keep the household running.\n", "- BR-1: Keep the household running.\n"
                                   "\n      - <!-- old wording\n\n- BR-3: Three.\n"))
     assert entries(p) == [("malformed_comment", BRS, 9, None)]

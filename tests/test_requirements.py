@@ -242,6 +242,8 @@ def test_second_indented_sibling_after_blank_is_nested():
         # An empty item followed by a line of its own text stays open.
         ("-\n  - FR-2: b\n", [], "FR-2", 2),
         ("-\n  text\n\n  - FR-2: b\n", [], "FR-2", 4),
+        # A thematic break inside the item does not end it.
+        ("- FR-1: a\n\n  * * *\n\n  - FR-2: b\n", ["alpha:FR-1"], "FR-2", 5),
     ],
 )
 def test_enclosing_item_spans_blank_lines(text, keys, id, line):
@@ -264,6 +266,12 @@ def test_enclosing_item_spans_blank_lines(text, keys, id, line):
         ("-\n\n  - FR-2: b\n", ["alpha:FR-2"]),
         ("- \n\n  - FR-2: b\n", ["alpha:FR-2"]),
         ("- FR-1: a\n-\n\n  - FR-2: b\n", ["alpha:FR-1", "alpha:FR-2"]),
+        # A thematic break is not a list item: it encloses nothing.
+        ("* * *\n\n  - FR-1: a\n", ["alpha:FR-1"]),
+        ("- - -\n\n  - FR-1: a\n", ["alpha:FR-1"]),
+        ("* * *\n\n   - FR-1: a\n", ["alpha:FR-1"]),
+        ("- FR-1: a\n\n* * *\n\n  - FR-2: b\n", ["alpha:FR-1", "alpha:FR-2"]),
+        ("- Notes\n- - -\n\n  - FR-1: a\n", ["alpha:FR-1"]),
     ],
 )
 def test_item_below_the_content_column_is_a_sibling(text, keys):
@@ -440,13 +448,15 @@ def test_comment_after_the_meta_block_is_reported():
         ("- <!-- x\n- FR-2: y\n", ["alpha:FR-2"], [MC(1, START)]),
         ("- <!-- x\n  y -->\n- FR-2: y\n", ["alpha:FR-2"], [MC(1, START)]),
         ("- Notes\n  - <!-- x\n  - more\n    -->\n- FR-3: c\n", ["alpha:FR-3"], [MC(2, START)]),
-        ("Para\n\n    - <!-- x\n- FR-1: a\n", ["alpha:FR-1"], [MC(3, START)]),
-        ("-     <!-- x\n- FR-1: a\n", ["alpha:FR-1"], [MC(1, START)]),
-        ("1.     <!-- x\n- FR-1: a\n", ["alpha:FR-1"], [MC(1, START)]),
+        # A line a page shows as code is not reported: indented 4 with no enclosing item, or text
+        # five or more columns past the marker. Deep nesting inside an item is still reported.
+        ("Para\n\n    - <!-- x\n- FR-1: a\n", ["alpha:FR-1"], []),
+        ("-     <!-- x\n- FR-1: a\n", ["alpha:FR-1"], []),
+        ("1.     <!-- x\n- FR-1: a\n", ["alpha:FR-1"], []),
         ("- a\n\n      - <!-- x\n- FR-1: b\n", ["alpha:FR-1"], [MC(3, START)]),
         ("- FR-1: a\n\n      - <!-- x\n\n- FR-2: b\n", ["alpha:FR-1", "alpha:FR-2"], [MC(3, START)]),
         ("- FR-1: a\n      - <!-- x\n- FR-2: b\n", ["alpha:FR-1", "alpha:FR-2"], [MC(2, START)]),
-        ("- FR-1: a\n  -     <!-- x\n- FR-2: b\n", ["alpha:FR-1", "alpha:FR-2"], [MC(2, START)]),
+        ("- FR-1: a\n  -     <!-- x\n- FR-2: b\n", ["alpha:FR-1", "alpha:FR-2"], []),
     ],
 )
 def test_comment_at_the_start_of_an_item(text, keys, report):
@@ -870,7 +880,8 @@ def test_format_doc_states_rules():
         "only the first `-->` on a line counts", "not read as an escape",
         "five or more columns past the marker", "An empty item followed by a blank line encloses nothing",
         "though a page hides a closed one", "starts with a `<!--` that does not close on its line",
-        "inside a block quote", "is still read as an item",
+        "inside a block quote", "is still read as an item", "A thematic break",
+        "unless a page shows the line as code",
     ]
     assert [w for w in wanted if w not in doc] == []
 

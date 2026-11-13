@@ -9,7 +9,7 @@ report_entries (Portfolio.report and check_portfolio's entries, in report
 order), and nothing else: Portfolio.brs.report is a subset of
 Portfolio.report, relabelled the same way.
 
-Every `line` is a 1-based file line; fence_spans' indices are 0-based. No
+Every `line` is a 1-based file line; hidden_lines' indices are 0-based. No
 entry holds a path: the file is always "the portfolio file". gantry build
 reads its business requirements, for the trace (#20), and its capacity
 settings, for the week plan (#61). It runs neither check_portfolio nor the
@@ -35,7 +35,7 @@ from gantry.sites import shown
 PORTFOLIO_LABEL = "the portfolio file"
 SECTIONS = ("business requirements", "settings")  # section None: the whole file (portfolio_unreadable, or a comment)
 # An ATX heading, matched on the line with its trailing spaces and tabs removed,
-# outside fences only. Greedy throughout, so it is linear on a long line.
+# outside fences and HTML comments (hidden_lines). Greedy throughout, so it is linear on a long line.
 HEADING_RE = re.compile(r"(?P<hashes>#{1,6})[ \t]+(?P<text>.*)")  # fullmatch
 BR_HEADING, SETTINGS_HEADING = "Business requirements", "Settings"  # level 2, matched exactly
 
