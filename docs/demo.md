@@ -30,15 +30,23 @@ sample config, `samples/out`), then runs its steps in order:
 
 The steps are the tuple `STEPS` in `tools/demo_build.py`. An issue that adds a
 preparation step (#12's portfolio steps, say) inserts it into `STEPS` before
-`build`, and its own tests cover it.
+`build`, and its own tests cover it. A step that runs a program outside
+Python first checks that the program is on the path and, when it is not,
+stops the run naming it; the two steps here need none, so `Step` has no field
+for it yet.
+
+The clone tests build from a depth-1 clone of the committed `HEAD`, so they
+fail, asking for a commit, while `tools/`, `gantry/` or `samples/` holds an
+uncommitted edit or an untracked file.
 
 **The clean guard.** Before deleting anything the tool refuses, with one
 `demo_build: <reason>` line and exit 1, when the folder is not strictly inside
 `samples/`, when the folder or any folder between `samples/` and it is a
-symlink or a junction, when git does not ignore the folder (only the repo's
-own ignore rules count, not a personal global excludes file), when git
-tracks a file in it (one added with `git add -f`), or when the
-working folder is not a gantry checkout. Paths are judged as written, never
+symlink or a junction, when git does not ignore the folder (`.gitignore` and
+the clone's `.git/info/exclude` count, a personal global excludes file does
+not), when git tracks a file in it (one added with `git add -f`), or when the
+tool's own repository root (the folder above `tools/`, whatever the working
+folder) is not the top level of a git work tree. Paths are judged as written, never
 through a link. A failed step stops the run: `step <name> failed (exit <n>)`,
 or the exception's type and its traceback.
 
@@ -159,7 +167,9 @@ deploys nothing.
 Settings, Pages, Source: **GitHub Actions**. An operator sets it once; the
 workflow never changes it (it uses no `configure-pages` step, which could).
 Read on 2026-11-12, the repository's setting was already "GitHub Actions"
-(`build_type: workflow`) and the `github-pages` environment existed.
+(`build_type: workflow`) and the `github-pages` environment existed, with a
+deployment branch policy of `main` only. The deploy also leans on that policy:
+a pull request that edits this workflow still cannot deploy from its branch.
 
 The deploy job reads the setting through `GET repos/<owner>/<repo>/pages` and
 `python tools/check_demo.py --pages-source <file>`, which passes only on

@@ -32,8 +32,9 @@ ROOT = Path(__file__).resolve().parents[1]
 CONFIG = "samples/gantry.sample.toml"
 PROBE = ".probe"
 
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+for _path in (ROOT, ROOT / "tools"):  # tools/ too: `python -P` leaves it off
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
 
 Step = namedtuple("Step", "name run")
 

@@ -96,6 +96,7 @@ SHOWN_CORE = html.escape("Render <b>this</b>")
 OWN = f"sites/{OWN_UNIT}.html"
 QUARRY = f"sites/{UNESTIMATED}.html"
 HOSTILE = f"sites/{HOSTILE_SITE}.html"
+TRACED = f"sites/{SMALL}.html"  # the trace overlay's page
 SMALL_CASED = SMALL.capitalize()
 CLONE_HISTORY = []  # the demo_out clone's samples/history/out, set by the fixture
 
@@ -195,8 +196,8 @@ EDITS = {
     "mis-cased-file": (mis_cased_file, f"sites/{SMALL_CASED}.html: no sample site is named {SMALL_CASED}"),
     "required-view-missing": (lambda f: remove(f, "index.html"),
                               "index.html: required by the expected list (#11) and missing"),
-    "required-overlay-missing": (lambda f: swap(f, HOSTILE, 'id="trace"', 'id="not-trace"'),
-                                 f"sites/{SMALL}.html: element trace required by the expected list (#20) is missing"),
+    "required-overlay-missing": (lambda f: swap(f, TRACED, 'id="trace"', 'id="not-trace"'),
+                                 f"{TRACED}: element trace required by the expected list (#20) is missing"),
     "pending-view-present": (page_and_index("strategic.html"), "strategic.html: " + PENDING.format(23)),
     "pending-data-present": (lambda f: write(f, "week-plan.json", "{}\n"), "week-plan.json: " + PENDING.format(61)),
     "unlisted-top-page": (page_and_index("other.html"), "other.html: on no entry of the expected list"),
@@ -284,7 +285,7 @@ def test_expected_arg(case, copy):
         problem = "strategic.html: required by the expected list (#23) and missing"
     else:
         expected = tuple(e._replace(state="pending") if e.kind == "overlay" else e for e in check_demo.EXPECTED)
-        problem = f"{HOSTILE}: element trace is " + PENDING.format(20)
+        problem = f"{TRACED}: element trace is " + PENDING.format(20)
     assert expected != check_demo.EXPECTED
     assert check_demo.check(copy) == []
     assert check_demo.check(copy, expected=expected) == [problem]

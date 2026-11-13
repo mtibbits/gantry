@@ -336,3 +336,13 @@ def test_control_run_stamps_injected_day(two_days):
     for name, data in pages.items():
         assert stamps(data) == [f"sample data as of {DAY_THREE}"], name
         assert f"sample data as of {config['as_of']}" not in stamps(data), name
+
+
+def test_steps_import_without_script_folder_on_path():
+    """`python -P tools/demo_build.py` leaves tools/ off sys.path; the history step must still import."""
+    code = ("import importlib.util, sys; spec = importlib.util.spec_from_file_location('demo_build', sys.argv[1]); "
+            "spec.loader.exec_module(importlib.util.module_from_spec(spec)); import sample_history")
+    env = {k: v for k, v in os.environ.items() if not k.startswith("PYTHON")}
+    ran = subprocess.run([sys.executable, "-P", "-B", "-c", code, str(ROOT / "tools" / "demo_build.py")],
+                         cwd=ROOT.parent, env=env, capture_output=True, timeout=60)
+    assert ran.returncode == 0, ran.stderr.decode("utf-8", "replace")

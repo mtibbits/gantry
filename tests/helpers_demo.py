@@ -26,8 +26,10 @@ def clean_clone(tmp) -> Path:
     """A depth-1 clone of ROOT's HEAD at <tmp>/clone; fails when HEAD is not what the tree holds."""
     if plain_git(ROOT, "cat-file", "-e", "HEAD:tools/demo_build.py").returncode != 0:
         pytest.fail("tools/demo_build.py is not committed at HEAD; commit, then re-run", pytrace=False)
-    if plain_git(ROOT, "diff", "--quiet", "HEAD", "--", *GRADED).returncode != 0:
-        pytest.fail("commit tools/, gantry/, samples/ first", pytrace=False)
+    # Untracked files too: the clone would silently grade a new module or sample as absent.
+    status = plain_git(ROOT, "status", "--porcelain", "--untracked-files=all", "--", *GRADED)
+    if status.returncode != 0 or status.stdout.strip():
+        pytest.fail("commit tools/, gantry/, samples/ first (untracked files there count too)", pytrace=False)
     clone = shallow_clone(ROOT, Path(tmp) / "clone")
     assert git(clone, "rev-list", "--count", "HEAD").strip() == "1"
     return clone

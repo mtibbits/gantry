@@ -209,6 +209,8 @@ def workflow_problems(text):
         _index(build, _run_is(STAGED_DEMO_CHECK)),
         upload,
     ]
+    # Exact, like deploy's list: a step between the staged check and the upload could rewrite what ships.
+    need(len(build) == len(order) + 2, "build-steps", "build's steps are exactly checkout, setup-python and these five")
     need(None not in order and order == sorted(set(order)), "build-steps",
          "build runs demo_build.py, check_demo.py $DEMO, pages_artifact.py, check_demo.py on the stage, then the upload")
     demo = order[0]
@@ -315,6 +317,9 @@ MUTATIONS = {
                            "no-bypass"),
     "build-job-if": (sub(BUILD_HEAD, "  build:\n    if: false\n    runs-on: ubuntu-latest\n"), "no-bypass"),
     "commented-out-if": (sub(f"    if: {ON_MAIN}\n", f"    # if: {ON_MAIN}\n"), "deploy-if"),
+    "stage-overwritten": (sub(f"      - if: {ON_MAIN}\n        uses: actions/upload",
+                              BASH + '        run: echo x > "$RUNNER_TEMP/pages/demo/index.html"\n'
+                              + f"      - if: {ON_MAIN}\n        uses: actions/upload"), "build-steps"),
 }
 
 
