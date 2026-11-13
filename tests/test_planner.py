@@ -233,6 +233,13 @@ def test_to_minutes_rounds_once_and_clamps():
     assert [to_minutes(x) for x in (-1, float("nan"), None, True, "3")] == [0] * 5
 
 
+def test_ppm_rounds_once_and_clamps():
+    ppm, cap = planner._ppm, planner.MAX_RATE * planner.PPM
+    assert [ppm(x) for x in (0, 4e-7, 5e-7, 0.25, 1)] == [0, 0, 1, 250_000, 1_000_000]
+    assert [ppm(x) for x in (24, 25, 1e308, int("9" * 400), float("inf"))] == [cap] * 5
+    assert [ppm(x) for x in (-1, float("nan"), None, True, "3")] == [0] * 5
+
+
 # --- what each leaf costs ---------------------------------------------------------------
 
 

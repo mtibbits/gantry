@@ -189,7 +189,8 @@ def satisfies_ids(leaf, namespaces) -> tuple[list[ReqId], list[ReportEntry]]:
 def load_catalog(roots, config, sites) -> Catalog:
     """Read every in-trace site's requirements file and, when portfolio_file
     is set, the portfolio file, under the run's `roots`: its business
-    requirements join the catalog, and the whole read is kept as `portfolio`. `sites` is load_sites(config)[0]; in_trace_sites' warnings are
+    requirements join the catalog, and the whole read is kept as `portfolio`.
+    `sites` is load_sites(config)[0]; in_trace_sites' warnings are
     build.site_list's to print. Never raises on a file's content."""
     br = config.requirements.br_namespace
     traced, _ = in_trace_sites(config, sites)

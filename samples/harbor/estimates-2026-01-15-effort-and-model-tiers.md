@@ -1,8 +1,8 @@
 # Harbor: effort and model tiers (2026-01-15)
 
-A fictional snapshot of harbor's plan. It gives each open harbor leaf an
-effort bucket, an hour range and model tiers, plus one epic row and one
-finished row for contrast.
+A fictional snapshot of harbor's plan. It gives each open harbor leaf with
+an issue an effort bucket, an hour range and model tiers, plus one epic row
+and one finished row for contrast.
 
 ## Totals
 

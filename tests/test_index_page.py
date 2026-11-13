@@ -56,7 +56,7 @@ def test_site_line_fields(tmp_path):
     lines = site_lines(t)
     assert list(lines) == [s.name for s in result.summaries]
     li, text = lines[BUSY]
-    # Hand-derived (test_build.test_summaries_on_samples): 8 open, day 12, 1 report line, N = 0.
+    # Hand-derived (test_build.test_summaries_on_samples): 9 open, day 12, 2 report lines, N = 0.
     assert text == f"{BUSY} · 9 open leaves · finishes working day 12, 2026-02-04 · 2 missing or unreadable"
     assert "includes" not in text
     quarry = {s.name: s for s in result.summaries}[UNESTIMATED]

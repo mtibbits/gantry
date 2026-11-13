@@ -8,13 +8,12 @@ machine. docs/week-plan.md states the rules.
 """
 
 import json
-import math
 from dataclasses import asdict, dataclass
 from datetime import timedelta
 from graphlib import TopologicalSorter
 
 from gantry import priority, schedule
-from gantry.attention import leaf_attention, mapping_in_use, site_ratio_source
+from gantry.attention import MAX_RATE, leaf_attention, mapping_in_use, site_ratio_source
 from gantry.inputs import scheduled
 from gantry.model import HOURS_PER_DAY
 from gantry.portfolio_file import DEFAULTS, WEEKDAYS
@@ -105,9 +104,12 @@ def _leaf_minutes(hours) -> int:
 
 
 def _ppm(rate) -> int:
-    """A rate in whole parts per million, rounded once; 0 is rate 0."""
-    if not _is_number(rate) or not math.isfinite(rate) or rate <= 0:
+    """A rate in whole parts per million, rounded once; 0 is rate 0. Never
+    raises: a rate above MAX_RATE reads MAX_RATE."""
+    if not _is_number(rate) or rate != rate or rate <= 0:
         return 0
+    if rate >= MAX_RATE:
+        return MAX_RATE * PPM
     return int(rate * PPM + 0.5)
 
 

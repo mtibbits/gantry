@@ -208,8 +208,8 @@ The planner works in whole minutes, by two rules:
 - a rate becomes whole parts per million once, and no fraction is
   multiplied after that. The operator minutes of some agent minutes round
   up, so a block's work plus its start cost always fits its length; the
-  agent minutes that fit some operator minutes round down. A rate under one
-  part per million is rate 0.
+  agent minutes that fit some operator minutes round down. A rate under half
+  a part per million is rate 0.
 
 No number in the portfolio file can stop the planner. A value over 24 hours
 (a block of `1e308` hours, say) counts as 24, a lane count over 1,000,000

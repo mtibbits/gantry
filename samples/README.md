@@ -17,8 +17,8 @@ public tools (in prose, in the `samples/devagent/` folder name and in
   relative to `samples/` and its pages go to the ignored `samples/out/`.
 - `<site>/`: one planning folder per site, holding its `WBS.md`.
 - `harbor/estimates-2026-01-15-effort-and-model-tiers.md`: harbor's
-  estimates file, giving each open harbor leaf an effort bucket, an hour
-  range and model tiers. Its `#N` cells name `Issue-N` on harbor; GitHub
+  estimates file, giving each open harbor leaf with an `issue:` an effort
+  bucket, an hour range and model tiers. Its `#N` cells name `Issue-N` on harbor; GitHub
   auto-links them to this repo's issues, which is harmless for a fixture.
 - `portfolio.md`: the sample installation's portfolio file (#22), named by
   the sample config's `portfolio_file`. Its business requirements are
