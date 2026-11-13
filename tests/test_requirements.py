@@ -412,6 +412,39 @@ def test_items_that_do_not_enclose_still_hold_their_text(text, keys, report):
     assert rows(s) == report
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        # A line that encloses nothing bounds no comment: the page closes the comment at its -->.
+        "Para\n2. x\n   <!-- c\n-->\n- FR-1: a\n",
+        "Para\n-\n  <!--\n-->\n- FR-1: a\n",
+        "<details>\n- x\n\n  <!-- c\n-->\n- FR-1: a\n",
+        "-->\n-\n  <!--\n-->\n- FR-1: a\n",
+        "Para\n*\n  <!--\n-->\n- FR-1: a\n",
+        "-->\n-\n  <!--\n-->\n  - FR-1: a\n",
+    ],
+)
+def test_comment_under_a_line_that_encloses_nothing_does_not_leak(text):
+    s = parse(text)
+    assert list(s.requirements) == ["alpha:FR-1"]
+    assert rows(s) == []
+
+
+@pytest.mark.parametrize(
+    ("text", "keys", "fr1"),
+    [
+        # After an unclosed fence opener inside an item, a <!-- line is text (a page shows code).
+        ("- FR-1: a\n  ```\n  <!--\n- FR-2: a\n", ["alpha:FR-1", "alpha:FR-2"], "a ``` <!--"),
+        ("- x\n  ```\n  <!--\n-->\n- FR-1: a\n", ["alpha:FR-1"], "a"),
+    ],
+)
+def test_comment_after_an_unclosed_fence_in_an_item_is_text(text, keys, fr1):
+    s = parse(text)
+    assert list(s.requirements) == keys
+    assert s.requirements["alpha:FR-1"].text == fr1
+    assert rows(s) == []
+
+
 def test_comment_in_the_text_hides_a_nested_item():
     s = parse("- FR-1: a\n  <!--\n  - FR-2: x\n  -->\n")
     assert list(s.requirements) == ["alpha:FR-1"]
@@ -486,6 +519,8 @@ def test_comment_after_the_meta_block_is_reported():
         ("- FR-1: a\n\n      - <!-- x\n\n- FR-2: b\n", ["alpha:FR-1", "alpha:FR-2"], [MC(3, START)]),
         ("- FR-1: a\n      - <!-- x\n- FR-2: b\n", ["alpha:FR-1", "alpha:FR-2"], [MC(2, START)]),
         ("- FR-1: a\n  -     <!-- x\n- FR-2: b\n", ["alpha:FR-1", "alpha:FR-2"], []),
+        # Paragraph text on a page, not a list item: not reported.
+        ("Para\n2. <!-- x\n\n- FR-1: a\n", ["alpha:FR-1"], []),
     ],
 )
 def test_comment_at_the_start_of_an_item(text, keys, report):
@@ -911,6 +946,7 @@ def test_format_doc_states_rules():
         "though a page hides a closed one", "starts with a `<!--` that does not close on its line",
         "inside a block quote", "is still read as an item", "A thematic break",
         "unless a page shows the line as code", "surely starts a list", "is that block's content",
+        "after an unclosed fence", "four or more spaces outside every item",
     ]
     assert [w for w in wanted if w not in doc] == []
 

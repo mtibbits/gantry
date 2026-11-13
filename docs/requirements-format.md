@@ -82,7 +82,10 @@ Lines inside fenced code blocks are ignored too, so a file can show
 examples. A fence opened by three or more backticks or tildes is closed by
 the first later line of the same character, at least as long, with nothing
 after it. A backtick opener whose info string holds a backtick is not an
-opener. An opener with no closer is ordinary text and hides nothing.
+opener. An opener with no closer is ordinary text and hides nothing. Inside
+a list item, the lines after an unclosed fence opener, up to the item's end,
+are a page's code, so a `<!--` among them is text, not a block comment: the
+reader keeps what it read before, after an unclosed fence.
 Lines inside an HTML comment are hidden too; see [Comments](#comments).
 
 ### Candidates
@@ -201,7 +204,9 @@ page:
   inside a block quote (`> <!--`) is not a block comment; and a list item
   whose text starts five or more columns past its marker, which a page shows
   as code, is still read as an item, as is one nested four or more columns
-  past its enclosing item's text (a `- <!--` there is still reported).
+  past its enclosing item's text (a `- <!--` there is still reported), and
+  one indented four or more spaces outside every item, which also encloses
+  the items after it.
 
 ```markdown
 # Requirements

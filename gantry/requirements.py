@@ -206,6 +206,8 @@ class _Layout(NamedTuple):
     nested: list  # bool per line: an item inside an enclosing list item
     comment: tuple | None  # (index, message): the comment that hides every line after it
     fences: list  # (opener, closer) index pairs, paired in document order
+    listed: list  # bool per line: an item a page shows as a list item, not text or code
+    raw: list  # bool per line: after an unclosed fence opener in an open item (code on a page)
 
 
 def _scan(lines):
@@ -213,7 +215,7 @@ def _scan(lines):
     comments pair in document order. docs/requirements-format.md states the
     rules."""
     n = len(lines)
-    hidden, skip, nested, fences = [False] * n, [False] * n, [False] * n, []
+    hidden, skip, nested, listed, raw, fences = [False] * n, [False] * n, [False] * n, [False] * n, [False] * n, []
     # The content column of the outermost open list item. A block comment (at
     # most 3 columns in) never sits in a nested item (content column at least
     # 4), so this one integer bounds it.
@@ -221,16 +223,21 @@ def _scan(lines):
     empty = False  # the outermost open item is empty, and no line has followed it yet
     # Only an item on a line that surely starts a list encloses: not one that continues paragraph
     # text outside every enclosing item, nor one inside an HTML block (a `<tag` line up to a blank
-    # line). Such an item still bounds its comments and its text, as any item does.
+    # line). Such a line still bounds its text and its comments' skipped lines, but no comment
+    # leaks from it: on a page there is no list item to end.
     para = html = encloses = False
+    unclosed = False  # an unclosed fence opener in the open item: a page shows code to the item's end
     no_closer = {}
     fence_end = -1  # the last line of the open fence
-    opener = bound = None  # the open comment's first line, and the column a line must reach
+    opener = bound = leak = None  # the open comment's first line, the column a line must reach, and
+    #                               that column again when an enclosing item bounds it (it may leak)
     for i, line in enumerate(lines):
         if opener is not None:  # inside a comment
             if line.strip() and bound is not None and _width(line) < bound:
-                hidden[i:] = [True] * (n - i)
-                return _Layout(hidden, skip, nested, (opener, LEAKED), fences)
+                if leak is not None:
+                    hidden[i:] = [True] * (n - i)
+                    return _Layout(hidden, skip, nested, (opener, LEAKED), fences, listed, raw)
+                bound = open_col = None  # a line that encloses nothing ends here; its comment runs on
             hidden[i] = True
             skip[i] = bound is not None
             if "-->" in line:
@@ -238,12 +245,16 @@ def _scan(lines):
             continue
         if not line.strip():
             hidden[i] = i <= fence_end
+            raw[i] = unclosed
             para = html = False
             if empty:  # an item starts with at most one blank line: an empty one ends here
                 open_col, empty = None, False
             continue
         if open_col is not None and _width(line) < open_col:
             open_col = None
+        if open_col is None:
+            unclosed = False
+        raw[i] = unclosed
         empty = False
         if i <= fence_end:
             hidden[i] = True
@@ -256,14 +267,19 @@ def _scan(lines):
             hidden[i] = True
             para = False
             continue
+        f = FENCE_RE.fullmatch(line)
+        if f is not None and open_col is not None and not (f["run"][0] == "`" and "`" in f["info"]):
+            unclosed = True  # no closer: a page shows code to the item's end; the reader reads it as text
+            continue
         body = line.lstrip(" \t")
-        # Inside an HTML block a `<!--` line is the block's raw content, not a block comment.
-        if body.startswith("<!--") and _width(line) <= 3 and not html:
+        # Inside an HTML block, or after an unclosed fence in the item, a `<!--` line is content.
+        if body.startswith("<!--") and _width(line) <= 3 and not (html or unclosed):
             hidden[i] = True
             para = False
             skip[i] = open_col is not None
             if _comment_end(body) == -1:
                 opener, bound = i, open_col
+                leak = open_col if encloses else None
             continue
         m = ITEM_RE.fullmatch(line)
         if m is None or (_width(line) <= 3 and BREAK_RE.fullmatch(line)):
@@ -278,7 +294,8 @@ def _scan(lines):
             open_col = _content_column(line, m)
             encloses = not (para or html)
             empty = m["rest"] is None or not m["rest"].strip()
-    return _Layout(hidden, skip, nested, None if opener is None else (opener, UNCLOSED), fences)
+        listed[i] = encloses and not unclosed
+    return _Layout(hidden, skip, nested, None if opener is None else (opener, UNCLOSED), fences, listed, raw)
 
 
 def hidden_lines(lines):
@@ -441,7 +458,9 @@ class _Reader:
             return None
         return c
 
-    def item(self, index, m, continuation, nested):
+    def item(self, index, m, continuation, nested, listed, raw):
+        """Read the item on line `index`. `listed` and `raw` are _scan's per-line flags: a
+        START report needs a list item, and a line after an unclosed fence is code on a page."""
         line = self.first_line + index
         has_nested = False
         openers = set()  # nested items that start with an unclosed <!--: START or nothing, never INLINE
@@ -451,13 +470,13 @@ class _Reader:
                 has_nested = True
                 self.candidate(self.first_line + k, sub, nested=True)
                 if _opens_comment(sub["rest"]):
-                    if not _text_is_code(text, sub):
+                    if listed[k] and not _text_is_code(text, sub):
                         self.add(self.first_line + k, "malformed_comment", START)
                     openers.add(k)
         rest = m["rest"]
         if _opens_comment(rest):
             # Not when a page shows the line as code: text past the marker, or 4 in with no item around it.
-            if not (_text_is_code(m.string, m) or (not nested and _width(m["indent"]) >= 4)):
+            if listed[index] and not (_text_is_code(m.string, m) or (not nested and _width(m["indent"]) >= 4)):
                 self.add(line, "malformed_comment", START)
         elif rest is not None and rest.startswith("<!--"):
             k = _comment_end(rest)
@@ -479,7 +498,8 @@ class _Reader:
                      f"{rid} is also defined on line {first.line}; the first definition is kept")
             return
         tail = rest[c.end() :]
-        for at, part in chain([(line, tail)], ((self.first_line + k, t) for k, t in continuation if k not in openers)):
+        parts = ((self.first_line + k, t) for k, t in continuation if k not in openers and not raw[k])
+        for at, part in chain([(line, tail)], parts):
             if _comment_outside_code(part):
                 self.add(at, "malformed_comment", INLINE)
                 break
@@ -642,7 +662,7 @@ def parse_requirements(text, namespace, *, source, first_line=1, layers, br_name
     _check_args(namespace, layers, br_namespace)
     reader = _Reader(namespace, source, first_line, frozenset(layers), br_namespace)
     lines = split_lines(text)
-    hidden, skip, nested, comment, _ = _scan(lines)
+    hidden, skip, nested, comment, _, listed, raw = _scan(lines)
     if comment is not None:
         reader.add(first_line + comment[0], "malformed_comment", comment[1])
     i = 0
@@ -659,7 +679,7 @@ def parse_requirements(text, namespace, *, source, first_line=1, layers, br_name
                                                   and _width(lines[end]) > indent)):
             end += 1
         continuation = [(k, lines[k]) for k in range(i + 1, end) if not skip[k]]
-        reader.item(i, m, continuation, nested=nested[i])
+        reader.item(i, m, continuation, nested=nested[i], listed=listed, raw=raw)
         i = end
     return reader.result()
 
