@@ -206,10 +206,61 @@ def test_text_stops_at_blank_and_shallower():
     assert texts == ["a", "c", "e", "g h"]
 
 
-def test_indented_item_after_blank_opens_an_item():
+def NN(id, n):
+    """The report row of a nested ID-shaped item on line n."""
+    return (n, "malformed_item", f"'{id}:' is not a requirement: requirements are not nested")
+
+
+def rows(s):
+    return [(e.line, e.kind, e.message) for e in s.report]
+
+
+def test_indented_item_after_blank_is_nested():
     s = parse("- FR-1: a\n\n  - FR-3: e\n")
-    assert list(s.requirements) == ["alpha:FR-1", "alpha:FR-3"]
-    assert s.report == []
+    assert list(s.requirements) == ["alpha:FR-1"]
+    assert rows(s) == [NN("FR-3", 3)]
+    assert s.requirements["alpha:FR-1"].text == "a"
+
+
+def test_second_indented_sibling_after_blank_is_nested():
+    s = parse("- FR-1: a\n\n  - FR-2: b\n\n  - FR-3: c\n")
+    assert list(s.requirements) == ["alpha:FR-1"]
+    assert rows(s) == [NN("FR-2", 3), NN("FR-3", 5)]
+
+
+@pytest.mark.parametrize(
+    ("text", "keys", "id", "line"),
+    [
+        ("- FR-1: a\n\n  more\n\n  - FR-2: b\n", ["alpha:FR-1"], "FR-2", 5),
+        ("- FR-1: a\n\n  ```text\n  x\n  ```\n\n  - FR-2: b\n", ["alpha:FR-1"], "FR-2", 7),
+        ("- FR-1: a\n\n\t- FR-2: b\n", ["alpha:FR-1"], "FR-2", 3),
+        ("- FR-1: a\n\n  <!-- x -->\n\n  - FR-2: b\n", ["alpha:FR-1"], "FR-2", 5),
+        ("- Functional requirements\n\n  - FR-1: x\n", [], "FR-1", 3),
+        ("-   FR-1: a\n\n    - FR-2: b\n", ["alpha:FR-1"], "FR-2", 3),
+    ],
+)
+def test_enclosing_item_spans_blank_lines(text, keys, id, line):
+    s = parse(text)
+    assert list(s.requirements) == keys
+    assert rows(s) == [NN(id, line)]
+
+
+@pytest.mark.parametrize(
+    ("text", "keys"),
+    [
+        ("- FR-1: a\n\nProse.\n\n  - FR-2: b\n", ["alpha:FR-1", "alpha:FR-2"]),
+        ("- FR-1: a\n\n## B\n\n  - FR-2: b\n", ["alpha:FR-1", "alpha:FR-2"]),
+        ("- FR-1: a\n\n```text\nx\n```\n\n  - FR-2: b\n", ["alpha:FR-1", "alpha:FR-2"]),
+        ("- FR-1: a\n\n<!-- x -->\n\n  - FR-2: b\n", ["alpha:FR-1", "alpha:FR-2"]),
+        ("- FR-1: a\n\n - FR-2: b\n", ["alpha:FR-1", "alpha:FR-2"]),
+        ("-   FR-1: a\n\n  - FR-2: b\n", ["alpha:FR-1", "alpha:FR-2"]),
+        ("1. Section\n\n  - FR-2: b\n", ["alpha:FR-2"]),
+    ],
+)
+def test_item_below_the_content_column_is_a_sibling(text, keys):
+    s = parse(text)
+    assert list(s.requirements) == keys
+    assert rows(s) == []
 
 
 def test_item_under_a_prose_bullet_is_nested():
