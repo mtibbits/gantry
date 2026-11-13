@@ -9,6 +9,7 @@ removed; it records only inside `recording()` and never raises.
 import os
 import sys
 from contextlib import contextmanager
+from datetime import date
 from pathlib import Path, PurePath
 
 import pytest
@@ -373,10 +374,13 @@ def roots_of(config_path):
 
 
 def test_sample_roots_lie_inside_the_sample_directory():
+    from gantry.config import load_config
+    from gantry.sites import config_roots
     from helpers_config import sample_projects
     from test_samples import GANTRY_SAMPLE
 
-    roots = roots_of(GANTRY_SAMPLE)
+    config = load_config(GANTRY_SAMPLE)
+    roots = config_roots(config)
     assert outside(roots, sample_dir()) == []
     found = {(r.key, r.site) for r in roots.roots}
     assert {("devdoc_dir", n) for n in sample_projects()} <= found
@@ -384,7 +388,10 @@ def test_sample_roots_lie_inside_the_sample_directory():
             ("site.lighthouse.requirements", None)} <= found
     from sample_roles import HISTORY_RECENT, HISTORY_STALE, HISTORY_YOUNG
 
-    assert {(f"site.{s}.history", None) for s in (HISTORY_RECENT, HISTORY_STALE, HISTORY_YOUNG)} <= found
+    # The history keys come from the loaded config, the field that names them (#43).
+    history = {f"site.{n}.history" for n, o in config.sites.items() if o.history is not None}
+    assert {(k, None) for k in history} <= found
+    assert history == {f"site.{s}.history" for s in (HISTORY_RECENT, HISTORY_STALE, HISTORY_YOUNG)}
     assert [r.key for r in roots.roots if r.writable] == ["output_dir"]
 
 
@@ -859,3 +866,80 @@ def test_a_missing_sample_dir_is_never_sample_mode(tmp_path, monkeypatch):
 
     monkeypatch.setattr(stamp, "sample_dir", lambda: tmp_path / "missing")
     assert stamp.sample_mode(load_config(sample_dir() / "gantry.sample.toml")) is False
+
+
+# --- history refusals at the last_state_change level (#43) ----------------------------
+
+_AS_OF = date(2026, 1, 20)
+_WBS = "# Plan\n- [ ] Epic\n  - [ ] A {issue: Issue-1}\n"
+
+
+def _history_site(tmp_path, wbs=_WBS.encode()):
+    """(config, roots, the harbor site, its history repository): one commit of WBS.md."""
+    from helpers_history import commit, make_repo, site_config
+
+    repo = make_repo(tmp_path / "history")
+    commit(repo, "WBS.md", _WBS, "2026-01-05")
+    config, roots, sites = site_config(tmp_path / "inst", {"harbor": wbs}, history={"harbor": repo})
+    return config, roots, sites["harbor"], repo
+
+
+def test_history_directory_outside_the_roots_is_no_data_and_no_git_call(tmp_path, monkeypatch, git_ready):
+    from gantry import wbs_history
+    from gantry.roots import Roots
+    from helpers_history import spy_git
+
+    config, full, site, _ = _history_site(tmp_path)
+    roots = Roots(tuple(r for r in full.roots if r.key != "site.harbor.history"))
+    assert len(roots.roots) == len(full.roots) - 1
+    calls = spy_git(monkeypatch)
+    got = wbs_history.last_state_change(roots, site, config, _AS_OF, 4, wbs_history.HistoryCache())
+    assert got.no_data.text == "no data: history directory is outside the configured roots"
+    assert got.repo is got.no_data
+    assert (got.date, got.history_start, got.commits_read, got.uncommitted) == (None, False, 0, None)
+    assert got.uncommitted_reason == got.no_data.text
+    assert calls == []
+    # Control: the full roots reach git and find the repository.
+    got = wbs_history.last_state_change(full, site, config, _AS_OF, 4, wbs_history.HistoryCache())
+    assert got.no_data is None and isinstance(got.repo, wbs_history.Repo), got
+    assert calls
+
+
+def test_wbs_link_out_of_every_root_is_not_checked_and_never_reaches_git(tmp_path, monkeypatch, git_ready):
+    from gantry import wbs_history
+    from helpers_history import spy_git
+
+    config, roots, site, _ = _history_site(tmp_path, wbs=None)
+    link = Path(site.planning_dir) / "WBS.md"
+    target = tmp_path / "elsewhere" / "WBS.md"
+    target.parent.mkdir()
+    target.write_bytes(_WBS.encode())
+    symlink(target, link)
+    calls = spy_git(monkeypatch)
+    got = wbs_history.last_state_change(roots, site, config, _AS_OF, 4, wbs_history.HistoryCache())
+    assert got.no_data is None, got
+    assert got.uncommitted is None
+    assert got.uncommitted_reason == "no data: WBS.md for site harbor is outside the configured roots"
+    assert [c for c in calls if c[0][0] == "hash-object"] == []
+    forms = {os.path.normcase(str(p)) for p in (link, target, os.path.realpath(target))}
+    seen = [os.path.normcase(str(a)) for args, cwd, _ in calls for a in (*args, cwd)]
+    assert [s for s in seen if any(f in s for f in forms)] == []
+    # Control: a regular file with the committed bytes is hashed, once, and is committed.
+    os.remove(link)
+    link.write_bytes(_WBS.encode())
+    calls.clear()
+    got = wbs_history.last_state_change(roots, site, config, _AS_OF, 4, wbs_history.HistoryCache())
+    assert len([c for c in calls if c[0][0] == "hash-object"]) == 1
+    assert got.uncommitted is False, got
+
+
+def test_history_naming_the_gantry_root_is_own_repository(tmp_path, monkeypatch, git_ready):
+    from gantry import wbs_history
+    from helpers_history import site_config, spy_git
+
+    config, roots, sites = site_config(tmp_path / "inst", {"harbor": _WBS.encode()},
+                                       history={"harbor": Path(str(gantry_root()))})
+    calls = spy_git(monkeypatch)
+    got = wbs_history.last_state_change(roots, sites["harbor"], config, _AS_OF, 4, wbs_history.HistoryCache())
+    assert got.no_data.text == "no data: history would come from Gantry's own repository"
+    assert calls == []

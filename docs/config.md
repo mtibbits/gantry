@@ -192,7 +192,13 @@ directory), after checking that directory is under a root. Git then reads
 the repository that holds it, whose top level may lie above the root, as a
 shared planning repository's does. It never reads a repository whose top
 level is the gantry root or above it: discovery stops at the gantry root,
-and such a repository is refused.
+and such a repository is refused. A history directory outside every root is
+never handed to git: the site's history reads `no data: history directory is
+outside the configured roots`. The one working-tree file git is given, the
+planning directory's `WBS.md` (to tell whether it is committed), is resolved
+and checked against the roots first; outside them the check reads as not
+checked, and git never receives the path
+([the uncommitted check](wbs-history.md#the-uncommitted-check)).
 
 **Files are resolved where they are opened.** Each path is resolved at the
 moment of use, with symlinks and Windows junctions followed and `..`

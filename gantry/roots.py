@@ -368,8 +368,7 @@ def list_confined(roots, path, *, key, site=None) -> list[Entry]:
 
 
 def resolve_confined(roots, path, *, key, site=None) -> PurePath:
-    """The checked, resolved path, for a path handed to a child process
-    (provisional for #43)."""
+    """The checked, resolved path, for a path handed to a child process."""
     resolved = _check(roots, path, key=key, site=site)
     return PurePath(resolved)
 

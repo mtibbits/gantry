@@ -3,8 +3,8 @@
 A symlink the test cannot create (no privilege, as on a Windows box without
 Developer Mode) skips the test when CI is unset and fails it when CI is set,
 as tests/page_script/gate.py does for Node. A junction needs no privilege
-and is never skipped on Windows. A plain module, not a test module; #43's
-link test uses it too.
+and is never skipped on Windows. A plain module, not a test module;
+tests/test_roots.py's WBS.md link test uses it too.
 """
 
 import os
