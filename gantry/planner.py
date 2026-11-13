@@ -7,8 +7,9 @@ minutes, so the same inputs and as-of date give the same plan on any
 machine. docs/week-plan.md states the rules.
 """
 
+import json
 import math
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import timedelta
 from graphlib import TopologicalSorter
 
@@ -17,8 +18,10 @@ from gantry.attention import leaf_attention, mapping_in_use, site_ratio_source
 from gantry.inputs import scheduled
 from gantry.model import HOURS_PER_DAY
 from gantry.portfolio_file import DEFAULTS, WEEKDAYS
+from gantry.roots import write_confined
 
 PLAN_VERSION = 1
+PLAN_FILE = "week-plan.json"
 ALLOCATION_RULE = "most urgent site first; intended shares not applied"
 POOL_ATTENTION = "operator attention hours"
 POOL_LANES = "agent lanes"
@@ -490,3 +493,17 @@ def plan_week(result, portfolio, config) -> WeekPlan:
                     unestimated_planned=sum(item["unestimated"] for item in placed_order),
                     horizon_days=dates, planned_week=dates[:WEEK_DAYS], pools=_pools(run_out), binding=binding,
                     days=days, leaves=leaves, sites=sites, **fields)
+
+
+def plan_to_json(plan) -> str:
+    """The plan file's text: JSON with sorted keys, non-ASCII text as itself
+    and one trailing newline. The same plan gives the same text anywhere."""
+    return json.dumps(asdict(plan), sort_keys=True, ensure_ascii=False, allow_nan=False, indent=2) + "\n"
+
+
+def write_plan(plan, output_dir, *, roots):
+    """Write <output_dir>/week-plan.json as UTF-8 under the run's `roots`,
+    through a temporary file in that folder and a rename (write_confined):
+    no partial file. It makes no folder and catches nothing: OSError and
+    OutsideRoots are the caller's."""
+    write_confined(roots, output_dir / PLAN_FILE, plan_to_json(plan).encode("utf-8"), key="output_dir")
