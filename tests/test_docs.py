@@ -477,3 +477,66 @@ def test_quickstart_workflow_mutations(op, rule):
     assert content_lines(mutated) != content_lines(text)
     problems = quickstart_workflow_problems(mutated)
     assert any(p.startswith(rule + ":") for p in problems), problems
+
+
+# --- the README's promises ------------------------------------------------------
+
+DEMO_URL = "https://mtibbits.github.io/gantry/demo/"
+
+
+def _section(text, heading):
+    lines = text.split("\n")
+    start = lines.index(heading) + 1
+    end = next((n for n in range(start, len(lines)) if lines[n].startswith("## ")), len(lines))
+    return "\n".join(lines[start:end])
+
+
+def test_readme_names_its_promises():
+    readme = markdown_text(ROOT / "README.md")
+    for needed in (DEMO_URL, "](docs/README.md)", "](docs/concepts.md)", "claude --plugin-dir",
+                   "pip install .", "python3 -m gantry", "python3 -m venv", "MIT"):
+        assert needed in readme, needed
+    privacy = _section(readme, "## Your data stays private")
+    for link in ("](docs/config.md)", "](docs/demo.md)", "](docs/commit-check.md)"):
+        assert link in privacy, link
+    for label in VIEW_MAP:
+        assert f"- **{label}**" in _section(readme, "## What it shows"), label
+
+
+# --- the concepts page ----------------------------------------------------------
+
+CONCEPT_HEADINGS = (
+    "## Worksites and the crane",
+    "## Installations and the installation config",
+    "## Sites come from devagent",
+    "## Leaves, estimates and the default unit",
+    "## Two schedules",
+    "## Fires",
+    "## Requirements and the trace",
+    "## The as-of date and sample mode",
+    "## Two scarce resources",
+    "## Records already kept",
+    "## Where the ideas come from",
+)
+BOOKS = {
+    "*Getting Things Done*": ("Allen",),
+    "*Making Work Visible*": ("DeGrandis",),
+    "*The DevOps Handbook*": ("Kim", "Humble", "Debois", "Willis"),
+    "*Software Requirements*": ("Wiegers", "Beatty"),
+}
+
+
+def test_concepts_page():
+    text = markdown_text(ROOT / "docs" / "concepts.md")
+    lines = text.split("\n")
+    assert [line for line in lines if line.startswith("## ")] == list(CONCEPT_HEADINGS)
+    for needed in ("unestimated", "default unit", "agent capacity", "attention", "sample mode", "as of"):
+        assert needed in text, needed
+    credits = _section(text, "## Where the ideas come from")
+    for title, authors in BOOKS.items():
+        line = next(item for item in re.split(r"\n(?=- )", credits) if title in item)
+        for author in authors:
+            assert author in line, (title, author)
+    assert "](config.md)" in text and "](../README.md" in text
+    for status in ("(planned)", "not built"):
+        assert status not in text, status
