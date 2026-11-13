@@ -320,3 +320,53 @@ def test_links_agree_with_helpers(demo_out):
         assert (problem is None) == lands(demo_out, page, href), (page, href, problem)
         compared += 1
     assert compared >= 9
+
+
+# --- docs/demo.md ----------------------------------------------------------------------
+
+import contextlib
+import importlib
+import io
+
+DOC = ROOT / "docs" / "demo.md"
+TOOL_RE = re.compile(r"tools/(\w+)\.py")
+FLAG_RE = re.compile(r"(?<![\w-])--[a-z][a-z-]*")
+
+
+def doc_text():
+    return DOC.read_bytes().decode("utf-8").replace("\r\n", "\n")
+
+
+def test_doc_lists_every_expected_entry():
+    rows = [line for line in doc_text().split("\n") if line.startswith("|")]
+    for e in check_demo.EXPECTED:
+        named = [r for r in rows if f"`{e.path}`" in r and f"#{e.issue}" in r and f"`{e.state}`" in r
+                 and (e.element is None or f"`{e.element}`" in r)]
+        assert len(named) == 1, e
+
+
+def tool_help(name):
+    module = importlib.import_module(name)
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out), pytest.raises(SystemExit):
+        module.main(["--help"])
+    return out.getvalue()
+
+
+def test_doc_commands_name_real_tools():
+    flags = {}
+    for line in doc_text().split("\n"):
+        tool = None
+        for token in re.finditer(r"tools/(\w+)\.py|(?<![\w-])--[a-z][a-z-]*", line):
+            if token.group(1):
+                tool = token.group(1)
+                assert (ROOT / "tools" / f"{tool}.py").is_file(), tool
+                flags.setdefault(tool, set())
+            elif tool is not None:
+                flags[tool].add(token.group(0))
+    assert {"demo_build", "check_demo", "pages_artifact"} <= set(flags)
+    assert flags["check_demo"] >= {"--pages-source"} and flags["pages_artifact"] >= {"--repo-url"}
+    for tool, given in flags.items():
+        if given:
+            text = tool_help(tool)
+            assert [f for f in sorted(given) if f not in text] == [], tool
