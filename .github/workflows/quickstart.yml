@@ -1,0 +1,42 @@
+# Run the README quickstart as a newcomer would (#46): the image's own python3
+# (no setup action), a fresh clone of the commit under test in an empty folder,
+# the "get the code" block checked and the "build the demo" block run verbatim
+# under bash -e. It proves the Linux block only. workflow_dispatch lets a
+# release (#47) re-run it on a tag. tests/test_docs.py pins this file's shape.
+name: quickstart
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quickstart:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - shell: bash
+        run: |
+          command -v python3
+          python3 -c 'import sys; print(sys.version); sys.exit(sys.version_info < (3, 11))'
+      - shell: bash
+        run: |
+          test ! -e "$RUNNER_TEMP/clone"
+          git init -q "$RUNNER_TEMP/clone"
+          git -C "$RUNNER_TEMP/clone" fetch -q --depth 1 "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" "$GITHUB_SHA"
+          git -C "$RUNNER_TEMP/clone" checkout -q --detach FETCH_HEAD
+          test "$(git -C "$RUNNER_TEMP/clone" rev-parse HEAD)" = "$GITHUB_SHA"
+      - shell: bash
+        working-directory: ${{ runner.temp }}/clone
+        run: python3 tools/quickstart.py blocks README.md "$RUNNER_TEMP/build-demo.sh"
+      - shell: bash
+        working-directory: ${{ runner.temp }}/clone
+        run: |
+          set -o pipefail
+          bash -e "$RUNNER_TEMP/build-demo.sh" | tee "$RUNNER_TEMP/build-demo.out"
+          python3 tools/quickstart.py output "$(tail -n 1 "$RUNNER_TEMP/build-demo.out")"
