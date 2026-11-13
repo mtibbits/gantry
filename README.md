@@ -85,7 +85,7 @@ claude --plugin-dir <clone>
 /gantry:build <installation config>
 ```
 
-What a run does:
+What a run does (`gantry` here is `python3 -m gantry` when you run in place):
 
 - `gantry build --config <file>` builds every site's worksite page and the
   index that links them, and writes the week plan to `week-plan.json`
@@ -103,11 +103,13 @@ holds only the tool, its documentation and made-up sample data.
 - Every data path comes from an installation config that lives outside this
   repository and is named on every run; there is no default location
   ([docs/config.md](docs/config.md)).
-- A build opens nothing outside the roots that config names
+- A build opens files only under the roots that config names, plus its own
+  package files, and checks this on every access; the linked section also
+  says where git, reading a site's history repository, may read above them
   ([docs/config.md](docs/config.md#where-a-build-may-read-and-write)).
 - The demo is built from the samples only
   ([docs/demo.md](docs/demo.md)), and this repository's Pages site carries
-  only the demo. Pages built from real data are meant to be served only as
+  only the demo and a page that links to it. Pages built from real data are meant to be served only as
   private pages or on a private network, never on a public site; Gantry
   writes them to your output folder and publishes nothing itself.
 - A commit check, in CI and as an optional local hook, checks what is
