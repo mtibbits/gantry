@@ -38,7 +38,6 @@ jobs:
           set -o pipefail
           python tools/demo_build.py | tee "$RUNNER_TEMP/demo_build.out"
           folder="$(tail -n 1 "$RUNNER_TEMP/demo_build.out")"
-          test -n "$folder"
           test -d "$folder"
           echo "folder=$folder" >> "$GITHUB_OUTPUT"
       - shell: bash

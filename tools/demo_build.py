@@ -113,12 +113,10 @@ def guard(root) -> Path:
     if not _inside(folder, samples):
         raise Refused("the demo output folder is not inside samples/")
     walk = samples
-    for part in folder.relative_to(samples).parts:
+    for part in ("", *folder.relative_to(samples).parts):
         walk = walk / part
         if os.path.lexists(walk) and _is_link(walk):
             raise Refused("the demo output folder is a link")
-    if os.path.lexists(samples) and _is_link(samples):
-        raise Refused("the demo output folder is a link")
     probe = (folder / PROBE).relative_to(root).as_posix()
     ran = _git(root, "-c", f"core.excludesFile={os.devnull}", "check-ignore", "-q", "--no-index", "--", probe)
     if ran.returncode == 1:

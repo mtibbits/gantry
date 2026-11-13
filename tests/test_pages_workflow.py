@@ -188,13 +188,10 @@ def workflow_problems(text):
          "source-check", "deploy's steps are exactly checkout, setup-python, the API read, the source check, deploy-pages")
     api = _index(deploy, _run_holds("gh api"))
     check = _index(deploy, _run_is(SOURCE_CHECK))
-    publish = _index(deploy, _uses("actions/deploy-pages"))
     need(api is not None and deploy[api].get("run") == GH_API and deploy[api].get("shell") == "bash"
          and _get(deploy[api], "env", "GH_TOKEN") == "${{ github.token }}",
          "source-check", f"a bash step with GH_TOKEN runs exactly: {GH_API}")
     need(check is not None and deploy[check].get("shell") == "bash", "source-check", f"a bash step runs: {SOURCE_CHECK}")
-    need(None not in (api, check, publish) and api < check < publish, "source-check",
-         "the API read, then the source check, precede deploy-pages")
 
     for name in ("build", "deploy"):
         steps = _steps(tree, name)

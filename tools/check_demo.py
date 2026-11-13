@@ -248,8 +248,7 @@ def _expected_findings(expected, files, pages):
         elif e.state == "required" and not present:
             findings.append(f"{e.path}: required by the expected list (#{e.issue}) and missing")
         elif e.state == "pending" and present:
-            named = sorted(f for f in files if _matches(f, e.path)) if "*" in e.path else [e.path]
-            findings += [f"{f}: " + PENDING.format(e.issue) for f in named]
+            findings += [f"{f}: " + PENDING.format(e.issue) for f in sorted(files) if _matches(f, e.path)]
     unlisted = sorted(f for f in files
                       if (not f.endswith(".html") or (f != "index.html" and not _matches(f, "sites/*.html")))
                       and not any(e.kind != "overlay" and _matches(f, e.path) for e in expected))
@@ -272,6 +271,7 @@ def _site_findings(sites, files, pages):
             elif name not in sites:
                 findings.append(f"{f}: no sample site is named {name}")
     index = pages.get("index.html")
+    targets = set()
     if index is not None:
         targets = {posixpath.normpath(unquote(h.partition("#")[0])) for h in index.links if not _is_external(h)}
         for name in sorted(NOT_BUILT & sites):
@@ -279,10 +279,8 @@ def _site_findings(sites, files, pages):
                 findings.append(f"index.html: does not name the NOT_BUILT site {name}")
             if f"sites/{name}.html" in targets:
                 findings.append(f"index.html: links a page for the NOT_BUILT site {name}")
-        findings += [f"{rel}: not linked from index.html" for rel in sorted(pages)
-                     if rel != "index.html" and rel not in targets]
-    else:
-        findings += [f"{rel}: not linked from index.html" for rel in sorted(pages) if rel != "index.html"]
+    findings += [f"{rel}: not linked from index.html" for rel in sorted(pages)
+                 if rel != "index.html" and rel not in targets]
     return findings
 
 

@@ -17,7 +17,7 @@ import pytest
 
 import check_demo
 from gantry.stamp import BUILT_STAMP
-from helpers_config import lands
+from helpers_config import lands, written_bytes
 from helpers_demo import ROOT, clean_clone, run_child, stderr_of
 from helpers_history import require_git
 from sample_roles import BUSY, HOSTILE_SITE, HOSTILE_TITLE, NO_WBS, OWN_UNIT, SMALL, UNESTIMATED
@@ -245,24 +245,22 @@ def findings_hold(findings, expected):
     return expected in findings
 
 
-def tree_bytes(folder):
-    return {p.relative_to(folder).as_posix(): p.read_bytes() for p in folder.rglob("*") if p.is_file()}
-
-
 @pytest.mark.parametrize("case", list(EDITS))
 def test_check_fails(case, copy, tmp_path, capsys):
     edit, expected = EDITS[case]
-    before = tree_bytes(copy)
+    before = written_bytes(copy)
     edit(copy)
-    assert tree_bytes(copy) != before, "the edit changed nothing"
-    findings = check_demo.check(copy)
+    assert written_bytes(copy) != before, "the edit changed nothing"
+    assert check_demo.main([str(copy)]) == 1
+    out = capsys.readouterr()
+    *lines, total = out.err.splitlines()
+    assert all(line.startswith("check_demo: ") for line in lines), lines
+    findings = [line.removeprefix("check_demo: ") for line in lines]
+    assert total == f"check_demo: {len(findings)} problem(s)"
     assert findings_hold(findings, expected), findings
     assert findings == sorted(findings)
     # test_every_finding_is_relative, row by row: no finding holds the folder's path.
     assert [f for f in findings if str(tmp_path) in f] == []
-    assert check_demo.main([str(copy)]) == 1
-    out = capsys.readouterr()
-    assert out.err.splitlines() == [f"check_demo: {f}" for f in findings] + [f"check_demo: {len(findings)} problem(s)"]
     assert out.out == ""
 
 
@@ -316,7 +314,7 @@ def test_links_agree_with_helpers(demo_out):
     links = check_demo.links(demo_out)
     compared = 0
     for page, href, problem in links:
-        if href.startswith(("#", "/")) or re.match(r"[A-Za-z][A-Za-z0-9+.-]*:", href):
+        if href.startswith("#"):
             continue
         assert (problem is None) == lands(demo_out, page, href), (page, href, problem)
         compared += 1
@@ -330,8 +328,6 @@ import importlib
 import io
 
 DOC = ROOT / "docs" / "demo.md"
-TOOL_RE = re.compile(r"tools/(\w+)\.py")
-FLAG_RE = re.compile(r"(?<![\w-])--[a-z][a-z-]*")
 
 
 def doc_text():
