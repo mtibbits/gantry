@@ -128,6 +128,9 @@ def test_shape_holds_with_reserved_blocks_and_unplanned_leaves(tmp_path):
     document = document_of(plan_of(tmp_path, "binds_lanes"))
     assert document["days"][0]["lanes_row"] and document["pools"][1]["days_run_out"]
     assert shape_errors(document) == []
+    document = document_of(plan_of(tmp_path, "cross_site_cycle"))
+    assert document["report"][0]["leaves"]
+    assert shape_errors(document) == []
 
 
 def _states(tmp_path):

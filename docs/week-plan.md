@@ -300,10 +300,13 @@ these that applies:
 2. `parked`: its state is `P`;
 3. `waits_on_cycle`: it is in, or waits on, a dependency cycle within its
    site;
-4. `waits_on_other_site`: it waits on another site, as above;
-5. `waits_on_unplanned`: it waits on a leaf that is unplanned for one of
+4. `cross_site_cycle`: it is in a dependency cycle across sites;
+5. `waits_on_site_absent`: it waits on a site not in this installation;
+6. `waits_on_unresolved`: it waits on an entry naming another site that
+   could not be resolved;
+7. `waits_on_unplanned`: it waits on a leaf that is unplanned for one of
    the reasons above or this one;
-6. `beyond_horizon`: it was never placed in the 10 days, a leaf whose
+8. `beyond_horizon`: it was never placed in the 10 days, a leaf whose
    blocker is itself `beyond_horizon` included.
 
 ### Past the horizon
@@ -421,7 +424,10 @@ passes a ratio), its `attention_hours_charged` (its block lengths over the
 10 days, start costs and minimum-length padding included), its
 `lane_hours_charged` (the agent hours placed), its `unestimated_planned`
 count and its `unplanned` list (`key`, `reason`, `state`,
-`unresolved_local`).
+`unresolved_local`). An unplanned leaf's `reason` is one of
+`blocked_externally`, `parked`, `waits_on_cycle`, `cross_site_cycle`,
+`waits_on_site_absent`, `waits_on_unresolved`, `waits_on_unplanned` and
+`beyond_horizon` ([Unplanned leaves](#unplanned-leaves)).
 
 A report entry holds its `kind`, `cross_site_cycle`, and its `leaves`,
 each a `site` and `key`, in devagent's config order of site, then `WBS.md`

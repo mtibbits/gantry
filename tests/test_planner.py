@@ -306,16 +306,6 @@ def test_unplanned_list_is_in_wbs_order(tmp_path):
     assert list(unplanned(plan, "a")) == ["Issue-1", "Issue-2", "Issue-4"]
 
 
-def test_waits_on_other_site_unplanned_and_finished_target_planned(tmp_path):
-    plan = plan_of(tmp_path, "states", wbs={
-        "a": wbs_md(leaf(1, h=1, depends_on="[b:Issue-2]"), leaf(2, h=1, depends_on="[b:Issue-9]")),
-        "b": wbs_md(leaf(2, h=1), leaf(9, "x", h=1)),
-    })
-    assert unplanned(plan, "a") == {"Issue-1": ("waits_on_other_site", "pending")}
-    assert placed_keys(plan, "a") == ["Issue-2"]
-    assert placed_keys(plan, "b") == ["Issue-2"]
-
-
 def test_cycle_is_waits_on_cycle(tmp_path):
     plan = plan_of(tmp_path, "states", wbs={"a": wbs_md(
         leaf(1, h=1, depends_on="[Issue-2]"), leaf(2, h=1, depends_on="[Issue-1]"),
@@ -328,20 +318,26 @@ def test_reason_precedence_before_the_horizon(tmp_path):
     plan = plan_of(tmp_path, "states", wbs={
         "a": wbs_md(
             leaf(1, "?", h=1, depends_on="[b:Issue-2]"),  # blocked externally, and waits on another site
-            leaf(2, "P", h=1, depends_on="[b:Issue-2]"),  # parked, and waits on another site
-            leaf(3, "?", h=1, depends_on="[Issue-4]"),  # blocked externally, and in a cycle
-            leaf(4, h=1, depends_on="[Issue-3, b:Issue-2]"),  # in a cycle, and waits on another site
-            leaf(5, h=1, depends_on="[Issue-2, b:Issue-2]"),  # waits on another site, and on a parked leaf
-            leaf(6, h=1, depends_on="[Issue-5]"),  # waits on a leaf that waits on another site
-            leaf(7, h=1, depends_on="[Issue-6]"),  # and so on down the chain
+            leaf(2, "P", h=1, depends_on="[zz:Issue-1]"),  # parked, and waits on an absent site
+            leaf(3, "?", h=1, depends_on="[Issue-4]"),  # blocked externally, in a cycle within and across sites
+            leaf(4, h=1, depends_on="[Issue-3, b:Issue-3]"),  # in a site's own cycle and one across sites
+            leaf(5, h=1, depends_on="[b:Issue-1, zz:Issue-1]"),  # in a cycle across sites, and on an absent site
+            leaf(6, h=1, depends_on="[b:Issue-99, zz:Issue-1]"),  # unresolved, and on an absent site
+            leaf(7, h=1, depends_on="[Issue-2, b:Issue-99]"),  # unresolved, and on a parked leaf
+            leaf(8, h=1, depends_on="[Issue-7]"),  # waits on a leaf unplanned for another reason
         ),
-        "b": wbs_md(leaf(2, h=1)),
+        "b": wbs_md(leaf(1, h=1, depends_on="[a:Issue-5]"), leaf(2, h=1), leaf(3, h=1, depends_on="[a:Issue-4]")),
     })
     assert {key: reason for key, (reason, _) in unplanned(plan, "a").items()} == {
         "Issue-1": "blocked_externally", "Issue-2": "parked", "Issue-3": "blocked_externally",
-        "Issue-4": "waits_on_cycle", "Issue-5": "waits_on_other_site", "Issue-6": "waits_on_unplanned",
-        "Issue-7": "waits_on_unplanned",
+        "Issue-4": "waits_on_cycle", "Issue-5": "cross_site_cycle", "Issue-6": "waits_on_site_absent",
+        "Issue-7": "waits_on_unresolved", "Issue-8": "waits_on_unplanned",
     }
+    assert {key: reason for key, (reason, _) in unplanned(plan, "b").items()} == {
+        "Issue-1": "cross_site_cycle", "Issue-3": "cross_site_cycle"}
+    # A cycle across sites that holds a site's own cycle is reported whole; first-leaf order.
+    assert [[(e["site"], e["key"]) for e in entry["leaves"]] for entry in plan.report] == [
+        [("a", "Issue-3"), ("a", "Issue-4"), ("b", "Issue-3")], [("a", "Issue-5"), ("b", "Issue-1")]]
 
 
 def test_unplanned_dependent_still_lifts_its_blocker(tmp_path):
@@ -365,6 +361,118 @@ def test_unresolved_local_counts_own_and_row_entries(tmp_path):
     others = [entry for entry in plan.leaves if (entry["site"], entry["key"]) not in counted]
     others += [entry for site in plan.sites for entry in site["unplanned"] if (site["name"], entry["key"]) not in counted]
     assert others and all(entry["unresolved_local"] == 0 for entry in others)
+
+
+# --- dependencies across sites (#62) -------------------------------------------------------
+
+
+def test_cross_site_hold_until_blocker_finishes(tmp_path):
+    plan = plan_of(tmp_path, "cross_site")
+    assert placed(plan, "b", "Issue-1")["days"][-1] == "2026-01-20"
+    assert placed(plan, "a", "Issue-1")["days"][0] == "2026-01-21"
+    assert placed(plan, "a", "Issue-15")["days"][0] == "2026-01-22"  # local, behind the held leaf
+
+
+def test_cross_site_finished_blocker_is_satisfied(tmp_path):
+    assert placed(plan_of(tmp_path, "cross_site"), "a", "Issue-2")["days"][0] == "2026-01-19"
+
+
+def test_cross_site_absent_and_unresolved(tmp_path):
+    reasons = {key: reason for key, (reason, _) in unplanned(plan_of(tmp_path, "cross_site"), "a").items()}
+    assert reasons["Issue-3"] == "waits_on_site_absent"
+    assert reasons["Issue-4"] == "waits_on_unresolved"
+    assert reasons["Issue-5"] == "waits_on_site_absent"  # both; the unresolved entry is first in WBS.md
+
+
+def test_cross_site_row_entry_holds_leaves_under_it(tmp_path):
+    plan = plan_of(tmp_path, "cross_site")
+    assert placed(plan, "a", "Issue-7")["days"][0] == "2026-01-21" == placed(plan, "a", "Issue-1")["days"][0]
+
+
+def test_cross_site_row_target_waits_for_last_open_leaf(tmp_path):
+    plan = plan_of(tmp_path, "cross_site")
+    assert placed(plan, "b", "Issue-6")["days"][-1] == "2026-01-19"
+    assert placed(plan, "b", "Issue-7")["days"][-1] == "2026-01-21"
+    assert placed(plan, "a", "Issue-8")["days"][0] == "2026-01-22"
+
+
+def test_cross_site_unplanned_blocker_is_waits_on_unplanned(tmp_path):
+    plan = plan_of(tmp_path, "cross_site")
+    assert unplanned(plan, "b")["Issue-3"] == ("parked", "parked")
+    assert unplanned(plan, "a")["Issue-9"][0] == "waits_on_unplanned"
+
+
+def test_cross_site_blocker_past_horizon_is_beyond_horizon(tmp_path):
+    plan = plan_of(tmp_path, "cross_site")
+    assert placed(plan, "b", "Issue-4")["hours_after_horizon"] == 30.0
+    assert unplanned(plan, "b")["Issue-10"][0] == "beyond_horizon"
+    assert unplanned(plan, "a")["Issue-10"][0] == "beyond_horizon"
+    assert unplanned(plan, "a")["Issue-11"][0] == "beyond_horizon"
+
+
+def test_cross_site_reason_order_is_global(tmp_path):
+    # a Issue-17 waits on b Issue-13, which waits on b Issue-12, which waits on an absent site:
+    # a reason pass per site, in config order, would leave a Issue-17 to the day loop.
+    plan = plan_of(tmp_path, "cross_site")
+    assert unplanned(plan, "b")["Issue-12"][0] == "waits_on_site_absent"
+    assert unplanned(plan, "b")["Issue-13"][0] == "waits_on_unplanned"
+    assert unplanned(plan, "a")["Issue-17"][0] == "waits_on_unplanned"
+
+
+def test_priority_does_not_cross_sites(tmp_path):
+    plan = plan_of(tmp_path, "cross_site")
+    order = placed_keys(plan, "b")
+    assert order.index("Issue-9") < order.index("Issue-8")  # P2 first, though the P0 on a waits on the P3
+    assert placed(plan, "b", "Issue-9")["days"][0] == placed(plan, "b", "Issue-8")["days"][0] == "2026-01-19"
+    assert placed(plan, "a", "Issue-12")["days"][0] == "2026-01-20"
+
+
+def test_cross_site_cycle_reported_once(tmp_path):
+    plan = plan_of(tmp_path, "cross_site_cycle")
+    assert plan.status == "planned" and len(plan.days) == 10
+    assert plan.report == [
+        {"kind": "cross_site_cycle", "leaves": [
+            {"site": "a", "key": "Issue-1"}, {"site": "a", "key": "Issue-2"}, {"site": "b", "key": "Issue-1"}]},
+        {"kind": "cross_site_cycle", "leaves": [{"site": "a", "key": "Issue-5"}, {"site": "b", "key": "Issue-7"}]},
+    ]
+    a, b = unplanned(plan, "a"), unplanned(plan, "b")
+    for site, key in (("a", "Issue-1"), ("a", "Issue-2"), ("b", "Issue-1"), ("a", "Issue-5"), ("b", "Issue-7")):
+        assert {"a": a, "b": b}[site][key][0] == "cross_site_cycle", (site, key)
+    assert a["Issue-3"][0] == b["Issue-2"][0] == "waits_on_unplanned"
+    assert b["Issue-4"][0] == b["Issue-5"][0] == "waits_on_cycle"  # a site's own cycle: not in report
+    assert "Issue-6" not in b  # the row target is never a leaf
+    assert placed(plan, "a", "Issue-4")["days"][0] == placed(plan, "b", "Issue-3")["days"][0] == "2026-01-19"
+
+
+def test_cross_site_hold_in_a_block_at_rate_above_1(tmp_path):
+    plan = plan_of(tmp_path, "states",
+                   portfolio=portfolio_md(hours=8, lanes=3, more="attention_mapping = [0, 0.1, 0.25, 0.5, 2.0]\n"),
+                   wbs={"a": wbs_md(leaf(1, priority="P1", est="1h", h=4, depends_on="[b:Issue-1]")),
+                        "b": wbs_md(leaf(1, est="3h", h=4))})
+    assert placed(plan, "b", "Issue-1")["days"] == ["2026-01-19"]
+    assert placed(plan, "a", "Issue-1")["days"] == ["2026-01-20"]
+    assert block_keys(plan.days[0]) == ["Issue-1"] and plan.days[0]["blocks"][0]["site"] == "b"
+    assert block_keys(plan.days[1]) == ["Issue-1"] and plan.days[1]["blocks"][0]["site"] == "a"
+
+
+def test_no_leaf_is_waits_on_other_site(tmp_path):
+    assert "waits_on_other_site" not in planner.UNPLANNED_REASONS
+    for subject in invariant_subjects():
+        plan, _ = subject_plan(tmp_path, subject)
+        assert all(entry["reason"] != "waits_on_other_site" for site in plan.sites for entry in site["unplanned"])
+
+
+def in_force_shares(portfolio, as_of):
+    """The shares of the allocation in force on `as_of`: the latest from on or before it."""
+    return max((a for a in portfolio.allocations if a.from_date <= as_of), key=lambda a: a.from_date).shares
+
+
+@pytest.mark.parametrize("base", ["cross_site", "cross_site_cycle"])
+def test_cross_site_fixtures_have_spare_capacity(tmp_path, base):
+    result, portfolio, config = built(install(tmp_path, base))
+    plan = plan_week(result, portfolio, config)
+    assert all(day["ran_out"] == [] for day in plan.days)
+    assert set(in_force_shares(portfolio, config.as_of)) >= {site["name"] for site in plan.sites} == {"a", "b"}
 
 
 def open_keys(copy, site):
@@ -825,11 +933,13 @@ def test_reason_precedence(tmp_path):
 
 
 @pytest.mark.parametrize("base", FIXTURE_NAMES)
-def test_unplanned_reasons_are_the_six(tmp_path, base):
+def test_unplanned_reasons_are_the_eight(tmp_path, base):
     plan = plan_of(tmp_path, base)
     reasons = {entry["reason"] for site in plan.sites for entry in site["unplanned"]}
     assert reasons <= set(planner.UNPLANNED_REASONS)
-    assert len(planner.UNPLANNED_REASONS) == 6
+    assert planner.UNPLANNED_REASONS == (
+        "blocked_externally", "parked", "waits_on_cycle", "cross_site_cycle", "waits_on_site_absent",
+        "waits_on_unresolved", "waits_on_unplanned", "beyond_horizon")
 
 
 def test_extreme_block_min_opens_no_block(tmp_path):
@@ -892,7 +1002,7 @@ def test_week_plan_doc_states_planner():
         "gantry: error: cannot write week-plan.json: <reason>",
     ]
     assert [w for w in wanted if w not in doc] == []
-    assert len(planner.UNPLANNED_REASONS) == 6 and len(NO_PLAN) == 5
+    assert len(planner.UNPLANNED_REASONS) == 8 and len(NO_PLAN) == 5
     # The planner's rules are in its section, the file's in its own.
     the_planner = " ".join(doc_section(text, "## The planner").split())
     for topic in ("### Days and capacity", "### What each leaf costs", "### Blocks", "### A ready leaf that fits",
@@ -936,6 +1046,13 @@ def test_week_plan_doc_names_every_field():
     section = doc_section(doc, "## The plan file")
     names = {part.removesuffix("[]") for path in V1_FIELDS for part in path.split(".")[1:]}
     assert [name for name in sorted(names) if f"`{name}`" not in section] == []
+
+
+def test_week_plan_doc_plan_file_names_every_reason():
+    # A reader of the plan file finds every unplanned reason in the file's own section.
+    the_file = doc_section(WEEK_PLAN_DOC.read_bytes().decode("utf-8"), "## The plan file")
+    the_file = " ".join(the_file.split())
+    assert [r for r in planner.UNPLANNED_REASONS if f"`{r}`" not in the_file] == []
 
 
 def test_attention_not_recorded_for_a_leaf_with_no_lane_free(tmp_path):
