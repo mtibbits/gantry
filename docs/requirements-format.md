@@ -89,7 +89,8 @@ reader keeps what it read before, after an unclosed fence. The same holds
 after a fence whose opener or closer is indented four or more columns past
 its list item (or the line start), or whose closer is outdented below its
 list item, because a page may pair it differently: from there on, no line is
-a block comment and no item encloses. A fence opener indented four or more
+a block comment and no item encloses. A fence marker hidden inside a block
+comment does the same, and after it a fence opener indented four or more
 columns past its list item (or the line start) is not a fence at all: a page
 shows it as code or text.
 Lines inside an HTML comment are hidden too; see [Comments](#comments).
