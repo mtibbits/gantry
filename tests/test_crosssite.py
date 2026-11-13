@@ -556,7 +556,7 @@ def test_hostile_render_reason(tmp_path, monkeypatch, h):
 # because every role constant names a configured project.
 ABSENT_SITE = "ferry"
 SAMPLES = ROOT / "samples"
-# (site, node: key or title, entry): the ten cross-site cases.
+# (site, node: key or title, entry): the eleven cross-site cases.
 CASES = [
     (UNESTIMATED, "Issue-9", f"{BUSY}:Issue-7"),  # open, and quarry has its own Issue-7
     (UNESTIMATED, "Issue-3", f"{BUSY}:Issue-3"),  # a finished target
@@ -568,6 +568,7 @@ CASES = [
     (OWN_UNIT, "Issue-6", f"{NO_WBS}:Issue-1"),  # no WBS.md
     (OWN_UNIT, "Stake the young trees", f"{UNREADABLE}:Issue-2"),  # not valid UTF-8
     (OWN_UNIT, "Mulch the beds", f"{SMALL}:Issue-40"),  # lacks the issue
+    (BUSY, "Issue-6", f"{UNESTIMATED}:Issue-3"),  # an open quarry leaf the demo week plan holds on (#62)
 ]
 
 
@@ -641,7 +642,7 @@ def test_sample_row_source(tmp_path):
         line=row.line, entry=f"{ABSENT_SITE}:Issue-2"))]
 
 
-EXPECTED_STATUS = Counter({"open": 3, "satisfied": 1, "absent": 1, "unresolved": 4})
+EXPECTED_STATUS = Counter({"open": 4, "satisfied": 1, "absent": 1, "unresolved": 4})
 
 
 def test_sample_every_entry_has_outcome(tmp_path):
@@ -650,7 +651,7 @@ def test_sample_every_entry_has_outcome(tmp_path):
                 for node in (*found.data.leaves, *found.data.rows)
                 for ref in refs(node.meta, site) if ref.kind == "foreign"}
     recorded = [(o.site, o.source_key, o.raw) for outcomes in result.foreign.values() for o in outcomes]
-    assert len(recorded) == len(set(recorded)) == 9
+    assert len(recorded) == len(set(recorded)) == 10
     assert set(recorded) == expected
     assert Counter(o.status for outcomes in result.foreign.values() for o in outcomes) == EXPECTED_STATUS
     assert list(result.foreign) == [s.name for s in result.sites if s.name in result.inputs]
@@ -756,7 +757,7 @@ def node_x(t):
 
 def test_schedule_unchanged_without_foreign(tmp_path):
     a, b = sample_build(tmp_path / "a"), stripped_build(tmp_path / "b")
-    assert sum(len(o) for o in a.foreign.values()) == 9 and sum(len(o) for o in b.foreign.values()) == 0
+    assert sum(len(o) for o in a.foreign.values()) == 10 and sum(len(o) for o in b.foreign.values()) == 0
     assert set(a.pages) == set(b.pages)
     extras = 0
     for site in a.pages:
@@ -809,7 +810,7 @@ def test_sample_hrefs_form_and_land(tmp_path, monkeypatch):
             assert HREF_RE.fullmatch(href), (rel, href)
             assert lands(out, rel, href), (rel, href)
             hrefs += 1
-    assert hrefs == 5
+    assert hrefs == 6
 
 
 # --- the docs (Task 7) ----------------------------------------------------------------

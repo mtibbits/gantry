@@ -340,7 +340,7 @@ def test_every_link_lands(tmp_path, monkeypatch):
     # The subject set cannot quietly empty: the index links 4 pages, and the
     # worksite pages link their boxes on another site (#68).
     assert counts.pop("index.html") == 4
-    assert counts == {f"sites/{UNESTIMATED}.html": 1, f"sites/{OWN_UNIT}.html": 4, f"sites/{BUSY}.html": 0,
+    assert counts == {f"sites/{UNESTIMATED}.html": 1, f"sites/{OWN_UNIT}.html": 4, f"sites/{BUSY}.html": 1,
                       f"sites/{SMALL}.html": 0}
 
 
@@ -684,3 +684,26 @@ def test_no_home_defers_to_this_issue():
                         ROOT / "README.md", ROOT / "tests" / "test_cli.py"]):
         text = " ".join(path.read_bytes().decode("utf-8").split())
         assert [s for s in stale if s in text] == [], path.name
+
+
+def test_demo_plan_holds_a_cross_site_leaf(tmp_path):
+    # The demo week plan holds a leaf of one site on another site's open leaf (#62),
+    # and the hold binds inside the 10 days.
+    from gantry.portfolio_file import read_portfolio_file
+
+    result = sample_build(tmp_path)
+    plan = result.plan
+    waiter = next(leaf for leaf in result.inputs[BUSY].data.leaves if leaf.key == "Issue-6")
+    held_on = [(o.target_site, o.target_key) for o in waiter.foreign_targets or () if o.status == "open"]
+    assert held_on == [(UNESTIMATED, "Issue-3")]
+    records = {(entry["site"], entry["key"]): entry for entry in plan.leaves}
+    blocker, held = records[UNESTIMATED, "Issue-3"], records[BUSY, "Issue-6"]
+    assert blocker["hours_after_horizon"] == 0
+    assert held["days"][0] in plan.horizon_days
+    assert plan.horizon_days.index(held["days"][0]) >= plan.horizon_days.index(blocker["days"][-1]) + 1
+    # Both sites hold an intended share on the as-of date.
+    portfolio = read_portfolio_file(result.roots, result.config.portfolio_file,
+                                    br_namespace=result.config.requirements.br_namespace)
+    in_force = max((a for a in portfolio.allocations if a.from_date <= result.config.as_of),
+                   key=lambda a: a.from_date)
+    assert {BUSY, UNESTIMATED} <= set(in_force.shares)
