@@ -294,19 +294,19 @@ def _cross_site_cycles(by_node) -> list[list[tuple[str, str]]]:
     return [cycle for cycle in find_cycles(list(by_node), links) if len({site for site, _ in cycle}) >= 2]
 
 
-def _reasons(by_node, cycles) -> dict:
+def _reasons(by_node, cycles, sites) -> dict:
     """{(site, key): reason} for each open leaf the plan leaves out whatever
     the capacity: the first reason that applies, in UNPLANNED_REASONS' order.
-    An open outcome naming a site this plan does not plan is unresolved too:
+    An open outcome naming a site not in `sites`, the ones this plan plans
+    (the same set _cross_site_preds holds on), is unresolved too:
     work the plan cannot see. waits_on_unplanned is decided in one order over
     every site, so a chain through several sites is followed whatever their
     config order."""
     in_cycle = {node for cycle in cycles for node in cycle}
-    planned_sites = {site for site, _ in by_node}
     reasons = {}
     for node, item in by_node.items():
         statuses = {outcome.status for outcome in item["foreign"]}
-        unseen = any(o.status == "open" and o.target_site not in planned_sites for o in item["foreign"])
+        unseen = any(o.status == "open" and o.target_site not in sites for o in item["foreign"])
         if item["state"] == "blocked_external":
             reasons[node] = BLOCKED_EXTERNALLY
         elif item["state"] == "parked":
@@ -573,7 +573,7 @@ def plan_week(result, portfolio, config) -> WeekPlan:
     _cross_site_preds(result, items)
     by_node = {(name, item["key"]): item for name in names for item in items[name]}
     cycles = _cross_site_cycles(by_node)
-    reasons = _reasons(by_node, cycles)
+    reasons = _reasons(by_node, cycles, items.keys())
     # A planned leaf's predecessors are all planned: hold them as items.
     for node, item in by_node.items():
         item["reason"] = reasons.get(node)

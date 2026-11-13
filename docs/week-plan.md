@@ -321,12 +321,12 @@ lists each one.
 A cycle across sites is a strongly connected component of two or more open
 leaves, over every built site's links and the cross-site ones, whose leaves
 span two or more sites. Each is reported once in the plan's `report`, as a
-`cross_site_cycle` entry; its leaves are unplanned as `cross_site_cycle`,
-and the leaves downstream of them as `waits_on_unplanned`. A site's own
-cycle stays `waits_on_cycle` and is not in `report`. A cycle across sites
-that holds a site's own cycle is reported whole, and each of its leaves
-takes its first reason, so a leaf of the site's own cycle stays
-`waits_on_cycle`. The planner always finishes.
+`cross_site_cycle` entry. Its leaves are unplanned as `cross_site_cycle`
+unless an earlier reason applies ([Unplanned leaves](#unplanned-leaves)): a
+blocked or parked leaf, or a leaf of a site's own cycle, keeps that reason.
+The leaves downstream of them are `waits_on_unplanned`. A site's own cycle
+stays `waits_on_cycle` and is not in `report`; a cycle across sites that
+holds one is reported whole. The planner always finishes.
 
 ### Unplanned leaves
 
