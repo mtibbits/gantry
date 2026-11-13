@@ -229,6 +229,8 @@ def _scan(lines):
     unclosed = False  # an unclosed fence opener in the open item: a page shows code to the item's end
     doubt = False  # a fence a page may pair differently: from there on no block comment, and no item encloses
     shifted = False  # a comment hid a fence marker: an opener 4+ columns in (code on a page) is not paired
+    head = keep = None  # HEAD's fence-only hiding, and the open fence's share of it when that fence is doubtful
+    lazy = False  # the previous line may lazily continue an item the reader has ended
     no_closer = {}
     fence_end = -1  # the last line of the open fence
     opener = bound = leak = None  # the open comment's first line, the column a line must reach, and
@@ -248,34 +250,45 @@ def _scan(lines):
                 opener = None
             continue
         if not line.strip():
-            hidden[i] = i <= fence_end
+            hidden[i] = i <= fence_end and (keep is None or keep[i])
             raw[i] = unclosed
+            lazy = False
             para = html = False
             if empty:  # an item starts with at most one blank line: an empty one ends here
                 open_col, empty = None, False
             continue
-        if open_col is not None and _width(line) < open_col:
+        cleared = open_col is not None and _width(line) < open_col
+        if cleared:
             open_col = None
         if open_col is None:
             unclosed = False
         raw[i] = unclosed
         empty = False
         if i <= fence_end:
-            hidden[i] = True
-            para = False
+            hidden[i] = keep is None or keep[i]
+            para = lazy = False
             continue
         # Under doubt, an opener 4+ columns past its container is code or text on a page: not paired.
         far = shifted and _width(line) - (open_col or 0) >= 4
         j = None if far else _closer(lines, i, no_closer)
         if j is not None:
             base = open_col or 0
-            if (_width(line) - base >= 4 or _width(lines[j]) - base >= 4
-                    or (open_col is not None and _width(lines[j]) < open_col)):
+            keep = None
+            # A page may pair this fence differently: indented 4+ past its container, a closer
+            # outdented below its item, an item that ends inside it, or opened after a lazy line.
+            if (_width(line) - base >= 4 or _width(lines[j]) - base >= 4 or lazy
+                    or (open_col is not None and (_width(lines[j]) < open_col or any(
+                        lines[k].strip() and _width(lines[k]) < open_col for k in range(i + 1, j))))):
                 doubt = True  # from here on, no block comment: the reader keeps what HEAD read
+                if head is None:
+                    head = [False] * n
+                    for a, b in fence_spans(lines):
+                        head[a : b + 1] = [True] * (b + 1 - a)
+                keep = head  # a doubtful fence hides only the lines HEAD's fences hid
             fences.append((i, j))
             fence_end = j
-            hidden[i] = True
-            para = False
+            hidden[i] = keep is None or keep[i]
+            para = lazy = False
             continue
         f = FENCE_RE.fullmatch(line)
         if f is not None and open_col is not None and not (f["run"][0] == "`" and "`" in f["info"]):
@@ -298,6 +311,7 @@ def _scan(lines):
             # Text outside every enclosing item is a paragraph a list-shaped line may only continue.
             para = (m is None and (open_col is None or not encloses)
                     and not (_width(line) <= 3 and (HEADING_START_RE.match(line) or BREAK_RE.fullmatch(line))))
+            lazy = para and (cleared or lazy)  # text that ended an item may be its lazy continuation
             continue
         nested[i] = open_col is not None and encloses
         if open_col is None:

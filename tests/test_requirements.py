@@ -457,6 +457,14 @@ def test_comment_after_an_unclosed_fence_in_an_item_is_text(text, keys, fr1):
         # After such a fence no item encloses either; an opener 4+ columns in is not a fence at all.
         ("```\n    ```\n- x\n  ```\n\n  - FR-1: a\n", ["alpha:FR-1"]),
         ("<!--\n```\n-->\n    ```\n- FR-1: a\n```\n", ["alpha:FR-1"]),
+        # A fence whose list item ends inside it, or one opened right after a line that may lazily
+        # continue an item, is doubtful too; a doubtful fence hides only what HEAD's pairing hid.
+        ("- FR-1: The installer runs:\n  ```sh\nmake install\n  ```\n<!-- old steps\n```\n"
+         "- FR-2: The log lists each check.\n-->\n- FR-3: The log is plain text.\n",
+         ["alpha:FR-1", "alpha:FR-2", "alpha:FR-3"]),
+        ("<!--\n```\n-->\n- x\n  ```\n- FR-1: a\n  ```\n", ["alpha:FR-1"]),
+        ("- x\n  ```\n- FR-1: a\n  ```\n  <!--\n- FR-2: a\n", ["alpha:FR-2"]),
+        ("- FR-1: a\nPara\n  ```\n```\n<!--\n```\n- FR-2: a\n", ["alpha:FR-1", "alpha:FR-2"]),
         # After a blank line inside a comment, only a line at the content column joins the text.
         ("1. Step one\n   <!--\n\n   -->\n  - FR-1: a\n", ["alpha:FR-1"]),
         ("- FR-1: a\n  <!--\n\n  -->\n - FR-2: b\n", ["alpha:FR-1", "alpha:FR-2"]),
@@ -465,6 +473,14 @@ def test_comment_after_an_unclosed_fence_in_an_item_is_text(text, keys, fr1):
 def test_reader_falls_back_to_head_where_the_page_is_in_doubt(text, keys):
     s = parse(text)
     assert list(s.requirements) == keys
+    assert rows(s) == []
+
+
+def test_comment_after_a_lazy_line_is_not_skipped():
+    # A stated simplification (no lazy continuation): the page nests FR-2 under FR-1; the reader
+    # ends FR-1 at the lazy line, so the comment after it is not skipped and FR-2 is read.
+    s = parse("- FR-1: a\n x\n  <!--\n  -->\n  - FR-2: a\n")
+    assert list(s.requirements) == ["alpha:FR-1", "alpha:FR-2"]
     assert rows(s) == []
 
 
@@ -978,7 +994,8 @@ def test_format_doc_states_rules():
         "unless a page shows the line as code", "surely starts a list", "is that block's content",
         "after an unclosed fence", "four or more spaces outside every item",
         "a page may pair it differently", "runs on past a later item line",
-        "is not a fence", "and no item encloses",
+        "is not a fence", "and no item encloses", "whose list item ends inside it",
+        "may lazily continue an item", "a comment after such a line is not skipped",
     ]
     assert [w for w in wanted if w not in doc] == []
 

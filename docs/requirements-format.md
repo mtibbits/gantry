@@ -88,8 +88,10 @@ are a page's code, so a `<!--` among them is text, not a block comment: the
 reader keeps what it read before, after an unclosed fence. The same holds
 after a fence whose opener or closer is indented four or more columns past
 its list item (or the line start), or whose closer is outdented below its
-list item, because a page may pair it differently: from there on, no line is
-a block comment and no item encloses. A fence marker hidden inside a block
+list item, or a fence whose list item ends inside it, or one opened right
+after a line that may lazily continue an item, because a page may pair it
+differently: from there on, no line is a block comment and no item encloses,
+and such a fence hides only the lines that fence pairing alone would. A fence marker hidden inside a block
 comment does the same, and after it a fence opener indented four or more
 columns past its list item (or the line start) is not a fence at all: a page
 shows it as code or text.
@@ -173,7 +175,8 @@ requirement as a top-level list item. An item indented less than the
 content column (` - FR-2:` under `- FR-1:`) is a sibling. An item under a
 paragraph or a heading is not nested. A line indented less than the
 content column always ends the enclosing item, because the reader does
-not follow lazy continuation lines.
+not follow lazy continuation lines; so a comment after such a line is not
+skipped, and a nested item after it may be read, though a page nests it.
 
 ### Comments
 
