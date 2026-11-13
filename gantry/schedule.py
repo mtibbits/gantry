@@ -5,8 +5,9 @@ non-preemptive list schedule: the first lane to come free takes the ready
 item with the most urgent effective priority, then the lowest wbs_index,
 then the earliest in the input. gantry/static/schedule.js is its line-for-line
 twin, and tests/test_schedule_agreement.py holds the two to the same result.
-It imports nothing from gantry, so a later planner extends it rather than
-forking it.
+pick_ready() is that ordering rule on its own. It imports nothing from gantry,
+and the week planner (gantry/planner.py, #61) picks its leaves through
+pick_ready(), so it extends the rule rather than forking it.
 """
 
 import math
@@ -25,6 +26,16 @@ def _check(items):
         hours = item["hours"]
         if isinstance(hours, bool) or not isinstance(hours, (int, float)) or not math.isfinite(hours) or hours <= 0:
             raise ValueError(f"plan: {item['key']!r} has hours {hours!r}; hours must be a finite number above 0")
+
+
+def pick_ready(ready) -> dict:
+    """The item of a non-empty `ready` with the lowest (eff_priority, wbs_index);
+    on a full tie the earliest in `ready`."""
+    pick = ready[0]
+    for item in ready[1:]:
+        if (item["eff_priority"], item["wbs_index"]) < (pick["eff_priority"], pick["wbs_index"]):
+            pick = item
+    return pick
 
 
 def plan(items, lanes) -> dict[str, tuple[float, float, int]]:
@@ -48,10 +59,7 @@ def plan(items, lanes) -> dict[str, tuple[float, float, int]]:
                 raise ValueError("plan: no item can start; the waits hold a cycle")
             free[li] = min(later)
             continue
-        pick = ready[0]
-        for item in ready[1:]:
-            if (item["eff_priority"], item["wbs_index"]) < (pick["eff_priority"], pick["wbs_index"]):
-                pick = item
+        pick = pick_ready(ready)
         end = now + pick["hours"]
         out[pick["key"]] = (now, end, li)
         free[li] = end

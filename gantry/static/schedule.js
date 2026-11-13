@@ -22,6 +22,19 @@
     }
   }
 
+  // The item of a non-empty ready list with the lowest (eff_priority,
+  // wbs_index); on a full tie the earliest in the list.
+  function pickReady(ready) {
+    let pick = ready[0];
+    for (const item of ready.slice(1)) {
+      if (item.eff_priority < pick.eff_priority
+          || (item.eff_priority === pick.eff_priority && item.wbs_index < pick.wbs_index)) {
+        pick = item;
+      }
+    }
+    return pick;
+  }
+
   // A Map of key to [start, end, lane], hours from 0.
   function plan(items, lanes) {
     if (typeof lanes !== "number" || !Number.isInteger(lanes) || lanes < 1) {
@@ -47,13 +60,7 @@
         free[li] = Math.min(...later);
         continue;
       }
-      let pick = ready[0];
-      for (const item of ready.slice(1)) {
-        if (item.eff_priority < pick.eff_priority
-            || (item.eff_priority === pick.eff_priority && item.wbs_index < pick.wbs_index)) {
-          pick = item;
-        }
-      }
+      const pick = pickReady(ready);
       const end = now + pick.hours;
       out.set(pick.key, [now, end, li]);
       free[li] = end;
