@@ -11,7 +11,7 @@ import pytest
 from gantry import planner
 from gantry.planner import PLAN_FILE, PLAN_VERSION, plan_to_json, write_plan
 from gantry.roots import mkdir_confined
-from helpers_config import snapshot
+from helpers_config import copy_samples, demo_build, run_main, snapshot, written_bytes
 from test_planner import FIXTURE_NAMES, FIXTURES, built, install, plan_of, portfolio_md, reserved
 
 SHAPE = json.loads((FIXTURES / "shape-v1.json").read_bytes().decode("utf-8"))
@@ -308,3 +308,93 @@ def test_plan_file_mode_follows_umask(tmp_path):
     finally:
         os.umask(old)
     assert (out / PLAN_FILE).stat().st_mode & 0o777 == 0o644
+
+
+# --- the build writes it --------------------------------------------------------------------
+
+
+def test_demo_builds_byte_identical(tmp_path, monkeypatch):
+    first = demo_build(tmp_path / "a", monkeypatch, copy=copy_samples(tmp_path / "a"))
+    second = demo_build(tmp_path / "b", monkeypatch, copy=copy_samples(tmp_path / "b"))
+    assert first[0] == second[0] == 0
+    one, two = (first[1] / PLAN_FILE).read_bytes(), (second[1] / PLAN_FILE).read_bytes()
+    assert one == two
+    document = json.loads(one.decode("utf-8"))
+    assert (document["plan_version"], document["status"], document["as_of"]) == (1, "planned", "2026-01-20")
+    assert shape_errors(document) == []
+    assert str(tmp_path).encode("utf-8") not in one
+    # A rebuild of the same copy changes nothing either.
+    again = demo_build(tmp_path / "a", monkeypatch, copy=tmp_path / "a" / "samples")
+    assert (again[1] / PLAN_FILE).read_bytes() == one
+
+
+@pytest.mark.parametrize("base", FIXTURE_NAMES)
+def test_fixture_builds_byte_identical(tmp_path, base):
+    files = []
+    for _ in range(2):
+        folder = install(tmp_path, base)
+        code, stdout, stderr = run_main("--config", str(folder / "gantry.toml"))
+        assert code == 0, stderr
+        assert stdout.splitlines()[-1] == str(folder / "out" / PLAN_FILE)
+        files.append((folder / "out" / PLAN_FILE).read_bytes())
+    assert files[0] == files[1]
+    document = json.loads(files[0].decode("utf-8"))
+    assert (document["plan_version"], document["status"]) == (1, "planned")
+    assert shape_errors(document) == []
+    assert files[0].endswith(b"}\n") and b"\r" not in files[0]
+    assert str(tmp_path).encode("utf-8") not in files[0]
+
+
+def test_plan_written_only_in_output_folder(tmp_path):
+    folder = install(tmp_path, "states")
+    before = snapshot(folder)
+    assert run_main("--config", str(folder / "gantry.toml"))[0] == 0
+    after = snapshot(folder)
+    assert {rel: stamp for rel, stamp in after.items() if rel != "out" and not rel.startswith("out/")} == before
+    assert sorted(rel for rel in after if rel.endswith(".json")) == [f"out/{PLAN_FILE}"]
+    assert sorted(written_bytes(folder / "out")) == ["index.html", "sites/a.html", "sites/b.html", PLAN_FILE]
+
+
+def test_write_failure_exits_1(tmp_path, monkeypatch):
+    from gantry import build
+
+    folder = install(tmp_path, "states")
+    out = folder / "out"
+    (out / PLAN_FILE).mkdir(parents=True)
+    seen = []
+    real = build.render_index
+
+    def render_index(result):
+        seen.append(result.plan)
+        return real(result)
+
+    monkeypatch.setattr(build, "render_index", render_index)
+    code, stdout, stderr = run_main("--config", str(folder / "gantry.toml"))
+    assert code == 1
+    (line,) = stderr.splitlines()
+    assert line.startswith("gantry: error: cannot write week-plan.json: ")
+    assert len(line) > len("gantry: error: cannot write week-plan.json: ")
+    assert str(tmp_path) not in line and "/" not in line
+    # No partial or temporary file; the pages and the index are written and printed.
+    assert sorted(p.name for p in out.iterdir()) == ["index.html", "sites", PLAN_FILE]
+    assert list((out / PLAN_FILE).iterdir()) == []
+    assert stdout.splitlines() == [str(out / "sites" / "a.html"), str(out / "sites" / "b.html"),
+                                   str(out / "index.html")]
+    # The view still received the plan.
+    assert len(seen) == 1 and isinstance(seen[0], planner.WeekPlan) and seen[0].status == "planned"
+
+
+def test_write_refused_outside_roots_exits_1(tmp_path, monkeypatch):
+    from gantry import cli
+    from gantry.roots import OutsideRoots
+
+    def refuse(plan, output_dir, *, roots, text=None):
+        raise OutsideRoots("output_dir", "write")
+
+    folder = install(tmp_path, "states")
+    monkeypatch.setattr(cli, "write_plan", refuse)
+    code, _, stderr = run_main("--config", str(folder / "gantry.toml"))
+    assert code == 1
+    (line,) = stderr.splitlines()
+    assert line == f"gantry: error: cannot write week-plan.json: {OutsideRoots('output_dir', 'write')}"
+    assert "output_dir" in line and str(tmp_path) not in line

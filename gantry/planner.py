@@ -501,9 +501,12 @@ def plan_to_json(plan) -> str:
     return json.dumps(asdict(plan), sort_keys=True, ensure_ascii=False, allow_nan=False, indent=2) + "\n"
 
 
-def write_plan(plan, output_dir, *, roots):
+def write_plan(plan, output_dir, *, roots, text=None):
     """Write <output_dir>/week-plan.json as UTF-8 under the run's `roots`,
     through a temporary file in that folder and a rename (write_confined):
-    no partial file. It makes no folder and catches nothing: OSError and
-    OutsideRoots are the caller's."""
-    write_confined(roots, output_dir / PLAN_FILE, plan_to_json(plan).encode("utf-8"), key="output_dir")
+    no partial file. `text` is plan_to_json(plan) when the caller made it
+    earlier, before a view could touch the plan. It makes no folder and
+    catches nothing: OSError and OutsideRoots are the caller's."""
+    if text is None:
+        text = plan_to_json(plan)
+    write_confined(roots, output_dir / PLAN_FILE, text.encode("utf-8"), key="output_dir")

@@ -2,9 +2,11 @@
 
 build_all reads each site in devagent's config order, then renders each site
 it read, each in its own `try`, and returns one BuildResult that every view
-reads. It writes nothing; write_all writes the pages and the index. A site
-that cannot be built gets a reason that names its config key or file kind,
-never an absolute path. docs/worksite-page.md states the build.
+reads, with the week plan (#61) made from the built sites and the portfolio
+file the trace's catalog read. It writes nothing; write_all writes the pages
+and the index, and the command line writes the plan file. A site that cannot
+be built gets a reason that names its config key or file kind, never an
+absolute path. docs/worksite-page.md states the build.
 """
 
 import stat
@@ -16,6 +18,8 @@ from gantry.config import Config, error_reason
 from gantry.crosssite import resolve_foreign
 from gantry.inputs import Inputs, apply_inputs
 from gantry.model import ForeignOutcome
+from gantry.planner import WeekPlan, plan_week
+from gantry.portfolio_file import Portfolio
 from gantry.requirements import in_trace_sites
 from gantry.roots import OutsideRoots, Roots, mkdir_confined, stat_confined, write_confined
 from gantry.sites import SiteEntry, SiteWarning, config_roots, load_sites
@@ -61,6 +65,13 @@ class BuildResult:
     roots: Roots  # the run's roots (#59): every read, the stamp and every write
     # {waiting site: its foreign entries' outcomes}, every read site in config order (#68)
     foreign: dict[str, tuple[ForeignOutcome, ...]] = field(default_factory=dict)
+    # The portfolio file as the run read it, once (#61); None when portfolio_file is not set.
+    portfolio: Portfolio | None = None
+    # The week plan of this build (#61): every view rendered after build_all
+    # gets this one object. A page that fails to write later does not re-plan.
+    plan: WeekPlan | None = None
+    # Set by write_all when the output folder could not be made: nothing was written.
+    wrote_nothing: bool = False
 
 
 def site_list(config, roots=None):
@@ -212,8 +223,8 @@ def rerender_failed(config, raw, sites, reasons, resolved, foreign, pages, model
 
 
 def build_all(config, *, now=None, samples=None) -> BuildResult:
-    """Read every site, resolve foreign entries across them, then render every
-    read site; write nothing.
+    """Read every site, resolve foreign entries across them, render every
+    read site, then plan the week; write nothing.
 
     After a render failure, the pages that wait on the failed site are
     re-resolved and re-rendered (rerender_failed). A write failure is not
@@ -232,7 +243,10 @@ def build_all(config, *, now=None, samples=None) -> BuildResult:
                                         stamp, roots=roots, catalog=catalog)
     summaries = tuple(_summary(s.name, resolved[s.name], models[s.name], config.as_of) if s.name in pages
                       else not_built(s.name, reasons[s.name]) for s in sites)
-    return BuildResult(config, tuple(sites), tuple(warnings), resolved, pages, summaries, stamp, roots, foreign)
+    result = BuildResult(config, tuple(sites), tuple(warnings), resolved, pages, summaries, stamp, roots, foreign,
+                         portfolio=catalog.portfolio)
+    # The plan is made from the rendered sites: a worksite page does not get it.
+    return replace(result, plan=plan_week(result, result.portfolio, config))
 
 
 def _is_file_shaped(roots, folder) -> bool:
@@ -257,7 +271,8 @@ def write_all(result):
     Returns (result, written paths, index error). A page that cannot be
     written turns its site into a not-built one in the returned result,
     which the index is rendered from. When the output folder itself cannot
-    be made, nothing is written and the index error says why; when only
+    be made, nothing is written, the index error says why and the returned
+    result's `wrote_nothing` is set; when only
     sites/ cannot be, each page fails on its own and the index is written.
     """
     roots = result.roots
@@ -266,7 +281,7 @@ def write_all(result):
     try:
         mkdir_confined(roots, out, key="output_dir")
     except (OSError, OutsideRoots) as e:
-        return result, [], _why(e, roots, out, "output_dir")
+        return replace(result, wrote_nothing=True), [], _why(e, roots, out, "output_dir")
     written, pages, failed = [], {}, {}
     for name, text in result.pages.items():
         try:

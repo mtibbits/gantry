@@ -13,7 +13,7 @@ from gantry.build import build_all
 from gantry.config import load_config
 from gantry.planner import NO_PLAN, plan_week
 from gantry.portfolio_file import read_portfolio_file
-from helpers_config import sample_build
+from helpers_config import run_main, sample_build
 from test_samples import ROOT
 
 FIXTURES = ROOT / "tests" / "fixtures" / "week_plan"
@@ -793,3 +793,24 @@ def test_rate_0_by_rounding_goes_in_the_lanes_row(tmp_path):
                    portfolio=portfolio_md(more="attention_mapping = [0, 1e-7, 0.25, 0.5, 1.0]\n"))
     assert plan.days[0]["blocks"] == []
     assert row_keys(plan.days[0]) == [("alpha", "Issue-1"), ("alpha", "Issue-2")]
+
+
+# --- through the build ------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(("key", "case", "changes"), NO_PLAN_CASES, ids=[f"{k}: {c}" for k, c, _ in NO_PLAN_CASES])
+def test_no_plan_file_still_written(tmp_path, key, case, changes):
+    import json
+
+    copy = install(tmp_path, "binds_lanes", **changes)
+    stale = copy / "out" / planner.PLAN_FILE
+    stale.parent.mkdir()
+    stale.write_bytes(b'{"status": "planned"}\n')  # an earlier build's plan never stands in
+    code, stdout, stderr = run_main("--config", str(copy / "gantry.toml"))
+    # A no_plan plan leaves the exit code as the build sets it: 1 only when no page was written.
+    assert code == (1 if key == "no_sites" else 0), stderr
+    document = json.loads(stale.read_bytes().decode("utf-8"))
+    assert (document["status"], document["reason"]) == ("no_plan", NO_PLAN[key])
+    assert document["plan_version"] == 1 and document["days"] == []
+    assert str(stale) in stdout.splitlines()
+    assert "week-plan.json" not in stderr

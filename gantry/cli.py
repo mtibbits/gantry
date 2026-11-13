@@ -34,6 +34,7 @@ from gantry.build import (
     write_page,
 )
 from gantry.config import ConfigError, error_reason, load_config
+from gantry.planner import PLAN_FILE, plan_to_json, write_plan
 from gantry.portfolio_file import PORTFOLIO_LABEL, SECTIONS, format_entry, read_portfolio_file, report_entries
 from gantry.roots import OutsideRoots
 from gantry.sites import config_roots, shown
@@ -128,6 +129,24 @@ def _warn(warnings):
         print(f"gantry: warning: {warning.message}", file=sys.stderr)
 
 
+def _write_plan(result, text):
+    """Write the plan file; None, or why it could not be written.
+
+    Not attempted when write_all wrote nothing (the output folder could not
+    be made: that one error stands). An index that failed on its own still
+    gets the plan written, so an older plan never stands in for this one.
+    """
+    if result.wrote_nothing:
+        return None
+    try:
+        write_plan(result.plan, result.config.output_dir, roots=result.roots, text=text)
+    except OutsideRoots as e:
+        return str(e)  # it names output_dir
+    except OSError as e:
+        return error_reason(e) or "unknown error"
+    return None
+
+
 def _build_all(config):
     try:
         result = build_all(config)
@@ -135,10 +154,15 @@ def _build_all(config):
         print(f"gantry: error: {e}", file=sys.stderr)
         return 1
     _warn(result.warnings)
+    # The plan's text is made here, before any view is rendered from the result.
+    plan_text = plan_to_json(result.plan)
     result, written, index_error = write_all(result)
     index = config.output_dir / "index.html"
+    plan_error = _write_plan(result, plan_text)
     for path in written:
         print(path)
+    if plan_error is None and not result.wrote_nothing:
+        print(config.output_dir / PLAN_FILE)
     # Then each written page's trace line, in config order (#20).
     for s in result.summaries:
         if s.trace_line is not None and config.output_dir / "sites" / f"{s.name}.html" in written:
@@ -146,6 +170,8 @@ def _build_all(config):
     for s in result.summaries:
         if s.status != "built":
             print(f"gantry: warning: site {shown(s.name)} is not built: {s.reason}", file=sys.stderr)
+    if plan_error is not None:
+        print(f"gantry: error: cannot write {PLAN_FILE}: {plan_error}", file=sys.stderr)
     if index_error is not None:
         # The index, or the output folder itself, cannot be written.
         print(f"gantry: error: cannot write {index}: {index_error}", file=sys.stderr)
@@ -153,7 +179,7 @@ def _build_all(config):
     if not result.pages:
         print("gantry: error: no site page was written", file=sys.stderr)
         return 1
-    return 0
+    return 0 if plan_error is None else 1
 
 
 def _build(args):

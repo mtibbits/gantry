@@ -185,11 +185,12 @@ def written_files(out):
 def test_demo_build_writes_index_and_pages(tmp_path, monkeypatch):
     code, out, stdout, stderr = demo_build(tmp_path, monkeypatch)
     assert code == 0, stderr
-    assert written_files(out) == sorted(["index.html", *(f"sites/{s}.html" for s in READABLE)])
+    assert written_files(out) == sorted(["index.html", "week-plan.json", *(f"sites/{s}.html" for s in READABLE)])
     printed = stdout.splitlines()
     projects = [p for p in sample_projects() if p in READABLE]
-    # The paths, then the in-trace sample site's trace line (#20).
-    assert printed[:-1] == [str(out / "sites" / f"{s}.html") for s in projects] + [str(out / "index.html")]
+    # The paths (the plan file last, #61), then the in-trace sample site's trace line (#20).
+    assert printed[:-1] == [str(out / "sites" / f"{s}.html") for s in projects] + [
+        str(out / "index.html"), str(out / "week-plan.json")]
     assert printed[-1].startswith("trace lighthouse: ")
     printed = printed[:-1]
     assert all(os.path.isabs(line) for line in printed)
@@ -219,7 +220,7 @@ def test_all_fail_writes_index_exit_1(tmp_path):
     assert code == 1
     assert (tmp_path / "out" / "index.html").is_file()
     assert not (tmp_path / "out" / "sites").exists() or not list((tmp_path / "out" / "sites").iterdir())
-    assert stdout.splitlines() == [str(tmp_path / "out" / "index.html")]
+    assert stdout.splitlines() == [str(tmp_path / "out" / "index.html"), str(tmp_path / "out" / "week-plan.json")]
     assert stderr.splitlines()[-1] == "gantry: error: no site page was written"
 
 
@@ -287,7 +288,8 @@ def test_page_write_error_lists_site(tmp_path):
     (tmp_path / "out" / "sites" / "beta.html").mkdir(parents=True)
     code, stdout, stderr = run_main("--config", str(config))
     assert code == 0
-    assert stdout.splitlines() == [str(tmp_path / "out" / "sites" / "alpha.html"), str(tmp_path / "out" / "index.html")]
+    assert stdout.splitlines() == [str(tmp_path / "out" / "sites" / "alpha.html"), str(tmp_path / "out" / "index.html"),
+                                   str(tmp_path / "out" / "week-plan.json")]
     (line,) = [line for line in stderr.splitlines() if "beta" in line]
     assert line.startswith("gantry: warning: site beta is not built: cannot write sites/beta.html: ")
     index = (tmp_path / "out" / "index.html").read_bytes().decode("utf-8")
@@ -433,7 +435,7 @@ def test_unwritable_sites_folder_still_writes_index(tmp_path, monkeypatch):
     (copy / "out").mkdir()
     (copy / "out" / "sites").write_bytes(b"a file, not a folder")
     code, out, stdout, stderr = demo_build(tmp_path, monkeypatch, copy=copy)
-    assert (code, stdout) == (1, f"{out / 'index.html'}\n")
+    assert (code, stdout) == (1, f"{out / 'index.html'}\n{out / 'week-plan.json'}\n")
     lines = stderr.splitlines()
     for name in READABLE:
         assert f"gantry: warning: site {name} is not built: cannot write sites/{name}.html: sites/ is not a folder" in lines
@@ -479,3 +481,150 @@ def test_finish_day_is_the_day_the_plan_ends_in(tmp_path, est, day, when):
     config = load_config(write_site_tree(tmp_path, {"alpha": wbs}, as_of="2026-01-20"))
     (summary,) = build_all(config).summaries
     assert (summary.finish_day, summary.finish_date) == (day, when)
+
+
+# --- the week plan (#61) ------------------------------------------------------------------
+
+
+def plan_install(tmp_path, base="states", **changes):
+    from test_planner import install
+
+    return install(tmp_path, base, **changes)
+
+
+def spy_on(monkeypatch, module, name, before=None, after=None):
+    """Wrap module.name: each call's (args, result) is recorded. `before` runs
+    on the arguments first; `after` runs on the result before it is returned."""
+    real, calls = getattr(module, name), []
+
+    def spy(*args, **kwargs):
+        if before is not None:
+            before(*args, **kwargs)
+        result = real(*args, **kwargs)
+        calls.append((args, result))
+        if after is not None:
+            after(result)
+        return result
+
+    monkeypatch.setattr(module, name, spy)
+    return calls
+
+
+def test_full_build_reads_portfolio_once(tmp_path, monkeypatch):
+    from gantry import roots, trace
+    from gantry.planner import NO_PLAN
+
+    copy = plan_install(tmp_path)
+    reads = spy_on(monkeypatch, trace, "read_portfolio_file")
+    opens = spy_on(monkeypatch, roots, "open_confined")
+    result = build_all(load_config(copy / "gantry.toml"))
+    assert len(reads) == 1
+    assert result.portfolio is reads[0][1]
+    assert result.portfolio.settings_read and result.plan.status == "planned"
+    # At the one door every read goes through: the file is opened once per run.
+    assert [str(args[1]) for args, _ in opens].count(str(copy / "portfolio.md")) == 1
+    del reads[:], opens[:]
+    assert run_main("--config", str(copy / "gantry.toml"))[0] == 0
+    assert len(reads) == 1
+    assert [str(args[1]) for args, _ in opens].count(str(copy / "portfolio.md")) == 1
+
+    del reads[:]
+    bare = plan_install(tmp_path, config={"portfolio_file": None})
+    result = build_all(load_config(bare / "gantry.toml"))
+    assert reads == [] and result.portfolio is None
+    assert (result.plan.status, result.plan.reason) == ("no_plan", NO_PLAN["no_portfolio"])
+
+
+def test_build_does_not_check_portfolio(tmp_path, monkeypatch):
+    import ast
+
+    from gantry import portfolio_file
+
+    copy = plan_install(tmp_path)
+    plain = run_main("--config", str(copy / "gantry.toml"))
+    assert plain[0] == 0
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("the build called check_portfolio")
+
+    monkeypatch.setattr(portfolio_file, "check_portfolio", refuse)
+    assert run_main("--config", str(copy / "gantry.toml")) == plain
+    # No name in the build's modules reaches it either (#23 and #24 run the check where they show it).
+    for name in ("build.py", "cli.py", "planner.py"):
+        tree = ast.parse((ROOT / "gantry" / name).read_bytes().decode("utf-8"))
+        names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
+        names |= {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
+        names |= {a.name for n in ast.walk(tree) if isinstance(n, (ast.Import, ast.ImportFrom)) for a in n.names}
+        assert "check_portfolio" not in names, name
+        assert "plan_to_json" in names or "plan_week" in names or "leaf_attention" in names, name
+
+
+def test_full_build_hands_same_plan_to_views_and_writes_it(tmp_path, monkeypatch):
+    from gantry import cli
+    from gantry.planner import WeekPlan, plan_to_json
+
+    copy = plan_install(tmp_path)
+    texts = []
+    # The plan's text as build_all returned it, before any view has seen it.
+    built = spy_on(monkeypatch, cli, "build_all", after=lambda result: texts.append(plan_to_json(result.plan)))
+    # A view that changes the plan it was handed cannot change the file: the
+    # text is made before any view runs.
+    indexed = spy_on(monkeypatch, build, "render_index", before=lambda result: result.plan.leaves.append("view"))
+    code, stdout, stderr = run_main("--config", str(copy / "gantry.toml"))
+    assert code == 0, stderr
+    (_, result), = built
+    assert isinstance(result.plan, WeekPlan)
+    ((seen,), _), = indexed
+    assert seen.plan is result.plan
+    assert (copy / "out" / "week-plan.json").read_bytes() == texts[0].encode("utf-8")
+    assert result.plan.leaves[-1] == "view" and '"view"' not in texts[0]
+    out = copy / "out"
+    assert stdout.splitlines() == [str(out / "sites" / "a.html"), str(out / "sites" / "b.html"),
+                                   str(out / "index.html"), str(out / "week-plan.json")]
+
+
+def test_site_writes_no_plan_file(tmp_path):
+    copy = plan_install(tmp_path)
+    assert run_main("--config", str(copy / "gantry.toml"), "--site", "a")[0] == 0
+    assert written_files(copy / "out") == ["sites/a.html"]
+    (copy / "out" / "week-plan.json").write_bytes(b"an older plan\n")
+    before = snapshot(copy / "out")["week-plan.json"]
+    assert run_main("--config", str(copy / "gantry.toml"), "--site", "b")[0] == 0
+    assert written_files(copy / "out") == ["sites/a.html", "sites/b.html", "week-plan.json"]
+    assert (copy / "out" / "week-plan.json").read_bytes() == b"an older plan\n"
+    assert snapshot(copy / "out")["week-plan.json"] == before
+
+
+def test_unwritable_output_skips_plan_write(tmp_path, monkeypatch):
+    from gantry import cli
+    from gantry.planner import WeekPlan
+
+    copy = plan_install(tmp_path)
+    (copy / "out").write_bytes(b"a file, not a folder")
+    built = spy_on(monkeypatch, cli, "build_all")
+    writes = spy_on(monkeypatch, cli, "write_plan")
+    code, stdout, stderr = run_main("--config", str(copy / "gantry.toml"))
+    assert (code, stdout) == (1, "")
+    assert writes == []
+    assert isinstance(built[0][1].plan, WeekPlan) and built[0][1].plan.status == "planned"
+    assert stderr.splitlines() == [f"gantry: error: cannot write {copy / 'out' / 'index.html'}: output_dir is not a folder"]
+    assert "week-plan.json" not in stderr
+    assert (copy / "out").read_bytes() == b"a file, not a folder"
+
+
+def test_index_failure_still_writes_plan(tmp_path):
+    from gantry.planner import plan_to_json
+
+    copy = plan_install(tmp_path)
+    out = copy / "out"
+    (out / "index.html").mkdir(parents=True)
+    code, stdout, stderr = run_main("--config", str(copy / "gantry.toml"))
+    assert code == 1
+    # An older plan never stands in: the plan file is written though the index is not.
+    assert stdout.splitlines() == [str(out / "sites" / "a.html"), str(out / "sites" / "b.html"),
+                                   str(out / "week-plan.json")]
+    assert (out / "week-plan.json").read_bytes() == plan_to_json(
+        build_all(load_config(copy / "gantry.toml")).plan).encode("utf-8")
+    (line,) = stderr.splitlines()
+    assert line.startswith(f"gantry: error: cannot write {out / 'index.html'}: ")
+    assert (out / "index.html").is_dir()

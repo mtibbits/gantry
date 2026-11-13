@@ -46,7 +46,7 @@ from dataclasses import dataclass, replace
 from gantry import requirements
 from gantry.inputs import scheduled
 from gantry.model import meta_values
-from gantry.portfolio_file import PORTFOLIO_LABEL, PortfolioEntry, read_portfolio_file
+from gantry.portfolio_file import PORTFOLIO_LABEL, Portfolio, PortfolioEntry, read_portfolio_file
 from gantry.requirements import (PROJECT_LAYERS, ReportEntry, ReqId, Requirement, RequirementSet, in_trace_sites,
                                  parse_id, read_requirements)
 
@@ -102,6 +102,9 @@ class Catalog:
     link_report: dict[str, tuple[ReportEntry, ...]]  # namespace -> the cross-file entries attributed to it
     requirements: dict[str, Requirement]  # str(ReqId) -> requirement, every set merged, in catalog order
     flows: dict[str, list[str]]  # str(ReqId) -> what serving it also serves: what it refines, use cases needing it
+    # The portfolio file as read, whole: the run's one read, kept for the week
+    # plan (#61). None when portfolio_file is not set.
+    portfolio: Portfolio | None = None
 
     def lookup(self, rid) -> tuple[Requirement | None, str | None]:
         """(requirement, None), or (None, why) when `rid` names no requirement."""
@@ -185,14 +188,14 @@ def satisfies_ids(leaf, namespaces) -> tuple[list[ReqId], list[ReportEntry]]:
 
 def load_catalog(roots, config, sites) -> Catalog:
     """Read every in-trace site's requirements file and, when portfolio_file
-    is set, the portfolio file's business requirements, under the run's
-    `roots`. `sites` is load_sites(config)[0]; in_trace_sites' warnings are
+    is set, the portfolio file, under the run's `roots`: its business
+    requirements join the catalog, and the whole read is kept as `portfolio`. `sites` is load_sites(config)[0]; in_trace_sites' warnings are
     build.site_list's to print. Never raises on a file's content."""
     br = config.requirements.br_namespace
     traced, _ = in_trace_sites(config, sites)
     sets = {name: read_requirements(roots, path, name, layers=PROJECT_LAYERS, br_namespace=br)
             for name, path in traced.items()}
-    portfolio_report = ()
+    portfolio, portfolio_report = None, ()
     if config.portfolio_file is not None:
         portfolio = read_portfolio_file(roots, config.portfolio_file, br_namespace=br)
         sets[br] = portfolio.brs
@@ -207,6 +210,7 @@ def load_catalog(roots, config, sites) -> Catalog:
         link_report={},
         requirements=merged,
         flows=_flows(merged),
+        portfolio=portfolio,
     )
     return replace(catalog, link_report=_links(catalog))
 

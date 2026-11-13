@@ -591,3 +591,16 @@ def test_worksite_page_points_at_the_satisfies_key():
     assert "[requirements-format.md](requirements-format.md#the-satisfies-key)" in page
     assert "the-satisfies-key" in heading_slugs(
         (DOCS / "requirements-format.md").read_bytes().decode("utf-8").replace("\r", ""))
+
+
+def test_catalog_keeps_the_portfolio_it_read(tmp_path):
+    # The full build plans the week from this one read (#61).
+    from test_planner import install
+
+    kept = catalog(install(tmp_path, "binds_lanes") / "gantry.toml").portfolio
+    assert kept.settings_read is True
+    assert kept.capacity.agent_lanes == 1
+    assert kept.capacity.attention_hours["mon"] == 8
+    assert fields(Catalog)[-1].name == "portfolio"
+    none = catalog(install(tmp_path, "binds_lanes", config={"portfolio_file": None}) / "gantry.toml")
+    assert none.portfolio is None and none.portfolio_set is False
