@@ -833,6 +833,7 @@ def test_format_doc_states_rules():
         MIXED_NS, MIXED_NS.lower(), "9 digits", "requirements are not nested", "mtibbits/devagent#888",
         "withdrawn", "reword", "enclosing list item", "content column", "three spaces", "joins across it",
         "hides every line after it", "outside fences and comments", "on its own line",
+        "a comment line indented less ends the text", "one comment closed on its line",
     ]
     assert [w for w in wanted if w not in doc] == []
 

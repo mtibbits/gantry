@@ -108,20 +108,22 @@ reason that applies:
 ```
 
 So, outside fences and comments, a typo of the shape letters, an optional
-`-`, digits, then a colon is never silently lost. A typo outside that shape, such as `FR_1:` or `FR.1:`, is
-prose and is not reported. The rule also catches prose
-bullets that begin like an ID, such as `Step-1:`, `Q3:` and `v2:`, and
-finding labels such as `R1:`, `N2:` and `B1:`. They are reported malformed:
-reword them (`Step 1:`, `In Q3,`) so that they no longer start like an ID.
+`-`, digits, then a colon is never silently lost. A typo outside that shape,
+such as `FR_1:` or `FR.1:`, is prose and is not reported. The rule also
+catches prose bullets that begin like an ID, such as `Step-1:`, `Q3:` and
+`v2:`, and finding labels such as `R1:`, `N2:` and `B1:`. They are reported
+malformed: reword them (`Step 1:`, `In Q3,`) so that they no longer start like an ID.
 
 ### Text
 
 A requirement's text runs from its first line through each following line
 indented deeper than its list marker. It stops at a blank line (empty, or
 spaces only), at a fenced line, or at a line indented no deeper than the
-marker; a tab counts as four spaces. A comment line inside the item is
-skipped: the text joins across it (see [Comments](#comments)). The lines are joined with single
-spaces after their leading whitespace is removed. A requirement with no text
+marker; a tab counts as four spaces. A comment line indented to at least
+the item's content column (see below) is skipped: the text joins across it
+(see [Comments](#comments)); a comment line indented less ends the text.
+The lines are joined with single spaces after their leading whitespace is
+removed. A requirement with no text
 (`- FR-6:`) is read with empty text.
 
 A list item inside that text is a **nested** item. It keeps its marker in
@@ -164,8 +166,9 @@ page:
 - A block comment hides whole lines, from its first line through the
   first line holding `-->`. A requirement in it is not read, and a
   candidate in it is not reported.
-- Inside a requirement's text, a block comment is skipped: the text joins
-  across it.
+- Inside a requirement's text, a block comment indented to at least the
+  item's content column is skipped: the text joins across it. One indented
+  less ends the text.
 - A block comment with no `-->`, or one inside a list item that ends
   before its `-->`, hides every line after it and is reported
   `malformed_comment`. A renderer shows lines again after a later
@@ -173,9 +176,9 @@ page:
   with `<!--` opens such a comment too.
 - Any other `<!--` hides nothing. In a requirement's text, outside a code
   span, it stays in the text and is reported `malformed_comment`: put the
-  comment on its own line. A list item that starts with a comment and
-  then an ID (`- <!-- x --> FR-1: y`) is not read, and is reported
-  `malformed_comment`.
+  comment on its own line. A list item whose text starts with one comment
+  closed on its line and then an ID (`- <!-- x --> FR-1: y`) is not read,
+  and is reported `malformed_comment`.
 
 ```markdown
 # Requirements
