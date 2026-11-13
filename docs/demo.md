@@ -36,7 +36,8 @@ preparation step (#12's portfolio steps, say) inserts it into `STEPS` before
 `demo_build: <reason>` line and exit 1, when the folder is not strictly inside
 `samples/`, when the folder or any folder between `samples/` and it is a
 symlink or a junction, when git does not ignore the folder (only the repo's
-own ignore rules count, not a personal global excludes file), or when the
+own ignore rules count, not a personal global excludes file), when git
+tracks a file in it (one added with `git add -f`), or when the
 working folder is not a gantry checkout. Paths are judged as written, never
 through a link. A failed step stops the run: `step <name> failed (exit <n>)`,
 or the exception's type and its traceback.
@@ -68,8 +69,8 @@ first finding. Its rules:
   no page, and the index names it in a list item without a link; no page is
   named for a site the samples do not have.
 - **The expected list** (below): every `required` entry is present, every
-  `pending` entry absent, and every top-level page other than `index.html`,
-  and every file that is not a page, is named by an entry.
+  `pending` entry absent, and every page other than `index.html` and the
+  site pages, and every file that is not a page, is named by an entry.
 - **The stamp.** Each page has exactly one element whose class list holds
   `stamp`, and that element's own text (its child elements' text left out) is
   `sample data as of <as_of>`. No page carries a build time: no
@@ -146,6 +147,9 @@ portfolio steps join `STEPS` (#12).
   2026-11-12); the newest commit still deploys.
 - **Pinned actions:** every `uses:` names a full commit SHA with its release
   in a comment.
+- **No bypass:** no `continue-on-error` anywhere, no `if` on the build job or
+  on any step but the upload, and the deploy job's steps are exactly
+  checkout, Python, the settings read, its check, and the deploy.
 
 A pull request's run therefore builds, checks and stages, and uploads and
 deploys nothing.

@@ -251,7 +251,7 @@ def _expected_findings(expected, files, pages):
             named = sorted(f for f in files if _matches(f, e.path)) if "*" in e.path else [e.path]
             findings += [f"{f}: " + PENDING.format(e.issue) for f in named]
     unlisted = sorted(f for f in files
-                      if (not f.endswith(".html") or ("/" not in f and f != "index.html"))
+                      if (not f.endswith(".html") or (f != "index.html" and not _matches(f, "sites/*.html")))
                       and not any(e.kind != "overlay" and _matches(f, e.path) for e in expected))
     findings += [f"{f}: on no entry of the expected list" for f in unlisted]
     return findings

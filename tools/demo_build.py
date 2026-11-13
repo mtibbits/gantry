@@ -10,7 +10,8 @@ before "build". On success the last line of output is the folder, relative
 to the gantry root in POSIX form (`samples/out`).
 
 Before deleting anything the folder must be inside samples/, must not be or
-sit under a symlink or junction, and git must ignore it, in a gantry
+sit under a symlink or junction, and git must ignore it and track no
+file in it, in a gantry
 checkout. A refusal or a failed step prints one `demo_build: <reason>` line
 naming no absolute path and exits 1 (a step's exception also prints its
 traceback); an argument is a usage error, exit 2. docs/demo.md states the
@@ -124,6 +125,12 @@ def guard(root) -> Path:
         raise Refused("git does not ignore the demo output folder")
     if ran.returncode != 0:
         raise Refused("cannot ask git whether the demo output folder is ignored")
+    # An ignored folder can still hold a force-added file; the clean would delete it.
+    ran = _git(root, "ls-files", "-z", "--", folder.relative_to(root).as_posix())
+    if ran.returncode != 0:
+        raise Refused("cannot ask git whether the demo output folder is ignored")
+    if ran.stdout:
+        raise Refused("git tracks a file in the demo output folder")
     return folder
 
 

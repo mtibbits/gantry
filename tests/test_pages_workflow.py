@@ -175,6 +175,17 @@ def workflow_problems(text):
     for name in jobs if isinstance(jobs, dict) else ():
         need(_get(jobs, name, "concurrency") is None, "concurrency", f"job {name} has its own concurrency")
 
+    # Nothing may switch a step or a job off, or let it fail and carry on.
+    need("continue-on-error" not in flat, "no-bypass", "continue-on-error appears in the file")
+    need(_get(tree, "jobs", "build", "if") is None, "no-bypass", "the build job has an if")
+    for name in ("build", "deploy"):
+        for n, step in enumerate(_steps(tree, name)):
+            need(not isinstance(step, dict) or "if" not in step or (name == "build" and n == upload), "no-bypass",
+                 f"{name} step {n + 1} has an if")
+
+    need([str(s.get("uses", s.get("run", ""))).split("@")[0] for s in deploy if isinstance(s, dict)]
+         == ["actions/checkout", "actions/setup-python", GH_API, SOURCE_CHECK, "actions/deploy-pages"],
+         "source-check", "deploy's steps are exactly checkout, setup-python, the API read, the source check, deploy-pages")
     api = _index(deploy, _run_holds("gh api"))
     check = _index(deploy, _run_is(SOURCE_CHECK))
     publish = _index(deploy, _uses("actions/deploy-pages"))
@@ -232,6 +243,9 @@ def test_reader_drops_comments_and_reads_nesting():
 SHA_LINE = re.compile(r"(uses: actions/checkout@)[0-9a-f]{40} # v[\d.]+")
 DEPLOY_STEP = re.compile(r"      - id: deployment\n        uses: actions/deploy-pages@[^\n]+\n")
 CHECK_STEP = '      - shell: bash\n        env:\n          DEMO: ${{ steps.demo.outputs.folder }}\n        run: python tools/check_demo.py "$DEMO"\n'
+BASH = "      - shell: bash\n"
+SOURCE_STEP = BASH + f"        run: {SOURCE_CHECK}\n"
+BUILD_HEAD = "  build:\n    runs-on: ubuntu-latest\n"
 TOP_CONCURRENCY = "concurrency:\n  group: pages-${{ github.ref }}\n  cancel-in-progress: false\n"
 
 
@@ -293,6 +307,16 @@ MUTATIONS = {
     "stage-path-upload": (sub("path: ${{ runner.temp }}/pages", "path: ${{ runner.temp }}/other"), "stage-path"),
     "stage-path-staged-check": (sub(STAGED_DEMO_CHECK, 'python tools/check_demo.py "$DEMO"'), "stage-path"),
     "mis-nested-if": (sub(f"    if: {ON_MAIN}\n", f"      if: {ON_MAIN}\n"), "readable"),
+    "check-continue-on-error": (sub(SOURCE_STEP, SOURCE_STEP.replace(BASH, BASH + "        continue-on-error: true\n")),
+                                "no-bypass"),
+    "check-if-false": (sub(SOURCE_STEP, SOURCE_STEP.replace(BASH, "      - if: false\n        shell: bash\n")), "no-bypass"),
+    "source-overwritten": (sub(SOURCE_STEP, BASH + "        run: echo '{\"build_type\":\"workflow\"}' > " + SOURCE_FILE + "\n"
+                               + SOURCE_STEP), "source-check"),
+    "demo-check-continue": (sub(CHECK_STEP, CHECK_STEP.replace(BASH, BASH + "        continue-on-error: true\n")),
+                            "no-bypass"),
+    "build-job-continue": (sub(BUILD_HEAD, "  build:\n    continue-on-error: true\n    runs-on: ubuntu-latest\n"),
+                           "no-bypass"),
+    "build-job-if": (sub(BUILD_HEAD, "  build:\n    if: false\n    runs-on: ubuntu-latest\n"), "no-bypass"),
     "commented-out-if": (sub(f"    if: {ON_MAIN}\n", f"    # if: {ON_MAIN}\n"), "deploy-if"),
 }
 

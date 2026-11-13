@@ -108,6 +108,14 @@ def clean_fails(root, monkeypatch):
     return root / "samples" / "out" / SENTINEL
 
 
+def tracked(root):
+    from helpers_history import git
+
+    sentinel = root / "samples" / "out" / SENTINEL
+    git(root, "add", "-f", "--", f"samples/out/{SENTINEL}")
+    return sentinel
+
+
 REFUSALS = {
     "outside": (set_output('"../elsewhere"', "elsewhere"), "the demo output folder is not inside samples/"),
     "is-samples": (set_output('"."', "samples"), "the demo output folder is not inside samples/"),
@@ -117,6 +125,7 @@ REFUSALS = {
     "link-out": (link_out, "the demo output folder is a link"),
     "link-in": (link_in, "the demo output folder is a link"),
     "clean-fails": (None, "cannot clean samples/out: Permission denied"),
+    "tracked": (tracked, "git tracks a file in the demo output folder"),
 }
 
 

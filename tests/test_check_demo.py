@@ -200,6 +200,7 @@ EDITS = {
     "pending-view-present": (page_and_index("strategic.html"), "strategic.html: " + PENDING.format(23)),
     "pending-data-present": (lambda f: write(f, "week-plan.json", "{}\n"), "week-plan.json: " + PENDING.format(61)),
     "unlisted-top-page": (page_and_index("other.html"), "other.html: on no entry of the expected list"),
+    "unlisted-nested-page": (page_and_index("extra/view.html"), "extra/view.html: on no entry of the expected list"),
     "unlisted-data-file": (lambda f: write(f, "sites/notes.txt", "notes\n"),
                            "sites/notes.txt: on no entry of the expected list"),
     "history-copy": (history_copy, f"history/{BUSY}/WBS.md: on no entry of the expected list"),
