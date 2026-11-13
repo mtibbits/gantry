@@ -884,3 +884,19 @@ def test_week_plan_doc_names_every_field():
     section = doc_section(doc, "## The plan file")
     names = {part.removesuffix("[]") for path in V1_FIELDS for part in path.split(".")[1:]}
     assert [name for name in sorted(names) if f"`{name}`" not in section] == []
+
+
+def test_attention_not_recorded_for_a_leaf_with_no_lane_free(tmp_path):
+    # a's block takes the one lane and leaves 0.25 h of attention. b's leaf never had a lane
+    # minute free, so only agent lanes ran out: attention needs "a lane minute free".
+    plan = plan_of(tmp_path, "states", portfolio=portfolio_md(hours=2, lanes=1), wbs={
+        "a": wbs_md(leaf(1, priority="P1", est="60h", h=2)),
+        "b": wbs_md(leaf(1, priority="P2", est="60h", h=2)),
+    })
+    assert plan.days[0]["left"] == {"attention_hours": 0.25, "lane_hours": 0.0}
+    assert [day["ran_out"] for day in plan.days] == [[LANES]] * 10
+    assert plan.binding == {"pool": LANES, "first_day": "2026-01-19", "text": LANES}
+    # Within one block too: the first leaf ends the lanes, so the leaf behind it waits on lanes alone.
+    plan = plan_of(tmp_path, "binds_lanes", portfolio=portfolio_md(hours=2, lanes=1), wbs={"alpha": wbs_md(
+        leaf(1, priority="P1", est="60h", h=2), leaf(2, priority="P2", est="6h", h=4))})
+    assert plan.days[0]["ran_out"] == [LANES]

@@ -319,16 +319,17 @@ them, attention first:
 - **agent lanes**: no lane minute is left while a ready leaf with minutes
   to place, under its 6 agent hours that day, waits for one, in a block or
   in the lanes row;
-- **operator attention hours**: such a leaf of rate above 0 waits because
-  its site's block stopped at the day's attention with work left, or
-  because no block of its site could open. No block opens when less than
+- **operator attention hours**: with a lane minute free, such a leaf of
+  rate above 0 waits because its site's block stopped at the day's
+  attention with work left, or because no block of its site could open. No block opens when less than
   `block_min_hours` is left. By a deliberate reading of "a ready leaf that
   fits", a day also counts as attention running out when `block_min_hours`
   is left but the start cost plus one agent minute of the ready leaf no
   longer fits.
 
-Each test holds on its own, so one placement that ends both pools records
-both. A day's own list covers all 10 days; each pool's days run out, and
+A leaf with no lane minute free waits on lanes alone, with one exception:
+when a single placement takes the last lane minute and the last of the
+attention its block had for that leaf, the day records both pools. A day's own list covers all 10 days; each pool's days run out, and
 the binding pool, read the planned week only. The **binding pool** is the
 one that ran out on the earliest day; on the same day, the one that ran out
 on more days of the planned week; still tied, operator attention hours.

@@ -280,6 +280,9 @@ class _Day:
         self.lanes = capacity.lanes * LANE_MINUTES
         self.placed_order, self.charged = placed_order, charged
         self.today = []
+        # Whether the placement that took the last lane minute also took the
+        # last of the attention its block could give that leaf.
+        self.tied = False
         # Each site's ready leaves in plan order, fixed for the day: a leaf
         # is ready when every predecessor finished on an earlier day.
         # Leaves started on an earlier day go first, then the others.
@@ -335,9 +338,11 @@ class _Day:
             for item in self.order[name]:
                 if not item["ppm"]:
                     continue
-                agent = min(item["left"], LANE_MINUTES - item["today"], self.lanes, _agent_fit(room, item["ppm"]))
+                fit = _agent_fit(room, item["ppm"])
+                agent = min(item["left"], LANE_MINUTES - item["today"], self.lanes, fit)
                 if agent <= 0:
                     continue
+                self.tied = agent == self.lanes == fit
                 operator = _operator(agent, item["ppm"])
                 self.place(item, agent)
                 room -= operator
@@ -354,11 +359,12 @@ class _Day:
     def block_pools_run_out(self, closed) -> set:
         """The pools that ran out while a ready leaf of rate above 0 still waited.
 
-        Each pool's test holds on its own, so both can run out on one
-        placement. Lanes: no lane minute is left. Attention: the leaf's
-        site's block closed without room for one more agent minute of it,
-        or no block of its site could open, for want of block_min_hours or
-        of the start cost plus one agent minute (docs/week-plan.md).
+        Lanes: no lane minute is left. Attention: with a lane minute free,
+        the leaf's site's block closed without room for one more agent
+        minute of it, or no block of its site could open, for want of
+        block_min_hours or of the start cost plus one agent minute
+        (docs/week-plan.md). With no lane minute free, attention ran out
+        too only when one placement took the last of both pools.
         """
         capacity = self.capacity
         ran = set()
@@ -373,7 +379,7 @@ class _Day:
                 else:
                     short = (self.attention < capacity.block_min
                              or _agent_fit(self.attention - capacity.start_cost, item["ppm"]) < 1)
-                if short:
+                if short and (self.lanes > 0 or self.tied):
                     ran.add(POOL_ATTENTION)
         return ran
 
