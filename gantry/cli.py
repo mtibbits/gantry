@@ -68,7 +68,7 @@ def _parser():
     build.add_argument(
         "--site",
         metavar="NAME",
-        help="build only that site's worksite page, and no index",
+        help="build only that site's worksite page, and no index and no plan",
     )
     portfolio = commands.add_parser(
         "portfolio",

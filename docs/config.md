@@ -277,7 +277,9 @@ a wrong path.
 `gantry build` builds every site: each site's worksite page to
 `<output_dir>/sites/<name>.html`, then `<output_dir>/index.html`, which
 lists every site with its open leaves, finish and report count, or why it
-was not built. It prints one absolute path per file written, then one
+was not built, then the week plan, `<output_dir>/week-plan.json`
+([week-plan.md](week-plan.md#the-plan-file)). It prints one absolute path
+per file written, then one
 `trace <site>:` line per written page whose site is in the trace or whose
 trace report has an item ([worksite-page.md](worksite-page.md#reading-the-trace)). A site that
 cannot be built is listed on the index and on stderr with its reason, and
@@ -286,7 +288,7 @@ escaped (a tab as `\t`, an ESC as `\x1b`). The reading rules are in
 [worksite-page.md](worksite-page.md#reading-wbsmd).
 
 `gantry build --site NAME` writes only that site's worksite page, and no
-index, creating `<output_dir>/sites/` when it is missing;
+index and no plan, creating `<output_dir>/sites/` when it is missing;
 [worksite-page.md](worksite-page.md#every-site-and-the-index) has the
 pages, the index, the reasons and the errors. The page's durations use
 `default_unit_hours`.

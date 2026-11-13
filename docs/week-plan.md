@@ -190,7 +190,7 @@ week**. The as-of date counts as a whole day, so a rebuild later the same
 day gives the same plan. Each working day has `agent_lanes` lanes of 6
 agent hours. Reserved blocks' `start` times are shown, not planned around.
 An as-of date so late that the 10 working days would run past 9999-12-31
-is not supported: the build stops with an error.
+is not supported: the build exits 1 with a Python traceback.
 
 ### What each leaf costs
 
@@ -334,8 +334,9 @@ them, attention first:
 
 A leaf with no lane minute free waits on lanes alone, with one exception:
 when a single placement takes the last lane minute and the last of the
-attention its block had for that leaf, the day records both pools. A day's own list covers all 10 days; each pool's days run out, and
-the binding pool, read the planned week only. The **binding pool** is the
+attention its block had for that leaf, the day records both pools. A day's
+own list covers all 10 days; each pool's days run out, and the binding
+pool, read the planned week only. The **binding pool** is the
 one that ran out on the earliest day; on the same day, the one that ran out
 on more days of the planned week; still tied, operator attention hours.
 When neither ran out, the binding pool is null and the plan says

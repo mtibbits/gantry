@@ -26,14 +26,14 @@ SCALARS = {
     "string": lambda v: isinstance(v, str),
     "date": lambda v: isinstance(v, str) and DATE_RE.fullmatch(v) is not None,
     "number": _is_number,
-    "integer": lambda v: _is_number(v) and v == int(v),
+    "integer": lambda v: isinstance(v, int) and not isinstance(v, bool),
     "boolean": lambda v: isinstance(v, bool),
 }
 
 
 def _node_errors(value, node, path):
     if isinstance(node, str):
-        return [] if SCALARS[node](value) else [f"{path}: not a {node}"]
+        return [] if SCALARS[node](value) else [f"{path}: not {'an' if node[0] in 'aeiou' else 'a'} {node}"]
     if isinstance(node, list):  # ["null", <node>]
         assert node[0] == "null" and len(node) == 2
         return [] if value is None else _node_errors(value, node[1], path)
@@ -152,7 +152,11 @@ def test_shape_rejects(tmp_path):
 
     retyped = copy.deepcopy(base)
     retyped["leaves"][0]["need"] = 1.5
-    assert shape_errors(retyped) == ["plan.leaves[0].need: not a integer"]
+    assert shape_errors(retyped) == ["plan.leaves[0].need: not an integer"]
+
+    retyped = copy.deepcopy(base)
+    retyped["plan_version"] = 1.0
+    assert shape_errors(retyped) == ["plan.plan_version: not an integer"]
 
     added = copy.deepcopy(base)
     added["sites"][0]["tier"] = "started"

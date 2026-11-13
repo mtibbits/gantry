@@ -892,7 +892,7 @@ path. Three more lines can follow on stderr:
 ### One site: `--site`
 
 `gantry build --config FILE --site NAME` writes only that site's page to
-`<output_dir>/sites/<NAME>.html`, and no index, and prints the page's
+`<output_dir>/sites/<NAME>.html`, and no index and no plan, and prints the page's
 absolute path, then that site's `trace <site>:` line when the full build
 would print one. It reads only that site's `WBS.md` and inputs (the site
 list still checks each planning directory), every requirements file and
