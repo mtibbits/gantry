@@ -113,11 +113,12 @@ collections by `.key`, never by the node.
 - **local** when it has no `:`, or is `<site>:<id>` where `<site>` is exactly
   this site's name and both halves are id tokens (`[A-Za-z0-9][A-Za-z0-9_.-]*`);
 - **foreign** when it is `<site>:<id>` with both halves id tokens and another
-  site's name (a different case is another name); it stays unresolved and
-  unreported, for a later cross-site view: a leaf's in its `deps`, a row's
-  only as raw text in `meta["depends_on"]`. A cross-site reader classifies
-  a row's entries itself and applies them to the open leaves under the row
-  by the rule in [Rows in `depends_on`](#rows-in-depends_on);
+  site's name (a different case is another name). Reading one `WBS.md`
+  draws no link for it: a leaf keeps it in its `deps`, a row only as raw
+  text in `meta["depends_on"]`. A full build resolves it against the site
+  it names ([Foreign entries](#foreign-entries)), applying a row's entries
+  to the open leaves under the row by the rule in
+  [Rows in `depends_on`](#rows-in-depends_on);
 - **malformed** otherwise (`beta: Issue-1`, `https://x`, `a:b:c`,
   `:Issue-1`), reported `malformed_ref` once and otherwise ignored.
 
@@ -178,6 +179,8 @@ in this table's order.
 | `key_collision` | an outline key equals an `issue:` id | shows the node under its `~<line>` key |
 | `unresolved_ref` | a local `depends_on` entry names no `issue:` id in the file | draws no link and lists the entry |
 | `malformed_ref` | a `depends_on` entry is neither an id nor `<site>:<id>` | draws no link and lists the entry |
+| `foreign_site_absent` | in a full build, a `<site>:<id>` entry names a site that is not in this installation (exact, case-sensitive match) | draws an unlinked box, flags the waiting open leaves, and lists the entry: `WBS.md line {line}: depends_on entry {entry!r} names a site not in this installation` |
+| `foreign_unresolved` | in a full build, a `<site>:<id>` entry names a configured site that is not built, or whose `WBS.md` has no node with that `issue:` id | draws an unlinked box, flags the waiting open leaves, and lists the entry: `WBS.md line {line}: depends_on entry {entry!r} is unresolved: {reason}` ([Foreign entries](#foreign-entries) has the reasons) |
 | `bad_priority` | a node's `priority:` is not `P0`–`P4` | treats it as P3 and lists the value |
 | `cycle` | open leaves depend on each other in a loop | lists the members |
 | `waits_on_cycle` | an open leaf is in, or waits on, a cycle | shows the leaf as held out, with no effective priority |
@@ -341,6 +344,14 @@ box's tooltip and in the leaf's details. Hover, select or tab to a leaf to
 open its details (state, epic, priority, effective priority, hours, model
 tiers, flags, metadata and foreign entries, earliest slot, slack, what it
 waits on and unblocks) and to trace everything upstream and downstream.
+Below the critical path, the hours note reads `No open leaf waits on another.`
+when the network draws nothing.
+
+In a full build the network also draws boxes on another site
+([Foreign entries](#foreign-entries)). A box takes no slot and is not a node:
+it moves no column, slack or critical path. A leaf whose only open
+dependencies are on another site is drawn in the first column, beside the
+network but not in it, with its boxes below it.
 
 ### Rolling wave
 
@@ -420,7 +431,16 @@ reads
 `With {lanes}, all open work ends around working day {end}. No open leaf waits on another, so there is no critical chain; the work spread evenly across the lanes needs {even}. The lanes are busy {busy}% of the time.`,
 the chain row of Two limits says `none: no open leaf waits on another` and
 draws no bar, and its caption reads
-`At {hpd} agent-hours a day, all open work is {c} to {d} working days. No open leaf waits on another, so there is no critical chain, and with one operator the total sets the finish date.` When the site's N is above 0 the summary
+`At {hpd} agent-hours a day, all open work is {c} to {d} working days. No open leaf waits on another, so there is no critical chain, and with one operator the total sets the finish date.`
+These no-chain texts are chosen only when the network draws nothing. When
+it draws leaves that wait only on another site and no local link, the
+summary reads
+`With {lanes}, all open work ends around working day {end}. No open link joins two leaves of this site, so there is no critical chain; the work spread evenly across the lanes needs {even}. The lanes are busy {busy}% of the time.`,
+the chain row says `none: no open link joins two leaves of this site`, the
+caption reads
+`At {hpd} agent-hours a day, all open work is {c} to {d} working days. No open link joins two leaves of this site, so there is no critical chain, and with one operator the total sets the finish date.`
+and the hours note reads `No open link joins two leaves of this site.`
+The figures are the same either way. When the site's N is above 0 the summary
 adds ` The plan ` followed by
 `includes {n} unestimated leaves ({m} on the critical chain)` (or
 `includes 1 unestimated leaf ({m} on the critical chain)`) and a full stop;
@@ -578,11 +598,95 @@ requirements panel and no trace report.
 
 ### Foreign entries
 
-A worksite page does not resolve another site's leaves yet (#68 does): a
-full build and `--site` alike keep each foreign entry as text. A leaf's
-foreign `depends_on` entries, then those of each open row above it,
-top-down, are listed in its details as `{raw} (on another site)`, such as
-`beta:Issue-3 (on another site)`.
+`--site` never resolves a foreign entry. Its page lists a leaf's foreign
+`depends_on` entries, then those of each open row above it, top-down, in
+the leaf's details as `{raw} (on another site)`, such as
+`beta:Issue-3 (on another site)`, draws no box and reports nothing.
+
+A full build resolves every foreign entry between reading the sites and
+rendering them (`gantry/crosssite.py`). Every node's entries are checked,
+leaf or row, open or finished, and each entry gets one outcome:
+
+- **Matching.** The site half matches a configured site's name exactly (a
+  different case is another name). The issue half names the node whose
+  `issue:` id it is and which holds that id first
+  ([Identity](#identity)); an outline position such as `1.2` is never an
+  issue id, so it names nothing.
+- **open**: the site is built and the node is an open leaf, or a row with an
+  open leaf under it. Its box links to the leaf, or to the row's first open
+  leaf in `WBS.md` order (a row has no anchor).
+- **satisfied**: the named leaf is finished, or every leaf under the named
+  row is. No box, no flag and no report entry, as for a local entry naming a
+  finished leaf.
+- **absent**: the site half names no site in this installation. Reported
+  `foreign_site_absent`.
+- **unresolved**: the site is in this installation but not built, with #11's
+  reason (a render error included), or it is built and no node holds the
+  issue. Reported `foreign_unresolved`, whose `{reason}` is
+  `{site} is not built: {reason}` or `{site}'s WBS.md has no issue: id {issue!r}`.
+
+A row's entry is reported once, at the row's line. An open leaf takes its
+own entries, then each open ancestor row's, top-down; each open, absent or
+unresolved target among them (one per site and issue, the first kept) is a
+box, and the leaf is flagged `waits on another site`. Its details show the
+flag and list each target as `{raw}: {title} (open on {site})`,
+`{raw} (names a site not in this installation)` or
+`{raw} (unresolved: {reason})`. A finished leaf's entries are checked and
+reported but flag nothing. A leaf held out by a cycle is flagged on the
+resolved leaf only (`waits_on_other_site`): the page draws no box for it.
+
+**The box.** Each box sits in its waiting leaf's lane, in a row of its own
+below the lane's leaf rows, in the leaf's column; a lane's boxes follow
+their leaves' column and row order, then each leaf's target order, and
+only a lane with boxes grows. A box shows `<site>:<issue>` and the target's
+title, or `not in this installation` or `unresolved`; its tooltip reads
+`{key} waits on {text}`, the waiting leaf's key and its details text. An open
+target's box is a link (`a.fbox.fbox-open`); the others are `g.fbox.fbox-none`. A
+dashed line with an arrow runs from the box's left side up the gap left of
+the column and into its leaf's left side, so it crosses no other box; each
+waiting leaf in a lane's column has a line of its own (up to five apart). The
+legend names the box `box on another site`. The flagged leaf's
+outline takes its own colour (`xsite`), keeping a stuck, blocked or parked
+dash, and its tooltip adds `waits on another site`.
+
+**The schedule does not move.** A box takes no slot and changes no column,
+slack, critical path or schedule figure. A leaf whose only open
+dependencies are on another site (no open local link either way) is drawn
+in the network's first column: earliest slot 1, slack
+`none: waits only on another site`. The count sentence counts it among the
+leaves that "have an open link and appear in the network", its lane's
+`+N unlinked` no longer counts it, and its schedule details say
+`waits on another site` rather than that it could move anywhere. Holding the
+leaf until the other site's leaf finishes is #62.
+
+**A page that fails to render.** Its site is then not built. The pages that
+hold an entry naming it are re-resolved, so those entries become
+unresolved with the render error as reason, and re-rendered; a page that
+fails then is dropped in turn, until no new page fails (at most one pass per
+site). No page links to a page that was not rendered. A page that fails to
+*write* is not re-resolved: a page that links to it keeps its link.
+
+**The outcome record.** `BuildResult.foreign` (for #62) maps each read site,
+in config order, to the outcomes of its foreign entries, in `WBS.md` line
+order. A site with none maps to `()`. An outcome records the waiting site,
+the source node's key, line and whether it is a row, the entry as written,
+the target site and issue, the status, and, by status: the target's key and
+whether it is a row (open, satisfied), its title and href (open), or the
+reason (unresolved). A leaf's `foreign_targets` is `None` in a `--site`
+build (not resolved) and on every finished leaf, and `()` on an open leaf
+in a full build when nothing on another site waits. For example, on the samples:
+
+```
+ForeignOutcome(site="orchard", source_key="Issue-5", source_line=10, source_is_row=False,
+               raw="harbor:Issue-2", target_site="harbor", target_issue="Issue-2",
+               status="open", target_key="Issue-2", target_is_row=True,
+               title="Warehouse", href="harbor.html#leaf-Issue-12", reason=None)
+```
+
+"Does site S have issue I" here follows rows and the first-holder rule.
+`gantry/portfolio_file.py`'s `check_portfolio` answers it from leaves'
+`issue:` values only and words an unread site its own way; the two are
+separate on purpose for now.
 
 ### Anchors and links
 
@@ -599,6 +703,10 @@ sits on an element in the page's own HTML, never on one a script builds:
   "Missing or unreadable" heading;
 - a finished leaf: its line in the finished list
   ([Finished leaves](#finished-leaves)).
+
+A leaf drawn in the first column because it waits only on another site
+anchors on its `g.node`, like a network leaf. A box on another site links
+to `<name>.html#leaf-<key>` ([Foreign entries](#foreign-entries)).
 
 A site's page is `sites/<name>.html` under the output folder, and every
 href is relative to the page that holds it. Between pages in `sites/` (a
@@ -723,8 +831,10 @@ summary and the warnings, as shown.
 ## Every site and the index
 
 `gantry build --config FILE` builds every site devagent's config names, in
-its config order. It first reads every site, then renders each site it
-read, each in its own `try`, and writes `<output_dir>/sites/<name>.html` for
+its config order. It first reads every site, then resolves the foreign
+entries across them ([Foreign entries](#foreign-entries)), then renders each
+site it read, each in its own `try`; after a render failure it re-resolves
+and re-renders the pages that wait on the failed site, and writes `<output_dir>/sites/<name>.html` for
 each, then `<output_dir>/index.html` ([The index](#the-index)). It prints
 one absolute path per file it wrote: the pages in config order, then the
 index. Then, for each page it wrote whose site is in the trace or whose

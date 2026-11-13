@@ -8,12 +8,14 @@ never an absolute path. docs/worksite-page.md states the build.
 """
 
 import stat
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
 
 from gantry.attention import check_h
 from gantry.config import Config, error_reason
+from gantry.crosssite import resolve_foreign
 from gantry.inputs import Inputs, apply_inputs
+from gantry.model import ForeignOutcome
 from gantry.requirements import in_trace_sites
 from gantry.roots import OutsideRoots, Roots, mkdir_confined, stat_confined, write_confined
 from gantry.sites import SiteEntry, SiteWarning, config_roots, load_sites
@@ -57,6 +59,8 @@ class BuildResult:
     summaries: tuple[SiteSummary, ...]
     stamp: str
     roots: Roots  # the run's roots (#59): every read, the stamp and every write
+    # {waiting site: its foreign entries' outcomes}, every read site in config order (#68)
+    foreign: dict[str, tuple[ForeignOutcome, ...]] = field(default_factory=dict)
 
 
 def site_list(config, roots=None):
@@ -178,12 +182,42 @@ def not_built(name, reason) -> SiteSummary:
     return SiteSummary(name, "not_built", reason)
 
 
-def build_all(config, *, now=None, samples=None) -> BuildResult:
-    """Read every site, then render every read site; write nothing.
+def rerender_failed(config, raw, sites, reasons, resolved, foreign, pages, models, failed, stamp, *, roots,
+                    catalog):
+    """Re-resolve and re-render after render failures, until no new page fails (#68).
 
-    The gap between the two phases is #68's seam: it resolves foreign
-    entries across the read sites there, then calls render_sites again on
-    the sites whose pages change.
+    `resolved` and `foreign` are resolve_foreign's result for the last
+    render, and `failed` its {site: reason}. Each pass adds the newly failed
+    sites to `reasons`, re-resolves from the raw read `raw`, and re-renders
+    only the built pages that hold an entry naming one of them. A page that
+    fails here is dropped from `pages` and `models`. Changes `reasons`,
+    `pages` and `models` in place; returns the final (resolved, foreign).
+    """
+    passes = 0
+    new = {name: why for name, why in failed.items() if name not in reasons}
+    while new:
+        passes += 1
+        assert passes <= len(sites), "the render-failure passes did not settle"
+        reasons.update(new)
+        for name in new:
+            pages.pop(name, None)
+            models.pop(name, None)
+        resolved, foreign = resolve_foreign(sites, raw, reasons)
+        waiting = {name: resolved[name] for name in pages
+                   if any(o.target_site in new for o in foreign[name])}
+        again, remodels, new = render_sites(config, waiting, stamp, roots=roots, catalog=catalog)
+        pages.update(again)
+        models.update(remodels)
+    return resolved, foreign
+
+
+def build_all(config, *, now=None, samples=None) -> BuildResult:
+    """Read every site, resolve foreign entries across them, then render every
+    read site; write nothing.
+
+    After a render failure, the pages that wait on the failed site are
+    re-resolved and re-rendered (rerender_failed). A write failure is not
+    re-resolved: write_all runs after the pages are fixed.
     """
     roots = config_roots(config)
     sites, warnings = site_list(config, roots)
@@ -191,12 +225,14 @@ def build_all(config, *, now=None, samples=None) -> BuildResult:
     # file that cannot be read is a report entry, never an exception.
     catalog = load_catalog(roots, config, sites)
     stamp = stamp_text(config, now=now, samples=samples, roots=roots)
-    inputs, reasons = read_sites(config, sites, roots=roots)
-    pages, models, failed = render_sites(config, inputs, stamp, roots=roots, catalog=catalog)
-    reasons.update(failed)
-    summaries = tuple(_summary(s.name, inputs[s.name], models[s.name], config.as_of) if s.name in pages
+    raw, reasons = read_sites(config, sites, roots=roots)
+    resolved, foreign = resolve_foreign(sites, raw, reasons)
+    pages, models, failed = render_sites(config, resolved, stamp, roots=roots, catalog=catalog)
+    resolved, foreign = rerender_failed(config, raw, sites, reasons, resolved, foreign, pages, models, failed,
+                                        stamp, roots=roots, catalog=catalog)
+    summaries = tuple(_summary(s.name, resolved[s.name], models[s.name], config.as_of) if s.name in pages
                       else not_built(s.name, reasons[s.name]) for s in sites)
-    return BuildResult(config, tuple(sites), tuple(warnings), inputs, pages, summaries, stamp, roots)
+    return BuildResult(config, tuple(sites), tuple(warnings), resolved, pages, summaries, stamp, roots, foreign)
 
 
 def _is_file_shaped(roots, folder) -> bool:

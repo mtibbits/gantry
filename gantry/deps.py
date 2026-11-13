@@ -33,7 +33,7 @@ MESSAGES = {
 }
 
 
-def _inside(node, row):
+def inside(node, row):
     return node.outline.startswith(row.outline + ".")
 
 
@@ -53,6 +53,18 @@ def _targets(site, node, by_issue, report):
             else:
                 _report(report, site, node.line, "unresolved_ref", entry=ref.raw)
     return out
+
+
+def ancestors(leaf, row_at):
+    """A node's ancestor rows, top-down; `row_at` maps an outline to its row."""
+    parts = leaf.outline.split(".")
+    return [row_at[".".join(parts[:i])] for i in range(1, len(parts))]
+
+
+def open_sources(leaf, row_at):
+    """The nodes whose entries an open leaf takes: itself, then each ancestor
+    row that is not finished, top-down (#8, #68)."""
+    return [leaf] + [row for row in ancestors(leaf, row_at) if row.glyph not in FINISHED_GLYPHS]
 
 
 def find_cycles(keys, links) -> list[list[str]]:
@@ -120,12 +132,8 @@ def resolve(site, leaves, rows, by_issue):
     row_at = {row.outline: row for row in rows}
     named = {node.key: _targets(site, node, by_issue, report) for node in nodes}
 
-    def ancestors(leaf):
-        parts = leaf.outline.split(".")
-        return [row_at[".".join(parts[:i])] for i in range(1, len(parts))]
-
     open_leaves = [leaf for leaf in leaves if leaf.open]
-    lineages = {leaf.key: ancestors(leaf) for leaf in open_leaves}
+    lineages = {leaf.key: ancestors(leaf, row_at) for leaf in open_leaves}
     open_under = {row.key: [] for row in rows}
     for leaf in open_leaves:
         for row in lineages[leaf.key]:
@@ -133,15 +141,13 @@ def resolve(site, leaves, rows, by_issue):
 
     links = set()
     for leaf in open_leaves:
-        lineage = lineages[leaf.key]
-        above = {row.key for row in lineage}
-        sources = [leaf] + [row for row in lineage if row.glyph not in FINISHED_GLYPHS]
-        for source in sources:
+        above = {row.key for row in lineages[leaf.key]}
+        for source in open_sources(leaf, row_at):
             for key in named[source.key]:
                 target = by_key[key]
                 if key == leaf.key or key in above:
                     continue
-                if isinstance(source, Row) and _inside(target, source):
+                if isinstance(source, Row) and inside(target, source):
                     continue
                 if isinstance(target, Row):
                     links.update((t, leaf.key) for t in open_under[key])

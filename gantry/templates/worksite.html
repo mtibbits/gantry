@@ -10,7 +10,7 @@
 :root {
   --bg: #f3f4f6; --sheet: #ffffff; --ink: #18202c; --muted: #5d6878; --rule: #d6dbe3;
   --lane: #f7f8fa; --lane-alt: #eef1f5; --crit: #c4321f; --crit-ink: #ffffff;
-  --near: #f8ddd7; --near-ink: #6e1e12; --cross: #3a55c9; --held: #8a5a00;
+  --near: #f8ddd7; --near-ink: #6e1e12; --cross: #3a55c9; --held: #8a5a00; --xsite: #0b7a6e;
   /* model band: a neutral ramp, heavier model = heavier tone */
   --m-haiku: #f1f3f6; --m-haiku-ink: #3a4452;
   --m-sonnet: #e6e9ee; --m-sonnet-ink: #3a4452;
@@ -25,7 +25,7 @@
   :root {
     --bg: #0f131a; --sheet: #161c25; --ink: #e5e9ef; --muted: #98a3b3; --rule: #2b3442;
     --lane: #141a22; --lane-alt: #19202a; --crit: #ff6a55; --crit-ink: #1b0904;
-    --near: #47231d; --near-ink: #ffcfc6; --cross: #8fa3ff; --held: #e0b050;
+    --near: #47231d; --near-ink: #ffcfc6; --cross: #8fa3ff; --held: #e0b050; --xsite: #4fd1c0;
     --m-haiku: #1c222b; --m-haiku-ink: #b9c2ce;
     --m-sonnet: #252d38; --m-sonnet-ink: #b9c2ce;
     --m-opus: #66727f; --m-opus-ink: #0b0f14;
@@ -67,6 +67,7 @@ figcaption { color: var(--muted); font-size: 14px; max-width: 72ch; }
 .sw.st-stuck { background: var(--sheet); border: 2px dashed var(--held); }
 .sw.st-blocked { background: var(--sheet); border: 2px dotted var(--held); }
 .sw.st-parked { background: var(--lane-alt); border: 2px dashed var(--muted); }
+.sw.fb { background: var(--sheet); border: 1.5px solid var(--xsite); }
 .sw.m-haiku { background: var(--m-haiku); }
 .sw.m-sonnet { background: var(--m-sonnet); }
 .sw.m-opus { background: var(--m-opus); border-color: var(--m-opus); }
@@ -124,6 +125,20 @@ figcaption { color: var(--muted); font-size: 14px; max-width: 72ch; }
 .node.st-stuck .outline { stroke: var(--held); stroke-width: 2.5; stroke-dasharray: 6 3; }
 .node.st-blocked .outline { stroke: var(--held); stroke-width: 2.5; stroke-dasharray: 2 3; }
 .node.st-parked .outline { stroke: var(--muted); stroke-width: 2.5; stroke-dasharray: 6 3; }
+/* A leaf that waits on another site (#68): its own outline colour and width.
+   As specific as the st-* rules and after them, so it wins, and a held
+   state keeps its dash; the later focus-ring rule wins over it in turn. */
+.node.xsite .outline { stroke: var(--xsite); stroke-width: 2.5; }
+/* A box on another site and its link: not a node and not an .edge, so the
+   trace and the selection never light or dim it. */
+.fbox .fb { fill: var(--sheet); stroke: var(--xsite); stroke-width: 1.5; stroke-dasharray: 4 3; }
+.fbox.fbox-open .fb { stroke-dasharray: none; }
+.fbox.fbox-open { cursor: pointer; }
+.fbox.fbox-open:focus-visible .fb { stroke: var(--cross); stroke-width: 3; }
+.fbox .fid { font-family: var(--f-mono); font-size: 11px; font-weight: 600; fill: var(--ink); }
+.fbox .ftitle { font-size: 10px; fill: var(--muted); }
+.fedge { fill: none; stroke: var(--xsite); stroke-width: 1.2; stroke-dasharray: 3 3; }
+.arrow-foreign { fill: var(--xsite); }
 .band.m-haiku { fill: var(--m-haiku); }
 .band.m-sonnet { fill: var(--m-sonnet); }
 .band.m-opus { fill: var(--m-opus); }
@@ -277,6 +292,7 @@ figcaption { color: var(--muted); font-size: 14px; max-width: 72ch; }
         <span><i class="ln crit"></i>critical link</span>
         <span><i class="ln cross"></i>link across epics</span>
         <span><i class="ln"></i>link within an epic</span>
+        <span><i class="sw fb"></i>{{FBOX_LEGEND}}</span>
       </div>
       <div class="legend">
         <span><i class="sw st-wip"></i>in progress</span>

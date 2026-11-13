@@ -26,7 +26,7 @@ from gantry.views.worksite import INCLUDES, LANES_DEFAULT, SCHEDULE_LABEL
 from helpers_config import append_bytes, copy_samples, sample_build, toml_key, write_site_tree
 from page_safety import HOSTILE, assert_no_external_resources, assert_page_safe
 from page_script.harness import open_page
-from sample_roles import BUSY, NO_WBS, READABLE, UNESTIMATED, UNREADABLE
+from sample_roles import BUSY, NO_WBS, OWN_UNIT, READABLE, UNESTIMATED, UNREADABLE
 from test_samples import ROOT
 from test_worksite_page import by_id, find, text_of, tree
 
@@ -231,3 +231,14 @@ def test_index_names_no_absolute_path(tmp_path):
         assert path_form_hits(text) == [], text[:80]
         assert str(tmp_path) not in text and tmp_path.as_posix() not in text
     assert len(data["warnings"]) == 2 and json.dumps(data)
+
+
+def test_index_counts_cross_site_entries(tmp_path):
+    from test_crosssite import model_of, stripped_build
+
+    with_foreign, without = sample_build(tmp_path / "a"), stripped_build(tmp_path / "b")
+    counts = {s.name: s.report_count for s in with_foreign.summaries}
+    before = {s.name: s.report_count for s in without.summaries}
+    for site, added in ((OWN_UNIT, 4), (UNESTIMATED, 1)):
+        assert counts[site] == before[site] + added, site
+        assert counts[site] == len(model_of(with_foreign, site)["panel"]), site

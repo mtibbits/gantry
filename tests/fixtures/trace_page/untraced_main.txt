@@ -33,6 +33,7 @@
         <span><i class="ln crit"></i>critical link</span>
         <span><i class="ln cross"></i>link across epics</span>
         <span><i class="ln"></i>link within an epic</span>
+        <span><i class="sw fb"></i>box on another site</span>
       </div>
       <div class="legend">
         <span><i class="sw st-wip"></i>in progress</span>

@@ -9,13 +9,16 @@ cycle. A consumer that wants the schedulable graph filters by `held_out`.
 A Leaf's `deps` holds only its own entries. A Row has no `deps`: its entries,
 foreign ones included, are only in `meta["depends_on"]`, and a cross-site
 reader applies them to the row's open leaves itself (docs/worksite-page.md).
+That cross-site reader is gantry/crosssite.py (#68): it sets a Leaf's
+`waits_on_other_site` and `foreign_targets` and records a ForeignOutcome for
+every foreign entry.
 """
 
 from dataclasses import dataclass
 
 REPORT_KINDS = (
     "no_issue", "duplicate_issue", "key_collision", "unresolved_ref",
-    "malformed_ref", "bad_priority", "cycle", "waits_on_cycle",
+    "malformed_ref", "foreign_site_absent", "foreign_unresolved", "bad_priority", "cycle", "waits_on_cycle",
     "skipped_line", "no_nodes", "site_unreadable",
     # The optional inputs (#10): gantry/estimates_file.py and gantry/inputs.py.
     "no_estimates_file", "estimates_ignored", "estimates_unreadable",
@@ -52,6 +55,29 @@ class DepRef:
 
 
 @dataclass(frozen=True)
+class ForeignOutcome:
+    """One foreign depends_on entry's resolution in a full build (#68).
+
+    status is "open", "satisfied", "absent" or "unresolved". An open outcome
+    has target_key, title and href; a satisfied one target_key; an absent one
+    none of them; an unresolved one a reason.
+    """
+    site: str  # the waiting site
+    source_key: str
+    source_line: int
+    source_is_row: bool
+    raw: str
+    target_site: str
+    target_issue: str
+    status: str
+    target_key: str | None = None
+    target_is_row: bool | None = None
+    title: str | None = None
+    href: str | None = None
+    reason: str | None = None
+
+
+@dataclass(frozen=True)
 class Leaf:
     key: str
     issue: str | None
@@ -68,6 +94,11 @@ class Leaf:
     estimate: object = None
     models: object = None
     flags: object = None
+    # Set by gantry/crosssite.py on each open leaf in a full build (#68).
+    # foreign_targets None: not resolved (a --site build, or a finished
+    # leaf); (): resolved, nothing on another site.
+    waits_on_other_site: bool = False
+    foreign_targets: tuple[ForeignOutcome, ...] | None = None
 
 
 @dataclass(frozen=True)
