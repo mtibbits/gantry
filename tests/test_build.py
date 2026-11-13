@@ -686,6 +686,16 @@ def test_no_home_defers_to_this_issue():
         assert [s for s in stale if s in text] == [], path.name
 
 
+def test_no_doc_defers_to_62():
+    # The deferrals to #62 are gone now that it plans cross-site entries; a citation
+    # of #62 for what it added stays. Split, so this test is not itself a hit.
+    stale = ("until " + "#62", "is " + "#62.", "(for " + "#62)")
+    for path in sorted([*ROOT.glob("gantry/**/*.py"), *ROOT.glob("docs/*.md"), *ROOT.glob("commands/*.md"),
+                        ROOT / "README.md"]):
+        text = " ".join(path.read_bytes().decode("utf-8").split())
+        assert [s for s in stale if s in text] == [], path.name
+
+
 def test_demo_plan_holds_a_cross_site_leaf(tmp_path):
     # The demo week plan holds a leaf of one site on another site's open leaf (#62),
     # and the hold binds inside the 10 days.

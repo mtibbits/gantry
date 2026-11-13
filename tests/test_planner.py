@@ -1000,6 +1000,9 @@ def test_week_plan_doc_states_planner():
         "never belongs in a repository", "deliberate reading", "start cost plus one agent minute",
         "`WBS.md` states only", "int(hours * 60 + 0.5)", "parts per million", "no build time",
         "gantry: error: cannot write week-plan.json: <reason>",
+        "`unresolved_local`", *(f"`{kind}`" for kind in planner.PLAN_REPORT_KINDS),
+        "first ready on the working day after", "never raises its blocker's priority",
+        "local entry that names nothing is not a dependency",
     ]
     assert [w for w in wanted if w not in doc] == []
     assert len(planner.UNPLANNED_REASONS) == 8 and len(NO_PLAN) == 5
@@ -1007,13 +1010,15 @@ def test_week_plan_doc_states_planner():
     the_planner = " ".join(doc_section(text, "## The planner").split())
     for topic in ("### Days and capacity", "### What each leaf costs", "### Blocks", "### A ready leaf that fits",
                   "### Order within a site", "### Which site goes next", "### Started in this plan", "### States",
-                  "### Dependencies within a site", "### Unplanned leaves", "### Past the horizon",
+                  "### Dependencies within a site", "### Dependencies across sites",
+                  "### Local entries that name nothing", "### Cycles across sites", "### Unplanned leaves", "### Past the horizon",
                   "### The binding pool", "### When there is no plan"):
         assert topic in the_planner, topic
     the_file = " ".join(doc_section(text, "## The plan file").split())
     for topic in ("### Fields", "### The version rule", "### The pinned shape", "### Determinism"):
         assert topic in the_file, topic
     assert "The plan itself is #61" not in doc and "Neither exists yet" not in doc
+    assert "until #62" not in doc
 
 
 def doc_json_blocks(text):
@@ -1026,7 +1031,7 @@ def test_week_plan_doc_examples_are_real(tmp_path):
     from gantry.planner import plan_to_json
 
     section = doc_section(WEEK_PLAN_DOC.read_bytes().decode("utf-8"), "## The plan file")
-    planned, no_plan = doc_json_blocks(section)
+    planned, no_plan, report = doc_json_blocks(section)
     # The no_plan form is a whole file, byte for byte.
     assert no_plan == plan_to_json(plan_of(tmp_path, "binds_lanes", config={"portfolio_file": None}))
     assert json.loads(no_plan)["status"] == "no_plan"
@@ -1037,6 +1042,10 @@ def test_week_plan_doc_examples_are_real(tmp_path):
     assert json.loads(planned) == document
     assert planned == json.dumps(document, sort_keys=True, ensure_ascii=False, indent=2) + "\n"
     assert document["status"] == "planned"
+    # The report entry is cross_site_cycle/'s report, whole.
+    found = json.loads(plan_to_json(plan_of(tmp_path, "cross_site_cycle")))["report"]
+    assert json.loads(report) == found and found
+    assert report == json.dumps(found, sort_keys=True, ensure_ascii=False, indent=2) + "\n"
 
 
 def test_week_plan_doc_names_every_field():

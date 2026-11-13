@@ -250,7 +250,9 @@ the worksite schedule's rule, and it is one function,
 `gantry.schedule.pick_ready`, that both call, so the two orders cannot
 drift. Effective priority is taken as the worksite page takes it, over
 every open leaf not held out by a cycle: a leaf the plan leaves out still
-lifts the leaf it waits on.
+lifts the leaf it waits on. Effective priority is computed within each
+site: a cross-site entry only holds a leaf and never raises its blocker's
+priority.
 
 ### Which site goes next
 
@@ -285,10 +287,46 @@ reads `[~]` is planned like any other.
 
 A leaf is ready on a day when every open leaf it depends on finished on an
 earlier planned day: a dependent starts no sooner than the working day
-after its blocker's last, even when that day has room. Only the links
-within a site count. A leaf with an entry naming another site's open issue,
-a site not in this installation or an issue that could not be resolved is
-left unplanned until #62; an entry naming a finished issue is satisfied.
+after its blocker's last, even when that day has room.
+
+### Dependencies across sites
+
+A `depends_on` entry naming another site's open leaf holds the leaf until
+that leaf's planned finish: the leaf is first ready on the working day after
+the day its blocker finishes in the plan, as within a site. An entry naming
+a finished leaf is satisfied. An open leaf takes the cross-site entries of
+each open row above it, and an entry naming a row of another site means the
+open leaves under that row: the leaf is first ready on the working day after
+the last of them finishes. A leaf whose cross-site blocker is never placed,
+or is placed with `hours_after_horizon` above 0, never becomes ready and is
+`beyond_horizon`; one whose blocker is unplanned for any other reason is
+`waits_on_unplanned`. An entry naming a site not in this installation leaves
+the leaf `waits_on_site_absent`, and one that could not be resolved leaves it
+`waits_on_unresolved`: the plan does not guess at work the build cannot see.
+The planner reads each entry's outcome as the full build recorded it
+([worksite-page.md](worksite-page.md#foreign-entries)) and never
+resolves an entry again.
+
+### Local entries that name nothing
+
+A local entry that names nothing is not a dependency: an `unresolved_ref`
+(an id no node of the site holds, such as an outline number) or a
+`malformed_ref` leaves the leaf planned as if the entry were absent, as on
+the worksite schedule. The plan counts them in the leaf's `unresolved_local`:
+its own such entries and those of each open row above it. The worksite page
+lists each one.
+
+### Cycles across sites
+
+A cycle across sites is a strongly connected component of two or more open
+leaves, over every built site's links and the cross-site ones, whose leaves
+span two or more sites. Each is reported once in the plan's `report`, as a
+`cross_site_cycle` entry; its leaves are unplanned as `cross_site_cycle`,
+and the leaves downstream of them as `waits_on_unplanned`. A site's own
+cycle stays `waits_on_cycle` and is not in `report`. A cycle across sites
+that holds a site's own cycle is reported whole, and each of its leaves
+takes its first reason, so a leaf of the site's own cycle stays
+`waits_on_cycle`. The planner always finishes.
 
 ### Unplanned leaves
 
@@ -615,6 +653,43 @@ The `no_plan` form keeps every key:
   "status": "no_plan",
   "unestimated_planned": 0
 }
+```
+
+The `report` list from `tests/fixtures/week_plan/cross_site_cycle/`:
+
+```json
+[
+  {
+    "kind": "cross_site_cycle",
+    "leaves": [
+      {
+        "key": "Issue-1",
+        "site": "a"
+      },
+      {
+        "key": "Issue-2",
+        "site": "a"
+      },
+      {
+        "key": "Issue-1",
+        "site": "b"
+      }
+    ]
+  },
+  {
+    "kind": "cross_site_cycle",
+    "leaves": [
+      {
+        "key": "Issue-5",
+        "site": "a"
+      },
+      {
+        "key": "Issue-7",
+        "site": "b"
+      }
+    ]
+  }
+]
 ```
 
 ### The version rule
