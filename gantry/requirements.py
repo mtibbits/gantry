@@ -47,6 +47,8 @@ CANDIDATE_RE = re.compile(  # .match on an item's rest
     r"(?P<close>[*_`~ \t]*):"
 )
 BREAK_RE = re.compile(r"[ \t]*([-*_])(?:[ \t]*\1){2,}[ \t]*")  # fullmatch: a thematic break, not a list item
+HEADING_START_RE = re.compile(r"[ \t]*#{1,6}(?:[ \t]|$)")  # match, at most 3 columns in: an ATX heading
+HTML_START_RE = re.compile(r"[ \t]*</?[A-Za-z]")  # match, at most 3 columns in: an HTML block may start
 FENCE_RE = re.compile(r"[ \t]*(?P<run>`{3,}|~{3,})(?P<info>.*)")  # fullmatch
 BLOCK_RE = re.compile(r"\{[ \t]*[A-Za-z_][A-Za-z0-9_]*[ \t]*:[^{}]*\}")  # finditer
 _OPENER_RE = re.compile(r"\{[ \t]*[A-Za-z_][A-Za-z0-9_]*[ \t]*:")  # a block's start, closed or not
@@ -162,9 +164,11 @@ def _closer(lines, i, no_closer):
 
 
 def fence_spans(lines) -> list[tuple[int, int]]:
-    """The (opener, closer) index pairs of the fenced blocks, 0-based, in order.
-    An opener with no closer is plain text, so it never hides the rest of the
-    file. The portfolio file's reader pairs its fences with this rule too."""
+    """The (opener, closer) index pairs of the fenced blocks, 0-based, in order,
+    pairing fences only. An opener with no closer is plain text, so it never
+    hides the rest of the file. The reader and the portfolio file's reader pair
+    fences together with HTML comments, in document order (_scan, hidden_lines);
+    this fence-only pairing is kept for callers that show a file's blocks."""
     spans = []
     no_closer = {}
     i = 0
@@ -215,6 +219,10 @@ def _scan(lines):
     # 4), so this one integer bounds it.
     open_col = None
     empty = False  # the outermost open item is empty, and no line has followed it yet
+    # Only an item on a line that surely starts a list encloses: not one that continues paragraph
+    # text outside every enclosing item, nor one inside an HTML block (a `<tag` line up to a blank
+    # line). Such an item still bounds its comments and its text, as any item does.
+    para = html = encloses = False
     no_closer = {}
     fence_end = -1  # the last line of the open fence
     opener = bound = None  # the open comment's first line, and the column a line must reach
@@ -230,6 +238,7 @@ def _scan(lines):
             continue
         if not line.strip():
             hidden[i] = i <= fence_end
+            para = html = False
             if empty:  # an item starts with at most one blank line: an empty one ends here
                 open_col, empty = None, False
             continue
@@ -238,26 +247,36 @@ def _scan(lines):
         empty = False
         if i <= fence_end:
             hidden[i] = True
+            para = False
             continue
         j = _closer(lines, i, no_closer)
         if j is not None:
             fences.append((i, j))
             fence_end = j
             hidden[i] = True
+            para = False
             continue
         body = line.lstrip(" \t")
-        if body.startswith("<!--") and _width(line) <= 3:
+        # Inside an HTML block a `<!--` line is the block's raw content, not a block comment.
+        if body.startswith("<!--") and _width(line) <= 3 and not html:
             hidden[i] = True
+            para = False
             skip[i] = open_col is not None
             if _comment_end(body) == -1:
                 opener, bound = i, open_col
             continue
         m = ITEM_RE.fullmatch(line)
         if m is None or (_width(line) <= 3 and BREAK_RE.fullmatch(line)):
+            if _width(line) <= 3 and HTML_START_RE.match(line):
+                html = True
+            # Text outside every enclosing item is a paragraph a list-shaped line may only continue.
+            para = (m is None and (open_col is None or not encloses)
+                    and not (_width(line) <= 3 and (HEADING_START_RE.match(line) or BREAK_RE.fullmatch(line))))
             continue
-        nested[i] = open_col is not None
+        nested[i] = open_col is not None and encloses
         if open_col is None:
             open_col = _content_column(line, m)
+            encloses = not (para or html)
             empty = m["rest"] is None or not m["rest"].strip()
     return _Layout(hidden, skip, nested, None if opener is None else (opener, UNCLOSED), fences)
 

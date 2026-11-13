@@ -156,6 +156,14 @@ def test_thematic_break_in_the_br_section_encloses_nothing(tmp_path):
     assert list(p.brs.requirements) == ["life:BR-1", "life:BR-2"]
 
 
+def test_paragraph_continuation_in_the_br_section_encloses_nothing(tmp_path):
+    p = write(tmp_path, commented("- BR-1: Keep the household running.\n", "- BR-1: Keep the household running.\n"
+                                  "\nThe household goals, in order of\n2. priority, follow.\n\n   - BR-2: Two.\n")
+              .replace("agent_lanes = 1\n", 'agent_lanes = 1\n\n[site.harbor]\nserves = ["BR-2"]\n'))
+    assert entries(p) == []
+    assert list(p.brs.requirements) == ["life:BR-1", "life:BR-2"]
+
+
 def test_item_start_comment_in_the_br_section_hides_nothing(tmp_path):
     # Indented 6 inside BR-1 the line is code on a page; nested in an item it is still reported
     # (a stated simplification). Either way nothing after it is hidden.

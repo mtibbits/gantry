@@ -135,7 +135,13 @@ item's text starts: 2 for `- a`, 4 for `-   a`, 3 for `1. a`. For an
 empty item, or one whose text starts five or more columns past the marker
 (code on a rendered page), it is one past the marker. An empty item followed
 by a blank line encloses nothing. A thematic break (`* * *`, `- - -`) is not
-a list item, so it encloses nothing either. An enclosing list item is an earlier list
+a list item, so it encloses nothing either. A list item encloses only when
+it surely starts a list: at the top of the file, or after a blank line, a
+heading, a thematic break, a fence, a comment or another list item. A
+list-shaped line right after paragraph text outside every list item (`2. x`
+wrapped from a sentence, or a setext `-`), or inside an HTML block (from a
+line starting with `<` and a tag name up to the next blank line), encloses
+nothing, though a page does nest an item after some of them (`Para` / `- x`). An enclosing list item is an earlier list
 item with only blank lines, or lines indented to at least its content
 column, in between. Fenced and
 commented lines count by their indent too. A blank line does not end the
@@ -162,7 +168,9 @@ not follow lazy continuation lines.
 ### Comments
 
 A **block comment** is a line, outside a fence, that starts with `<!--`
-after at most three spaces, counted from the line start. Fences and
+after at most three spaces, counted from the line start. Inside an HTML
+block (from a line starting with `<` and a tag name up to the next blank
+line), such a line is that block's content, not a block comment. Fences and
 comments are read in one pass from the top: a `<!--` in a fence is code,
 and a fence marker inside a comment is hidden with it. As on a rendered
 page:

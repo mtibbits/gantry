@@ -244,6 +244,10 @@ def test_second_indented_sibling_after_blank_is_nested():
         ("-\n  text\n\n  - FR-2: b\n", [], "FR-2", 4),
         # A thematic break inside the item does not end it.
         ("- FR-1: a\n\n  * * *\n\n  - FR-2: b\n", ["alpha:FR-1"], "FR-2", 5),
+        # A list surely starts after a heading, after an HTML block's blank line, or after a list.
+        ("# H\n- a\n\n  - FR-1: x\n", [], "FR-1", 4),
+        ("<div>\n\n- a\n\n  - FR-1: x\n", [], "FR-1", 5),
+        ("- a\n- b\n\n  - FR-1: x\n", [], "FR-1", 4),
     ],
 )
 def test_enclosing_item_spans_blank_lines(text, keys, id, line):
@@ -272,6 +276,16 @@ def test_enclosing_item_spans_blank_lines(text, keys, id, line):
         ("* * *\n\n   - FR-1: a\n", ["alpha:FR-1"]),
         ("- FR-1: a\n\n* * *\n\n  - FR-2: b\n", ["alpha:FR-1", "alpha:FR-2"]),
         ("- Notes\n- - -\n\n  - FR-1: a\n", ["alpha:FR-1"]),
+        # Only a line that surely starts a list encloses: not one that continues a paragraph, and
+        # not one inside an HTML block. A page nests the last leg; the reader reads it as written.
+        ("Para\n2. x\n\n   - FR-1: a\n", ["alpha:FR-1"]),
+        ("Text with a hard-wrapped\n3. third point\n\n   - FR-1: a\n", ["alpha:FR-1"]),
+        ("Para\n3) x\n\n   - FR-1: a\n", ["alpha:FR-1"]),
+        ("Para\n*\n  more\n\n  - FR-1: a\n", ["alpha:FR-1"]),
+        ("Para\n-\n  more\n\n  - FR-1: a\n", ["alpha:FR-1"]),
+        ("<details>\n- Notes\n\n  - FR-1: a\n", ["alpha:FR-1"]),
+        ("- FR-1: a\nlazy\n2. x\n\n   - FR-2: b\n", ["alpha:FR-1", "alpha:FR-2"]),
+        ("Para\n- x\n\n  - FR-1: a\n", ["alpha:FR-1"]),
     ],
 )
 def test_item_below_the_content_column_is_a_sibling(text, keys):
@@ -381,6 +395,21 @@ def test_comment_line_in_the_text_is_skipped(text):
     assert list(s.requirements) == ["alpha:FR-1"]
     assert rows(s) == []
     assert s.requirements["alpha:FR-1"].text == "The page lists checks."
+
+
+@pytest.mark.parametrize(
+    ("text", "keys", "report"),
+    [
+        # An item after paragraph text encloses nothing, but its comment lines still join its text.
+        ("Para\n- FR-1: a\n  <!-- c -->\n  - FR-2: a\n", ["alpha:FR-1"], [NN("FR-2", 4)]),
+        # Inside an HTML block a `<!--` line is raw content, not a block comment.
+        ("<details>\n<!--\n- x\n  <!-- c -->\n  - FR-1: a\n", [], [NN("FR-1", 5)]),
+    ],
+)
+def test_items_that_do_not_enclose_still_hold_their_text(text, keys, report):
+    s = parse(text)
+    assert list(s.requirements) == keys
+    assert rows(s) == report
 
 
 def test_comment_in_the_text_hides_a_nested_item():
@@ -881,7 +910,7 @@ def test_format_doc_states_rules():
         "five or more columns past the marker", "An empty item followed by a blank line encloses nothing",
         "though a page hides a closed one", "starts with a `<!--` that does not close on its line",
         "inside a block quote", "is still read as an item", "A thematic break",
-        "unless a page shows the line as code",
+        "unless a page shows the line as code", "surely starts a list", "is that block's content",
     ]
     assert [w for w in wanted if w not in doc] == []
 
