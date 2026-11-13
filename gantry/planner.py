@@ -260,65 +260,70 @@ def _cross_site_preds(result, items):
     """Add each leaf's cross-site predecessors from #68's outcomes, never
     resolved again: an open leaf target is that leaf, an open row target the
     open leaves under it in WBS.md order (#8's rule). A duplicate id is
-    dropped, the first kept. Each item gains whether an outcome is absent
-    or unresolved; an open outcome naming a site this plan does not plan
-    (one with no page) is unresolved too: work the plan cannot see."""
+    dropped, the first kept. An open outcome naming a site this plan does
+    not plan (one with no page) adds none: _reasons holds the leaf."""
+    under = {}
+
+    def open_under(site, row_key):
+        if (site, row_key) not in under:
+            data = result.inputs[site].data
+            row = next(row for row in data.rows if row.key == row_key)
+            under[site, row_key] = [(site, leaf.key) for leaf in data.leaves if leaf.open and inside(leaf, row)]
+        return under[site, row_key]
+
     for site_items in items.values():
         for item in site_items:
-            statuses = {outcome.status for outcome in item["foreign"]}
-            unseen = any(o.status == "open" and o.target_site not in items for o in item["foreign"])
-            item["absent"], item["unresolved"] = "absent" in statuses, "unresolved" in statuses or unseen
+            seen = set(item["preds"])
             for outcome in item["foreign"]:
                 if outcome.status != "open" or outcome.target_site not in items:
                     continue
                 site = outcome.target_site
-                if not outcome.target_is_row:
-                    found = [(site, outcome.target_key)]
-                else:
-                    data = result.inputs[site].data
-                    row = next(row for row in data.rows if row.key == outcome.target_key)
-                    found = [(site, leaf.key) for leaf in data.leaves if leaf.open and inside(leaf, row)]
-                item["preds"] += [node for node in found if node not in item["preds"]]
+                found = open_under(site, outcome.target_key) if outcome.target_is_row else [(site, outcome.target_key)]
+                for node in found:
+                    if node not in seen:
+                        seen.add(node)
+                        item["preds"].append(node)
 
 
-def _cross_site_cycles(names, items) -> list[list[tuple[str, str]]]:
+def _cross_site_cycles(by_node) -> list[list[tuple[str, str]]]:
     """The dependency cycles over every built site's open leaves that span two
     or more sites: find_cycles' components, members in config order of site
     then WBS.md order, ordered by first member. A cycle within one site uses
     only its own links, so it lies in #8's cycle and stays waits_on_cycle."""
-    nodes = [(name, item["key"]) for name in names for item in items[name]]
-    links = [(pred, (name, item["key"])) for name in names for item in items[name] for pred in item["preds"]]
-    return [cycle for cycle in find_cycles(nodes, links) if len({site for site, _ in cycle}) >= 2]
+    links = [(pred, node) for node, item in by_node.items() for pred in item["preds"]]
+    return [cycle for cycle in find_cycles(list(by_node), links) if len({site for site, _ in cycle}) >= 2]
 
 
-def _reasons(names, items, cycles) -> dict:
+def _reasons(by_node, cycles) -> dict:
     """{(site, key): reason} for each open leaf the plan leaves out whatever
     the capacity: the first reason that applies, in UNPLANNED_REASONS' order.
-    waits_on_unplanned is decided in one order over every site, so a chain
-    through several sites is followed whatever their config order."""
+    An open outcome naming a site this plan does not plan is unresolved too:
+    work the plan cannot see. waits_on_unplanned is decided in one order over
+    every site, so a chain through several sites is followed whatever their
+    config order."""
     in_cycle = {node for cycle in cycles for node in cycle}
+    planned_sites = {site for site, _ in by_node}
     reasons = {}
-    for name in names:
-        for item in items[name]:
-            node = (name, item["key"])
-            if item["state"] == "blocked_external":
-                reasons[node] = BLOCKED_EXTERNALLY
-            elif item["state"] == "parked":
-                reasons[node] = PARKED
-            elif item["held_out"]:
-                reasons[node] = WAITS_ON_CYCLE
-            elif node in in_cycle:
-                reasons[node] = CROSS_SITE_CYCLE
-            elif item["absent"]:
-                reasons[node] = WAITS_ON_SITE_ABSENT
-            elif item["unresolved"]:
-                reasons[node] = WAITS_ON_UNRESOLVED
+    for node, item in by_node.items():
+        statuses = {outcome.status for outcome in item["foreign"]}
+        unseen = any(o.status == "open" and o.target_site not in planned_sites for o in item["foreign"])
+        if item["state"] == "blocked_external":
+            reasons[node] = BLOCKED_EXTERNALLY
+        elif item["state"] == "parked":
+            reasons[node] = PARKED
+        elif item["held_out"]:
+            reasons[node] = WAITS_ON_CYCLE
+        elif node in in_cycle:
+            reasons[node] = CROSS_SITE_CYCLE
+        elif "absent" in statuses:
+            reasons[node] = WAITS_ON_SITE_ABSENT
+        elif "unresolved" in statuses or unseen:
+            reasons[node] = WAITS_ON_UNRESOLVED
     # Every cycle's leaves have a reason now, so each leaf left is reached after its predecessors.
-    preds = {(name, item["key"]): item["preds"] for name in names for item in items[name]}
-    rest = TopologicalSorter({node: [p for p in before if p not in reasons]
-                              for node, before in preds.items() if node not in reasons})
+    rest = TopologicalSorter({node: [p for p in item["preds"] if p not in reasons]
+                              for node, item in by_node.items() if node not in reasons})
     for node in rest.static_order():
-        if any(p in reasons for p in preds[node]):
+        if any(p in reasons for p in by_node[node]["preds"]):
             reasons[node] = WAITS_ON_UNPLANNED
     return reasons
 
@@ -566,10 +571,10 @@ def plan_week(result, portfolio, config) -> WeekPlan:
     names = _built_sites(result)
     items = {name: _site_work(name, result.inputs[name], mapping, config.default_unit_hours) for name in names}
     _cross_site_preds(result, items)
-    cycles = _cross_site_cycles(names, items)
-    reasons = _reasons(names, items, cycles)
-    # A planned leaf's predecessors are all planned: hold them as items.
     by_node = {(name, item["key"]): item for name in names for item in items[name]}
+    cycles = _cross_site_cycles(by_node)
+    reasons = _reasons(by_node, cycles)
+    # A planned leaf's predecessors are all planned: hold them as items.
     for node, item in by_node.items():
         item["reason"] = reasons.get(node)
         item["preds"] = [by_node[pred] for pred in item["preds"]]

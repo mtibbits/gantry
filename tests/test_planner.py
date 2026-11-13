@@ -12,7 +12,7 @@ from gantry import planner, schedule
 from gantry.build import build_all
 from gantry.config import load_config
 from gantry.planner import NO_PLAN, plan_week
-from gantry.portfolio_file import read_portfolio_file
+from gantry.portfolio_file import intended_shares, read_portfolio_file
 from helpers_config import run_main, sample_build
 from test_samples import ROOT
 
@@ -283,6 +283,11 @@ def unplanned(plan, site):
     return {entry["key"]: (entry["reason"], entry["state"]) for entry in entries}
 
 
+def reasons_of(plan, site):
+    """{key: reason} of a site's unplanned leaves."""
+    return {key: reason for key, (reason, _) in unplanned(plan, site).items()}
+
+
 def placed_keys(plan, site):
     return [entry["key"] for entry in plan.leaves if entry["site"] == site]
 
@@ -328,12 +333,12 @@ def test_reason_precedence_before_the_horizon(tmp_path):
         ),
         "b": wbs_md(leaf(1, h=1, depends_on="[a:Issue-5]"), leaf(2, h=1), leaf(3, h=1, depends_on="[a:Issue-4]")),
     })
-    assert {key: reason for key, (reason, _) in unplanned(plan, "a").items()} == {
+    assert reasons_of(plan, "a") == {
         "Issue-1": "blocked_externally", "Issue-2": "parked", "Issue-3": "blocked_externally",
         "Issue-4": "waits_on_cycle", "Issue-5": "cross_site_cycle", "Issue-6": "waits_on_site_absent",
         "Issue-7": "waits_on_unresolved", "Issue-8": "waits_on_unplanned",
     }
-    assert {key: reason for key, (reason, _) in unplanned(plan, "b").items()} == {
+    assert reasons_of(plan, "b") == {
         "Issue-1": "cross_site_cycle", "Issue-3": "cross_site_cycle"}
     # A cycle across sites that holds a site's own cycle is reported whole; first-leaf order.
     assert [[(e["site"], e["key"]) for e in entry["leaves"]] for entry in plan.report] == [
@@ -378,7 +383,7 @@ def test_cross_site_finished_blocker_is_satisfied(tmp_path):
 
 
 def test_cross_site_absent_and_unresolved(tmp_path):
-    reasons = {key: reason for key, (reason, _) in unplanned(plan_of(tmp_path, "cross_site"), "a").items()}
+    reasons = reasons_of(plan_of(tmp_path, "cross_site"), "a")
     assert reasons["Issue-3"] == "waits_on_site_absent"
     assert reasons["Issue-4"] == "waits_on_unresolved"
     assert reasons["Issue-5"] == "waits_on_site_absent"  # both; the unresolved entry is first in WBS.md
@@ -471,7 +476,7 @@ def test_cross_site_target_without_a_page_is_waits_on_unresolved(tmp_path):
     result = replace(result, pages={name: page for name, page in result.pages.items() if name != "b"})
     plan = plan_week(result, portfolio, config)
     assert plan.status == "planned" and [site["name"] for site in plan.sites] == ["a"]
-    reasons = {key: reason for key, (reason, _) in unplanned(plan, "a").items()}
+    reasons = reasons_of(plan, "a")
     assert reasons["Issue-1"] == reasons["Issue-8"] == "waits_on_unresolved"  # a leaf target, a row target
     assert placed(plan, "a", "Issue-2")["days"][0] == "2026-01-19"  # a finished target stays satisfied
 
@@ -483,13 +488,8 @@ def test_cross_site_target_whose_render_failed_is_waits_on_unresolved(tmp_path, 
     force_render(monkeypatch, lambda site, nth: site == "b")
     plan = plan_week(*built(install(tmp_path, "cross_site")))
     assert plan.status == "planned" and [site["name"] for site in plan.sites] == ["a"]
-    reasons = {key: reason for key, (reason, _) in unplanned(plan, "a").items()}
+    reasons = reasons_of(plan, "a")
     assert reasons["Issue-1"] == reasons["Issue-8"] == "waits_on_unresolved"
-
-
-def in_force_shares(portfolio, as_of):
-    """The shares of the allocation in force on `as_of`: the latest from on or before it."""
-    return max((a for a in portfolio.allocations if a.from_date <= as_of), key=lambda a: a.from_date).shares
 
 
 @pytest.mark.parametrize("base", ["cross_site", "cross_site_cycle"])
@@ -497,7 +497,7 @@ def test_cross_site_fixtures_have_spare_capacity(tmp_path, base):
     result, portfolio, config = built(install(tmp_path, base))
     plan = plan_week(result, portfolio, config)
     assert all(day["ran_out"] == [] for day in plan.days)
-    assert set(in_force_shares(portfolio, config.as_of)) >= {site["name"] for site in plan.sites} == {"a", "b"}
+    assert set(intended_shares(portfolio, config.as_of).shares) >= {site["name"] for site in plan.sites} == {"a", "b"}
 
 
 def open_keys(copy, site):
@@ -951,7 +951,7 @@ def test_reason_precedence(tmp_path):
         ),
         "b": wbs_md(leaf(2, priority="P4", h=4)),
     })
-    assert {key: reason for key, (reason, _) in unplanned(plan, "a").items()} == {
+    assert reasons_of(plan, "a") == {
         "Issue-2": "beyond_horizon", "Issue-3": "parked", "Issue-4": "waits_on_unplanned",
         "Issue-5": "blocked_externally",
     }
@@ -1043,7 +1043,6 @@ def test_week_plan_doc_states_planner():
     for topic in ("### Fields", "### The version rule", "### The pinned shape", "### Determinism"):
         assert topic in the_file, topic
     assert "The plan itself is #61" not in doc and "Neither exists yet" not in doc
-    assert "until #62" not in doc
 
 
 def doc_json_blocks(text):

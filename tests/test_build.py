@@ -676,30 +676,33 @@ def test_build_homes_name_the_plan_file(capsys):
     assert "<output_dir>/week-plan.json" in " ".join(capsys.readouterr().out.split())
 
 
+def assert_no_stale(stale, paths):
+    for path in sorted(paths):
+        text = " ".join(path.read_bytes().decode("utf-8").split())
+        assert [s for s in stale if s in text] == [], path.name
+
+
+def swept_files():
+    return [*ROOT.glob("gantry/**/*.py"), *ROOT.glob("docs/*.md"), *ROOT.glob("commands/*.md"), ROOT / "README.md"]
+
+
 def test_no_home_defers_to_this_issue():
     # The repo's own deferrals to #61 are reworded: #23 alone adds the rest.
     # Split, so this test is not itself a hit of the sweep's grep.
     stale = ("#23 or " + "#61", "only its business " + "requirements", "only the file's " + "business")
-    for path in sorted([*ROOT.glob("gantry/**/*.py"), *ROOT.glob("docs/*.md"), *ROOT.glob("commands/*.md"),
-                        ROOT / "README.md", ROOT / "tests" / "test_cli.py"]):
-        text = " ".join(path.read_bytes().decode("utf-8").split())
-        assert [s for s in stale if s in text] == [], path.name
+    assert_no_stale(stale, [*swept_files(), ROOT / "tests" / "test_cli.py"])
 
 
 def test_no_doc_defers_to_62():
     # The deferrals to #62 are gone now that it plans cross-site entries; a citation
     # of #62 for what it added stays. Split, so this test is not itself a hit.
-    stale = ("until " + "#62", "is " + "#62.", "(for " + "#62)")
-    for path in sorted([*ROOT.glob("gantry/**/*.py"), *ROOT.glob("docs/*.md"), *ROOT.glob("commands/*.md"),
-                        ROOT / "README.md"]):
-        text = " ".join(path.read_bytes().decode("utf-8").split())
-        assert [s for s in stale if s in text] == [], path.name
+    assert_no_stale(("until " + "#62", "is " + "#62.", "(for " + "#62)"), swept_files())
 
 
 def test_demo_plan_holds_a_cross_site_leaf(tmp_path):
     # The demo week plan holds a leaf of one site on another site's open leaf (#62),
     # and the hold binds inside the 10 days.
-    from gantry.portfolio_file import read_portfolio_file
+    from gantry.portfolio_file import intended_shares
 
     result = sample_build(tmp_path)
     plan = result.plan
@@ -712,8 +715,4 @@ def test_demo_plan_holds_a_cross_site_leaf(tmp_path):
     assert held["days"][0] in plan.horizon_days
     assert plan.horizon_days.index(held["days"][0]) >= plan.horizon_days.index(blocker["days"][-1]) + 1
     # Both sites hold an intended share on the as-of date.
-    portfolio = read_portfolio_file(result.roots, result.config.portfolio_file,
-                                    br_namespace=result.config.requirements.br_namespace)
-    in_force = max((a for a in portfolio.allocations if a.from_date <= result.config.as_of),
-                   key=lambda a: a.from_date)
-    assert {BUSY, UNESTIMATED} <= set(in_force.shares)
+    assert {BUSY, UNESTIMATED} <= set(intended_shares(result.portfolio, result.config.as_of).shares)
