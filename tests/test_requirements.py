@@ -322,6 +322,8 @@ UNCLOSED = "an HTML comment with no closing '-->' hides every line after it"
 LEAKED = "an HTML comment whose list item ends before its '-->' hides every line after it"
 INLINE = "an HTML comment inside the text; it stays in the text and hides nothing: put it on its own line"
 BEFORE_ID = "an HTML comment before the ID; the item is not read: put the comment on its own line"
+START = ("an HTML comment that starts a list item and does not close on its line; "
+         "it hides nothing: put the comment on its own line")
 
 
 def MC(n, message):
@@ -403,12 +405,12 @@ def test_comment_in_the_text_is_reported(text, keys, fr1, report):
 @pytest.mark.parametrize(
     ("text", "fr1", "report"),
     [
-        ("- FR-1: a\n  - <!-- x\n    y -->\n  more\n", "a - <!-- x more", []),
-        ("- FR-1: a\n  - <!-- x\n- FR-2: b\n", "a - <!-- x", [MC(2, LEAKED)]),
+        ("- FR-1: a\n  - <!-- x\n    y -->\n  more\n", "a - <!-- x y --> more", [MC(2, START)]),
+        ("- FR-1: a\n  - <!-- x\n- FR-2: b\n", "a - <!-- x", [MC(2, START)]),
     ],
 )
-def test_nested_item_start_comment_is_not_reported_inline(text, fr1, report):
-    # The nested item opens a block comment, so the INLINE "hides nothing" report would be false.
+def test_nested_item_start_comment_is_reported_once(text, fr1, report):
+    # One report per line: START, not START and INLINE.
     s = parse(text)
     assert s.requirements["alpha:FR-1"].text == fr1
     assert rows(s) == report
@@ -433,10 +435,18 @@ def test_comment_after_the_meta_block_is_reported():
     ("text", "keys", "report"),
     [
         ("- <!-- x --> FR-1: y\n", [], [MC(1, BEFORE_ID)]),
-        ("- <!-- x\n- FR-2: y\n", [], [MC(1, LEAKED)]),
-        ("- <!-- x\n  y -->\n- FR-2: y\n", ["alpha:FR-2"], []),
         ("- <!-- x --> prose\n", [], []),
-        ("Para\n\n    - <!-- x\n- FR-1: a\n", ["alpha:FR-1"], []),
+        # An item whose text opens a comment that does not close on its line hides nothing (OQ-F1, report-only).
+        ("- <!-- x\n- FR-2: y\n", ["alpha:FR-2"], [MC(1, START)]),
+        ("- <!-- x\n  y -->\n- FR-2: y\n", ["alpha:FR-2"], [MC(1, START)]),
+        ("- Notes\n  - <!-- x\n  - more\n    -->\n- FR-3: c\n", ["alpha:FR-3"], [MC(2, START)]),
+        ("Para\n\n    - <!-- x\n- FR-1: a\n", ["alpha:FR-1"], [MC(3, START)]),
+        ("-     <!-- x\n- FR-1: a\n", ["alpha:FR-1"], [MC(1, START)]),
+        ("1.     <!-- x\n- FR-1: a\n", ["alpha:FR-1"], [MC(1, START)]),
+        ("- a\n\n      - <!-- x\n- FR-1: b\n", ["alpha:FR-1"], [MC(3, START)]),
+        ("- FR-1: a\n\n      - <!-- x\n\n- FR-2: b\n", ["alpha:FR-1", "alpha:FR-2"], [MC(3, START)]),
+        ("- FR-1: a\n      - <!-- x\n- FR-2: b\n", ["alpha:FR-1", "alpha:FR-2"], [MC(2, START)]),
+        ("- FR-1: a\n  -     <!-- x\n- FR-2: b\n", ["alpha:FR-1", "alpha:FR-2"], [MC(2, START)]),
     ],
 )
 def test_comment_at_the_start_of_an_item(text, keys, report):
@@ -452,7 +462,6 @@ def test_comment_at_the_start_of_an_item(text, keys, report):
         ("- FR-1: a\n  <!-- note\n  more\n", ["alpha:FR-1"], [MC(2, UNCLOSED)]),
         ("- FR-1: a\n  <!-- note\n- FR-2: b\n  -->\n- FR-3: c\n", ["alpha:FR-1"], [MC(2, LEAKED)]),
         ("- FR-1: a\n  <!-- note\n- FR-2: b\n-->\n- FR-3: c\n", ["alpha:FR-1"], [MC(2, LEAKED)]),
-        ("- Notes\n  - <!-- x\n  - more\n    -->\n- FR-3: c\n", [], [MC(2, LEAKED)]),
         ("<!--\n- FR12: typo\n", [], [MC(1, UNCLOSED)]),
     ],
 )
@@ -860,7 +869,8 @@ def test_format_doc_states_rules():
         "a comment line indented less ends the text", "one comment closed on its line",
         "only the first `-->` on a line counts", "not read as an escape",
         "five or more columns past the marker", "An empty item followed by a blank line encloses nothing",
-        "though a page hides a closed one",
+        "though a page hides a closed one", "starts with a `<!--` that does not close on its line",
+        "inside a block quote", "is still read as an item",
     ]
     assert [w for w in wanted if w not in doc] == []
 

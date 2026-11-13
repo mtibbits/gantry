@@ -57,6 +57,8 @@ UNCLOSED = "an HTML comment with no closing '-->' hides every line after it"
 LEAKED = "an HTML comment whose list item ends before its '-->' hides every line after it"
 INLINE = "an HTML comment inside the text; it stays in the text and hides nothing: put it on its own line"
 BEFORE_ID = "an HTML comment before the ID; the item is not read: put the comment on its own line"
+START = ("an HTML comment that starts a list item and does not close on its line; "
+         "it hides nothing: put the comment on its own line")
 
 _WHY = {
     "ordered": "an ordered list item (a requirement uses -, * or +)",
@@ -175,14 +177,6 @@ def fence_spans(lines) -> list[tuple[int, int]]:
     return spans
 
 
-def fenced(lines):
-    """Which lines a fence hides, opener through closer."""
-    fenced = [False] * len(lines)
-    for i, j in fence_spans(lines):
-        fenced[i : j + 1] = [True] * (j + 1 - i)
-    return fenced
-
-
 def _content_column(line, m):
     """The column an item's text starts at, a tab counting as four. For an
     empty item, or text five or more columns past the marker (code on the
@@ -255,24 +249,25 @@ def _scan(lines):
         if m is None:
             continue
         nested[i] = open_col is not None
-        column = _content_column(line, m)
-        rest = m["rest"]
         if open_col is None:
-            open_col = column
-            empty = rest is None or not rest.strip()
-        # Indented 4 or more outside every item, the line is code on the page, not an item.
-        if (rest is not None and rest.startswith("<!--") and _comment_end(rest) == -1
-                and (nested[i] or _width(line) <= 3)):
-            opener, bound = i, column
+            open_col = _content_column(line, m)
+            empty = m["rest"] is None or not m["rest"].strip()
     return _Layout(hidden, skip, nested, None if opener is None else (opener, UNCLOSED), fences)
 
 
 def hidden_lines(lines):
-    """(hidden, fences): which lines a fence or a block HTML comment hides, and
-    the fence (opener, closer) index pairs, both read in document order as the
-    reader reads them. The portfolio file's reader finds its sections with it."""
+    """(hidden, fences, comment): which lines a fence or a block HTML comment
+    hides; the fence (opener, closer) index pairs; and the (index, message) of a
+    comment that hides every line after it, or None. All are read in document
+    order as the reader reads them. The portfolio file's reader finds its
+    sections with it."""
     layout = _scan(lines)
-    return layout.hidden, layout.fences
+    return layout.hidden, layout.fences, layout.comment
+
+
+def _opens_comment(rest):
+    """Whether an item's text starts with a `<!--` that does not close on its line."""
+    return rest is not None and rest.startswith("<!--") and _comment_end(rest) == -1
 
 
 def _comment_end(text):
@@ -423,16 +418,19 @@ class _Reader:
     def item(self, index, m, continuation, nested):
         line = self.first_line + index
         has_nested = False
-        openers = set()  # nested items that open a block comment: not an inline one
+        openers = set()  # nested items reported START: not reported INLINE as well
         for k, text in continuation:
             sub = ITEM_RE.fullmatch(text)
             if sub is not None:
                 has_nested = True
                 self.candidate(self.first_line + k, sub, nested=True)
-                if sub["rest"] is not None and sub["rest"].startswith("<!--") and _comment_end(sub["rest"]) == -1:
+                if _opens_comment(sub["rest"]):
+                    self.add(self.first_line + k, "malformed_comment", START)
                     openers.add(k)
         rest = m["rest"]
-        if rest is not None and rest.startswith("<!--"):
+        if _opens_comment(rest):
+            self.add(line, "malformed_comment", START)
+        elif rest is not None and rest.startswith("<!--"):
             k = _comment_end(rest)
             if k != -1 and CANDIDATE_RE.match(rest[k + 3 :].lstrip(" \t")):
                 self.add(line, "malformed_comment", BEFORE_ID)

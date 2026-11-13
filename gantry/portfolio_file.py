@@ -33,7 +33,7 @@ from gantry.roots import OutsideRoots, stat_confined
 from gantry.sites import shown
 
 PORTFOLIO_LABEL = "the portfolio file"
-SECTIONS = ("business requirements", "settings")  # section None: the whole file (portfolio_unreadable only)
+SECTIONS = ("business requirements", "settings")  # section None: the whole file (portfolio_unreadable, or a comment)
 # An ATX heading, matched on the line with its trailing spaces and tabs removed,
 # outside fences only. Greedy throughout, so it is linear on a long line.
 HEADING_RE = re.compile(r"(?P<hashes>#{1,6})[ \t]+(?P<text>.*)")  # fullmatch
@@ -447,10 +447,9 @@ def read_portfolio_file(roots, path, *, br_namespace) -> Portfolio:
     return _read_text(text, str(path), br_namespace)
 
 
-def _sections(lines, report):
+def _sections(lines, hidden, report):
     """{heading text: (heading index, end index)} for the first level-2 BR and
     Settings headings outside fences and comments; a second one is reported."""
-    hidden, _ = hidden_lines(lines)
     headings = []
     for i, line in enumerate(lines):
         if not hidden[i]:
@@ -475,7 +474,8 @@ def _sections(lines, report):
 def _read_brs(lines, found, source, br_namespace, report):
     if BR_HEADING not in found:
         report.add("no_br_section", SECTIONS[0], None, None,
-                   "no '## Business requirements' heading (level 2, outside a fence); no business requirements are read")
+                   "no '## Business requirements' heading (level 2, outside a fence or comment); "
+                   "no business requirements are read")
         return RequirementSet(br_namespace, {}, [])
     start, end = found[BR_HEADING]
     rs = parse_requirements("\n".join(lines[start + 1 : end]), br_namespace, source=source,
@@ -485,16 +485,28 @@ def _read_brs(lines, found, source, br_namespace, report):
     return replace(rs, report=[replace(e, source=PORTFOLIO_LABEL) for e in rs.report])
 
 
-def _settings_block(lines, found, report):
+def _report_comment(comment, found, report):
+    """Report a comment that hides every line after it, unless it is in the
+    business-requirements section, whose reader reports it."""
+    if comment is None:
+        return
+    k, message = comment
+    within = {text: start < k < end for text, (start, end) in found.items()}
+    if within.get(BR_HEADING):
+        return
+    report.add("malformed_comment", SECTIONS[1] if within.get(SETTINGS_HEADING) else None, k + 1, None, message)
+
+
+def _settings_block(lines, fences, found, report):
     """(opener, closer) of the first toml block under ## Settings, or None."""
     blocks = []
     if SETTINGS_HEADING in found:
         start, end = found[SETTINGS_HEADING]
-        blocks = [(i, j) for i, j in hidden_lines(lines)[1]
+        blocks = [(i, j) for i, j in fences
                   if start < i and j < end and FENCE_RE.fullmatch(lines[i])["info"].strip() == "toml"]
     if not blocks:
         report.add("no_settings", SECTIONS[1], None, None,
-                   "no ```toml block under a '## Settings' heading (level 2, outside a fence); "
+                   "no ```toml block under a '## Settings' heading (level 2, outside a fence or comment); "
                    "every setting is not set")
         return None
     for i, _ in blocks[1:]:
@@ -869,9 +881,11 @@ def format_entry(e) -> str:
 def _read_text(text, source, br_namespace):
     lines = split_lines(text)
     report = _Report()
-    found = _sections(lines, report)
+    hidden, fences, comment = hidden_lines(lines)
+    found = _sections(lines, hidden, report)
     brs = _read_brs(lines, found, source, br_namespace, report)
-    block = _settings_block(lines, found, report)
+    _report_comment(comment, found, report)
+    block = _settings_block(lines, fences, found, report)
     raw, key_lines = (None, {}) if block is None else _load_settings(lines, block, report)
     p = _empty(br_namespace, [])
     if raw is not None:

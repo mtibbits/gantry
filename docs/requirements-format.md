@@ -175,17 +175,21 @@ page:
 - A block comment with no `-->`, or one inside a list item that ends
   before its `-->`, hides every line after it and is reported
   `malformed_comment`. A renderer shows lines again after a later
-  comment's `-->`; the reader does not. A list item whose text starts
-  with `<!--` opens such a comment too.
+  comment's `-->`; the reader does not.
 - Any other `<!--` hides nothing. In a requirement's text, outside a code
   span, it stays in the text, though a page hides a closed one, and is
   reported `malformed_comment`: put the comment on its own line. A list
   item whose text starts with one comment closed on its line and then an ID
   (`- <!-- x --> FR-1: y`) is not read, and is reported
-  `malformed_comment`.
-- The reader simplifies two things a renderer does: only the first `-->` on
-  a line counts, so text after it, even a new `<!--`, is hidden with the
-  comment; and a backslash before `<!--` is not read as an escape.
+  `malformed_comment`. A list item whose text starts with a `<!--` that does
+  not close on its line (`- <!-- x`) is reported `malformed_comment`, and
+  the lines after it are read, though a page may hide them up to a `-->`.
+- The reader simplifies four things a renderer does: only the first `-->`
+  on a line counts, so text after it, even a new `<!--`, is hidden with the
+  comment; a backslash before `<!--` is not read as an escape; a comment
+  inside a block quote (`> <!--`) is not a block comment; and a list item
+  whose text starts five or more columns past its marker, which a page shows
+  as code, is still read as an item.
 
 ```markdown
 # Requirements
@@ -279,7 +283,7 @@ line, then in this order:
 | `malformed_item` | a candidate that is not a requirement, with its reasons |
 | `malformed_meta` | a meta block that cannot be read, or a key or value shape it does not allow |
 | `malformed_link` | a link target that is not a requirement ID |
-| `malformed_comment` | an HTML comment the reader does not hide: in a requirement's text (read as written) or before an ID (not read); or a block comment with no `-->`, or whose list item ends first, which hides every line after it |
+| `malformed_comment` | an HTML comment the reader does not hide: in a requirement's text (read as written), before an ID (not read), or starting a list item without closing on its line; or a block comment with no `-->`, or whose list item ends first, which hides every line after it |
 | `misplaced` | an item in a layer the file does not hold (it is dropped), `needs:` on an item that is not a use case, or a link into the installation namespace from another namespace |
 | `duplicate_id` | an ID defined twice, naming both lines: the first definition is kept and later ones are dropped |
 | `undefined_link` | a link into the file's own namespace that names no requirement in it |
