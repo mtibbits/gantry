@@ -201,7 +201,8 @@ EDITS = {
     "required-overlay-missing": (lambda f: swap(f, TRACED, 'id="trace"', 'id="not-trace"'),
                                  f"{TRACED}: element trace required by the expected list (#20) is missing"),
     "pending-view-present": (page_and_index("strategic.html"), "strategic.html: " + PENDING.format(23)),
-    "pending-data-present": (lambda f: write(f, "week-plan.json", "{}\n"), "week-plan.json: " + PENDING.format(61)),
+    "required-data-missing": (lambda f: remove(f, "week-plan.json"),
+                              "week-plan.json: required by the expected list (#61) and missing"),
     "unlisted-top-page": (page_and_index("other.html"), "other.html: on no entry of the expected list"),
     "unlisted-nested-page": (page_and_index("extra/view.html"), "extra/view.html: on no entry of the expected list"),
     "unlisted-data-file": (lambda f: write(f, "sites/notes.txt", "notes\n"),
@@ -309,7 +310,7 @@ def test_expected_list_is_well_formed():
         ("view", "strategic.html", None, 23, "pending"),
         ("view", "daily.html", None, 34, "pending"),
         ("view", "week.html", None, 38, "pending"),
-        ("data", "week-plan.json", None, 61, "pending"),
+        ("data", "week-plan.json", None, 61, "required"),
     ]
 
 

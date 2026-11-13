@@ -308,10 +308,13 @@ def test_two_days_byte_identical(two_days):
     assert first and first == second
     devagent = tomllib.loads((clone / "samples" / "devagent" / "config.toml").read_bytes().decode("utf-8"))
     sites = set(devagent["project"]) - NOT_BUILT
-    assert set(first) == {"index.html"} | {f"sites/{s}.html" for s in sites}
+    assert set(first) == {"index.html", "week-plan.json"} | {f"sites/{s}.html" for s in sites}
     for name, data in first.items():
-        assert stamps(data) == [f"sample data as of {as_of}"], name
         assert b" UTC" not in data, name
+        if name == "week-plan.json":
+            assert json.loads(data.decode("utf-8"))["as_of"] == str(as_of)
+        else:
+            assert stamps(data) == [f"sample data as of {as_of}"], name
 
 
 def test_runner_last_line_is_lf(two_days):

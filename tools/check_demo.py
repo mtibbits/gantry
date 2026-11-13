@@ -57,7 +57,7 @@ EXPECTED = (
     Entry("view", "strategic.html", None, 23, "pending"),
     Entry("view", "daily.html", None, 34, "pending"),
     Entry("view", "week.html", None, 38, "pending"),
-    Entry("data", "week-plan.json", None, 61, "pending"),
+    Entry("data", "week-plan.json", None, 61, "required"),
 )
 PENDING = "pending on the expected list (#{}) but present; mark its entry required in the same change"
 
