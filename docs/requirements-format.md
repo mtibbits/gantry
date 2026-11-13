@@ -179,6 +179,9 @@ page:
   comment on its own line. A list item whose text starts with one comment
   closed on its line and then an ID (`- <!-- x --> FR-1: y`) is not read,
   and is reported `malformed_comment`.
+- The reader simplifies two things a renderer does: only the first `-->` on
+  a line counts, so text after it, even a new `<!--`, is hidden with the
+  comment; and a backslash before `<!--` is not read as an escape.
 
 ```markdown
 # Requirements

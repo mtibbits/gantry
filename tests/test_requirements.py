@@ -413,6 +413,7 @@ def test_comment_after_the_meta_block_is_reported():
         ("- <!-- x\n- FR-2: y\n", [], [MC(1, LEAKED)]),
         ("- <!-- x\n  y -->\n- FR-2: y\n", ["alpha:FR-2"], []),
         ("- <!-- x --> prose\n", [], []),
+        ("Para\n\n    - <!-- x\n- FR-1: a\n", ["alpha:FR-1"], []),
     ],
 )
 def test_comment_at_the_start_of_an_item(text, keys, report):
@@ -834,6 +835,7 @@ def test_format_doc_states_rules():
         "withdrawn", "reword", "enclosing list item", "content column", "three spaces", "joins across it",
         "hides every line after it", "outside fences and comments", "on its own line",
         "a comment line indented less ends the text", "one comment closed on its line",
+        "only the first `-->` on a line counts", "not read as an escape",
     ]
     assert [w for w in wanted if w not in doc] == []
 

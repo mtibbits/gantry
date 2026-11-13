@@ -249,7 +249,9 @@ def _scan(lines):
         if open_col is None:
             open_col = column
         rest = m["rest"]
-        if rest is not None and rest.startswith("<!--") and _comment_end(rest) == -1:
+        # Indented 4 or more outside every item, the line is code on the page, not an item.
+        if (rest is not None and rest.startswith("<!--") and _comment_end(rest) == -1
+                and (nested[i] or _width(line) <= 3)):
             opener, bound = i, column
     return _Layout(hidden, skip, nested, None if opener is None else (opener, UNCLOSED))
 
