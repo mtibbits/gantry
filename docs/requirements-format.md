@@ -85,7 +85,13 @@ after it. A backtick opener whose info string holds a backtick is not an
 opener. An opener with no closer is ordinary text and hides nothing. Inside
 a list item, the lines after an unclosed fence opener, up to the item's end,
 are a page's code, so a `<!--` among them is text, not a block comment: the
-reader keeps what it read before, after an unclosed fence.
+reader keeps what it read before, after an unclosed fence. The same holds
+after a fence whose opener or closer is indented four or more columns past
+its list item (or the line start), or whose closer is outdented below its
+list item, because a page may pair it differently: from there on, no line is
+a block comment and no item encloses. A fence opener indented four or more
+columns past its list item (or the line start) is not a fence at all: a page
+shows it as code or text.
 Lines inside an HTML comment are hidden too; see [Comments](#comments).
 
 ### Candidates
@@ -206,7 +212,9 @@ page:
   as code, is still read as an item, as is one nested four or more columns
   past its enclosing item's text (a `- <!--` there is still reported), and
   one indented four or more spaces outside every item, which also encloses
-  the items after it.
+  the items after it. A comment opened under an item that encloses nothing
+  (after paragraph text) runs on past a later item line, so that line's
+  nested items are read as written, though a page nests them.
 
 ```markdown
 # Requirements

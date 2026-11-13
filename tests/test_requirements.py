@@ -445,6 +445,36 @@ def test_comment_after_an_unclosed_fence_in_an_item_is_text(text, keys, fr1):
     assert rows(s) == []
 
 
+@pytest.mark.parametrize(
+    ("text", "keys"),
+    [
+        # A fence a page may pair differently (indented 4+ past its container, or a closer
+        # outdented below its item): a <!-- after it is text, as HEAD read it.
+        ("```\n    ```\n<!--\n```\n- FR-1: a\n- FR-2: a\n<!-- note -->\n- FR-3: a\n",
+         ["alpha:FR-1", "alpha:FR-2", "alpha:FR-3"]),
+        ("- x\n  ```\n```\n<!--\n```\n- FR-1: a\n<!-- note -->\n- FR-2: a\n", ["alpha:FR-1", "alpha:FR-2"]),
+        ("```\n    ```\n<!--\n```\n- FR-1: a\n", ["alpha:FR-1"]),
+        # After such a fence no item encloses either; an opener 4+ columns in is not a fence at all.
+        ("```\n    ```\n- x\n  ```\n\n  - FR-1: a\n", ["alpha:FR-1"]),
+        ("<!--\n```\n-->\n    ```\n- FR-1: a\n```\n", ["alpha:FR-1"]),
+        # After a blank line inside a comment, only a line at the content column joins the text.
+        ("1. Step one\n   <!--\n\n   -->\n  - FR-1: a\n", ["alpha:FR-1"]),
+        ("- FR-1: a\n  <!--\n\n  -->\n - FR-2: b\n", ["alpha:FR-1", "alpha:FR-2"]),
+    ],
+)
+def test_reader_falls_back_to_head_where_the_page_is_in_doubt(text, keys):
+    s = parse(text)
+    assert list(s.requirements) == keys
+    assert rows(s) == []
+
+
+def test_comment_under_an_item_that_encloses_nothing_runs_on():
+    # A stated simplification: the page nests FR-1 under x; the reader reads it as written.
+    s = parse("Para\n- x\n  <!-- c\n- <!-- c -->\n  - FR-1: a\n")
+    assert list(s.requirements) == ["alpha:FR-1"]
+    assert rows(s) == []
+
+
 def test_comment_in_the_text_hides_a_nested_item():
     s = parse("- FR-1: a\n  <!--\n  - FR-2: x\n  -->\n")
     assert list(s.requirements) == ["alpha:FR-1"]
@@ -947,6 +977,8 @@ def test_format_doc_states_rules():
         "inside a block quote", "is still read as an item", "A thematic break",
         "unless a page shows the line as code", "surely starts a list", "is that block's content",
         "after an unclosed fence", "four or more spaces outside every item",
+        "a page may pair it differently", "runs on past a later item line",
+        "is not a fence", "and no item encloses",
     ]
     assert [w for w in wanted if w not in doc] == []
 

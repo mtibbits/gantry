@@ -227,6 +227,8 @@ def _scan(lines):
     # leaks from it: on a page there is no list item to end.
     para = html = encloses = False
     unclosed = False  # an unclosed fence opener in the open item: a page shows code to the item's end
+    doubt = False  # a fence a page may pair differently: from there on no block comment, and no item encloses
+    shifted = False  # a comment hid a fence marker: an opener 4+ columns in (code on a page) is not paired
     no_closer = {}
     fence_end = -1  # the last line of the open fence
     opener = bound = leak = None  # the open comment's first line, the column a line must reach, and
@@ -240,6 +242,8 @@ def _scan(lines):
                 bound = open_col = None  # a line that encloses nothing ends here; its comment runs on
             hidden[i] = True
             skip[i] = bound is not None
+            if FENCE_RE.fullmatch(line):
+                doubt = shifted = True  # a hidden fence marker: later fences may pair differently from HEAD
             if "-->" in line:
                 opener = None
             continue
@@ -260,8 +264,14 @@ def _scan(lines):
             hidden[i] = True
             para = False
             continue
-        j = _closer(lines, i, no_closer)
+        # Under doubt, an opener 4+ columns past its container is code or text on a page: not paired.
+        far = shifted and _width(line) - (open_col or 0) >= 4
+        j = None if far else _closer(lines, i, no_closer)
         if j is not None:
+            base = open_col or 0
+            if (_width(line) - base >= 4 or _width(lines[j]) - base >= 4
+                    or (open_col is not None and _width(lines[j]) < open_col)):
+                doubt = True  # from here on, no block comment: the reader keeps what HEAD read
             fences.append((i, j))
             fence_end = j
             hidden[i] = True
@@ -272,8 +282,8 @@ def _scan(lines):
             unclosed = True  # no closer: a page shows code to the item's end; the reader reads it as text
             continue
         body = line.lstrip(" \t")
-        # Inside an HTML block, or after an unclosed fence in the item, a `<!--` line is content.
-        if body.startswith("<!--") and _width(line) <= 3 and not (html or unclosed):
+        # Inside an HTML block, or after an unclosed or doubtful fence, a `<!--` line is content.
+        if body.startswith("<!--") and _width(line) <= 3 and not (html or unclosed or doubt):
             hidden[i] = True
             para = False
             skip[i] = open_col is not None
@@ -292,7 +302,7 @@ def _scan(lines):
         nested[i] = open_col is not None and encloses
         if open_col is None:
             open_col = _content_column(line, m)
-            encloses = not (para or html)
+            encloses = not (para or html or doubt)
             empty = m["rest"] is None or not m["rest"].strip()
         listed[i] = encloses and not unclosed
     return _Layout(hidden, skip, nested, None if opener is None else (opener, UNCLOSED), fences, listed, raw)
@@ -674,9 +684,12 @@ def parse_requirements(text, namespace, *, source, first_line=1, layers, br_name
         # The item's text runs on through lines indented deeper than its marker,
         # and across the comment lines inside it.
         indent = _width(m["indent"])
+        floor = indent + 1  # after a blank line inside a comment, a page keeps only lines at the content column
         end = i + 1
         while end < len(lines) and (skip[end] or (not hidden[end] and lines[end].strip()
-                                                  and _width(lines[end]) > indent)):
+                                                  and _width(lines[end]) >= floor)):
+            if skip[end] and not lines[end].strip():
+                floor = max(floor, _content_column(lines[i], m))
             end += 1
         continuation = [(k, lines[k]) for k in range(i + 1, end) if not skip[k]]
         reader.item(i, m, continuation, nested=nested[i], listed=listed, raw=raw)
