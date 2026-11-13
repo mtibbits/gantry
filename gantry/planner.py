@@ -13,8 +13,8 @@ from datetime import timedelta
 from graphlib import TopologicalSorter
 
 from gantry import priority, schedule
-from gantry.deps import find_cycles, inside, open_sources
 from gantry.attention import MAX_RATE, leaf_attention, mapping_in_use, site_ratio_source
+from gantry.deps import find_cycles, inside, open_sources
 from gantry.inputs import scheduled
 from gantry.model import HOURS_PER_DAY
 from gantry.portfolio_file import DEFAULTS, WEEKDAYS
