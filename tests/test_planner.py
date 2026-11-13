@@ -829,7 +829,9 @@ WEEK_PLAN_DOC = ROOT / "docs" / "week-plan.md"
 
 
 def doc_section(text, heading):
-    """The text of one level-2 section, heading line included."""
+    """The text of one level-2 section, heading line included. A CRLF checkout
+    (Windows CI, autocrlf) reads as LF."""
+    text = text.replace("\r\n", "\n")
     start = text.index(f"\n{heading}\n")
     end = text.find("\n## ", start + 1)
     return text[start:end if end != -1 else len(text)]
