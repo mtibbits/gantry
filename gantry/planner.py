@@ -10,9 +10,11 @@ machine. docs/week-plan.md states the rules.
 import math
 from dataclasses import dataclass
 from datetime import timedelta
+from graphlib import TopologicalSorter
 
-from gantry import schedule
+from gantry import priority, schedule
 from gantry.attention import leaf_attention, mapping_in_use, site_ratio_source
+from gantry.inputs import scheduled
 from gantry.model import HOURS_PER_DAY
 from gantry.portfolio_file import DEFAULTS, WEEKDAYS
 
@@ -32,6 +34,10 @@ NO_PLAN = {
     "no_lanes": "the portfolio file declares no usable agent_lanes, or 0",
     "no_sites": "no site was built",
 }
+
+# Why an open leaf of a built site is not in the 10 days: the first that applies.
+UNPLANNED_REASONS = ("blocked_externally", "parked", "waits_on_cycle", "waits_on_other_site",
+                     "waits_on_unplanned", "beyond_horizon")
 
 # The caps that keep the arithmetic whole and finite whatever the portfolio
 # file holds: no day has more than 24 hours, a lane count above this plans
@@ -180,25 +186,61 @@ def _pools(run_out):
             for name in (POOL_ATTENTION, POOL_LANES)]
 
 
+def _reasons(data, open_leaves, preds) -> dict:
+    """{key: reason} for each open leaf the plan leaves out whatever the
+    capacity: the first reason that applies, in UNPLANNED_REASONS' order."""
+    held = set(data.held_out)
+    reasons = {}
+    for leaf in open_leaves:
+        if leaf.glyph == "?":
+            reasons[leaf.key] = "blocked_externally"
+        elif leaf.glyph == "P":
+            reasons[leaf.key] = "parked"
+        elif leaf.key in held:
+            reasons[leaf.key] = "waits_on_cycle"
+        elif leaf.waits_on_other_site:
+            reasons[leaf.key] = "waits_on_other_site"
+    # The rest hold no cycle, so each leaf is reached after its predecessors.
+    rest = TopologicalSorter({leaf.key: [p for p in preds[leaf.key] if p not in reasons]
+                              for leaf in open_leaves if leaf.key not in reasons})
+    for key in rest.static_order():
+        if any(p in reasons for p in preds[key]):
+            reasons[key] = "waits_on_unplanned"
+    return reasons
+
+
 def _site_work(name, inputs, mapping, unit) -> list[dict]:
-    """One work item per open leaf of a site, in WBS.md order: what the day
-    loop places. An item is also a schedule.pick_ready item."""
+    """One item per open leaf of a site, in WBS.md order. An item with no
+    `reason` is work for the day loop, and a schedule.pick_ready item.
+
+    Effective priority is the worksite page's (every scheduled leaf, with
+    blocked, parked and cross-site waiters), so an unplanned dependent still
+    lifts its blocker. A leaf's predecessors are its open prerequisites.
+    """
     data = inputs.data
-    work = []
-    for index, leaf in enumerate(data.leaves):
-        if not leaf.open:
-            continue
+    open_leaves = [leaf for leaf in data.leaves if leaf.open]
+    effective = priority.effective(scheduled(data), data.links)
+    preds = {leaf.key: [] for leaf in open_leaves}
+    for before, after in data.links:
+        if before in preds and after in preds:
+            preds[after].append(before)
+    reasons = _reasons(data, open_leaves, preds)
+    index = {leaf.key: i for i, leaf in enumerate(data.leaves)}
+    items = []
+    for leaf in open_leaves:
         estimate = leaf.estimate
         hours = (estimate.lo_h + estimate.hi_h) / 2 if estimate is not None else unit
         attention = leaf_attention(leaf, data, mapping)
         need = _leaf_minutes(hours)
-        work.append({
-            "site": name, "key": leaf.key, "eff_priority": 0, "wbs_index": index,
+        items.append({
+            "site": name, "key": leaf.key, "wbs_index": index[leaf.key],
+            "eff_priority": effective.get(leaf.key, priority.rank(leaf.priority)),
+            "preds": preds[leaf.key], "reason": reasons.get(leaf.key),
             "need": need, "left": need, "ppm": _ppm(attention.rate), "attention": attention,
             "unestimated": estimate is None or estimate.source == "default", "state": leaf.state,
             "days": [], "today": 0,
         })
-    return work
+    return items
 
 
 def _site_order(ready) -> list[dict]:
@@ -275,7 +317,8 @@ def plan_week(result, portfolio, config) -> WeekPlan:
                         binding={"pool": None, "first_day": None, "text": NO_POOL},
                         days=[], leaves=[], sites=[], **fields)
     names = _built_sites(result)
-    work = {name: _site_work(name, result.inputs[name], mapping, config.default_unit_hours) for name in names}
+    items = {name: _site_work(name, result.inputs[name], mapping, config.default_unit_hours) for name in names}
+    work = {name: [item for item in items[name] if item["reason"] is None] for name in names}
     horizon = _working_days(config.as_of, capacity)
     placed_order = []
     days = [_plan_day(day, capacity, work, placed_order) for day in horizon]
@@ -288,7 +331,9 @@ def plan_week(result, portfolio, config) -> WeekPlan:
             "attention_hours_charged": 0.0,
             "lane_hours_charged": _hours(sum(item["need"] - item["left"] for item in placed)),
             "unestimated_planned": sum(item["unestimated"] for item in placed),
-            "unplanned": [],
+            # Never placed in the 10 days: beyond the horizon.
+            "unplanned": [{"key": item["key"], "reason": item["reason"] or "beyond_horizon", "state": item["state"]}
+                          for item in items[name] if not item["days"]],
         })
     dates = [day.isoformat() for day in horizon]
     return WeekPlan(status="planned", reason=None,

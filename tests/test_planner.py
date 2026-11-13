@@ -251,3 +251,99 @@ def test_default_unit_hours_changes_hours(tmp_path):
 def test_leaf_record_carries_its_attention(tmp_path):
     entry = placed(plan_of(tmp_path, "binds_attention"), "alpha", "Issue-1")
     assert (entry["rate"], entry["need"], entry["tag"], entry["basis"]) == (1.0, 4, "scored", "scored: h: 4")
+
+
+# --- which leaves are planned, and the unplanned list -------------------------------------
+
+
+def unplanned(plan, site):
+    """{key: (reason, state)} of a site's unplanned leaves; no key is listed twice."""
+    entries = next(s for s in plan.sites if s["name"] == site)["unplanned"]
+    assert len({entry["key"] for entry in entries}) == len(entries)
+    return {entry["key"]: (entry["reason"], entry["state"]) for entry in entries}
+
+
+def placed_keys(plan, site):
+    return [entry["key"] for entry in plan.leaves if entry["site"] == site]
+
+
+def test_states_question_and_parked_unplanned(tmp_path):
+    plan = plan_of(tmp_path, "states")
+    assert unplanned(plan, "a") == {
+        "Issue-4": ("blocked_externally", "blocked_external"),
+        "Issue-5": ("parked", "parked"),
+        "Issue-6": ("waits_on_unplanned", "pending"),
+    }
+    # In-progress and stuck leaves are planned like any other open leaf.
+    assert sorted(placed_keys(plan, "a")) == ["Issue-1", "Issue-2", "Issue-3"]
+    assert [placed(plan, "a", key)["state"] for key in ("Issue-1", "Issue-3")] == ["in_progress", "stuck"]
+    assert unplanned(plan, "b") == {}
+
+
+def test_unplanned_list_is_in_wbs_order(tmp_path):
+    plan = plan_of(tmp_path, "states", wbs={"a": wbs_md(
+        leaf(1, h=1, depends_on="[Issue-2]"), leaf(2, "P", h=1), leaf(3, h=1), leaf(4, "?", h=1))})
+    assert list(unplanned(plan, "a")) == ["Issue-1", "Issue-2", "Issue-4"]
+
+
+def test_waits_on_other_site_unplanned_and_finished_target_planned(tmp_path):
+    plan = plan_of(tmp_path, "states", wbs={
+        "a": wbs_md(leaf(1, h=1, depends_on="[b:Issue-2]"), leaf(2, h=1, depends_on="[b:Issue-9]")),
+        "b": wbs_md(leaf(2, h=1), leaf(9, "x", h=1)),
+    })
+    assert unplanned(plan, "a") == {"Issue-1": ("waits_on_other_site", "pending")}
+    assert placed_keys(plan, "a") == ["Issue-2"]
+    assert placed_keys(plan, "b") == ["Issue-2"]
+
+
+def test_cycle_is_waits_on_cycle(tmp_path):
+    plan = plan_of(tmp_path, "states", wbs={"a": wbs_md(
+        leaf(1, h=1, depends_on="[Issue-2]"), leaf(2, h=1, depends_on="[Issue-1]"),
+        leaf(3, h=1, depends_on="[Issue-2]"), leaf(4, h=1))})
+    assert unplanned(plan, "a") == {key: ("waits_on_cycle", "pending") for key in ("Issue-1", "Issue-2", "Issue-3")}
+    assert placed_keys(plan, "a") == ["Issue-4"]
+
+
+def test_reason_precedence_before_the_horizon(tmp_path):
+    plan = plan_of(tmp_path, "states", wbs={
+        "a": wbs_md(
+            leaf(1, "?", h=1, depends_on="[b:Issue-2]"),  # blocked externally, and waits on another site
+            leaf(2, "P", h=1, depends_on="[b:Issue-2]"),  # parked, and waits on another site
+            leaf(3, "?", h=1, depends_on="[Issue-4]"),  # blocked externally, and in a cycle
+            leaf(4, h=1, depends_on="[Issue-3, b:Issue-2]"),  # in a cycle, and waits on another site
+            leaf(5, h=1, depends_on="[Issue-2, b:Issue-2]"),  # waits on another site, and on a parked leaf
+            leaf(6, h=1, depends_on="[Issue-5]"),  # waits on a leaf that waits on another site
+            leaf(7, h=1, depends_on="[Issue-6]"),  # and so on down the chain
+        ),
+        "b": wbs_md(leaf(2, h=1)),
+    })
+    assert {key: reason for key, (reason, _) in unplanned(plan, "a").items()} == {
+        "Issue-1": "blocked_externally", "Issue-2": "parked", "Issue-3": "blocked_externally",
+        "Issue-4": "waits_on_cycle", "Issue-5": "waits_on_other_site", "Issue-6": "waits_on_unplanned",
+        "Issue-7": "waits_on_unplanned",
+    }
+
+
+def test_unplanned_dependent_still_lifts_its_blocker(tmp_path):
+    # Effective priority is the worksite page's: the parked P0 leaf lifts the leaf it waits on.
+    plan = plan_of(tmp_path, "states", wbs={"a": wbs_md(
+        leaf(1, priority="P1", h=0), leaf(2, h=0), leaf(3, "P", priority="P0", h=0, depends_on="[Issue-2]"))})
+    assert placed_keys(plan, "a") == ["Issue-2", "Issue-1"]
+
+
+def open_keys(copy, site):
+    result, _, _ = built(copy)
+    return {found.key for found in result.inputs[site].data.leaves if found.open}
+
+
+@pytest.mark.parametrize("base", FIXTURE_NAMES)
+def test_every_open_leaf_is_placed_or_unplanned_once(tmp_path, base):
+    copy = install(tmp_path, base)
+    plan = plan_week(*built(copy))
+    assert plan.sites
+    for site in plan.sites:
+        on_days = placed_keys(plan, site["name"])
+        listed = unplanned(plan, site["name"])
+        assert len(set(on_days)) == len(on_days)
+        assert not set(on_days) & set(listed)
+        assert set(on_days) | set(listed) == open_keys(copy, site["name"])
