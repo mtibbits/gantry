@@ -235,11 +235,15 @@ def _site_work(name, inputs, mapping, unit) -> list[dict]:
         items.append({
             "site": name, "key": leaf.key, "wbs_index": index[leaf.key],
             "eff_priority": effective.get(leaf.key, priority.rank(leaf.priority)),
-            "preds": preds[leaf.key], "reason": reasons.get(leaf.key),
+            "preds": preds[leaf.key], "reason": reasons.get(leaf.key), "finished": None,
             "need": need, "left": need, "ppm": _ppm(attention.rate), "attention": attention,
             "unestimated": estimate is None or estimate.source == "default", "state": leaf.state,
             "days": [], "today": 0,
         })
+    # A planned leaf's predecessors are all planned: hold them as items.
+    by_key = {item["key"]: item for item in items}
+    for item in items:
+        item["preds"] = [by_key[key] for key in item["preds"]]
     return items
 
 
@@ -253,38 +257,180 @@ def _site_order(ready) -> list[dict]:
     return order
 
 
-def _plan_day(day, capacity, work, placed_order) -> dict:
-    """Place one day's work and return its record; changes the items in place."""
-    weekday = WEEKDAYS[day.weekday()]
-    lanes_left = capacity.lanes * LANE_MINUTES
-    attention_left = capacity.attention[weekday]
-    text = day.isoformat()
-    lanes_row = []
-    for items in work.values():
-        for item in _site_order([item for item in items if item["left"] > 0]):
-            room = min(item["left"], LANE_MINUTES - item["today"], lanes_left)
-            if room <= 0:
+def _agent_fit(operator, ppm) -> int:
+    """The most whole agent minutes whose operator minutes, rounded up, fit `operator`."""
+    return operator * PPM // ppm if operator > 0 else 0
+
+
+def _operator(agent, ppm) -> int:
+    """The operator minutes of `agent` agent minutes, rounded up."""
+    return (ppm * agent + PPM - 1) // PPM
+
+
+class _Day:
+    """One day's pools and placements while it is planned."""
+
+    def __init__(self, index, day, capacity, names, work, placed_order, charged):
+        self.index, self.text, self.capacity, self.names = index, day.isoformat(), capacity, names
+        self.weekday = WEEKDAYS[day.weekday()]
+        self.attention = capacity.attention[self.weekday]
+        self.lanes = capacity.lanes * LANE_MINUTES
+        self.placed_order, self.charged = placed_order, charged
+        self.today = []
+        # Each site's ready leaves in plan order, fixed for the day: a leaf
+        # is ready when every predecessor finished on an earlier day.
+        # Leaves started on an earlier day go first, then the others.
+        self.order = {}
+        for name in names:
+            ready = [item for item in work[name] if item["left"] > 0
+                     and all(p["finished"] is not None and p["finished"] < index for p in item["preds"])]
+            started = [item for item in ready if item["days"]]
+            fresh = [item for item in ready if not item["days"]]
+            self.order[name] = _site_order(started) + _site_order(fresh)
+
+    def waiting(self, item) -> bool:
+        """Whether a ready leaf still has minutes to place and is under its 6 agent hours today."""
+        return item["left"] > 0 and item["today"] < LANE_MINUTES
+
+    def place(self, item, room):
+        if not item["days"]:
+            self.placed_order.append(item)
+        item["left"] -= room
+        item["today"] += room
+        item["days"].append(self.text)
+        self.lanes -= room
+        self.today.append(item)
+
+    def opens_block(self, item) -> bool:
+        """Whether a block of its site could open now and hold one agent minute of the leaf."""
+        capacity = self.capacity
+        return (item["ppm"] > 0 and self.waiting(item) and self.lanes > 0
+                and self.attention >= capacity.block_min
+                and _agent_fit(self.attention - capacity.start_cost, item["ppm"]) >= 1)
+
+    def next_block_site(self, closed):
+        """The site with no block yet whose most urgent fitting leaf of rate
+        above 0 is the most urgent; ties to config order. None: no block can open."""
+        best = None
+        for name in self.names:
+            fitting = [item for item in self.order[name] if self.opens_block(item)]
+            if name in closed or not fitting:
                 continue
-            if not item["days"]:
-                placed_order.append(item)
-            item["left"] -= room
-            item["today"] += room
-            item["days"].append(text)
-            lanes_left -= room
-            lanes_row.append({"site": item["site"], "key": item["key"], "agent_hours": _hours(room)})
-    today = [item for items in work.values() for item in items if item["today"]]
-    for item in today:
-        item["today"] = 0
-    return {
-        "date": text, "weekday": weekday,
-        "attention_hours_declared": _hours(capacity.declared[weekday]),
-        "attention_hours": _hours(capacity.attention[weekday]),
-        "reserved": [dict(block) for block in capacity.reserved[weekday]],
-        "lane_hours": _hours(capacity.lanes * LANE_MINUTES),
-        "blocks": [], "lanes_row": lanes_row,
-        "left": {"attention_hours": _hours(attention_left), "lane_hours": _hours(lanes_left)},
-        "ran_out": [], "unestimated": sum(item["unestimated"] for item in today),
-    }
+            urgency = schedule.pick_ready(fitting)["eff_priority"]
+            if best is None or urgency < best[0]:
+                best = (urgency, name)
+        return best[1] if best is not None else None
+
+    def blocks(self):
+        """(the day's blocks, {site: the operator minutes its closed block had left})."""
+        capacity = self.capacity
+        blocks, closed = [], {}
+        while (name := self.next_block_site(closed)) is not None:
+            room = self.attention - capacity.start_cost  # operator minutes for the block's work
+            leaves = []
+            # One pass: nothing regains room within a day.
+            for item in self.order[name]:
+                if not item["ppm"]:
+                    continue
+                agent = min(item["left"], LANE_MINUTES - item["today"], self.lanes, _agent_fit(room, item["ppm"]))
+                if agent <= 0:
+                    continue
+                operator = _operator(agent, item["ppm"])
+                self.place(item, agent)
+                room -= operator
+                leaves.append({"site": name, "key": item["key"], "agent_hours": _hours(agent),
+                               "operator_hours": _hours(operator)})
+            length = max(capacity.block_min, self.attention - room)
+            self.attention -= length
+            self.charged[name] += length
+            closed[name] = room
+            blocks.append({"number": len(blocks) + 1, "site": name, "length_hours": _hours(length),
+                           "start_cost_hours": _hours(capacity.start_cost), "leaves": leaves})
+        return blocks, closed
+
+    def block_pools_run_out(self, closed) -> set:
+        """The pools that ran out while a ready leaf of rate above 0 still waited.
+
+        Each pool's test holds on its own, so both can run out on one
+        placement. Lanes: no lane minute is left. Attention: the leaf's
+        site's block closed without room for one more agent minute of it,
+        or no block of its site could open, for want of block_min_hours or
+        of the start cost plus one agent minute (docs/week-plan.md).
+        """
+        capacity = self.capacity
+        ran = set()
+        for name in self.names:
+            for item in self.order[name]:
+                if not item["ppm"] or not self.waiting(item):
+                    continue
+                if self.lanes == 0:
+                    ran.add(POOL_LANES)
+                if name in closed:
+                    short = _agent_fit(closed[name], item["ppm"]) < 1
+                else:
+                    short = (self.attention < capacity.block_min
+                             or _agent_fit(self.attention - capacity.start_cost, item["ppm"]) < 1)
+                if short:
+                    ran.add(POOL_ATTENTION)
+        return ran
+
+    def lanes_row(self):
+        """(the day's lanes row, whether a ready rate-0 leaf still waited for a lane)."""
+        sites = []
+        for position, name in enumerate(self.names):
+            fitting = [item for item in self.order[name] if not item["ppm"] and self.waiting(item) and self.lanes > 0]
+            if fitting:
+                sites.append((schedule.pick_ready(fitting)["eff_priority"], position, name))
+        row = []
+        for _, _, name in sorted(sites):  # the site order is fixed here, once
+            for item in self.order[name]:
+                agent = min(item["left"], LANE_MINUTES - item["today"], self.lanes)
+                if item["ppm"] or agent <= 0:
+                    continue
+                self.place(item, agent)
+                row.append({"site": name, "key": item["key"], "agent_hours": _hours(agent)})
+        waited = any(not item["ppm"] and self.waiting(item) for name in self.names for item in self.order[name])
+        return row, waited
+
+    def plan(self) -> dict:
+        """Plan the day and return its record. The items change in place, and
+        `charged` gains each site's block minutes."""
+        capacity = self.capacity
+        blocks, closed = self.blocks()
+        ran = self.block_pools_run_out(closed)
+        row, waited = self.lanes_row()
+        if waited:
+            ran.add(POOL_LANES)
+        for item in self.today:
+            item["today"] = 0
+            if item["left"] == 0:
+                item["finished"] = self.index
+        return {
+            "date": self.text, "weekday": self.weekday,
+            "attention_hours_declared": _hours(capacity.declared[self.weekday]),
+            "attention_hours": _hours(capacity.attention[self.weekday]),
+            "reserved": [dict(block) for block in capacity.reserved[self.weekday]],
+            "lane_hours": _hours(capacity.lanes * LANE_MINUTES),
+            "blocks": blocks, "lanes_row": row,
+            "left": {"attention_hours": _hours(self.attention), "lane_hours": _hours(self.lanes)},
+            "ran_out": [pool for pool in (POOL_ATTENTION, POOL_LANES) if pool in ran],
+            "unestimated": sum(item["unestimated"] for item in self.today),
+        }
+
+
+def _binding(days):
+    """(each pool's days run out in the planned week, the binding record).
+
+    The binding pool ran out on the earliest day; on the same day, on more
+    days; still tied, operator attention hours.
+    """
+    week = days[:WEEK_DAYS]
+    run_out = {pool: [day["date"] for day in week if pool in day["ran_out"]] for pool in (POOL_ATTENTION, POOL_LANES)}
+    ran = [pool for pool in (POOL_ATTENTION, POOL_LANES) if run_out[pool]]
+    if not ran:
+        return run_out, {"pool": None, "first_day": None, "text": NO_POOL}
+    pool = min(ran, key=lambda pool: (run_out[pool][0], -len(run_out[pool])))
+    return run_out, {"pool": pool, "first_day": run_out[pool][0], "text": pool}
 
 
 def _leaf_record(item) -> dict:
@@ -321,14 +467,18 @@ def plan_week(result, portfolio, config) -> WeekPlan:
     work = {name: [item for item in items[name] if item["reason"] is None] for name in names}
     horizon = _working_days(config.as_of, capacity)
     placed_order = []
-    days = [_plan_day(day, capacity, work, placed_order) for day in horizon]
+    charged = dict.fromkeys(names, 0)
+    days = [_Day(index, day, capacity, names, work, placed_order, charged).plan()
+            for index, day in enumerate(horizon)]
+    run_out, binding = _binding(days)
     leaves = [_leaf_record(item) for name in names for item in placed_order if item["site"] == name]
     sites = []
     for name in names:
         placed = [item for item in placed_order if item["site"] == name]
         sites.append({
             "name": name, "ratio_source": site_ratio_source(),
-            "attention_hours_charged": 0.0,
+            # Block lengths (start cost and minimum-length padding included) and agent hours placed.
+            "attention_hours_charged": _hours(charged[name]),
             "lane_hours_charged": _hours(sum(item["need"] - item["left"] for item in placed)),
             "unestimated_planned": sum(item["unestimated"] for item in placed),
             # Never placed in the 10 days: beyond the horizon.
@@ -338,6 +488,5 @@ def plan_week(result, portfolio, config) -> WeekPlan:
     dates = [day.isoformat() for day in horizon]
     return WeekPlan(status="planned", reason=None,
                     unestimated_planned=sum(item["unestimated"] for item in placed_order),
-                    horizon_days=dates, planned_week=dates[:WEEK_DAYS], pools=_pools({}),
-                    binding={"pool": None, "first_day": None, "text": NO_POOL},
+                    horizon_days=dates, planned_week=dates[:WEEK_DAYS], pools=_pools(run_out), binding=binding,
                     days=days, leaves=leaves, sites=sites, **fields)

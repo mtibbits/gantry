@@ -1,16 +1,19 @@
 """The week planner: gantry/planner.py (#61)."""
 
 import itertools
+import re
 import shutil
+import tomllib
 from datetime import date
 
 import pytest
 
-from gantry import planner
+from gantry import planner, schedule
 from gantry.build import build_all
 from gantry.config import load_config
 from gantry.planner import NO_PLAN, plan_week
 from gantry.portfolio_file import read_portfolio_file
+from helpers_config import sample_build
 from test_samples import ROOT
 
 FIXTURES = ROOT / "tests" / "fixtures" / "week_plan"
@@ -347,3 +350,446 @@ def test_every_open_leaf_is_placed_or_unplanned_once(tmp_path, base):
         assert len(set(on_days)) == len(on_days)
         assert not set(on_days) & set(listed)
         assert set(on_days) | set(listed) == open_keys(copy, site["name"])
+
+
+# --- the day loop: blocks, the lanes row, started leaves, the binding pool ------------------
+
+ATTENTION, LANES = planner.POOL_ATTENTION, planner.POOL_LANES
+EPS = 1e-9
+
+
+def file_capacity(portfolio_path):
+    """The capacity the portfolio file states, read by the test itself: (hours
+    after reserved blocks per weekday, lanes, block_min, start cost)."""
+    text = portfolio_path.read_bytes().decode("utf-8")
+    settings = tomllib.loads(re.search(r"```toml\n(.*?)```", text, re.S).group(1))["capacity"]
+    hours = dict.fromkeys(planner.WEEKDAYS, 0) | settings["attention_hours"]
+    for block in settings.get("reserved", []):
+        hours[block["day"]] = max(0, hours[block["day"]] - block["hours"])
+    return (hours, settings["agent_lanes"], settings.get("block_min_hours", 1),
+            settings.get("block_start_cost_hours", 0.25))
+
+
+def check_invariants(plan, portfolio_path):
+    """The invariants of the first acceptance criterion; returns the number of blocks."""
+    hours, lanes, block_min, start_cost = file_capacity(portfolio_path)
+    rate = {(entry["site"], entry["key"]): entry["rate"] for entry in plan.leaves}
+    on_days = {key: 0 for key in rate}
+    charged = {site["name"]: [0, 0] for site in plan.sites}
+    blocks = 0
+    assert plan.status == "planned" and len(plan.days) == 10
+    for day in plan.days:
+        attention = hours[day["weekday"]]
+        assert attention > 0
+        assert day["attention_hours"] == pytest.approx(attention)
+        assert day["lane_hours"] == lanes * 6
+        today = {}
+        assert [block["number"] for block in day["blocks"]] == list(range(1, len(day["blocks"]) + 1))
+        sites = [block["site"] for block in day["blocks"]]
+        assert len(set(sites)) == len(sites), "a site has at most one block a day"
+        for block in day["blocks"]:
+            blocks += 1
+            assert block["leaves"], "a block that could hold no leaf is not opened"
+            assert {entry["site"] for entry in block["leaves"]} == {block["site"]}, "no block mixes sites"
+            assert block["start_cost_hours"] == pytest.approx(start_cost)
+            assert block["length_hours"] >= block_min - EPS
+            operator = sum(entry["operator_hours"] for entry in block["leaves"])
+            assert operator + block["start_cost_hours"] <= block["length_hours"] + EPS
+            charged[block["site"]][0] += block["length_hours"]
+            for entry in block["leaves"]:
+                assert rate[entry["site"], entry["key"]] > 0
+                assert entry["operator_hours"] >= entry["agent_hours"] * rate[entry["site"], entry["key"]] - EPS
+        for entry in day["lanes_row"]:
+            assert rate[entry["site"], entry["key"]] == 0
+        for entry in [e for block in day["blocks"] for e in block["leaves"]] + day["lanes_row"]:
+            assert entry["agent_hours"] > 0
+            key = (entry["site"], entry["key"])
+            today[key] = today.get(key, 0) + entry["agent_hours"]
+            charged[entry["site"]][1] += entry["agent_hours"]
+        lengths = sum(block["length_hours"] for block in day["blocks"])
+        assert lengths <= attention + EPS
+        assert all(agent <= 6 + EPS for agent in today.values())
+        assert sum(today.values()) <= lanes * 6 + EPS
+        assert day["left"]["attention_hours"] == pytest.approx(attention - lengths)
+        assert day["left"]["lane_hours"] == pytest.approx(lanes * 6 - sum(today.values()))
+        assert set(day["ran_out"]) <= {ATTENTION, LANES}
+        for key, agent in today.items():
+            on_days[key] += agent
+    for entry in plan.leaves:
+        key = (entry["site"], entry["key"])
+        assert on_days[key] + entry["hours_after_horizon"] == pytest.approx(entry["agent_hours"])
+        assert on_days[key] > 0
+    for site in plan.sites:
+        assert site["attention_hours_charged"] == pytest.approx(charged[site["name"]][0])
+        assert site["lane_hours_charged"] == pytest.approx(charged[site["name"]][1])
+    return blocks
+
+
+def invariant_subjects():
+    """Every installation under tests/fixtures/week_plan/, and the demo build."""
+    return sorted(path.parent.name for path in FIXTURES.glob("*/gantry.toml")) + ["demo"]
+
+
+def subject_plan(tmp_path, subject):
+    """(plan, the portfolio file's path) of one invariant subject."""
+    if subject == "demo":
+        result = sample_build(tmp_path)
+        path = tmp_path / "samples" / "portfolio.md"
+        portfolio = read_portfolio_file(result.roots, result.config.portfolio_file,
+                                        br_namespace=result.config.requirements.br_namespace)
+        return plan_week(result, portfolio, result.config), path
+    copy = install(tmp_path, subject)
+    return plan_week(*built(copy)), copy / "portfolio.md"
+
+
+@pytest.mark.parametrize("subject", invariant_subjects())
+def test_invariants_hold(tmp_path, subject):
+    plan, path = subject_plan(tmp_path, subject)
+    check_invariants(plan, path)
+
+
+def test_invariant_subjects(tmp_path):
+    subjects = invariant_subjects()
+    assert set(FIXTURE_NAMES) | {"demo"} <= set(subjects)
+    with_block = [s for s in subjects if check_invariants(*subject_plan(tmp_path, s)) > 0]
+    assert len(with_block) >= 3, with_block
+
+
+def block_keys(day, n=0):
+    return [entry["key"] for entry in day["blocks"][n]["leaves"]]
+
+
+def row_keys(day):
+    return [(entry["site"], entry["key"]) for entry in day["lanes_row"]]
+
+
+def run_out(plan, pool):
+    return next(p for p in plan.pools if p["name"] == pool)["days_run_out"]
+
+
+def test_binds_attention_names_pool_and_first_day(tmp_path):
+    plan = plan_of(tmp_path, "binds_attention")
+    assert plan.binding == {"pool": ATTENTION, "first_day": "2026-01-19", "text": ATTENTION}
+    assert run_out(plan, ATTENTION) == ["2026-01-19", "2026-01-20", "2026-01-21"]
+    assert run_out(plan, LANES) == []
+    first = plan.days[0]
+    assert first["ran_out"] == [ATTENTION]
+    assert len(first["blocks"]) == 1
+    assert first["blocks"][0] == {
+        "number": 1, "site": "alpha", "length_hours": 2.0, "start_cost_hours": 0.25,
+        "leaves": [{"site": "alpha", "key": "Issue-1", "agent_hours": 1.75, "operator_hours": 1.75}],
+    }
+    assert first["left"] == {"attention_hours": 0.0, "lane_hours": 12 - 1.75}
+    # The fourth day ends Issue-1 and has room for all of Issue-2: nothing runs out.
+    assert block_keys(plan.days[3]) == ["Issue-1", "Issue-2"]
+    assert plan.days[3]["ran_out"] == []
+
+
+def test_binds_lanes_names_pool_and_first_day(tmp_path):
+    plan = plan_of(tmp_path, "binds_lanes")
+    assert plan.binding == {"pool": LANES, "first_day": "2026-01-19", "text": LANES}
+    assert run_out(plan, LANES) == ["2026-01-19", "2026-01-20"]
+    assert run_out(plan, ATTENTION) == []
+    assert all(ATTENTION not in day["ran_out"] for day in plan.days)
+    first = plan.days[0]
+    assert first["ran_out"] == [LANES]
+    # The block's work needs 0.45 h (0.25 to start, 0.2 for Issue-1) and is charged the minimum.
+    assert first["blocks"] == [{
+        "number": 1, "site": "alpha", "length_hours": 1.0, "start_cost_hours": 0.25,
+        "leaves": [{"site": "alpha", "key": "Issue-1", "agent_hours": 2.0, "operator_hours": 0.2}],
+    }]
+    assert first["lanes_row"] == [{"site": "alpha", "key": "Issue-2", "agent_hours": 4.0}]
+    assert placed(plan, "alpha", "Issue-3")["days"] == ["2026-01-20", "2026-01-21"]
+    site = plan.sites[0]
+    assert (site["attention_hours_charged"], site["lane_hours_charged"]) == (1.0, 14.0)
+    assert site["ratio_source"] == "estimated"
+
+
+def test_ample_capacity_no_pool_ran_out(tmp_path):
+    plan = plan_of(tmp_path, "binds_lanes", portfolio=portfolio_md(lanes=5))
+    assert plan.binding == {"pool": None, "first_day": None, "text": planner.NO_POOL}
+    assert run_out(plan, ATTENTION) == [] and run_out(plan, LANES) == []
+    assert all(day["ran_out"] == [] for day in plan.days)
+    assert len(plan.leaves) == 3
+
+
+def test_attention_end_splits_leaf_and_continues_first(tmp_path):
+    plan = plan_of(tmp_path, "binds_attention")
+    first, second = plan.days[0], plan.days[1]
+    assert first["blocks"][0]["leaves"][0]["agent_hours"] * 60 == 105
+    assert sum(block["length_hours"] for block in first["blocks"]) * 60 == 120
+    assert first["attention_hours"] == 2.0
+    assert block_keys(second)[0] == "Issue-1"
+    assert placed(plan, "alpha", "Issue-1")["days"][:2] == ["2026-01-19", "2026-01-20"]
+
+
+def test_block_goes_on_with_a_leaf_that_still_fits(tmp_path):
+    # At rate 2, 105 operator minutes hold 52 agent minutes of Issue-1 and leave 1,
+    # which holds 10 agent minutes of Issue-2 at rate 0.1.
+    plan = plan_of(tmp_path, "binds_attention",
+                   portfolio=portfolio_md(hours=2, lanes=2, more="attention_mapping = [0, 0.1, 0.25, 0.5, 2.0]\n"),
+                   wbs={"alpha": wbs_md(leaf(1, priority="P1", est="6h", h=4), leaf(2, priority="P2", est="1h", h=1))})
+    block = plan.days[0]["blocks"][0]
+    assert [(e["key"], round(e["agent_hours"] * 60), round(e["operator_hours"] * 60)) for e in block["leaves"]] == [
+        ("Issue-1", 52, 104), ("Issue-2", 10, 1)]
+    assert block["length_hours"] == 2.0
+    assert plan.days[0]["ran_out"] == [ATTENTION]
+
+
+def test_block_leaf_with_no_lane_records_lanes(tmp_path):
+    plan = plan_of(tmp_path, "binds_lanes", wbs={"alpha": wbs_md(
+        leaf(1, priority="P1", est="6h", h=1), leaf(2, priority="P2", est="1h", h=1))})
+    first = plan.days[0]
+    assert block_keys(first) == ["Issue-1"]
+    assert first["ran_out"] == [LANES]
+    assert first["left"]["lane_hours"] == 0.0 and first["left"]["attention_hours"] == 7.0
+    assert block_keys(plan.days[1]) == ["Issue-2"]
+
+
+def test_first_block_goes_to_more_urgent_site(tmp_path):
+    plan = plan_of(tmp_path, "states", wbs={
+        "a": wbs_md(leaf(1, priority="P2", est="1h", h=1)),
+        "b": wbs_md(leaf(1, priority="P1", est="1h", h=1)),
+    })
+    assert [block["site"] for block in plan.days[0]["blocks"]] == ["b", "a"]
+    assert [block["number"] for block in plan.days[0]["blocks"]] == [1, 2]
+
+
+def test_equal_urgency_goes_to_config_order(tmp_path):
+    plan = plan_of(tmp_path, "states", wbs={
+        "a": wbs_md(leaf(1, priority="P2", est="1h", h=1)),
+        "b": wbs_md(leaf(1, priority="P2", est="1h", h=1)),
+    })
+    assert [block["site"] for block in plan.days[0]["blocks"]] == ["a", "b"]
+
+
+def test_one_block_per_site_per_day(tmp_path):
+    # b's leaf is more urgent than a's second leaf, yet a's block holds both of a's leaves.
+    plan = plan_of(tmp_path, "states", wbs={
+        "a": wbs_md(leaf(1, priority="P1", est="1h", h=1), leaf(2, priority="P3", est="1h", h=1)),
+        "b": wbs_md(leaf(1, priority="P2", est="1h", h=1)),
+    })
+    first = plan.days[0]
+    assert [(block["site"], [e["key"] for e in block["leaves"]]) for block in first["blocks"]] == [
+        ("a", ["Issue-1", "Issue-2"]), ("b", ["Issue-1"])]
+    for day in plan_of(tmp_path, "states").days:
+        sites = [block["site"] for block in day["blocks"]]
+        assert len(sites) == len(set(sites))
+
+
+def test_lanes_row_site_by_site(tmp_path):
+    # b holds the most urgent rate-0 leaf, so all of b's come before any of a's.
+    plan = plan_of(tmp_path, "states", wbs={
+        "a": wbs_md(leaf(1, priority="P2", est="1h", h=0), leaf(2, priority="P4", est="1h", h=0)),
+        "b": wbs_md(leaf(1, priority="P3", est="1h", h=0), leaf(2, priority="P1", est="1h", h=0)),
+    })
+    assert row_keys(plan.days[0]) == [("b", "Issue-2"), ("b", "Issue-1"), ("a", "Issue-1"), ("a", "Issue-2")]
+    assert plan.days[0]["blocks"] == []
+    # On equal urgency the sites go in config order.
+    plan = plan_of(tmp_path, "states", wbs={
+        "a": wbs_md(leaf(1, priority="P2", est="1h", h=0)),
+        "b": wbs_md(leaf(1, priority="P2", est="1h", h=0)),
+    })
+    assert row_keys(plan.days[0]) == [("a", "Issue-1"), ("b", "Issue-1")]
+
+
+def test_allocation_rule_text(tmp_path):
+    plan = plan_of(tmp_path, "states")
+    assert plan.allocation_rule == "most urgent site first; intended shares not applied"
+    assert plan.allocation_rule == planner.ALLOCATION_RULE
+
+
+@pytest.mark.parametrize("h", [1, 0])
+def test_dependent_starts_day_after_blocker_finishes(tmp_path, h):
+    plan = plan_of(tmp_path, "binds_lanes", portfolio=portfolio_md(lanes=5), wbs={"alpha": wbs_md(
+        leaf(1, est="1h", h=h), leaf(2, priority="P0", est="1h", h=h, depends_on="[Issue-1]"))})
+    assert placed(plan, "alpha", "Issue-1")["days"] == ["2026-01-19"]
+    assert placed(plan, "alpha", "Issue-2")["days"] == ["2026-01-20"]
+    first = plan.days[0]
+    assert first["left"]["attention_hours"] >= 7 and first["left"]["lane_hours"] == 29.0
+    assert first["ran_out"] == []
+
+
+def test_dependent_waits_for_a_blocker_that_takes_two_days(tmp_path):
+    plan = plan_of(tmp_path, "binds_lanes", portfolio=portfolio_md(lanes=5), wbs={"alpha": wbs_md(
+        leaf(1, est="9h", h=0), leaf(2, est="1h", h=0, depends_on="[Issue-1]"))})
+    assert placed(plan, "alpha", "Issue-1")["days"] == ["2026-01-19", "2026-01-20"]
+    assert placed(plan, "alpha", "Issue-2")["days"] == ["2026-01-21"]
+
+
+# One lane and 6.25 h of attention: a rate-1 leaf's 6 agent hours take the whole lane
+# and, with the start cost, the whole day's attention, in one placement.
+TIE = {"portfolio": portfolio_md(hours=6.25, lanes=1)}
+
+
+def test_binding_tie_more_days_then_attention(tmp_path):
+    both = wbs_md(leaf(1, priority="P1", est="12h", h=4), leaf(2, priority="P2", est="6h", h=4))
+    plan = plan_of(tmp_path, "binds_lanes", wbs={"alpha": both}, **TIE)
+    assert [day["ran_out"] for day in plan.days[:3]] == [[ATTENTION, LANES], [ATTENTION, LANES], []]
+    assert run_out(plan, ATTENTION) == run_out(plan, LANES) == ["2026-01-19", "2026-01-20"]
+    # A full tie: operator attention hours.
+    assert plan.binding == {"pool": ATTENTION, "first_day": "2026-01-19", "text": ATTENTION}
+    # A rate-0 leaf waits for a lane on the third day too: agent lanes ran out on more days.
+    more = both + leaf(3, priority="P3", est="1h", h=0)
+    plan = plan_of(tmp_path, "binds_lanes", wbs={"alpha": more}, **TIE)
+    assert [day["ran_out"] for day in plan.days[:4]] == [[ATTENTION, LANES], [ATTENTION, LANES], [LANES], []]
+    assert plan.binding == {"pool": LANES, "first_day": "2026-01-19", "text": LANES}
+
+
+def test_binding_is_the_pool_that_ran_out_first(tmp_path):
+    # Lanes run out on day 1 only; attention on days 2 and 3: the earlier day wins over more days.
+    plan = plan_of(tmp_path, "binds_lanes", portfolio=portfolio_md(hours=2, lanes=1), wbs={"alpha": wbs_md(
+        leaf(1, priority="P1", est="6h", h=0), leaf(2, priority="P2", est="1h", h=0),
+        leaf(3, priority="P3", est="5h", h=4, depends_on="[Issue-2]"))})
+    assert [day["ran_out"] for day in plan.days[:5]] == [[LANES], [], [ATTENTION], [ATTENTION], []]
+    assert plan.binding == {"pool": LANES, "first_day": "2026-01-19", "text": LANES}
+
+
+def test_below_block_min_opens_no_block(tmp_path):
+    plan = plan_of(tmp_path, "binds_attention", portfolio=portfolio_md(hours=0.75, lanes=2),
+                   wbs={"alpha": wbs_md(leaf(1, est="1h", h=2))})
+    assert len(plan.days) == 10
+    assert all(day["blocks"] == [] and day["ran_out"] == [ATTENTION] for day in plan.days)
+    assert all(day["left"]["attention_hours"] == 0.75 for day in plan.days)
+    # The pools' days are the planned week's; each day's own list covers all 10.
+    assert run_out(plan, ATTENTION) == plan.planned_week
+    assert unplanned(plan, "alpha") == {"Issue-1": ("beyond_horizon", "pending")}
+
+
+def test_start_cost_not_fitting_counts_as_attention_ran_out(tmp_path):
+    # The deliberate reading: block_min_hours is left, but not the start cost plus one agent minute.
+    plan = plan_of(tmp_path, "binds_attention", portfolio=portfolio_md(hours=1, lanes=5, block_min=1, start_cost=1),
+                   wbs={"alpha": wbs_md(leaf(1, est="1h", h=2))})
+    assert all(day["blocks"] == [] for day in plan.days)
+    assert [day["ran_out"] for day in plan.days[:5]] == [[ATTENTION]] * 5
+    assert plan.binding == {"pool": ATTENTION, "first_day": plan.planned_week[0], "text": ATTENTION}
+    assert run_out(plan, LANES) == []
+
+
+def test_continues_started_leaf_first_on_day_two(tmp_path):
+    plan = plan_of(tmp_path, "continues")
+    assert block_keys(plan.days[0]) == ["Issue-2", "Issue-1", "Issue-4"]
+    # Issue-3 (P1) became ready on day 2; the started leaves still go first, in their own order.
+    assert block_keys(plan.days[1]) == ["Issue-1", "Issue-4", "Issue-3"]
+    assert placed(plan, "alpha", "Issue-3")["days"] == ["2026-01-20"]
+
+
+def test_too_long_leaf_keeps_placements(tmp_path):
+    plan = plan_of(tmp_path, "continues")
+    entry = placed(plan, "alpha", "Issue-4")
+    assert entry["days"] == plan.horizon_days
+    assert (entry["agent_hours"], entry["hours_after_horizon"]) == (90.0, 30.0)
+    assert unplanned(plan, "alpha") == {"Issue-5": ("beyond_horizon", "pending")}
+    assert all(e["hours_after_horizon"] == 0 for e in plan.leaves if e["key"] != "Issue-4")
+
+
+def test_fifteen_hour_leaf_over_three_days(tmp_path):
+    plan = plan_of(tmp_path, "continues")
+    assert placed(plan, "alpha", "Issue-1")["days"] == plan.horizon_days[:3]
+    hours = [entry["agent_hours"] for day in plan.days[:3] for entry in day["blocks"][0]["leaves"]
+             if entry["key"] == "Issue-1"]
+    assert hours == [6.0, 6.0, 3.0]
+
+
+def test_unestimated_counts(tmp_path):
+    plan = plan_of(tmp_path, "states", config={"default_unit_hours": "15"})
+    entry = placed(plan, "b", "Issue-2")
+    assert entry["unestimated"] and len(entry["days"]) == 3
+    # A leaf on three days counts once.
+    assert plan.unestimated_planned == 1
+    assert {site["name"]: site["unestimated_planned"] for site in plan.sites} == {"a": 0, "b": 1}
+    assert [day["unestimated"] for day in plan.days] == [int(day["date"] in entry["days"]) for day in plan.days]
+    # A recount over a plan with several, on both sites.
+    plan = plan_of(tmp_path, "states", wbs={
+        "a": wbs_md(leaf(1, h=1), leaf(2, est="2h", h=1), leaf(3, h=0)),
+        "b": wbs_md(leaf(1, h=1), leaf(2, est="?w", h=0)),
+    })
+    flagged = {(e["site"], e["key"]) for e in plan.leaves if e["unestimated"]}
+    assert flagged == {("a", "Issue-1"), ("a", "Issue-3"), ("b", "Issue-1"), ("b", "Issue-2")}
+    assert plan.unestimated_planned == 4
+    assert {site["name"]: site["unestimated_planned"] for site in plan.sites} == {"a": 2, "b": 2}
+    for day in plan.days:
+        on_day = {(e["site"], e["key"]) for block in day["blocks"] for e in block["leaves"]} | set(row_keys(day))
+        assert day["unestimated"] == len(on_day & flagged)
+
+
+RATE_0 = [  # (hours, priority) in WBS.md order
+    (9, "P3"), (2, "P1"), (6, "P3"), (1, "P4"), (7, "P0"), (3, "P1"), (4, None), (5, "P2"),
+]
+
+
+@pytest.mark.parametrize("lanes", [1, 2, 3])
+def test_rate_zero_first_planned_order_equals_plan_start_order(tmp_path, lanes):
+    leaves = [leaf(n, est=f"{hours}h", h=0, **({"priority": p} if p else {}))
+              for n, (hours, p) in enumerate(RATE_0, 1)]
+    plan = plan_of(tmp_path, "binds_lanes", portfolio=portfolio_md(lanes=lanes), wbs={"alpha": wbs_md(*leaves)})
+    items = [{"key": f"Issue-{n}", "hours": hours, "preds": [], "eff_priority": int(p[1]) if p else 3, "wbs_index": n}
+             for n, (hours, p) in enumerate(RATE_0, 1)]
+    assert placed_keys(plan, "alpha") == list(schedule.plan(items, lanes))
+    assert len(plan.leaves) == len(RATE_0)
+
+
+def test_planner_orders_through_schedule_pick_ready(tmp_path, monkeypatch):
+    # One ordering rule, not a fork: the planner's order follows whatever pick_ready says.
+    copy = install(tmp_path, "binds_lanes", portfolio=portfolio_md(lanes=1), wbs={"alpha": wbs_md(
+        leaf(1, priority="P1", est="6h", h=0), leaf(2, priority="P2", est="6h", h=0),
+        leaf(3, priority="P3", est="6h", h=1), leaf(4, priority="P4", est="6h", h=1))})
+    args = built(copy)
+    assert placed_keys(plan_week(*args), "alpha") == ["Issue-3", "Issue-4", "Issue-1", "Issue-2"]
+    monkeypatch.setattr(schedule, "pick_ready", lambda ready: ready[-1])
+    assert placed_keys(plan_week(*args), "alpha") == ["Issue-4", "Issue-3", "Issue-2", "Issue-1"]
+
+
+def test_same_inputs_same_plan(tmp_path):
+    for base in FIXTURE_NAMES:
+        first, second = plan_of(tmp_path, base), plan_of(tmp_path, base)
+        assert first == second and first is not second
+        assert first.status == "planned"
+
+
+def test_never_fits_is_beyond_horizon_with_dependent(tmp_path):
+    # One hour of attention a day: the P1 leaf at rate 1 takes it all, every day.
+    plan = plan_of(tmp_path, "binds_attention", portfolio=portfolio_md(hours=1, lanes=2), wbs={"alpha": wbs_md(
+        leaf(1, priority="P1", est="3w", h=4), leaf(2, priority="P4", h=4), leaf(3, h=4, depends_on="[Issue-2]"))})
+    assert placed_keys(plan, "alpha") == ["Issue-1"]
+    assert placed(plan, "alpha", "Issue-1")["hours_after_horizon"] == 90 - 7.5
+    assert unplanned(plan, "alpha") == {
+        "Issue-2": ("beyond_horizon", "pending"), "Issue-3": ("beyond_horizon", "pending")}
+
+
+def test_reason_precedence(tmp_path):
+    plan = plan_of(tmp_path, "states", portfolio=portfolio_md(hours=1, lanes=2), wbs={
+        "a": wbs_md(
+            leaf(1, priority="P1", est="3w", h=4),
+            leaf(2, priority="P4", h=4),  # never fits
+            leaf(3, "P", h=4),
+            leaf(4, h=4, depends_on="[Issue-2, Issue-3]"),  # waits on a parked leaf and on one beyond the horizon
+            leaf(5, "?", h=4, depends_on="[b:Issue-2]"),  # blocked externally, with a cross-site entry
+        ),
+        "b": wbs_md(leaf(2, priority="P4", h=4)),
+    })
+    assert {key: reason for key, (reason, _) in unplanned(plan, "a").items()} == {
+        "Issue-2": "beyond_horizon", "Issue-3": "parked", "Issue-4": "waits_on_unplanned",
+        "Issue-5": "blocked_externally",
+    }
+
+
+@pytest.mark.parametrize("base", FIXTURE_NAMES)
+def test_unplanned_reasons_are_the_six(tmp_path, base):
+    plan = plan_of(tmp_path, base)
+    reasons = {entry["reason"] for site in plan.sites for entry in site["unplanned"]}
+    assert reasons <= set(planner.UNPLANNED_REASONS)
+    assert len(planner.UNPLANNED_REASONS) == 6
+
+
+def test_extreme_block_min_opens_no_block(tmp_path):
+    plan = plan_of(tmp_path, "binds_lanes", portfolio=portfolio_md(block_min="1e308"))
+    assert all(day["blocks"] == [] for day in plan.days)
+    assert plan.days[0]["ran_out"] == [ATTENTION, LANES]  # Issue-1 has no block; Issue-3 has no lane
+
+
+def test_rate_0_by_rounding_goes_in_the_lanes_row(tmp_path):
+    plan = plan_of(tmp_path, "binds_lanes",
+                   portfolio=portfolio_md(more="attention_mapping = [0, 1e-7, 0.25, 0.5, 1.0]\n"))
+    assert plan.days[0]["blocks"] == []
+    assert row_keys(plan.days[0]) == [("alpha", "Issue-1"), ("alpha", "Issue-2")]
