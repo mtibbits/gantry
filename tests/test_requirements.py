@@ -237,6 +237,11 @@ def test_second_indented_sibling_after_blank_is_nested():
         ("- FR-1: a\n\n  <!-- x -->\n\n  - FR-2: b\n", ["alpha:FR-1"], "FR-2", 5),
         ("- Functional requirements\n\n  - FR-1: x\n", [], "FR-1", 3),
         ("-   FR-1: a\n\n    - FR-2: b\n", ["alpha:FR-1"], "FR-2", 3),
+        # Text five or more columns past the marker is code: the content column is one past the marker.
+        ("-     x\n\n  - FR-2: b\n", [], "FR-2", 3),
+        # An empty item followed by a line of its own text stays open.
+        ("-\n  - FR-2: b\n", [], "FR-2", 2),
+        ("-\n  text\n\n  - FR-2: b\n", [], "FR-2", 4),
     ],
 )
 def test_enclosing_item_spans_blank_lines(text, keys, id, line):
@@ -255,6 +260,10 @@ def test_enclosing_item_spans_blank_lines(text, keys, id, line):
         ("- FR-1: a\n\n - FR-2: b\n", ["alpha:FR-1", "alpha:FR-2"]),
         ("-   FR-1: a\n\n  - FR-2: b\n", ["alpha:FR-1", "alpha:FR-2"]),
         ("1. Section\n\n  - FR-2: b\n", ["alpha:FR-2"]),
+        # An empty item followed by a blank line encloses nothing.
+        ("-\n\n  - FR-2: b\n", ["alpha:FR-2"]),
+        ("- \n\n  - FR-2: b\n", ["alpha:FR-2"]),
+        ("- FR-1: a\n-\n\n  - FR-2: b\n", ["alpha:FR-1", "alpha:FR-2"]),
     ],
 )
 def test_item_below_the_content_column_is_a_sibling(text, keys):
@@ -387,6 +396,20 @@ def test_comment_in_the_text_hides_a_nested_item():
 def test_comment_in_the_text_is_reported(text, keys, fr1, report):
     s = parse(text)
     assert list(s.requirements) == keys
+    assert s.requirements["alpha:FR-1"].text == fr1
+    assert rows(s) == report
+
+
+@pytest.mark.parametrize(
+    ("text", "fr1", "report"),
+    [
+        ("- FR-1: a\n  - <!-- x\n    y -->\n  more\n", "a - <!-- x more", []),
+        ("- FR-1: a\n  - <!-- x\n- FR-2: b\n", "a - <!-- x", [MC(2, LEAKED)]),
+    ],
+)
+def test_nested_item_start_comment_is_not_reported_inline(text, fr1, report):
+    # The nested item opens a block comment, so the INLINE "hides nothing" report would be false.
+    s = parse(text)
     assert s.requirements["alpha:FR-1"].text == fr1
     assert rows(s) == report
 
@@ -836,6 +859,8 @@ def test_format_doc_states_rules():
         "hides every line after it", "outside fences and comments", "on its own line",
         "a comment line indented less ends the text", "one comment closed on its line",
         "only the first `-->` on a line counts", "not read as an escape",
+        "five or more columns past the marker", "An empty item followed by a blank line encloses nothing",
+        "though a page hides a closed one",
     ]
     assert [w for w in wanted if w not in doc] == []
 
@@ -851,10 +876,12 @@ def test_format_doc_examples_read_clean():
     for body in portfolio:
         s = parse(body, "life", layers={"BR"}, br="life")
         assert s.report == [], body
-    assert parse(project[0], "gantry").requirements != {}
+    (comments,) = [body for body in project if "<!-- was:" in body]
+    main = next(body for body in project if body is not comments)
+    assert parse(main, "gantry").requirements != {}
     assert parse(project[-1], "gantry").requirements == {}
     assert all(parse(body, "life", layers={"BR"}).requirements for body in portfolio)
     # The Comments example: its block comment hides FR-2, and FR-1 joins across its comment line.
-    s = parse(project[0], "gantry")
+    s = parse(comments, "gantry")
     assert list(s.requirements) == ["gantry:FR-1", "gantry:FR-3"]
     assert s.requirements["gantry:FR-1"].text == "The log lists each check of the last thirty nights."

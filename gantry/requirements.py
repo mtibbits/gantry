@@ -184,11 +184,15 @@ def fenced(lines):
 
 
 def _content_column(line, m):
-    """The column an item's text starts at, a tab counting as four; for an
-    empty item, one past its marker."""
-    if m["rest"] is None:
-        return len(line[: m.end("marker")].expandtabs(4)) + 1
-    return len(line[: m.start("rest")].expandtabs(4))
+    """The column an item's text starts at, a tab counting as four. For an
+    empty item, or text five or more columns past the marker (code on the
+    page), it is one past the marker."""
+    after = len(line[: m.end("marker")].expandtabs(4)) + 1
+    rest = m["rest"]
+    if rest is None or not rest.strip():
+        return after
+    start = len(line[: m.start("rest")].expandtabs(4))
+    return after if start - after >= 4 else start
 
 
 class _Layout(NamedTuple):
@@ -196,6 +200,7 @@ class _Layout(NamedTuple):
     skip: list  # bool per line: a comment line a requirement's text joins across
     nested: list  # bool per line: an item inside an enclosing list item
     comment: tuple | None  # (index, message): the comment that hides every line after it
+    fences: list  # (opener, closer) index pairs, paired in document order
 
 
 def _scan(lines):
@@ -203,11 +208,12 @@ def _scan(lines):
     comments pair in document order. docs/requirements-format.md states the
     rules."""
     n = len(lines)
-    hidden, skip, nested = [False] * n, [False] * n, [False] * n
+    hidden, skip, nested, fences = [False] * n, [False] * n, [False] * n, []
     # The content column of the outermost open list item. A block comment (at
     # most 3 columns in) never sits in a nested item (content column at least
     # 4), so this one integer bounds it.
     open_col = None
+    empty = False  # the outermost open item is empty, and no line has followed it yet
     no_closer = {}
     fence_end = -1  # the last line of the open fence
     opener = bound = None  # the open comment's first line, and the column a line must reach
@@ -215,7 +221,7 @@ def _scan(lines):
         if opener is not None:  # inside a comment
             if line.strip() and bound is not None and _width(line) < bound:
                 hidden[i:] = [True] * (n - i)
-                return _Layout(hidden, skip, nested, (opener, LEAKED))
+                return _Layout(hidden, skip, nested, (opener, LEAKED), fences)
             hidden[i] = True
             skip[i] = bound is not None
             if "-->" in line:
@@ -223,14 +229,18 @@ def _scan(lines):
             continue
         if not line.strip():
             hidden[i] = i <= fence_end
+            if empty:  # an item starts with at most one blank line: an empty one ends here
+                open_col, empty = None, False
             continue
         if open_col is not None and _width(line) < open_col:
             open_col = None
+        empty = False
         if i <= fence_end:
             hidden[i] = True
             continue
         j = _closer(lines, i, no_closer)
         if j is not None:
+            fences.append((i, j))
             fence_end = j
             hidden[i] = True
             continue
@@ -246,14 +256,23 @@ def _scan(lines):
             continue
         nested[i] = open_col is not None
         column = _content_column(line, m)
+        rest = m["rest"]
         if open_col is None:
             open_col = column
-        rest = m["rest"]
+            empty = rest is None or not rest.strip()
         # Indented 4 or more outside every item, the line is code on the page, not an item.
         if (rest is not None and rest.startswith("<!--") and _comment_end(rest) == -1
                 and (nested[i] or _width(line) <= 3)):
             opener, bound = i, column
-    return _Layout(hidden, skip, nested, None if opener is None else (opener, UNCLOSED))
+    return _Layout(hidden, skip, nested, None if opener is None else (opener, UNCLOSED), fences)
+
+
+def hidden_lines(lines):
+    """(hidden, fences): which lines a fence or a block HTML comment hides, and
+    the fence (opener, closer) index pairs, both read in document order as the
+    reader reads them. The portfolio file's reader finds its sections with it."""
+    layout = _scan(lines)
+    return layout.hidden, layout.fences
 
 
 def _comment_end(text):
@@ -404,11 +423,14 @@ class _Reader:
     def item(self, index, m, continuation, nested):
         line = self.first_line + index
         has_nested = False
+        openers = set()  # nested items that open a block comment: not an inline one
         for k, text in continuation:
             sub = ITEM_RE.fullmatch(text)
             if sub is not None:
                 has_nested = True
                 self.candidate(self.first_line + k, sub, nested=True)
+                if sub["rest"] is not None and sub["rest"].startswith("<!--") and _comment_end(sub["rest"]) == -1:
+                    openers.add(k)
         rest = m["rest"]
         if rest is not None and rest.startswith("<!--"):
             k = _comment_end(rest)
@@ -430,7 +452,7 @@ class _Reader:
                      f"{rid} is also defined on line {first.line}; the first definition is kept")
             return
         tail = rest[c.end() :]
-        for at, part in chain([(line, tail)], ((self.first_line + k, t) for k, t in continuation)):
+        for at, part in chain([(line, tail)], ((self.first_line + k, t) for k, t in continuation if k not in openers)):
             if _comment_outside_code(part):
                 self.add(at, "malformed_comment", INLINE)
                 break
@@ -593,7 +615,7 @@ def parse_requirements(text, namespace, *, source, first_line=1, layers, br_name
     _check_args(namespace, layers, br_namespace)
     reader = _Reader(namespace, source, first_line, frozenset(layers), br_namespace)
     lines = split_lines(text)
-    hidden, skip, nested, comment = _scan(lines)
+    hidden, skip, nested, comment, _ = _scan(lines)
     if comment is not None:
         reader.add(first_line + comment[0], "malformed_comment", comment[1])
     i = 0

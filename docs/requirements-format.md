@@ -131,9 +131,12 @@ the joined text (`... - sub point`) and never opens an item of its own.
 
 A list item is nested too when it is indented to at least the **content
 column** of an **enclosing list item**. The content column is where an
-item's text starts: 2 for `- a`, 4 for `-   a`, 3 for `1. a`. An
-enclosing list item is an earlier list item with only blank lines, or
-lines indented to at least its content column, in between. Fenced and
+item's text starts: 2 for `- a`, 4 for `-   a`, 3 for `1. a`. For an
+empty item, or one whose text starts five or more columns past the marker
+(code on a rendered page), it is one past the marker. An empty item followed
+by a blank line encloses nothing. An enclosing list item is an earlier list
+item with only blank lines, or lines indented to at least its content
+column, in between. Fenced and
 commented lines count by their indent too. A blank line does not end the
 enclosing item, so FR-2 and FR-3 here are both nested, as a Markdown
 renderer shows them:
@@ -175,10 +178,11 @@ page:
   comment's `-->`; the reader does not. A list item whose text starts
   with `<!--` opens such a comment too.
 - Any other `<!--` hides nothing. In a requirement's text, outside a code
-  span, it stays in the text and is reported `malformed_comment`: put the
-  comment on its own line. A list item whose text starts with one comment
-  closed on its line and then an ID (`- <!-- x --> FR-1: y`) is not read,
-  and is reported `malformed_comment`.
+  span, it stays in the text, though a page hides a closed one, and is
+  reported `malformed_comment`: put the comment on its own line. A list
+  item whose text starts with one comment closed on its line and then an ID
+  (`- <!-- x --> FR-1: y`) is not read, and is reported
+  `malformed_comment`.
 - The reader simplifies two things a renderer does: only the first `-->` on
   a line counts, so text after it, even a new `<!--`, is hidden with the
   comment; and a backslash before `<!--` is not read as an escape.

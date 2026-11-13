@@ -27,7 +27,7 @@ from datetime import date, datetime
 
 from gantry import requirements
 from gantry.config import ID_TOKEN_RE, describe, error_reason
-from gantry.requirements import (FENCE_RE, RequirementSet, fence_spans, fenced, parse_id, parse_requirements,
+from gantry.requirements import (FENCE_RE, RequirementSet, hidden_lines, parse_id, parse_requirements,
                                  read_utf8, split_lines)
 from gantry.roots import OutsideRoots, stat_confined
 from gantry.sites import shown
@@ -449,8 +449,8 @@ def read_portfolio_file(roots, path, *, br_namespace) -> Portfolio:
 
 def _sections(lines, report):
     """{heading text: (heading index, end index)} for the first level-2 BR and
-    Settings headings outside fences; a second one is reported."""
-    hidden = fenced(lines)
+    Settings headings outside fences and comments; a second one is reported."""
+    hidden, _ = hidden_lines(lines)
     headings = []
     for i, line in enumerate(lines):
         if not hidden[i]:
@@ -490,8 +490,8 @@ def _settings_block(lines, found, report):
     blocks = []
     if SETTINGS_HEADING in found:
         start, end = found[SETTINGS_HEADING]
-        blocks = [(i, j) for i, j in fence_spans(lines[:end])
-                  if i > start and FENCE_RE.fullmatch(lines[i])["info"].strip() == "toml"]
+        blocks = [(i, j) for i, j in hidden_lines(lines)[1]
+                  if start < i and j < end and FENCE_RE.fullmatch(lines[i])["info"].strip() == "toml"]
     if not blocks:
         report.add("no_settings", SECTIONS[1], None, None,
                    "no ```toml block under a '## Settings' heading (level 2, outside a fence); "

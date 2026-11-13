@@ -72,12 +72,16 @@ as prose, so the operator can keep notes in it:
 A heading is an ATX heading at the start of a line: one to six `#`, then a
 space or tab, then its text, with no closing `#`s. Trailing spaces and tabs
 are ignored, and the text is matched exactly, so the two headings are level 2
-and spelled as above. A line inside a fence is never a heading, so a TOML comment such as
-`## Note` inside the settings block, or a fenced example holding
-`## Example` in the business-requirements section, does not count. Fences
+and spelled as above. A line inside a fence or an HTML comment is never a
+heading, so a TOML comment such as `## Note` inside the settings block, a
+fenced example holding `## Example` in the business-requirements section, or
+a commented-out section does not count, and a fence inside a comment is not
+the settings block. Fences
 pair by the requirements format's rule: a fence opened with three or more
 backticks or tildes closes at a line of at least as many of the same
 character with nothing after it, and an opener with no closer is plain text.
+Fences and block comments are read in one pass from the top, by the
+[requirements format's Comments rules](requirements-format.md#comments).
 
 A second `## Business requirements` or `## Settings` heading, or a second
 `toml` block under `## Settings`, is reported (`duplicate_section`) and
