@@ -206,10 +206,92 @@ def test_text_stops_at_blank_and_shallower():
     assert texts == ["a", "c", "e", "g h"]
 
 
-def test_indented_item_after_blank_opens_an_item():
+def NN(id, n):
+    """The report row of a nested ID-shaped item on line n."""
+    return (n, "malformed_item", f"'{id}:' is not a requirement: requirements are not nested")
+
+
+def rows(s):
+    return [(e.line, e.kind, e.message) for e in s.report]
+
+
+def test_indented_item_after_blank_is_nested():
     s = parse("- FR-1: a\n\n  - FR-3: e\n")
-    assert list(s.requirements) == ["alpha:FR-1", "alpha:FR-3"]
-    assert s.report == []
+    assert list(s.requirements) == ["alpha:FR-1"]
+    assert rows(s) == [NN("FR-3", 3)]
+    assert s.requirements["alpha:FR-1"].text == "a"
+
+
+def test_second_indented_sibling_after_blank_is_nested():
+    s = parse("- FR-1: a\n\n  - FR-2: b\n\n  - FR-3: c\n")
+    assert list(s.requirements) == ["alpha:FR-1"]
+    assert rows(s) == [NN("FR-2", 3), NN("FR-3", 5)]
+
+
+@pytest.mark.parametrize(
+    ("text", "keys", "id", "line"),
+    [
+        ("- FR-1: a\n\n  more\n\n  - FR-2: b\n", ["alpha:FR-1"], "FR-2", 5),
+        ("- FR-1: a\n\n  ```text\n  x\n  ```\n\n  - FR-2: b\n", ["alpha:FR-1"], "FR-2", 7),
+        ("- FR-1: a\n\n\t- FR-2: b\n", ["alpha:FR-1"], "FR-2", 3),
+        ("- FR-1: a\n\n  <!-- x -->\n\n  - FR-2: b\n", ["alpha:FR-1"], "FR-2", 5),
+        ("- Functional requirements\n\n  - FR-1: x\n", [], "FR-1", 3),
+        ("-   FR-1: a\n\n    - FR-2: b\n", ["alpha:FR-1"], "FR-2", 3),
+        # Text five or more columns past the marker is code: the content column is one past the marker.
+        ("-     x\n\n  - FR-2: b\n", [], "FR-2", 3),
+        # An empty item followed by a line of its own text stays open.
+        ("-\n  - FR-2: b\n", [], "FR-2", 2),
+        ("-\n  text\n\n  - FR-2: b\n", [], "FR-2", 4),
+        # A thematic break inside the item does not end it.
+        ("- FR-1: a\n\n  * * *\n\n  - FR-2: b\n", ["alpha:FR-1"], "FR-2", 5),
+        # A list surely starts after a heading, after an HTML block's blank line, or after a list.
+        ("# H\n- a\n\n  - FR-1: x\n", [], "FR-1", 4),
+        ("<div>\n\n- a\n\n  - FR-1: x\n", [], "FR-1", 5),
+        ("- a\n- b\n\n  - FR-1: x\n", [], "FR-1", 4),
+    ],
+)
+def test_enclosing_item_spans_blank_lines(text, keys, id, line):
+    s = parse(text)
+    assert list(s.requirements) == keys
+    assert rows(s) == [NN(id, line)]
+
+
+@pytest.mark.parametrize(
+    ("text", "keys"),
+    [
+        ("- FR-1: a\n\nProse.\n\n  - FR-2: b\n", ["alpha:FR-1", "alpha:FR-2"]),
+        ("- FR-1: a\n\n## B\n\n  - FR-2: b\n", ["alpha:FR-1", "alpha:FR-2"]),
+        ("- FR-1: a\n\n```text\nx\n```\n\n  - FR-2: b\n", ["alpha:FR-1", "alpha:FR-2"]),
+        ("- FR-1: a\n\n<!-- x -->\n\n  - FR-2: b\n", ["alpha:FR-1", "alpha:FR-2"]),
+        ("- FR-1: a\n\n - FR-2: b\n", ["alpha:FR-1", "alpha:FR-2"]),
+        ("-   FR-1: a\n\n  - FR-2: b\n", ["alpha:FR-1", "alpha:FR-2"]),
+        ("1. Section\n\n  - FR-2: b\n", ["alpha:FR-2"]),
+        # An empty item followed by a blank line encloses nothing.
+        ("-\n\n  - FR-2: b\n", ["alpha:FR-2"]),
+        ("- \n\n  - FR-2: b\n", ["alpha:FR-2"]),
+        ("- FR-1: a\n-\n\n  - FR-2: b\n", ["alpha:FR-1", "alpha:FR-2"]),
+        # A thematic break is not a list item: it encloses nothing.
+        ("* * *\n\n  - FR-1: a\n", ["alpha:FR-1"]),
+        ("- - -\n\n  - FR-1: a\n", ["alpha:FR-1"]),
+        ("* * *\n\n   - FR-1: a\n", ["alpha:FR-1"]),
+        ("- FR-1: a\n\n* * *\n\n  - FR-2: b\n", ["alpha:FR-1", "alpha:FR-2"]),
+        ("- Notes\n- - -\n\n  - FR-1: a\n", ["alpha:FR-1"]),
+        # Only a line that surely starts a list encloses: not one that continues a paragraph, and
+        # not one inside an HTML block. A page nests the last leg; the reader reads it as written.
+        ("Para\n2. x\n\n   - FR-1: a\n", ["alpha:FR-1"]),
+        ("Text with a hard-wrapped\n3. third point\n\n   - FR-1: a\n", ["alpha:FR-1"]),
+        ("Para\n3) x\n\n   - FR-1: a\n", ["alpha:FR-1"]),
+        ("Para\n*\n  more\n\n  - FR-1: a\n", ["alpha:FR-1"]),
+        ("Para\n-\n  more\n\n  - FR-1: a\n", ["alpha:FR-1"]),
+        ("<details>\n- Notes\n\n  - FR-1: a\n", ["alpha:FR-1"]),
+        ("- FR-1: a\nlazy\n2. x\n\n   - FR-2: b\n", ["alpha:FR-1", "alpha:FR-2"]),
+        ("Para\n- x\n\n  - FR-1: a\n", ["alpha:FR-1"]),
+    ],
+)
+def test_item_below_the_content_column_is_a_sibling(text, keys):
+    s = parse(text)
+    assert list(s.requirements) == keys
+    assert rows(s) == []
 
 
 def test_item_under_a_prose_bullet_is_nested():
@@ -255,6 +337,291 @@ def test_fence_spans():
     # A four-backtick fence holding a three-backtick line is one span.
     assert req.fence_spans(["````", "```", "x", "```", "````"]) == [(0, 4)]
 
+
+# --- HTML comments ----------------------------------------------------------------
+
+UNCLOSED = "an HTML comment with no closing '-->' hides every line after it"
+LEAKED = "an HTML comment whose list item ends before its '-->' hides every line after it"
+INLINE = "an HTML comment inside the text; it stays in the text and hides nothing: put it on its own line"
+BEFORE_ID = "an HTML comment before the ID; the item is not read: put the comment on its own line"
+START = ("an HTML comment that starts a list item and does not close on its line; "
+         "it hides nothing: put the comment on its own line")
+
+
+def MC(n, message):
+    """The report row of a malformed comment on line n."""
+    return (n, "malformed_comment", message)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "- FR-1: a\n<!--\n- FR-2: b\n-->\n- FR-3: c\n",
+        "- FR-1: a\n<!--\n- FR-2: b -->\n- FR-3: c\n",
+        "- FR-1: a\n<!--\n- FR12: typo\n-->\n- FR-3: c\n",
+        "- FR-1: a\n <!--\n- FR-2: b\n-->\n- FR-3: c\n",
+    ],
+)
+def test_block_comment_hides_items(text):
+    s = parse(text)
+    assert list(s.requirements) == ["alpha:FR-1", "alpha:FR-3"]
+    assert rows(s) == []
+
+
+@pytest.mark.parametrize("sp", [" ", "  ", "   "])
+def test_comment_opener_indented_up_to_three_spaces(sp):
+    s = parse(f"{sp}<!--\n- FR-2: b\n-->\n- FR-3: c\n")
+    assert list(s.requirements) == ["alpha:FR-3"]
+    assert rows(s) == []
+
+
+@pytest.mark.parametrize("opener", ["    <!--", "\t<!--"])
+def test_comment_opener_indented_four_is_not_a_block(opener):
+    s = parse(opener + "\n- FR-2: b\n-->\n")
+    assert list(s.requirements) == ["alpha:FR-2"]
+    assert rows(s) == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "- FR-1: The page\n  <!-- note -->\n  lists checks.\n",
+        "- FR-1: The page\n  <!--\n  note\n  -->\n  lists checks.\n",
+        "- FR-1: The page\n  <!--\n\n  -->\n  lists checks.\n",
+    ],
+)
+def test_comment_line_in_the_text_is_skipped(text):
+    s = parse(text)
+    assert list(s.requirements) == ["alpha:FR-1"]
+    assert rows(s) == []
+    assert s.requirements["alpha:FR-1"].text == "The page lists checks."
+
+
+@pytest.mark.parametrize(
+    ("text", "keys", "report"),
+    [
+        # An item after paragraph text encloses nothing, but its comment lines still join its text.
+        ("Para\n- FR-1: a\n  <!-- c -->\n  - FR-2: a\n", ["alpha:FR-1"], [NN("FR-2", 4)]),
+        # Inside an HTML block a `<!--` line is raw content, not a block comment.
+        ("<details>\n<!--\n- x\n  <!-- c -->\n  - FR-1: a\n", [], [NN("FR-1", 5)]),
+    ],
+)
+def test_items_that_do_not_enclose_still_hold_their_text(text, keys, report):
+    s = parse(text)
+    assert list(s.requirements) == keys
+    assert rows(s) == report
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # A line that encloses nothing bounds no comment: the page closes the comment at its -->.
+        "Para\n2. x\n   <!-- c\n-->\n- FR-1: a\n",
+        "Para\n-\n  <!--\n-->\n- FR-1: a\n",
+        "<details>\n- x\n\n  <!-- c\n-->\n- FR-1: a\n",
+        "-->\n-\n  <!--\n-->\n- FR-1: a\n",
+        "Para\n*\n  <!--\n-->\n- FR-1: a\n",
+        "-->\n-\n  <!--\n-->\n  - FR-1: a\n",
+    ],
+)
+def test_comment_under_a_line_that_encloses_nothing_does_not_leak(text):
+    s = parse(text)
+    assert list(s.requirements) == ["alpha:FR-1"]
+    assert rows(s) == []
+
+
+@pytest.mark.parametrize(
+    ("text", "keys", "fr1"),
+    [
+        # After an unclosed fence opener inside an item, a <!-- line is text (a page shows code).
+        ("- FR-1: a\n  ```\n  <!--\n- FR-2: a\n", ["alpha:FR-1", "alpha:FR-2"], "a ``` <!--"),
+        ("- x\n  ```\n  <!--\n-->\n- FR-1: a\n", ["alpha:FR-1"], "a"),
+    ],
+)
+def test_comment_after_an_unclosed_fence_in_an_item_is_text(text, keys, fr1):
+    s = parse(text)
+    assert list(s.requirements) == keys
+    assert s.requirements["alpha:FR-1"].text == fr1
+    assert rows(s) == []
+
+
+@pytest.mark.parametrize(
+    ("text", "keys"),
+    [
+        # A fence a page may pair differently (indented 4+ past its container, or a closer
+        # outdented below its item): a <!-- after it is text, as HEAD read it.
+        ("```\n    ```\n<!--\n```\n- FR-1: a\n- FR-2: a\n<!-- note -->\n- FR-3: a\n",
+         ["alpha:FR-1", "alpha:FR-2", "alpha:FR-3"]),
+        ("- x\n  ```\n```\n<!--\n```\n- FR-1: a\n<!-- note -->\n- FR-2: a\n", ["alpha:FR-1", "alpha:FR-2"]),
+        ("```\n    ```\n<!--\n```\n- FR-1: a\n", ["alpha:FR-1"]),
+        # After such a fence no item encloses either; an opener 4+ columns in is not a fence at all.
+        ("```\n    ```\n- x\n  ```\n\n  - FR-1: a\n", ["alpha:FR-1"]),
+        ("<!--\n```\n-->\n    ```\n- FR-1: a\n```\n", ["alpha:FR-1"]),
+        # A fence whose list item ends inside it, or one opened right after a line that may lazily
+        # continue an item, is doubtful too; a doubtful fence hides only what HEAD's pairing hid.
+        ("- FR-1: The installer runs:\n  ```sh\nmake install\n  ```\n<!-- old steps\n```\n"
+         "- FR-2: The log lists each check.\n-->\n- FR-3: The log is plain text.\n",
+         ["alpha:FR-1", "alpha:FR-2", "alpha:FR-3"]),
+        ("<!--\n```\n-->\n- x\n  ```\n- FR-1: a\n  ```\n", ["alpha:FR-1"]),
+        ("- x\n  ```\n- FR-1: a\n  ```\n  <!--\n- FR-2: a\n", ["alpha:FR-2"]),
+        ("- FR-1: a\nPara\n  ```\n```\n<!--\n```\n- FR-2: a\n", ["alpha:FR-1", "alpha:FR-2"]),
+        # After a blank line inside a comment, only a line at the content column joins the text.
+        ("1. Step one\n   <!--\n\n   -->\n  - FR-1: a\n", ["alpha:FR-1"]),
+        ("- FR-1: a\n  <!--\n\n  -->\n - FR-2: b\n", ["alpha:FR-1", "alpha:FR-2"]),
+    ],
+)
+def test_reader_falls_back_to_head_where_the_page_is_in_doubt(text, keys):
+    s = parse(text)
+    assert list(s.requirements) == keys
+    assert rows(s) == []
+
+
+def test_comment_after_a_lazy_line_is_not_skipped():
+    # A stated simplification (no lazy continuation): the page nests FR-2 under FR-1; the reader
+    # ends FR-1 at the lazy line, so the comment after it is not skipped and FR-2 is read.
+    s = parse("- FR-1: a\n x\n  <!--\n  -->\n  - FR-2: a\n")
+    assert list(s.requirements) == ["alpha:FR-1", "alpha:FR-2"]
+    assert rows(s) == []
+
+
+def test_comment_under_an_item_that_encloses_nothing_runs_on():
+    # A stated simplification: the page nests FR-1 under x; the reader reads it as written.
+    s = parse("Para\n- x\n  <!-- c\n- <!-- c -->\n  - FR-1: a\n")
+    assert list(s.requirements) == ["alpha:FR-1"]
+    assert rows(s) == []
+
+
+def test_comment_in_the_text_hides_a_nested_item():
+    s = parse("- FR-1: a\n  <!--\n  - FR-2: x\n  -->\n")
+    assert list(s.requirements) == ["alpha:FR-1"]
+    assert rows(s) == []
+    assert s.requirements["alpha:FR-1"].text == "a"
+
+
+@pytest.mark.parametrize(
+    ("text", "keys", "fr1", "report"),
+    [
+        ("- FR-1: a <!-- x --> b\n", ["alpha:FR-1"], "a <!-- x --> b", [MC(1, INLINE)]),
+        ("- FR-1: a\n  b <!-- x -->\n", ["alpha:FR-1"], "a b <!-- x -->", [MC(2, INLINE)]),
+        ("- FR-1: a <!-- x\n  - FR-2: y -->\n", ["alpha:FR-1"], "a <!-- x - FR-2: y -->",
+         [MC(1, INLINE), NN("FR-2", 2)]),
+        ("- FR-1: <!--> b\n", ["alpha:FR-1"], "<!--> b", [MC(1, INLINE)]),
+        ("- FR-1: a <!-- b\n- FR-2: c -->\n", ["alpha:FR-1", "alpha:FR-2"], "a <!-- b", [MC(1, INLINE)]),
+        ("- FR-1: a \\<!-- x --> b\n", ["alpha:FR-1"], "a \\<!-- x --> b", [MC(1, INLINE)]),
+        ("-   FR-1: a\n    <!-- x -->\n", ["alpha:FR-1"], "a <!-- x -->", [MC(2, INLINE)]),
+    ],
+)
+def test_comment_in_the_text_is_reported(text, keys, fr1, report):
+    s = parse(text)
+    assert list(s.requirements) == keys
+    assert s.requirements["alpha:FR-1"].text == fr1
+    assert rows(s) == report
+
+
+@pytest.mark.parametrize(
+    ("text", "fr1", "report"),
+    [
+        ("- FR-1: a\n  - <!-- x\n    y -->\n  more\n", "a - <!-- x y --> more", [MC(2, START)]),
+        ("- FR-1: a\n  - <!-- x\n- FR-2: b\n", "a - <!-- x", [MC(2, START)]),
+    ],
+)
+def test_nested_item_start_comment_is_reported_once(text, fr1, report):
+    # One report per line: START, not START and INLINE.
+    s = parse(text)
+    assert s.requirements["alpha:FR-1"].text == fr1
+    assert rows(s) == report
+
+
+def test_comment_in_a_code_span_is_not_reported():
+    s = parse("- FR-1: escapes `<!--` and `-->` here\n")
+    assert s.requirements["alpha:FR-1"].text == "escapes `<!--` and `-->` here"
+    assert rows(s) == []
+
+
+def test_comment_after_the_meta_block_is_reported():
+    s = parse("- FR-1: a {refines: SR-1} <!-- note -->\n- SR-1: s\n")
+    fr1 = s.requirements["alpha:FR-1"]
+    assert fr1.text == "a {refines: SR-1} <!-- note -->"
+    assert fr1.refines is None
+    assert rows(s) == [(1, "malformed_meta", "a meta block inside the text; it stays in the text and is not read"),
+                       MC(1, INLINE)]
+
+
+@pytest.mark.parametrize(
+    ("text", "keys", "report"),
+    [
+        ("- <!-- x --> FR-1: y\n", [], [MC(1, BEFORE_ID)]),
+        ("- <!-- x --> prose\n", [], []),
+        # An item whose text opens a comment that does not close on its line hides nothing (OQ-F1, report-only).
+        ("- <!-- x\n- FR-2: y\n", ["alpha:FR-2"], [MC(1, START)]),
+        ("- <!-- x\n  y -->\n- FR-2: y\n", ["alpha:FR-2"], [MC(1, START)]),
+        ("- Notes\n  - <!-- x\n  - more\n    -->\n- FR-3: c\n", ["alpha:FR-3"], [MC(2, START)]),
+        # A line a page shows as code is not reported: indented 4 with no enclosing item, or text
+        # five or more columns past the marker. Deep nesting inside an item is still reported.
+        ("Para\n\n    - <!-- x\n- FR-1: a\n", ["alpha:FR-1"], []),
+        ("-     <!-- x\n- FR-1: a\n", ["alpha:FR-1"], []),
+        ("1.     <!-- x\n- FR-1: a\n", ["alpha:FR-1"], []),
+        ("- a\n\n      - <!-- x\n- FR-1: b\n", ["alpha:FR-1"], [MC(3, START)]),
+        ("- FR-1: a\n\n      - <!-- x\n\n- FR-2: b\n", ["alpha:FR-1", "alpha:FR-2"], [MC(3, START)]),
+        ("- FR-1: a\n      - <!-- x\n- FR-2: b\n", ["alpha:FR-1", "alpha:FR-2"], [MC(2, START)]),
+        ("- FR-1: a\n  -     <!-- x\n- FR-2: b\n", ["alpha:FR-1", "alpha:FR-2"], []),
+        # Paragraph text on a page, not a list item: not reported.
+        ("Para\n2. <!-- x\n\n- FR-1: a\n", ["alpha:FR-1"], []),
+    ],
+)
+def test_comment_at_the_start_of_an_item(text, keys, report):
+    s = parse(text)
+    assert list(s.requirements) == keys
+    assert rows(s) == report
+
+
+@pytest.mark.parametrize(
+    ("text", "keys", "report"),
+    [
+        ("- FR-1: a\n<!--\n- FR-2: b\n", ["alpha:FR-1"], [MC(2, UNCLOSED)]),
+        ("- FR-1: a\n  <!-- note\n  more\n", ["alpha:FR-1"], [MC(2, UNCLOSED)]),
+        ("- FR-1: a\n  <!-- note\n- FR-2: b\n  -->\n- FR-3: c\n", ["alpha:FR-1"], [MC(2, LEAKED)]),
+        ("- FR-1: a\n  <!-- note\n- FR-2: b\n-->\n- FR-3: c\n", ["alpha:FR-1"], [MC(2, LEAKED)]),
+        ("<!--\n- FR12: typo\n", [], [MC(1, UNCLOSED)]),
+    ],
+)
+def test_unclosed_comment_hides_every_line_after_it(text, keys, report):
+    s = parse(text)
+    assert list(s.requirements) == keys
+    assert rows(s) == report
+    if keys:
+        assert s.requirements["alpha:FR-1"].text == "a"
+
+
+@pytest.mark.parametrize(
+    ("text", "keys"),
+    [
+        ("<!--\n```\n-->\n- FR-1: a\n```\n- FR-2: b\n", ["alpha:FR-1", "alpha:FR-2"]),
+        ("<!--\n```\n-->\n- FR-1: a\n```\n- FR-2: b\n```\n", ["alpha:FR-1"]),
+        ("```\n<!--\n```\n- FR-1: a\n", ["alpha:FR-1"]),
+    ],
+)
+def test_fences_and_comments_pair_in_document_order(text, keys):
+    s = parse(text)
+    assert list(s.requirements) == keys
+    assert rows(s) == []
+
+
+def test_hostile_comment_files_are_fast():
+    texts = [
+        "<!-- x -->\n" * 50_000,
+        "- a\n  <!--\n" * 25_000,
+        "- FR-1: a <!--\n" + "  b\n" * 50_000,
+        "<!--\n" * 50_000,
+        "<!--\n```\n-->\n" * 20_000,
+        "- a\n\n" + "  - FR-1: x\n\n" * 25_000,
+    ]
+    start = time.perf_counter()
+    for text in texts:
+        parse(text)
+    assert time.perf_counter() - start < 2
+
+
 HOSTILE = [
     "- " + "a" * 100_000,
     "- " + "a-" * 50_000,
@@ -265,6 +632,10 @@ HOSTILE = [
     " " * 100_000 + "x",
     "- FR-1: x " + "{a:" * 33_000,
     "- FR-1: x " + "{a: b} " * 14_000,
+    "- FR-1: x " + "<!-- a " * 14_000,
+    "- FR-1: x " + "<!-- a --> " * 9_000,
+    "<!--" * 25_000,
+    "- FR-1: x " + "`` ` " * 20_000 + "<!--",
 ]
 
 
@@ -613,7 +984,18 @@ def test_format_doc_states_rules():
         cfg.ID_TOKEN_RE.pattern, "`life`", "UTF-8", "byte-order mark", "renumbered", "reused",
         "Step-1:", "Q3:", "v2:", "R1:", "refines:", "needs:", "in the trace", "br_namespace", "fenced",
         MIXED_NS, MIXED_NS.lower(), "9 digits", "requirements are not nested", "mtibbits/devagent#888",
-        "withdrawn", "reword",
+        "withdrawn", "reword", "enclosing list item", "content column", "three spaces", "joins across it",
+        "hides every line after it", "outside fences and comments", "on its own line",
+        "a comment line indented less ends the text", "one comment closed on its line",
+        "only the first `-->` on a line counts", "not read as an escape",
+        "five or more columns past the marker", "An empty item followed by a blank line encloses nothing",
+        "though a page hides a closed one", "starts with a `<!--` that does not close on its line",
+        "inside a block quote", "is still read as an item", "A thematic break",
+        "unless a page shows the line as code", "surely starts a list", "is that block's content",
+        "after an unclosed fence", "four or more spaces outside every item",
+        "a page may pair it differently", "runs on past a later item line",
+        "is not a fence", "and no item encloses", "whose list item ends inside it",
+        "may lazily continue an item", "a comment after such a line is not skipped",
     ]
     assert [w for w in wanted if w not in doc] == []
 
@@ -629,6 +1011,12 @@ def test_format_doc_examples_read_clean():
     for body in portfolio:
         s = parse(body, "life", layers={"BR"}, br="life")
         assert s.report == [], body
-    assert parse(project[0], "gantry").requirements != {}
+    (comments,) = [body for body in project if "<!-- was:" in body]
+    main = next(body for body in project if body is not comments)
+    assert parse(main, "gantry").requirements != {}
     assert parse(project[-1], "gantry").requirements == {}
     assert all(parse(body, "life", layers={"BR"}).requirements for body in portfolio)
+    # The Comments example: its block comment hides FR-2, and FR-1 joins across its comment line.
+    s = parse(comments, "gantry")
+    assert list(s.requirements) == ["gantry:FR-1", "gantry:FR-3"]
+    assert s.requirements["gantry:FR-1"].text == "The log lists each check of the last thirty nights."

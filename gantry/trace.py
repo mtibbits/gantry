@@ -55,7 +55,8 @@ LEAF_SOURCE = "WBS.md"
 TRACE_KINDS = ("malformed_satisfies", "unbracketed_list", "undefined_cross_link", "undefined_id")
 FIELDS = {  # TraceReport entry field -> the kinds it holds
     "unreadable": ("unreadable",),
-    "malformed": ("malformed_item", "malformed_meta", "malformed_link", "malformed_satisfies", "unbracketed_list"),
+    "malformed": ("malformed_item", "malformed_meta", "malformed_link", "malformed_comment", "malformed_satisfies",
+                  "unbracketed_list"),
     "duplicate": ("duplicate_id",),
     "misplaced": ("misplaced",),
     "cycle": ("refines_cycle",),
@@ -77,7 +78,7 @@ WHY = {  # why an ID names no requirement: the {why} of undefined_id and undefin
     "no_portfolio": "portfolio_file is not set, so no business requirement is defined",
     "unreadable": "the requirements file of namespace {ns!r} could not be read",
     "portfolio_unreadable": "the portfolio file could not be read",
-    "no_br_section": "the portfolio file has no '## Business requirements' section",
+    "no_br_section": "the portfolio file has no '## Business requirements' section outside a fence or comment",
     "not_in_file": "the requirements file of namespace {ns!r} defines no {rid}",
     "not_in_portfolio": "the portfolio file defines no {rid}",
 }

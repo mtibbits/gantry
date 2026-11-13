@@ -82,7 +82,20 @@ Lines inside fenced code blocks are ignored too, so a file can show
 examples. A fence opened by three or more backticks or tildes is closed by
 the first later line of the same character, at least as long, with nothing
 after it. A backtick opener whose info string holds a backtick is not an
-opener. An opener with no closer is ordinary text and hides nothing.
+opener. An opener with no closer is ordinary text and hides nothing. Inside
+a list item, the lines after an unclosed fence opener, up to the item's end,
+are a page's code, so a `<!--` among them is text, not a block comment: the
+reader keeps what it read before, after an unclosed fence. The same holds
+after a fence whose opener or closer is indented four or more columns past
+its list item (or the line start), or whose closer is outdented below its
+list item, or a fence whose list item ends inside it, or one opened right
+after a line that may lazily continue an item, because a page may pair it
+differently: from there on, no line is a block comment and no item encloses,
+and such a fence hides only the lines that fence pairing alone would. A fence marker hidden inside a block
+comment does the same, and after it a fence opener indented four or more
+columns past its list item (or the line start) is not a fence at all: a page
+shows it as code or text.
+Lines inside an HTML comment are hidden too; see [Comments](#comments).
 
 ### Candidates
 
@@ -106,27 +119,121 @@ reason that applies:
 1. FR-3: an ordered list item
 ```
 
-So a typo of the shape letters, an optional `-`, digits, then a colon is never
-silently lost. A typo outside that shape, such as `FR_1:` or `FR.1:`, is
-prose and is not reported. The rule also catches prose
-bullets that begin like an ID, such as `Step-1:`, `Q3:` and `v2:`, and
-finding labels such as `R1:`, `N2:` and `B1:`. They are reported malformed:
-reword them (`Step 1:`, `In Q3,`) so that they no longer start like an ID.
+So, outside fences and comments, a typo of the shape letters, an optional
+`-`, digits, then a colon is never silently lost. A typo outside that shape,
+such as `FR_1:` or `FR.1:`, is prose and is not reported. The rule also
+catches prose bullets that begin like an ID, such as `Step-1:`, `Q3:` and
+`v2:`, and finding labels such as `R1:`, `N2:` and `B1:`. They are reported
+malformed: reword them (`Step 1:`, `In Q3,`) so that they no longer start like an ID.
 
 ### Text
 
 A requirement's text runs from its first line through each following line
 indented deeper than its list marker. It stops at a blank line (empty, or
 spaces only), at a fenced line, or at a line indented no deeper than the
-marker; a tab counts as four spaces. The lines are joined with single
-spaces after their leading whitespace is removed. A requirement with no text
+marker; a tab counts as four spaces. A comment line indented to at least
+the item's content column (see below) is skipped: the text joins across it
+(see [Comments](#comments)); a comment line indented less ends the text.
+The lines are joined with single spaces after their leading whitespace is
+removed. A requirement with no text
 (`- FR-6:`) is read with empty text.
 
 A list item inside that text is a **nested** item. It keeps its marker in
-the joined text (`... - sub point`) and never opens an item of its own. A
-nested item that starts like an ID is reported "requirements are not
-nested", and its line still joins the parent's text. That holds under a
-prose bullet too: write every requirement as a top-level list item.
+the joined text (`... - sub point`) and never opens an item of its own.
+
+A list item is nested too when it is indented to at least the **content
+column** of an **enclosing list item**. The content column is where an
+item's text starts: 2 for `- a`, 4 for `-   a`, 3 for `1. a`. For an
+empty item, or one whose text starts five or more columns past the marker
+(code on a rendered page), it is one past the marker. An empty item followed
+by a blank line encloses nothing. A thematic break (`* * *`, `- - -`) is not
+a list item, so it encloses nothing either. A list item encloses only when
+it surely starts a list: at the top of the file, or after a blank line, a
+heading, a thematic break, a fence, a comment or another list item. A
+list-shaped line right after paragraph text outside every list item (`2. x`
+wrapped from a sentence, or a setext `-`), or inside an HTML block (from a
+line starting with `<` and a tag name up to the next blank line), encloses
+nothing, though a page does nest an item after some of them (`Para` / `- x`). An enclosing list item is an earlier list
+item with only blank lines, or lines indented to at least its content
+column, in between. Fenced and
+commented lines count by their indent too. A blank line does not end the
+enclosing item, so FR-2 and FR-3 here are both nested, as a Markdown
+renderer shows them:
+
+```text
+- FR-1: a
+
+  - FR-2: b
+
+  - FR-3: c
+```
+
+A nested item that starts like an ID is reported "requirements are not
+nested" and is not read. If it is inside the parent's text, its line
+still joins that text. That holds under a prose bullet too: write every
+requirement as a top-level list item. An item indented less than the
+content column (` - FR-2:` under `- FR-1:`) is a sibling. An item under a
+paragraph or a heading is not nested. A line indented less than the
+content column always ends the enclosing item, because the reader does
+not follow lazy continuation lines; so a comment after such a line is not
+skipped, and a nested item after it may be read, though a page nests it.
+
+### Comments
+
+A **block comment** is a line, outside a fence, that starts with `<!--`
+after at most three spaces, counted from the line start. Inside an HTML
+block (from a line starting with `<` and a tag name up to the next blank
+line), such a line is that block's content, not a block comment. Fences and
+comments are read in one pass from the top: a `<!--` in a fence is code,
+and a fence marker inside a comment is hidden with it. As on a rendered
+page:
+
+- A block comment hides whole lines, from its first line through the
+  first line holding `-->`. A requirement in it is not read, and a
+  candidate in it is not reported.
+- Inside a requirement's text, a block comment indented to at least the
+  item's content column is skipped: the text joins across it. One indented
+  less ends the text.
+- A block comment with no `-->`, or one inside a list item that ends
+  before its `-->`, hides every line after it and is reported
+  `malformed_comment`. A renderer shows lines again after a later
+  comment's `-->`; the reader does not.
+- Any other `<!--` hides nothing. In a requirement's text, outside a code
+  span, it stays in the text, though a page hides a closed one, and is
+  reported `malformed_comment`: put the comment on its own line. A list
+  item whose text starts with one comment closed on its line and then an ID
+  (`- <!-- x --> FR-1: y`) is not read, and is reported
+  `malformed_comment`. A list item whose text starts with a `<!--` that does
+  not close on its line (`- <!-- x`) is reported `malformed_comment`, unless
+  a page shows the line as code (text five or more columns past the marker,
+  or four or more columns in with no list item around it), and the lines
+  after it are read, though a page may hide them up to a `-->`.
+- The reader simplifies four things a renderer does: only the first `-->`
+  on a line counts, so text after it, even a new `<!--`, is hidden with the
+  comment; a backslash before `<!--` is not read as an escape; a comment
+  inside a block quote (`> <!--`) is not a block comment; and a list item
+  whose text starts five or more columns past its marker, which a page shows
+  as code, is still read as an item, as is one nested four or more columns
+  past its enclosing item's text (a `- <!--` there is still reported), and
+  one indented four or more spaces outside every item, which also encloses
+  the items after it. A comment opened under an item that encloses nothing
+  (after paragraph text) runs on past a later item line, so that line's
+  nested items are read as written, though a page nests them.
+
+```markdown
+# Requirements
+
+- FR-1: The log lists each check
+  <!-- was: each night -->
+  of the last thirty nights.
+<!--
+- FR-2: A draft, hidden until it is agreed.
+-->
+- FR-3: The log keeps thirty nights.
+```
+
+FR-1 reads "The log lists each check of the last thirty nights.", and
+FR-2 is not read.
 
 ## Links
 
@@ -205,6 +312,7 @@ line, then in this order:
 | `malformed_item` | a candidate that is not a requirement, with its reasons |
 | `malformed_meta` | a meta block that cannot be read, or a key or value shape it does not allow |
 | `malformed_link` | a link target that is not a requirement ID |
+| `malformed_comment` | an HTML comment the reader does not hide: in a requirement's text (read as written), before an ID (not read), or starting a list item without closing on its line; or a block comment with no `-->`, or whose list item ends first, which hides every line after it |
 | `misplaced` | an item in a layer the file does not hold (it is dropped), `needs:` on an item that is not a use case, or a link into the installation namespace from another namespace |
 | `duplicate_id` | an ID defined twice, naming both lines: the first definition is kept and later ones are dropped |
 | `undefined_link` | a link into the file's own namespace that names no requirement in it |
@@ -284,7 +392,7 @@ another resolve against the catalog. Each site's report has these fields:
 | Field | Holds |
 |---|---|
 | `unreadable` | `unreadable`: the site's configured requirements file could not be read |
-| `malformed` | the reader's `malformed_item`, `malformed_meta` and `malformed_link`, plus `malformed_satisfies` and `unbracketed_list` |
+| `malformed` | the reader's `malformed_item`, `malformed_meta`, `malformed_link` and `malformed_comment`, plus `malformed_satisfies` and `unbracketed_list` |
 | `duplicate` | the reader's `duplicate_id` |
 | `misplaced` | the reader's `misplaced` |
 | `cycle` | `refines_cycle`: the reader's loops within the file, and `refines:` loops that cross files, each reported once, at the member listed first in the catalog |

@@ -13,7 +13,7 @@ IDs are never renumbered or reused. A withdrawn requirement is deleted, and
 its withdrawal is recorded in a prose line in its section.
 
 `tests/test_own_requirements.py` reads this file; keep every requirement a
-top-level `- ID: text` item, and add no HTML comment.
+top-level `- ID: text` item.
 
 The file holds every layer but business requirements. An operator's
 priorities live only in their installation's private portfolio file, and no
