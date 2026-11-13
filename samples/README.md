@@ -77,7 +77,8 @@ quarry.
 
 ### Cross-site entries
 
-quarry, orchard and harbor carry the eleven cross-site `depends_on` cases (#68). On
+quarry, orchard and harbor carry the eleven cross-site `depends_on` cases
+(#68, #62). On
 quarry: `harbor:Issue-7` (open on harbor, and quarry has its own open
 `Issue-7`), `harbor:Issue-3` (finished there: satisfied), `harbor:1.2` (an
 outline position, never an issue id: unresolved) and `quarry:Issue-9` (its own

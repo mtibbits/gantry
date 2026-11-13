@@ -364,7 +364,8 @@ def test_unresolved_local_counts_own_and_row_entries(tmp_path):
     assert record(plan, "a", "Issue-9")["unresolved_local"] == 1  # Issue-98
     counted = {("a", key) for key in ("Issue-7", "Issue-9", "Issue-13", "Issue-14", "Issue-16")}
     others = [entry for entry in plan.leaves if (entry["site"], entry["key"]) not in counted]
-    others += [entry for site in plan.sites for entry in site["unplanned"] if (site["name"], entry["key"]) not in counted]
+    others += [entry for site in plan.sites for entry in site["unplanned"]
+               if (site["name"], entry["key"]) not in counted]
     assert others and all(entry["unresolved_local"] == 0 for entry in others)
 
 
@@ -458,6 +459,14 @@ def test_cross_site_hold_in_a_block_at_rate_above_1(tmp_path):
     assert placed(plan, "a", "Issue-1")["days"] == ["2026-01-20"]
     assert block_keys(plan.days[0]) == ["Issue-1"] and plan.days[0]["blocks"][0]["site"] == "b"
     assert block_keys(plan.days[1]) == ["Issue-1"] and plan.days[1]["blocks"][0]["site"] == "a"
+
+
+def test_cross_site_hold_on_an_earlier_site_in_config_order(tmp_path):
+    # b waits on a, the site placed first each day: still first ready the working day after.
+    plan = plan_of(tmp_path, "states", wbs={"a": wbs_md(leaf(1, est="3h", h=4)),
+                                            "b": wbs_md(leaf(1, est="1h", h=4, depends_on="[a:Issue-1]"))})
+    assert placed(plan, "a", "Issue-1")["days"] == ["2026-01-19"]
+    assert placed(plan, "b", "Issue-1")["days"] == ["2026-01-20"]
 
 
 def test_no_leaf_is_waits_on_other_site(tmp_path):
@@ -1036,7 +1045,8 @@ def test_week_plan_doc_states_planner():
     for topic in ("### Days and capacity", "### What each leaf costs", "### Blocks", "### A ready leaf that fits",
                   "### Order within a site", "### Which site goes next", "### Started in this plan", "### States",
                   "### Dependencies within a site", "### Dependencies across sites",
-                  "### Local entries that name nothing", "### Cycles across sites", "### Unplanned leaves", "### Past the horizon",
+                  "### Local entries that name nothing", "### Cycles across sites", "### Unplanned leaves",
+                  "### Past the horizon",
                   "### The binding pool", "### When there is no plan"):
         assert topic in the_planner, topic
     the_file = " ".join(doc_section(text, "## The plan file").split())

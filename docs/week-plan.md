@@ -291,20 +291,20 @@ after its blocker's last, even when that day has room.
 
 ### Dependencies across sites
 
-A `depends_on` entry naming another site's open leaf holds the leaf until
-that leaf's planned finish: the leaf is first ready on the working day after
-the day its blocker finishes in the plan, as within a site. An entry naming
-a finished leaf is satisfied. An open leaf takes the cross-site entries of
-each open row above it, and an entry naming a row of another site means the
-open leaves under that row: the leaf is first ready on the working day after
-the last of them finishes. A leaf whose cross-site blocker is itself
+A `depends_on` entry naming another site's open leaf holds the leaf until that
+leaf's planned finish: the leaf is first ready on the working day after the
+day its blocker finishes in the plan, as within a site. An entry naming a
+finished leaf is satisfied. An open leaf takes the cross-site entries of each
+open row above it, and an entry naming a row of another site means the open
+leaves under that row: the leaf is first ready on the working day after the
+last of them finishes. A leaf whose cross-site blocker is itself
 `beyond_horizon`, or is placed with `hours_after_horizon` above 0, never
-becomes ready and is `beyond_horizon`; one whose blocker is unplanned for
-any other reason is `waits_on_unplanned`. An entry naming a site not in this installation leaves
-the leaf `waits_on_site_absent`, and one that could not be resolved leaves it
-`waits_on_unresolved`: the plan does not guess at work the build cannot see.
-The planner reads each entry's outcome as the full build recorded it
-([worksite-page.md](worksite-page.md#foreign-entries)) and never
+becomes ready and is `beyond_horizon`; one whose blocker is unplanned for any
+other reason is `waits_on_unplanned`. An entry naming a site not in this
+installation leaves the leaf `waits_on_site_absent`, and one that could not be
+resolved leaves it `waits_on_unresolved`: the plan does not guess at work the
+build cannot see. The planner reads each entry's outcome as the full build
+recorded it ([worksite-page.md](worksite-page.md#foreign-entries)) and never
 resolves an entry again.
 
 ### Local entries that name nothing
