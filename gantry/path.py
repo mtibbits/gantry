@@ -11,6 +11,7 @@ recursion: Python's float sum is compensated and the page script's is not,
 and a WBS can hold chains deeper than the recursion limit.
 """
 
+import heapq
 from dataclasses import dataclass
 
 from gantry import schedule
@@ -60,9 +61,34 @@ def path_set(targets, held, links, scheduled) -> set[str]:
 
 
 def work_order(items) -> list[str]:
-    """The keys of `items` in one-lane work order: schedule.plan(items, 1), by start."""
-    planned = schedule.plan(items, 1)
-    return sorted(planned, key=lambda k: planned[k][0])
+    """The keys of `items` in one-lane work order: schedule.plan(items, 1), by start.
+
+    With one lane every placed item has ended when the lane comes free, so
+    plan's ready set is the items whose preds are all placed, and its pick is
+    schedule.pick_ready's (eff_priority, wbs_index, input position). A heap
+    keyed so gives the same order without plan's scan of every pending item
+    per pick (a test holds the two equal). schedule's own check refuses bad
+    input, so a breach of the path set's closure still raises."""
+    schedule._check(items)
+    waiting = {item["key"]: len(item["preds"]) for item in items}
+    succ = {item["key"]: [] for item in items}
+    for item in items:
+        for pred in item["preds"]:
+            succ[pred].append(item["key"])
+    entry = {item["key"]: (item["eff_priority"], item["wbs_index"], i) for i, item in enumerate(items)}
+    ready = [entry[k] + (k,) for k, n in waiting.items() if n == 0]
+    heapq.heapify(ready)
+    order = []
+    while ready:
+        key = heapq.heappop(ready)[-1]
+        order.append(key)
+        for s in succ[key]:
+            waiting[s] -= 1
+            if waiting[s] == 0:
+                heapq.heappush(ready, entry[s] + (s,))
+    if len(order) < len(items):
+        raise ValueError("plan: no item can start; the waits hold a cycle")
+    return order
 
 
 def _earlier(a, b, rank):

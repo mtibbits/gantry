@@ -250,7 +250,7 @@ def test_every_built_page_carries_trace(tmp_path):
     assert set(result.pages) == READABLE
     for name in sorted(READABLE):
         trace = trace_of(result.pages[name])
-        # Exactly these five keys: #77 and #21 add theirs beside them.
+        # Exactly these five keys: #77 adds `path` to each row, not here; #21 adds its keys beside them.
         assert list(trace) == ["in_trace", "scope", "requirements", "leaves", "report"], name
         if name == SMALL:
             assert trace["in_trace"] is True

@@ -5,19 +5,27 @@ The model tests need no Node; the page-script tests take the `node` fixture.
 Sample literals are hand-derived from samples/lighthouse/.
 """
 
+import copy
+import random
+import time
+
+import pytest
+
 from gantry import build
 from gantry.config import load_config
 from gantry.inputs import scheduled
 from gantry.path import build_paths, heaviest, path_set, work_order
-from gantry.schedule import chain_hours
+from gantry.schedule import chain_hours, plan
 from gantry.sites import config_roots, load_sites
 from gantry.trace import build_site_trace, load_catalog, page_trace
+from gantry.views import worksite
 from gantry.views.worksite import page_model
 from page_safety import assert_page_safe
 from sample_roles import READABLE, SMALL
 from test_samples import GANTRY_SAMPLE
 from test_schedule_agreement import constructed, it, random_dags
-from test_trace_page import hostile_trace_site, row
+from test_trace_page import (CYCLE, CYCLE_REQS, built, hostile_trace_site, installation, render_traced, row,
+                             trace_of)
 
 
 def site_read(config_path, site):
@@ -245,3 +253,204 @@ def test_other_site_only_is_path():
                     other_serving={"R": [("harbor", "Issue-4")]})["R"]
     assert p.state == "path" and p.order == ()
     assert p.reasons == (("other_site", "harbor", "Issue-4"),)
+
+
+# --- Task 4: the view: `path` on every row, the texts and E -------------------------
+
+FR1 = "# R\n\n## Functional requirements\n\n- FR-1: One.\n"
+
+
+def site_model(tmp_path, wbs, reqs=FR1, name="alpha"):
+    """The page model of site alpha, read as a --site build reads it (no #68 resolution)."""
+    config_path = installation(tmp_path, {name: wbs}, {name: reqs})
+    return render_traced(config_path, name)[1]
+
+
+def path_of(m, rid):
+    return row(m["trace"], rid)["path"]
+
+
+def test_sample_fr1_path(tmp_path):
+    m = render_traced(GANTRY_SAMPLE, SMALL)[1]
+    p = path_of(m, "lighthouse:FR-1")
+    assert p["order"] == [["Issue-7", "direct"], ["Issue-12", "upstream"], ["Issue-10", "direct"]]
+    assert p["lines"] == ["3 leaves, 108 agent-hours to finish its serving work",
+                          "Longest chain: 102 agent-hours, about 17 working days"]
+    assert p["chain"] == ["Issue-7", "Issue-10"] and p["targets"] == ["Issue-7", "Issue-10"]
+    assert p["end_day"] == 17 and p["incomplete"] == []
+    sr1 = path_of(m, "lighthouse:SR-1")
+    assert [k for k, mark in sr1["order"] if mark == "upstream"] == ["Issue-12"]
+
+
+def test_fixture_site_path_set_and_order(tmp_path):
+    wbs = ("# Alpha\n\n"
+           "- [x] Done {issue: Issue-1}\n"
+           "- [ ] Third {issue: Issue-2, est: 1d}\n"
+           "- [ ] Urgent {issue: Issue-3, est: 1d, priority: P1}\n"
+           "- [ ] Middle {issue: Issue-4, est: 1d, depends_on: [Issue-2]}\n"
+           "- [ ] Target {issue: Issue-5, est: 1d, depends_on: [Issue-3, Issue-4, Issue-1], "
+           "satisfies: alpha:FR-1}\n"
+           "- [ ] Apart {issue: Issue-6, est: 1d}\n")
+    m = site_model(tmp_path, wbs)
+    p = path_of(m, "alpha:FR-1")
+    keys = [k for k, _ in p["order"]]
+    assert keys == ["Issue-3", "Issue-2", "Issue-4", "Issue-5"]
+    assert [mark for _, mark in p["order"]] == ["upstream", "upstream", "upstream", "direct"]
+    items = {item["key"]: item for item in m["schedule"]["items"]}
+    for k in keys:
+        assert all(keys.index(pred) < keys.index(k) for pred in items[k]["preds"])
+
+
+def test_use_case_path_from_serving_set(tmp_path):
+    reqs = ("# R\n\n## Use cases\n\n- UC-1: Needs FR-1. {needs: [FR-1]}\n\n"
+            "## Functional requirements\n\n- FR-1: Needed.\n")
+    wbs = ("# Alpha\n\n- [ ] A {issue: Issue-1, est: 1d, satisfies: alpha:UC-1}\n"
+           "- [ ] B {issue: Issue-2, est: 1d, depends_on: [Issue-1], satisfies: alpha:FR-1}\n")
+    m = site_model(tmp_path, wbs, reqs)
+    uc1 = row(m["trace"], "alpha:UC-1")
+    assert uc1["path"]["order"] == [["Issue-1", "direct"], ["Issue-2", "indirect"]] == uc1["light"]
+
+
+def test_heading_counts_unestimated_and_carries_label(tmp_path):
+    m = site_model(tmp_path, "# Alpha\n\n- [ ] No est {issue: Issue-1, satisfies: alpha:FR-1}\n")
+    assert path_of(m, "alpha:FR-1")["lines"][0].endswith(worksite.PATH_UNEST.format(n=1))
+    assert "agent capacity only" in m["texts"]["label"]
+
+
+def lone(tmp_path, est):
+    return path_of(site_model(tmp_path / est, f"# Alpha\n\n- [ ] T {{issue: Issue-1, est: {est}, "
+                                                   "satisfies: alpha:FR-1}\n"), "alpha:FR-1")
+
+
+def test_chain_days_half_up_and_end_day_up(tmp_path):
+    p = lone(tmp_path, "14.4h")
+    assert p["lines"][1].endswith("about 2 working days") and p["end_day"] == 3
+    p = lone(tmp_path, "2h")
+    assert p["end_day"] == 1 and p["lines"][1].endswith("about 0 working days")
+    assert "working day 1" in worksite.path_end_text(1, 4)
+    assert worksite.path_end_text(1, 4) == ("In the current schedule on 4 lanes, its serving work ends in "
+                                            "working day 1")
+    assert lone(tmp_path, "15h")["lines"][1].endswith("about 3 working days")
+    assert lone(tmp_path, "1d")["lines"][1].endswith("about 1 working day")
+
+
+CYCLE_UP = ("# Alpha\n\n"
+            "- [ ] One {issue: Issue-1, depends_on: [Issue-2], satisfies: alpha:FR-1}\n"
+            "- [ ] Two {issue: Issue-2, depends_on: [Issue-1, Issue-3]}\n"
+            "- [ ] Three {issue: Issue-3, est: 1d}\n")
+
+
+def test_all_held_has_no_end_day(tmp_path):
+    p = path_of(site_model(tmp_path, CYCLE_UP), "alpha:FR-1")
+    assert p["order"] == [["Issue-3", "upstream"]] and p["targets"] == []
+    assert p["lines"] == [worksite.PATH_HEAD_HELD_ONE.format(hours="6"),
+                          "Longest chain: 6 agent-hours, about 1 working day"]
+    assert p["end_day"] is None
+    assert p["incomplete"] == [worksite.PATH_HELD.format(key="Issue-1")]
+
+
+def test_site_build_names_foreign_waits_unchecked(tmp_path):
+    wbs = ("# Alpha\n\n"
+           "- [ ] Epic {issue: Issue-10, depends_on: [beta:Issue-8]}\n"
+           "  - [ ] Up {issue: Issue-2, est: 1d}\n"
+           "- [ ] Target {issue: Issue-1, est: 1d, depends_on: [Issue-2, beta:Issue-9], satisfies: alpha:FR-1}\n")
+    p = path_of(site_model(tmp_path, wbs), "alpha:FR-1")
+    assert sorted(p["incomplete"]) == sorted([
+        worksite.FBOX_TIP.format(key="Issue-1", text="beta:Issue-9 (on another site) not checked in this build"),
+        worksite.FBOX_TIP.format(key="Issue-2", text="beta:Issue-8 (on another site) not checked in this build"),
+    ])
+
+
+def test_full_build_uses_outcomes(tmp_path):
+    config_path = installation(tmp_path, {
+        "alpha": "# Alpha\n\n- [ ] T {issue: Issue-1, est: 1d, depends_on: [beta:Issue-1, gamma:Issue-1], "
+                 "satisfies: alpha:FR-1}\n",
+        "beta": "# Beta\n\n- [x] Done {issue: Issue-1}\n",
+    }, {"alpha": FR1})
+    trace = trace_of(built(config_path).pages["alpha"])
+    assert row(trace, "alpha:FR-1")["path"]["incomplete"] == [
+        worksite.FBOX_TIP.format(key="Issue-1", text=worksite.FOREIGN_ABSENT.format(raw="gamma:Issue-1"))]
+
+
+def test_path_status_follows_what_the_build_read():
+    w = worksite
+    assert [w.path_status(*case) for case in (
+        ("unserved", "site", None), ("unserved", "installation", ()), ("finished", "site", None),
+        ("finished", "installation", ("marsh",)), ("finished", "installation", ()))] == [
+        w.PATH_UNSERVED_SITE, w.PATH_UNSERVED, w.PATH_FINISHED_SITE, w.PATH_FINISHED_SITE, w.PATH_FINISHED]
+
+
+def test_empty_cases_have_no_list_or_figures(tmp_path):
+    reqs = "# R\n\n## Functional requirements\n\n- FR-1: Nobody.\n- FR-2: Done.\n"
+    m = site_model(tmp_path, "# Alpha\n\n- [x] Done {issue: Issue-1, satisfies: alpha:FR-2}\n"
+                             "- [ ] Open {issue: Issue-2}\n", reqs)
+    empty = {"state": "unserved", "lines": [worksite.PATH_UNSERVED_SITE], "order": [], "chain": [],
+             "targets": [], "end_day": None, "incomplete": []}
+    assert path_of(m, "alpha:FR-1") == empty
+    assert path_of(m, "alpha:FR-2") == {**empty, "state": "finished", "lines": [worksite.PATH_FINISHED_SITE]}
+
+
+def test_path_extremes(tmp_path):
+    wbs = ("# Alpha\n\n- [ ] A {issue: Issue-1, est: 1d}\n- [ ] B {issue: Issue-2, est: 1d}\n"
+           "- [ ] T {issue: Issue-3, est: 1d, depends_on: [Issue-1, Issue-2], satisfies: alpha:FR-1}\n")
+    m = site_model(tmp_path / "whole", wbs)
+    head = path_of(m, "alpha:FR-1")["lines"][0]
+    assert head == worksite.PATH_HEADING.format(n=len(m["schedule"]["items"]), hours="18") and "(" not in head
+    one = lone(tmp_path, "1d")["lines"][0]
+    assert one == worksite.PATH_HEADING_ONE.format(hours="6")
+    held_only = path_of(site_model(tmp_path / "cycle", CYCLE["alpha"], CYCLE_REQS), "alpha:FR-1")
+    assert held_only["lines"] == [] and held_only["order"] == []
+    assert held_only["incomplete"] == [worksite.PATH_HELD.format(key="Issue-1")]
+
+
+PATH_KEYS = ["state", "lines", "order", "chain", "targets", "end_day", "incomplete"]
+
+
+def test_path_keys_exact_and_argument_unchanged():
+    config = load_config(GANTRY_SAMPLE)
+    roots = config_roots(config)
+    sites = load_sites(config, roots)[0]
+    catalog = load_catalog(roots, config, sites)
+    inputs = build.read_sites(config, sites, roots=roots)[0][SMALL]
+    trace = page_trace(build_site_trace(SMALL, inputs.data.leaves, catalog), catalog, inputs.data)
+    before = copy.deepcopy(trace)
+    m = page_model(SMALL, inputs.data, default_unit_hours=6, inputs=inputs, trace=trace)
+    assert trace == before
+    assert all(list(r["path"]) == PATH_KEYS for r in m["trace"]["requirements"])
+    assert all("path" not in r for r in trace["requirements"])
+
+
+def test_constraint_row_has_no_box():
+    m = render_traced(GANTRY_SAMPLE, SMALL)[1]
+    assert path_of(m, "lighthouse:CON-1") == {"state": "constraint", "lines": [], "order": [], "chain": [],
+                                              "targets": [], "end_day": None, "incomplete": []}
+
+
+def test_hours_text_agrees_with_num():
+    # worksite.js's num: Math.round(x * 10) / 10, then toString.
+    assert [worksite._num1(x) for x in (2.25, 0.05, 123456.75, 6.0, 108.0)] == ["2.3", "0.1", "123456.8", "6",
+                                                                                   "108"]
+
+
+def test_build_paths_scales():
+    rng = random.Random(77)
+    n = 2000
+    items = [it(f"k{j}", rng.choice((1, 2, 6)), [f"k{p}" for p in rng.sample(range(j), min(j, 2))],
+                rng.randint(1, 4), j) for j in range(n)]
+    links = [(p, item["key"]) for item in items for p in item["preds"]]
+    serving = {f"R{r}": ([[f"k{j}", "direct"] for j in range(n) if (j + r) % 7], [], 0) for r in range(10)}
+    start = time.perf_counter()
+    paths = build_paths(serving, items, unestimated=set(), links=links, foreign={})
+    assert time.perf_counter() - start < 2.0
+    assert all(len(p.order) <= n for p in paths.values())
+
+
+def test_work_order_is_the_one_lane_plan():
+    # work_order is a heap form of schedule.plan(items, 1), held to it here.
+    cases = [items for _, items, _ in constructed()] + [items for items, _ in random_dags(count=64, seed=77)]
+    for items in cases:
+        planned = plan(items, 1)
+        assert work_order(items) == sorted(planned, key=lambda k: planned[k][0])
+    for bad in ([it("a", 1, ["b"])], [it("a", 1, ["b"]), it("b", 1, ["a"])], [it("a", 0)]):
+        with pytest.raises(ValueError):
+            work_order(bad)
