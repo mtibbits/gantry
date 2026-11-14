@@ -206,9 +206,12 @@ Before 1.0.0, a break bumps the minor version and any other change the
 patch. From 1.0.0, a fix bumps the patch; an added view, command or optional
 config key bumps the minor; and a break bumps the major.
 
-Claude Code updates a marketplace install only when the plugin's version
-string changes, so a merge alone reaches no installed user: the next release
-does. A fresh install between releases takes `main`'s tree as it is then,
+A change reaches installed users as a release, under a new version string.
+Whether `claude plugin update` also delivers a merge that leaves the version
+unchanged to an install from GitHub is not yet checked; the second release's
+update check is the first to show it. An install from a local folder runs
+that folder in place, so it takes each edit at its next session start. A
+fresh install between releases takes `main`'s tree as it is then,
 under the last released version string, which is why the release checks
 below run while `main` is still at the tag. A clone loaded with
 `--plugin-dir` is not pinned: it runs whatever the clone has checked out.
