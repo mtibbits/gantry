@@ -277,7 +277,7 @@ def test_demo_output_passes(demo_out, capsys):
     assert check_demo.check(demo_out) == []
     assert check_demo.main([str(demo_out)]) == 0
     out = capsys.readouterr()
-    assert out.out.splitlines() == ["check_demo: ok: 5 pages, 4 site pages, 7 expected entries"]
+    assert out.out.splitlines() == ["check_demo: ok: 5 pages, 4 site pages, 8 expected entries"]
     assert out.err == ""
 
 
@@ -287,7 +287,8 @@ def test_expected_arg(case, copy):
         expected = tuple(e._replace(state="required") if e.path == "strategic.html" else e for e in check_demo.EXPECTED)
         problem = "strategic.html: required by the expected list (#23) and missing"
     else:
-        expected = tuple(e._replace(state="pending") if e.kind == "overlay" else e for e in check_demo.EXPECTED)
+        expected = tuple(e._replace(state="pending") if e.element == "trace" else e
+                         for e in check_demo.EXPECTED)
         problem = f"{TRACED}: element trace is " + PENDING.format(20)
     assert expected != check_demo.EXPECTED
     assert check_demo.check(copy) == []
@@ -307,6 +308,7 @@ def test_expected_list_is_well_formed():
         ("view", "index.html", None, 11, "required"),
         ("sites", "sites/*.html", None, 11, "required"),
         ("overlay", f"sites/{SMALL}.html", "trace", 20, "required"),
+        ("overlay", f"sites/{SMALL}.html", "req-path", 77, "required"),
         ("view", "strategic.html", None, 23, "pending"),
         ("view", "daily.html", None, 34, "pending"),
         ("view", "week.html", None, 38, "pending"),
