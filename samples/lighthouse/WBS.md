@@ -11,5 +11,6 @@
   - [ ] Record a nightly check {issue: Issue-7, est: 3w, satisfies: [lighthouse:FR-1, life:BR-1, lighthouse:QA-1, lighthouse:UC-1]}
   - [ ] Bind the first logbook {issue: Issue-8, est: 1w, depends_on: [Issue-7], satisfies: [lighthouse:SR-1, lighthouse:UC-3]}
   - [ ] Train the relief keeper {issue: Issue-9, est: 3d, depends_on: [Issue-8], satisfies: lighthouse:FR-90}
-  - [ ] Print the log pages {issue: Issue-10, est: 2d, depends_on: [Issue-7], satisfies: lighthouse:FR-1}
+  - [ ] Print the log pages {issue: Issue-10, est: 2d, depends_on: [Issue-7, Issue-12], satisfies: lighthouse:FR-1}
   - [ ] Shelve the old logbooks {issue: Issue-11, est: 1d, satisfies: lighthouse:SR-1}
+  - [ ] Order the blank pages {issue: Issue-12, est: 1d, satisfies: lighthouse:QA-1}
