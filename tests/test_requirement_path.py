@@ -9,6 +9,7 @@ import copy
 import re
 import random
 import time
+from dataclasses import replace
 
 import pytest
 
@@ -20,17 +21,18 @@ from gantry.schedule import chain_hours, plan
 from gantry.sites import config_roots, load_sites
 from gantry.trace import build_site_trace, load_catalog, page_trace
 from gantry.views import worksite
-from gantry.model import HOURS_PER_DAY
+from gantry.model import HOURS_PER_DAY, ForeignOutcome, SiteData
+from gantry.render import CLASS_TOKENS
 from gantry.views.worksite import page_model, plan_finish_day
-from page_safety import assert_page_safe
-from page_script.harness import open_page, run_function
+from page_safety import HOSTILE, _strings, assert_no_external_resources, assert_page_safe
+from page_script.harness import Planted, open_page, run_function
 from sample_roles import READABLE, SMALL
 from test_samples import GANTRY_SAMPLE, ROOT
 from test_schedule_agreement import constructed, it, js_plan, random_dags
-from test_trace_page import (CYCLE, CYCLE_REQS, EMPTY_MARKS, built, by_id, hand_trace,  # noqa: F401
-                             hostile_trace_site, installation, lit_counts, marked, marks_after, render_traced, row,
+from test_trace_page import (CYCLE, CYCLE_REQS, EMPTY_MARKS, ONE_LEAF, built, by_id, hand_trace,  # noqa: F401
+                             hostile_leaf, hostile_trace_site, installation, lit_counts, marked, marks_after, render_traced, row,
                              sample, sample_page, select, trace_of)
-from test_worksite_page import tree
+from test_worksite_page import STRUCTURAL, tree
 
 
 def site_read(config_path, site):
@@ -689,3 +691,67 @@ def test_box_mounts_after_the_layer_lists(tmp_path):
     panel = by_id(t, "requirements")
     kids = [i for i, e in enumerate(t.elements) if e.get("parent") == panel]
     assert t.elements[kids[-1]]["attrs"].get("id") == "req-path"
+
+
+# --- Task 7: hostile strings and __proto__ in the path --------------------------------
+
+
+def hostile_path_site(tmp_path):
+    """(page, planted): site alpha in the trace. FR-1's target waits on a leaf keyed
+    and numbered HOSTILE[1], titled HOSTILE[0], whose foreign waits carry HOSTILE[2]
+    (an open target's title) and HOSTILE[3] (an unresolved reason); FR-2's target
+    waits on a leaf keyed __proto__. The leaves are built in memory, as
+    hostile_trace_site builds them."""
+    h = HOSTILE
+    reqs = "# R\n\n## Functional requirements\n\n- FR-1: One.\n- FR-2: Two.\n"
+    config_path = installation(tmp_path, {"alpha": ONE_LEAF}, {"alpha": reqs})
+    config = load_config(config_path)
+    roots = config_roots(config)
+    catalog = load_catalog(roots, config, load_sites(config, roots)[0])
+    outcome = dict(site="alpha", source_key=h[1], source_line=2, source_is_row=False, target_site="beta")
+    waits = (ForeignOutcome(raw="beta:Issue-5", target_issue="Issue-5", status="open", target_key="Issue-5",
+                            target_is_row=False, title=h[2], **outcome),
+             ForeignOutcome(raw="beta:Issue-6", target_issue="Issue-6", status="unresolved", reason=h[3],
+                            **outcome))
+    leaves = (
+        hostile_leaf("Issue-1", "Issue-1", 1, satisfies="alpha:FR-1"),
+        replace(hostile_leaf(h[1], h[1], 2, title=h[0]), foreign_targets=waits, waits_on_other_site=True),
+        hostile_leaf("Issue-3", "Issue-3", 3, satisfies="alpha:FR-2"),
+        hostile_leaf("__proto__", "__proto__", 4),
+    )
+    data = SiteData(leaves, (), ((h[1], "Issue-1"), ("__proto__", "Issue-3")), (), ())
+    trace = page_trace(build_site_trace("alpha", leaves, catalog), catalog, data)
+    page = worksite.render_page("alpha", data, default_unit_hours=6, trace=trace)
+    return page, [h[0], h[1], h[2], h[3], "__proto__"]
+
+
+def test_hostile_path_page_is_safe(tmp_path):
+    page, planted = hostile_path_site(tmp_path)
+    # HOSTILE[3] is only ever inside its unresolved sentence, so not a whole embedded value.
+    trace = assert_page_safe(page, [p for p in planted if p != HOSTILE[3]])["trace"]
+    assert_no_external_resources(page)
+    strings = list(_strings([r["path"] for r in trace["requirements"]]))
+    # The title is in the leaves data, not the path; every other planted value is whole in it.
+    assert [p for p in planted[1:] if not any(p in s for s in strings)] == []
+    assert row(trace, "alpha:FR-1")["path"]["order"] == [[HOSTILE[1], "upstream"], ["Issue-1", "direct"]]
+    assert row(trace, "alpha:FR-2")["path"]["order"] == [["__proto__", "upstream"], ["Issue-3", "direct"]]
+
+
+def test_hostile_path_under_harness(node, tmp_path):
+    page_text, planted = hostile_path_site(tmp_path)
+    path = tmp_path / "hostile.html"
+    path.write_bytes(page_text.encode("utf-8"))
+    with open_page(path) as page:
+        assert page.planted_nodes(planted) == Planted([], [], [])
+        page.drive("requirement", "alpha:FR-1")
+        assert page.planted_nodes(planted) == Planted([], [], [])
+        (first, _) = box_items(page, "path-list")
+        assert first.startswith(HOSTILE[1] + " · " + HOSTILE[1] + " · " + HOSTILE[0])
+        why = box_items(page, "path-why")
+        assert len(why) == 2 and HOSTILE[2] in why[0] and HOSTILE[3] in why[1]
+        page.drive("requirement", "alpha:FR-2")
+        assert page.planted_nodes(planted) == Planted([], [], [])
+        assert marked(page, "g.node", "req-upstream") == {"__proto__"} == marked(page, "rect.seg", "req-upstream")
+        assert [i.split(" ")[0] for i in box_items(page, "path-list")] == ["__proto__", "Issue-3"]
+        used = {c for e in page.query("[class]") for c in e.classes}
+        assert used - CLASS_TOKENS - STRUCTURAL == set()
