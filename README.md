@@ -271,8 +271,8 @@ Run these while `main` is still at the tag.
      ```
 
   2. Remove `<clone>/.git`. This must then fail with "not a git
-     repository", so the sample site's history reads "no data: in no
-     repository":
+     repository", so the history-less sample site's history reads "no
+     data: in no repository":
 
      ```
      git -C "<clone>/samples" rev-parse --show-toplevel

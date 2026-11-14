@@ -368,6 +368,8 @@ RELEASE_LINES = (
     'git -C "<clone>/samples" rev-parse --show-toplevel',
     "/gantry:build <clone>/samples/gantry.sample.toml",
     'python3 tools/commit_check.py names --text "<file>"',
+    # Only the history-less sample site loses its history with <clone>/.git.
+    "the history-less sample site",
 )
 
 
@@ -418,6 +420,16 @@ def test_release_tag_literals_use_plugin_name():
     prefixes = [p for line in RELEASE_LINES for p in re.findall(r"(?<![\w-])([\w-]+?)--v<version>", line)]
     assert len(prefixes) >= 3
     assert set(prefixes) == {name}
+
+
+def test_install_literals_use_marketplace_name():
+    """`<plugin>@<marketplace>` and `marketplace update <marketplace>` name the real marketplace."""
+    market = json.loads((ROOT / MARKETPLACE).read_text(encoding="utf-8"))
+    lines = INSTALL_LINES + RELEASE_LINES
+    named = [m for line in lines for m in re.findall(r"\bgantry" + AT + r"([\w-]+)", line)]
+    named += [m for line in lines for m in re.findall(r"marketplace update ([\w-]+)", line)]
+    assert len(named) >= 3
+    assert set(named) == {market["name"]}
 
 
 def test_planted_readme_release_literal_dropped(readme):
