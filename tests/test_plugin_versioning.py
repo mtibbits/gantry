@@ -3,9 +3,10 @@
 `.claude-plugin/plugin.json` carries the plugin's version, a plain `X.Y.Z`
 semver string (`pyproject.toml` mirrors it; tests/test_cli.py keeps the two
 equal). The marketplace entry carries no version, because Claude Code uses
-plugin.json's value when both are set, so a copy there can only go stale. `CHANGELOG.md` opens with `## [Unreleased]` and has a dated section for
-plugin.json's version. Both manifests name their author or owner by a name and
-a profile url only, and hold no email.
+plugin.json's value when both are set, so a copy there can only go stale.
+`CHANGELOG.md` opens with `## [Unreleased]` and has a dated section for
+plugin.json's version. Both manifests name their author or owner by a name
+and a profile url only, and hold no email.
 
 Each check takes a root folder and returns a list of problem strings. The
 real-tree tests call it on the repository root; the planted tests call the
@@ -213,7 +214,7 @@ ABSENT = object()
 
 
 @pytest.mark.parametrize("value", ["0.1", "v0.1.0", "01.0.0", "0.1.0.0", "0.1.0\n", "0.1.0-rc.1",
-                                   "1٢.0.0", 1, ABSENT],
+                                   "1\u0662.0.0", 1, ABSENT],  # U+0662 ARABIC-INDIC DIGIT TWO
                          ids=["two-part", "v-prefix", "leading-zero", "four-part", "trailing-newline",
                               "prerelease", "non-ascii-digit", "not-a-string", "absent"])
 def test_planted_bad_version(release_tree, value):
@@ -359,6 +360,7 @@ INSTALL_LINES = (
     "Python 3.11 or later",
 )
 RELEASE_LINES = (
+    "claude plugin validate --strict .",
     "claude plugin tag --push",
     'gh release create gantry--v<version> --verify-tag --title "gantry <version>" --notes-file "<section file>"',
     "gh workflow run quickstart.yml --ref gantry--v<version>",

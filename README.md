@@ -195,7 +195,9 @@ on fail. An installation depends on:
   ([the version rule](docs/config.md#the-version-rule));
 - the private files that config names, in formats Gantry defines: today the
   [requirements file](docs/requirements-format.md) and the
-  [portfolio file](docs/portfolio-file.md);
+  [portfolio file](docs/portfolio-file.md). Files in devagent's formats,
+  such as `WBS.md` and the estimates file, follow devagent's
+  compatibility, not this rule;
 - the output folder: its page paths (`index.html`, `sites/<name>.html`), and
   `week-plan.json`, where a change that bumps `plan_version` is a break
   ([its version rule](docs/week-plan.md#the-version-rule));
@@ -209,11 +211,11 @@ config key bumps the minor; and a break bumps the major.
 A change reaches installed users as a release, under a new version string.
 Whether `claude plugin update` also delivers a merge that leaves the version
 unchanged to an install from GitHub is not yet checked; the second release's
-update check is the first to show it. An install from a local folder runs
-that folder in place, so it takes each edit at its next session start. A
-fresh install between releases takes `main`'s tree as it is then,
-under the last released version string, which is why the release checks
-below run while `main` is still at the tag. A clone loaded with
+update check is the first to show it. A fresh install between releases is
+expected to take `main`'s tree as it is then, under the last released
+version string, so the release checks below run while `main` is still at
+the tag; the first release's install check is the first to confirm it. A
+clone loaded with
 `--plugin-dir` is not pinned: it runs whatever the clone has checked out.
 
 ### Cutting a release
@@ -221,21 +223,30 @@ below run while `main` is still at the tag. A clone loaded with
 1. In one change, bump `version` in `.claude-plugin/plugin.json`, set the
    same value as `pyproject.toml`'s `[project] version`, and move the
    `## [Unreleased]` lines of CHANGELOG.md under a new
-   `## [<version>] — <date>` section. Merge it.
-2. Tag `main` only while its head is that release commit. If anything merged
-   after it, first move that change's `## [Unreleased]` lines into the
-   release section, or cut a new version.
-3. On a clean, up-to-date `main`, run this. It validates the manifests and
-   pushes the annotated tag `gantry--v<version>`:
+   `## [<version>] — <date>` section, where `<date>` is the day you tag.
+   Merge it.
+2. Tag `main` only while its head is the release commit: the last commit
+   that changed the release section. If anything else merged after it,
+   first move that change's `## [Unreleased]` lines into the release
+   section (that commit is then the release commit), or cut a new version.
+3. On a clean, up-to-date `main`, validate both manifests with warnings
+   treated as errors. The tag command does not do this; it checks only that
+   `plugin.json` and the marketplace entry agree:
+
+   ```
+   claude plugin validate --strict .
+   ```
+
+4. Then push the annotated tag `gantry--v<version>`:
 
    ```
    claude plugin tag --push
    ```
 
-4. Save that version's CHANGELOG section to `<section file>` and publish the
+5. Save that version's CHANGELOG section to `<section file>` and publish the
    GitHub release on the tag. `--verify-tag` stops the release when the tag
-   is missing, instead of letting `gh` create a tag that was never
-   validated:
+   is missing, instead of letting `gh` create a tag of its own that skipped
+   the steps above:
 
    ```
    gh release create gantry--v<version> --verify-tag --title "gantry <version>" --notes-file "<section file>"
@@ -254,7 +265,8 @@ Run these while `main` is still at the tag.
 - The plugin, by hand. At the first release, a fresh install with the two
   commands under [Install](#install). At each later release, the update
   path from an install of the previous release; it is not yet exercised,
-  and the second release is the first to run it:
+  and the second release is the first to run it. That release replaces this
+  "not yet" and the one under Versioning & releases with what it showed:
 
   ```
   claude plugin marketplace update gantry
