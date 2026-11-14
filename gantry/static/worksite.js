@@ -509,6 +509,18 @@
     return p;
   }
 
+  function list(cls, entries, fill) {
+    if (!entries.length) return;
+    const ul = document.createElement("ul");
+    ul.setAttribute("class", cls);
+    for (const entry of entries) {
+      const li = document.createElement("li");
+      fill(li, entry);
+      ul.append(li);
+    }
+    pathBox.append(ul);
+  }
+
   function endText(path) {
     const day = gantryTrace.endDay(planNow, path.targets, HPD);
     return day === null ? null : fillIn(DATA.texts.path_end, [["lanes", lanesText(k)], ["day", day]]);
@@ -520,36 +532,20 @@
     for (const text of path.lines) para(pathBox, text);
     const end = endText(path);
     if (end !== null) para(pathBox, end, "path-end").setAttribute("aria-live", "polite");
-    if (path.order.length) {
-      const chain = new Set(path.chain);
-      const ul = document.createElement("ul");
-      ul.setAttribute("class", "path-list");
-      for (const [key, how] of path.order) {
-        const leaf = leaves.get(key);
-        const li = document.createElement("li");
-        const id = document.createElement("span");
-        id.setAttribute("class", "mono");
-        id.textContent = key;
-        const parts = leaf === undefined ? [] : [leaf.issue === null ? DATA.texts.no_issue_id : leaf.issue, leaf.title,
-          num(leaf.hours) + " h"];
-        parts.push(MARK_WORDS.get(how) || how);
-        if (chain.has(key)) parts.push(DATA.texts.mark_chain);
-        li.append(id, document.createTextNode(" \u00b7 " + parts.join(" \u00b7 ")));
-        ul.append(li);
-      }
-      pathBox.append(ul);
-    }
-    if (path.incomplete.length) {
-      para(pathBox, DATA.texts.path_incomplete, "label");
-      const ul = document.createElement("ul");
-      ul.setAttribute("class", "path-why");
-      for (const text of path.incomplete) {
-        const li = document.createElement("li");
-        li.textContent = text;
-        ul.append(li);
-      }
-      pathBox.append(ul);
-    }
+    const chain = new Set(path.chain);
+    list("path-list", path.order, (li, [key, how]) => {
+      const leaf = leaves.get(key);
+      const id = document.createElement("span");
+      id.setAttribute("class", "mono");
+      id.textContent = key;
+      const parts = leaf === undefined ? [] : [leaf.issue === null ? DATA.texts.no_issue_id : leaf.issue, leaf.title,
+        num(leaf.hours) + " h"];
+      parts.push(MARK_WORDS.get(how) || how);
+      if (chain.has(key)) parts.push(DATA.texts.mark_chain);
+      li.append(id, document.createTextNode(" \u00b7 " + parts.join(" \u00b7 ")));
+    });
+    if (path.incomplete.length) para(pathBox, DATA.texts.path_incomplete, "label");
+    list("path-why", path.incomplete, (li, text) => { li.textContent = text; });
   }
 
   // Rebuilt only when the selection changes; a lane change rewrites the end-day line alone,
@@ -560,7 +556,7 @@
     const path = row === undefined || !isObj(row.path) || row.path.state === "constraint" ? null : row.path;
     const key = path === null ? null : id;
     if (key !== (boxFor === null ? null : boxFor.id)) {
-      boxFor = key === null ? null : { id: key, path, lanes: k };
+      boxFor = key === null ? null : { id: key, lanes: k };
       if (path === null) pathBox.replaceChildren();
       else fillBox(path);
       pathBox.classList.toggle("gone", path === null);

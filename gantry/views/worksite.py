@@ -222,7 +222,7 @@ def plan_finish_day(items, p):
 
 def _num1(x):
     """Hours as the page script's num: half up to one decimal, a whole number bare."""
-    v = math.floor(x * 10 + 0.5) / 10
+    v = _round(x * 10) / 10
     return str(int(v)) if v == int(v) else repr(v)
 
 
@@ -257,14 +257,12 @@ def _path_record(p, layer, scope, items, planned, sites_not_read=None):
     lines = []
     if p.order:
         n, hours = len(p.order), _num1(p.hours)
-        if p.targets:
-            head = PATH_HEADING_ONE.format(hours=hours) if n == 1 else PATH_HEADING.format(n=n, hours=hours)
-        else:
-            head = PATH_HEAD_HELD_ONE.format(hours=hours) if n == 1 else PATH_HEAD_HELD.format(n=n, hours=hours)
+        many, one = (PATH_HEADING, PATH_HEADING_ONE) if p.targets else (PATH_HEAD_HELD, PATH_HEAD_HELD_ONE)
+        head = (one if n == 1 else many).format(n=n, hours=hours)
         lines.append(head + (PATH_UNEST.format(n=p.unestimated) if p.unestimated else ""))
         days = _round(p.chain_hours / HOURS_PER_DAY)
         lines.append(PATH_CHAIN.format(hours=_num1(p.chain_hours),
-                                       days=PATH_DAYS_ONE if days == 1 else PATH_DAYS.format(n=days)))
+                                       days=_count_line(days, PATH_DAYS, PATH_DAYS_ONE)))
     elif p.state != "path":
         lines.append(path_status(p.state, scope, sites_not_read))
     if p.notes:

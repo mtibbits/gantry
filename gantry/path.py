@@ -46,11 +46,20 @@ def path_set(targets, held, links, scheduled) -> set[str]:
     `links` ((prerequisite, dependent) pairs) backwards, the targets included.
     The walk passes through leaves that are not scheduled (held-out ones) but
     keeps only those in `scheduled`."""
+    return _walk_back([*targets, *held], _before(links), scheduled)
+
+
+def _before(links):
+    """{dependent: [prerequisite, ...]} from (prerequisite, dependent) pairs."""
     before = {}
     for a, b in links:
         before.setdefault(b, []).append(a)
+    return before
+
+
+def _walk_back(starts, before, scheduled):
     seen = set()
-    stack = [*targets, *held]
+    stack = list(starts)
     while stack:
         key = stack.pop()
         if key in seen:
@@ -162,6 +171,7 @@ def build_paths(serving, items, *, unestimated, links, foreign, sites_not_read=N
     on other sites, each a reason, and any makes the row's state "path".
     """
     scheduled = {item["key"] for item in items}
+    before = _before(links)
     notes = tuple(sites_not_read or ())
     out = {}
     for rid, (lit, held, finished_count) in serving.items():
@@ -173,7 +183,7 @@ def build_paths(serving, items, *, unestimated, links, foreign, sites_not_read=N
             state = "finished" if finished_count > 0 else "unserved"
         how = {key: h for key, h in lit}
         targets = tuple(key for key, _ in lit)
-        members = path_set(targets, held, links, scheduled)
+        members = _walk_back([*targets, *held], before, scheduled)
         subset = [item for item in items if item["key"] in members]
         order = tuple((k, how.get(k, "upstream")) for k in work_order(subset))
         chain, chain_total = heaviest(subset)
