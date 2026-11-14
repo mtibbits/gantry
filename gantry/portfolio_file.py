@@ -9,7 +9,7 @@ report_entries (Portfolio.report and check_portfolio's entries, in report
 order), and nothing else: Portfolio.brs.report is a subset of
 Portfolio.report, relabelled the same way.
 
-Every `line` is a 1-based file line; fence_spans' indices are 0-based. No
+Every `line` is a 1-based file line; hidden_lines' indices are 0-based. No
 entry holds a path: the file is always "the portfolio file". gantry build
 reads its business requirements, for the trace (#20), and its capacity
 settings, for the week plan (#61). It runs neither check_portfolio nor the
@@ -27,15 +27,15 @@ from datetime import date, datetime
 
 from gantry import requirements
 from gantry.config import ID_TOKEN_RE, describe, error_reason
-from gantry.requirements import (FENCE_RE, RequirementSet, fence_spans, fenced, parse_id, parse_requirements,
+from gantry.requirements import (FENCE_RE, RequirementSet, hidden_lines, parse_id, parse_requirements,
                                  read_utf8, split_lines)
 from gantry.roots import OutsideRoots, stat_confined
 from gantry.sites import shown
 
 PORTFOLIO_LABEL = "the portfolio file"
-SECTIONS = ("business requirements", "settings")  # section None: the whole file (portfolio_unreadable only)
+SECTIONS = ("business requirements", "settings")  # section None: the whole file (portfolio_unreadable, or a comment)
 # An ATX heading, matched on the line with its trailing spaces and tabs removed,
-# outside fences only. Greedy throughout, so it is linear on a long line.
+# outside fences and HTML comments (hidden_lines). Greedy throughout, so it is linear on a long line.
 HEADING_RE = re.compile(r"(?P<hashes>#{1,6})[ \t]+(?P<text>.*)")  # fullmatch
 BR_HEADING, SETTINGS_HEADING = "Business requirements", "Settings"  # level 2, matched exactly
 
@@ -447,10 +447,9 @@ def read_portfolio_file(roots, path, *, br_namespace) -> Portfolio:
     return _read_text(text, str(path), br_namespace)
 
 
-def _sections(lines, report):
+def _sections(lines, hidden, report):
     """{heading text: (heading index, end index)} for the first level-2 BR and
-    Settings headings outside fences; a second one is reported."""
-    hidden = fenced(lines)
+    Settings headings outside fences and comments; a second one is reported."""
     headings = []
     for i, line in enumerate(lines):
         if not hidden[i]:
@@ -475,7 +474,8 @@ def _sections(lines, report):
 def _read_brs(lines, found, source, br_namespace, report):
     if BR_HEADING not in found:
         report.add("no_br_section", SECTIONS[0], None, None,
-                   "no '## Business requirements' heading (level 2, outside a fence); no business requirements are read")
+                   "no '## Business requirements' heading (level 2, outside a fence or comment); "
+                   "no business requirements are read")
         return RequirementSet(br_namespace, {}, [])
     start, end = found[BR_HEADING]
     rs = parse_requirements("\n".join(lines[start + 1 : end]), br_namespace, source=source,
@@ -485,16 +485,28 @@ def _read_brs(lines, found, source, br_namespace, report):
     return replace(rs, report=[replace(e, source=PORTFOLIO_LABEL) for e in rs.report])
 
 
-def _settings_block(lines, found, report):
+def _report_comment(comment, found, report):
+    """Report a comment that hides every line after it, unless it is in the
+    business-requirements section, whose reader reports it."""
+    if comment is None:
+        return
+    k, message = comment
+    within = {text: start < k < end for text, (start, end) in found.items()}
+    if within.get(BR_HEADING):
+        return
+    report.add("malformed_comment", SECTIONS[1] if within.get(SETTINGS_HEADING) else None, k + 1, None, message)
+
+
+def _settings_block(lines, fences, found, report):
     """(opener, closer) of the first toml block under ## Settings, or None."""
     blocks = []
     if SETTINGS_HEADING in found:
         start, end = found[SETTINGS_HEADING]
-        blocks = [(i, j) for i, j in fence_spans(lines[:end])
-                  if i > start and FENCE_RE.fullmatch(lines[i])["info"].strip() == "toml"]
+        blocks = [(i, j) for i, j in fences
+                  if start < i and j < end and FENCE_RE.fullmatch(lines[i])["info"].strip() == "toml"]
     if not blocks:
         report.add("no_settings", SECTIONS[1], None, None,
-                   "no ```toml block under a '## Settings' heading (level 2, outside a fence); "
+                   "no ```toml block under a '## Settings' heading (level 2, outside a fence or comment); "
                    "every setting is not set")
         return None
     for i, _ in blocks[1:]:
@@ -869,9 +881,11 @@ def format_entry(e) -> str:
 def _read_text(text, source, br_namespace):
     lines = split_lines(text)
     report = _Report()
-    found = _sections(lines, report)
+    hidden, fences, comment = hidden_lines(lines)
+    found = _sections(lines, hidden, report)
     brs = _read_brs(lines, found, source, br_namespace, report)
-    block = _settings_block(lines, found, report)
+    _report_comment(comment, found, report)
+    block = _settings_block(lines, fences, found, report)
     raw, key_lines = (None, {}) if block is None else _load_settings(lines, block, report)
     p = _empty(br_namespace, [])
     if raw is not None:

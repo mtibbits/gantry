@@ -102,6 +102,94 @@ def test_br_carried_kinds(name, kind, line):
     assert entries(p) == [(kind, BRS, line, None)]
 
 
+def test_br_section_unclosed_comment(tmp_path):
+    # The comment also hides the Settings heading, as on the page.
+    p = write(tmp_path, fixture_with("br_malformed.md", "- BR-01: A leading zero.\n", "<!--\n- BR-2: Hidden.\n"))
+    assert entries(p) == [("malformed_comment", BRS, 8, None), ("no_settings", SETTINGS, None, None)]
+    assert p.report[0].message == "an HTML comment with no closing '-->' hides every line after it"
+    assert list(p.brs.requirements) == ["life:BR-1"]
+    assert p.settings_read is False
+
+
+def commented(old, new):
+    """br_malformed.md without its malformed item, with `old` replaced by `new`."""
+    return fixture_with("br_malformed.md", "- BR-01: A leading zero.\n", "").replace(old, new)
+
+
+def test_heading_in_a_comment_is_not_a_section(tmp_path):
+    p = write(tmp_path, commented("## Business requirements\n", "<!--\n## Business requirements\n"
+                                  "- BR-9: Old draft.\n-->\n## Business requirements\n"))
+    assert entries(p) == []
+    assert list(p.brs.requirements) == ["life:BR-1"]
+    assert p.settings_read is True
+
+
+def test_settings_in_a_comment_are_not_read(tmp_path):
+    p = write(tmp_path, commented("## Settings\n", "<!--\n## Settings\n") + "-->\n")
+    assert entries(p) == [("no_settings", SETTINGS, None, None)]
+    assert list(p.brs.requirements) == ["life:BR-1"]
+    assert p.settings_read is False
+
+
+UNCLOSED = "an HTML comment with no closing '-->' hides every line after it"
+
+
+def test_unclosed_comment_in_the_preamble_is_reported(tmp_path):
+    p = write(tmp_path, commented("A fictional portfolio file for tests.\n", "<!-- note\n"))
+    assert entries(p) == [("malformed_comment", None, 3, None), ("no_br_section", BRS, None, None),
+                          ("no_settings", SETTINGS, None, None)]
+    assert p.report[0].message == UNCLOSED
+    assert p.brs.requirements == {} and p.settings_read is False
+
+
+def test_unclosed_comment_in_settings_is_reported(tmp_path):
+    p = write(tmp_path, commented("```toml\n", "<!--\n```toml\n"))
+    assert entries(p) == [("no_settings", SETTINGS, None, None), ("malformed_comment", SETTINGS, 11, None)]
+    assert p.report[1].message == UNCLOSED
+
+
+def test_thematic_break_in_the_br_section_encloses_nothing(tmp_path):
+    p = write(tmp_path, commented("- BR-1: Keep the household running.\n", "- BR-1: Keep the household running.\n"
+                                  "\n* * *\n\n  - BR-2: Two.\n")
+              .replace("agent_lanes = 1\n", 'agent_lanes = 1\n\n[site.harbor]\nserves = ["BR-2"]\n'))
+    assert entries(p) == []
+    assert list(p.brs.requirements) == ["life:BR-1", "life:BR-2"]
+
+
+def test_paragraph_continuation_in_the_br_section_encloses_nothing(tmp_path):
+    p = write(tmp_path, commented("- BR-1: Keep the household running.\n", "- BR-1: Keep the household running.\n"
+                                  "\nThe household goals, in order of\n2. priority, follow.\n\n   - BR-2: Two.\n")
+              .replace("agent_lanes = 1\n", 'agent_lanes = 1\n\n[site.harbor]\nserves = ["BR-2"]\n'))
+    assert entries(p) == []
+    assert list(p.brs.requirements) == ["life:BR-1", "life:BR-2"]
+
+
+def test_comment_under_paragraph_text_in_the_br_section_does_not_leak(tmp_path):
+    p = write(tmp_path, commented("- BR-1: Keep the household running.\n", "- BR-1: Keep the household running.\n"
+                                  "\nThe household goals, in order of\n2. priority, follow.\n"
+                                  "   <!-- reword after the review\n-->\n\n- BR-2: Two.\n")
+              .replace("agent_lanes = 1\n", 'agent_lanes = 1\n\n[site.harbor]\nserves = ["BR-2"]\n'))
+    assert entries(p) == []
+    assert list(p.brs.requirements) == ["life:BR-1", "life:BR-2"]
+    assert p.settings_read is True
+
+
+def test_item_start_comment_in_the_br_section_hides_nothing(tmp_path):
+    # Indented 6 inside BR-1 the line is code on a page; nested in an item it is still reported
+    # (a stated simplification). Either way nothing after it is hidden.
+    p = write(tmp_path, commented("- BR-1: Keep the household running.\n", "- BR-1: Keep the household running.\n"
+                                  "\n      - <!-- old wording\n\n- BR-3: Three.\n"))
+    assert entries(p) == [("malformed_comment", BRS, 9, None)]
+    assert list(p.brs.requirements) == ["life:BR-1", "life:BR-3"]
+    assert p.settings_read is True
+
+
+def test_toml_block_in_a_comment_is_not_the_settings_block(tmp_path):
+    p = write(tmp_path, commented("```toml\n", "<!--\n```toml\nportfolio_version = 99\n```\n-->\n```toml\n"))
+    assert entries(p) == []
+    assert p.settings_read is True
+
+
 def _unreadable(tmp_path, case):
     if case == "missing":
         return tmp_path / "nope.md"
@@ -151,7 +239,8 @@ def test_no_br_section():
     p = read("no_br_section.md")
     (e,) = [e for e in p.report if e.section == BRS]
     assert (e.kind, e.line, e.key_path) == ("no_br_section", None, None)
-    assert e.message == "no '## Business requirements' heading (level 2, outside a fence); no business requirements are read"
+    assert e.message == ("no '## Business requirements' heading (level 2, outside a fence or comment); "
+                         "no business requirements are read")
     assert p.brs.namespace == "life" and p.brs.requirements == {} and p.brs.report == []
 
 
@@ -206,7 +295,7 @@ def test_br_only_file():
     p = read("no_settings.md")
     assert entries(p) == [("no_settings", SETTINGS, None, None)]
     assert p.report[0].message == (
-        "no ```toml block under a '## Settings' heading (level 2, outside a fence); every setting is not set"
+        "no ```toml block under a '## Settings' heading (level 2, outside a fence or comment); every setting is not set"
     )
     assert list(p.brs.requirements) == ["life:BR-1", "life:BR-2", "life:BR-3"]
     assert p.settings_read is False and not_set(p)
@@ -932,6 +1021,7 @@ def test_portfolio_doc_states_rules():
     doc = " ".join(doc_text(PORTFOLIO_DOC).split())
     wanted = [f"`{kind}`" for kind in REPORT_KINDS + CARRIED_KINDS] + [
         "never belongs in a public repo", "[site.<project>]", "[site.<name>]", "inside a fence",
+        "or an HTML comment is never a heading", "outside the business-requirements section with no",
         "gantry portfolio --config", "python -m gantry portfolio --config", "## Default changes", "None yet.",
         "as-of date", "allocation[2].shares.beta", "capacity.attention_mapping", MILESTONE_NOTE_TEXT,
         "a finite number", "advisory", "DEFAULTS", "its capacity settings, for the week plan",

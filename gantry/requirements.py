@@ -3,8 +3,10 @@
 A requirement ID is `<namespace>:<code>-<n>` (`gantry:FR-12`), a strict subset
 of the `<namespace>:<id>` shape mtibbits/devagent#888 checks in `satisfies:`.
 A requirements file is Markdown; a requirement is an unordered list item whose
-text starts with a bare ID and a colon (`- FR-12: <text>`). Every other line is
-prose, except an ID-shaped item that is not a requirement, which is reported.
+text starts with a bare ID and a colon (`- FR-12: <text>`). Lines in fences and
+block HTML comments are hidden. Every other line is prose, except an ID-shaped
+item that is not a requirement, or an HTML comment the reader does not hide,
+which is reported.
 The module has its own meta-block reader and fence pairing and shares no code
 with gantry/wbs_stopgap.py or gantry/model.py, so #12 can delete the stopgap
 freely. docs/requirements-format.md states the rules.
@@ -12,6 +14,7 @@ freely. docs/requirements-format.md states the rules.
 
 import re
 from dataclasses import dataclass
+from itertools import chain
 from typing import NamedTuple
 
 # DEFAULT_BR_NAMESPACE is re-exported: its one home is gantry.config.
@@ -31,7 +34,7 @@ ID_RE = re.compile(
     rf"(?P<code>{_CODES})-(?P<number>[1-9][0-9]{{0,{MAX_DIGITS - 1}}})"
 )  # always fullmatch; case-sensitive
 
-REPORT_KINDS = ("unreadable", "malformed_item", "malformed_meta", "malformed_link",
+REPORT_KINDS = ("unreadable", "malformed_item", "malformed_meta", "malformed_link", "malformed_comment",
                 "misplaced", "duplicate_id", "undefined_link", "refines_cycle")
 _KIND_ORDER = {kind: i for i, kind in enumerate(REPORT_KINDS)}
 
@@ -43,11 +46,22 @@ CANDIDATE_RE = re.compile(  # .match on an item's rest
     r"(?P<code>[A-Za-z]+)(?P<dash>-?)(?P<digits>[0-9]+)(?P<suffix>[A-Za-z]*)"
     r"(?P<close>[*_`~ \t]*):"
 )
+BREAK_RE = re.compile(r"[ \t]*([-*_])(?:[ \t]*\1){2,}[ \t]*")  # fullmatch: a thematic break, not a list item
+HEADING_START_RE = re.compile(r"[ \t]*#{1,6}(?:[ \t]|$)")  # match, at most 3 columns in: an ATX heading
+HTML_START_RE = re.compile(r"[ \t]*</?[A-Za-z]")  # match, at most 3 columns in: an HTML block may start
 FENCE_RE = re.compile(r"[ \t]*(?P<run>`{3,}|~{3,})(?P<info>.*)")  # fullmatch
 BLOCK_RE = re.compile(r"\{[ \t]*[A-Za-z_][A-Za-z0-9_]*[ \t]*:[^{}]*\}")  # finditer
 _OPENER_RE = re.compile(r"\{[ \t]*[A-Za-z_][A-Za-z0-9_]*[ \t]*:")  # a block's start, closed or not
 _KEY_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _BOM = "\N{BYTE ORDER MARK}"
+
+# Comment messages: never "the rest of the file", since a portfolio BR section is a slice.
+UNCLOSED = "an HTML comment with no closing '-->' hides every line after it"
+LEAKED = "an HTML comment whose list item ends before its '-->' hides every line after it"
+INLINE = "an HTML comment inside the text; it stays in the text and hides nothing: put it on its own line"
+BEFORE_ID = "an HTML comment before the ID; the item is not read: put the comment on its own line"
+START = ("an HTML comment that starts a list item and does not close on its line; "
+         "it hides nothing: put the comment on its own line")
 
 _WHY = {
     "ordered": "an ordered list item (a requirement uses -, * or +)",
@@ -150,9 +164,11 @@ def _closer(lines, i, no_closer):
 
 
 def fence_spans(lines) -> list[tuple[int, int]]:
-    """The (opener, closer) index pairs of the fenced blocks, 0-based, in order.
-    An opener with no closer is plain text, so it never hides the rest of the
-    file. The portfolio file's reader pairs its fences with this rule too."""
+    """The (opener, closer) index pairs of the fenced blocks, 0-based, in order,
+    pairing fences only. An opener with no closer is plain text, so it never
+    hides the rest of the file. The reader and the portfolio file's reader pair
+    fences together with HTML comments, in document order (_scan, hidden_lines);
+    this fence-only pairing is kept for callers that show a file's blocks."""
     spans = []
     no_closer = {}
     i = 0
@@ -166,12 +182,190 @@ def fence_spans(lines) -> list[tuple[int, int]]:
     return spans
 
 
-def fenced(lines):
-    """Which lines a fence hides, opener through closer."""
-    fenced = [False] * len(lines)
-    for i, j in fence_spans(lines):
-        fenced[i : j + 1] = [True] * (j + 1 - i)
-    return fenced
+def _content_column(line, m):
+    """The column an item's text starts at, a tab counting as four. For an
+    empty item, or text five or more columns past the marker (code on the
+    page), it is one past the marker."""
+    after = len(line[: m.end("marker")].expandtabs(4)) + 1
+    rest = m["rest"]
+    if rest is None or not rest.strip() or _text_is_code(line, m):
+        return after
+    return len(line[: m.start("rest")].expandtabs(4))
+
+
+def _text_is_code(line, m):
+    """Whether an item's text starts five or more columns past its marker,
+    which a page shows as indented code."""
+    after = len(line[: m.end("marker")].expandtabs(4)) + 1
+    return m["rest"] is not None and len(line[: m.start("rest")].expandtabs(4)) - after >= 4
+
+
+class _Layout(NamedTuple):
+    hidden: list  # bool per line: fenced or commented
+    skip: list  # bool per line: a comment line a requirement's text joins across
+    nested: list  # bool per line: an item inside an enclosing list item
+    comment: tuple | None  # (index, message): the comment that hides every line after it
+    fences: list  # (opener, closer) index pairs, paired in document order
+    listed: list  # bool per line: an item a page shows as a list item, not text or code
+    raw: list  # bool per line: after an unclosed fence opener in an open item (code on a page)
+
+
+def _scan(lines):
+    """The layout of `lines`, read once from the top so that fences and
+    comments pair in document order. docs/requirements-format.md states the
+    rules."""
+    n = len(lines)
+    hidden, skip, nested, listed, raw, fences = [False] * n, [False] * n, [False] * n, [False] * n, [False] * n, []
+    # The content column of the outermost open list item. A block comment (at
+    # most 3 columns in) never sits in a nested item (content column at least
+    # 4), so this one integer bounds it.
+    open_col = None
+    empty = False  # the outermost open item is empty, and no line has followed it yet
+    # Only an item on a line that surely starts a list encloses: not one that continues paragraph
+    # text outside every enclosing item, nor one inside an HTML block (a `<tag` line up to a blank
+    # line). Such a line still bounds its text and its comments' skipped lines, but no comment
+    # leaks from it: on a page there is no list item to end.
+    para = html = encloses = False
+    unclosed = False  # an unclosed fence opener in the open item: a page shows code to the item's end
+    doubt = False  # a fence a page may pair differently: from there on no block comment, and no item encloses
+    shifted = False  # a comment hid a fence marker: an opener 4+ columns in (code on a page) is not paired
+    head = keep = None  # HEAD's fence-only hiding, and the open fence's share of it when that fence is doubtful
+    lazy = False  # the previous line may lazily continue an item the reader has ended
+    no_closer = {}
+    fence_end = -1  # the last line of the open fence
+    opener = bound = leak = None  # the open comment's first line, the column a line must reach, and
+    #                               that column again when an enclosing item bounds it (it may leak)
+    for i, line in enumerate(lines):
+        if opener is not None:  # inside a comment
+            if line.strip() and bound is not None and _width(line) < bound:
+                if leak is not None:
+                    hidden[i:] = [True] * (n - i)
+                    return _Layout(hidden, skip, nested, (opener, LEAKED), fences, listed, raw)
+                bound = open_col = None  # a line that encloses nothing ends here; its comment runs on
+            hidden[i] = True
+            skip[i] = bound is not None
+            if FENCE_RE.fullmatch(line):
+                doubt = shifted = True  # a hidden fence marker: later fences may pair differently from HEAD
+            if "-->" in line:
+                opener = None
+            continue
+        if not line.strip():
+            hidden[i] = i <= fence_end and (keep is None or keep[i])
+            raw[i] = unclosed
+            lazy = False
+            para = html = False
+            if empty:  # an item starts with at most one blank line: an empty one ends here
+                open_col, empty = None, False
+            continue
+        cleared = open_col is not None and _width(line) < open_col
+        if cleared:
+            open_col = None
+        if open_col is None:
+            unclosed = False
+        raw[i] = unclosed
+        empty = False
+        if i <= fence_end:
+            hidden[i] = keep is None or keep[i]
+            para = lazy = False
+            continue
+        # Under doubt, an opener 4+ columns past its container is code or text on a page: not paired.
+        far = shifted and _width(line) - (open_col or 0) >= 4
+        j = None if far else _closer(lines, i, no_closer)
+        if j is not None:
+            base = open_col or 0
+            keep = None
+            # A page may pair this fence differently: indented 4+ past its container, a closer
+            # outdented below its item, an item that ends inside it, or opened after a lazy line.
+            if (_width(line) - base >= 4 or _width(lines[j]) - base >= 4 or lazy
+                    or (open_col is not None and (_width(lines[j]) < open_col or any(
+                        lines[k].strip() and _width(lines[k]) < open_col for k in range(i + 1, j))))):
+                doubt = True  # from here on, no block comment: the reader keeps what HEAD read
+                if head is None:
+                    head = [False] * n
+                    for a, b in fence_spans(lines):
+                        head[a : b + 1] = [True] * (b + 1 - a)
+                keep = head  # a doubtful fence hides only the lines HEAD's fences hid
+            fences.append((i, j))
+            fence_end = j
+            hidden[i] = keep is None or keep[i]
+            para = lazy = False
+            continue
+        f = FENCE_RE.fullmatch(line)
+        if f is not None and open_col is not None and not (f["run"][0] == "`" and "`" in f["info"]):
+            unclosed = True  # no closer: a page shows code to the item's end; the reader reads it as text
+            continue
+        body = line.lstrip(" \t")
+        # Inside an HTML block, or after an unclosed or doubtful fence, a `<!--` line is content.
+        if body.startswith("<!--") and _width(line) <= 3 and not (html or unclosed or doubt):
+            hidden[i] = True
+            para = False
+            skip[i] = open_col is not None
+            if _comment_end(body) == -1:
+                opener, bound = i, open_col
+                leak = open_col if encloses else None
+            continue
+        m = ITEM_RE.fullmatch(line)
+        if m is None or (_width(line) <= 3 and BREAK_RE.fullmatch(line)):
+            if _width(line) <= 3 and HTML_START_RE.match(line):
+                html = True
+            # Text outside every enclosing item is a paragraph a list-shaped line may only continue.
+            para = (m is None and (open_col is None or not encloses)
+                    and not (_width(line) <= 3 and (HEADING_START_RE.match(line) or BREAK_RE.fullmatch(line))))
+            lazy = para and (cleared or lazy)  # text that ended an item may be its lazy continuation
+            continue
+        nested[i] = open_col is not None and encloses
+        if open_col is None:
+            open_col = _content_column(line, m)
+            encloses = not (para or html or doubt)
+            empty = m["rest"] is None or not m["rest"].strip()
+        listed[i] = encloses and not unclosed
+    return _Layout(hidden, skip, nested, None if opener is None else (opener, UNCLOSED), fences, listed, raw)
+
+
+def hidden_lines(lines):
+    """(hidden, fences, comment): which lines a fence or a block HTML comment
+    hides; the fence (opener, closer) index pairs; and the (index, message) of a
+    comment that hides every line after it, or None. All are read in document
+    order as the reader reads them. The portfolio file's reader finds its
+    sections with it."""
+    layout = _scan(lines)
+    return layout.hidden, layout.fences, layout.comment
+
+
+def _opens_comment(rest):
+    """Whether an item's text starts with a `<!--` that does not close on its line."""
+    return rest is not None and rest.startswith("<!--") and _comment_end(rest) == -1
+
+
+def _comment_end(text):
+    """Where the `-->` closing the `<!--` that starts `text` begins, or -1.
+    The search starts inside the opener, so `<!-->` closes."""
+    return text.find("-->", 2)
+
+
+def _comment_outside_code(text):
+    """Whether a `<!--` in `text` lies outside every backtick code span. A span
+    runs from a run of n backticks to the next run of exactly n; a run with no
+    partner is literal. Linear: each run's partner comes from one right-to-left
+    pass."""
+    if "<!--" not in text:
+        return False
+    runs = [(m.start(), m.end()) for m in re.finditer(r"`+", text)]
+    partner, last = [None] * len(runs), {}
+    for k in range(len(runs) - 1, -1, -1):
+        width = runs[k][1] - runs[k][0]
+        partner[k] = last.get(width)
+        last[width] = k
+    pos = k = 0
+    while k < len(runs):
+        if partner[k] is None:
+            k += 1
+            continue
+        if "<!--" in text[pos : runs[k][0]]:
+            return True
+        pos = runs[partner[k]][1]
+        k = partner[k] + 1
+    return "<!--" in text[pos:]
 
 
 def _reasons(marker, c, nested):
@@ -288,15 +482,32 @@ class _Reader:
             return None
         return c
 
-    def item(self, index, m, continuation):
+    def item(self, index, m, continuation, nested, listed, raw):
+        """Read the item on line `index`. `listed` and `raw` are _scan's per-line flags: a
+        START report needs a list item, and a line after an unclosed fence is code on a page."""
         line = self.first_line + index
         has_nested = False
+        openers = set()  # nested items that start with an unclosed <!--: START or nothing, never INLINE
         for k, text in continuation:
-            nested = ITEM_RE.fullmatch(text)
-            if nested is not None:
+            sub = ITEM_RE.fullmatch(text)
+            if sub is not None:
                 has_nested = True
-                self.candidate(self.first_line + k, nested, nested=True)
-        c = self.candidate(line, m, nested=False)
+                self.candidate(self.first_line + k, sub, nested=True)
+                if _opens_comment(sub["rest"]):
+                    if listed[k] and not _text_is_code(text, sub):
+                        self.add(self.first_line + k, "malformed_comment", START)
+                    openers.add(k)
+        rest = m["rest"]
+        if _opens_comment(rest):
+            # Not when a page shows the line as code: text past the marker, or 4 in with no item around it.
+            if listed[index] and not (_text_is_code(m.string, m) or (not nested and _width(m["indent"]) >= 4)):
+                self.add(line, "malformed_comment", START)
+        elif rest is not None and rest.startswith("<!--"):
+            k = _comment_end(rest)
+            if k != -1 and CANDIDATE_RE.match(rest[k + 3 :].lstrip(" \t")):
+                self.add(line, "malformed_comment", BEFORE_ID)
+                return
+        c = self.candidate(line, m, nested=nested)
         if c is None:
             return
         rid = ReqId(self.namespace, c["code"], int(c["digits"]))  # _reasons found no fault
@@ -310,9 +521,15 @@ class _Reader:
             self.add(line, "duplicate_id",
                      f"{rid} is also defined on line {first.line}; the first definition is kept")
             return
+        tail = rest[c.end() :]
+        parts = ((self.first_line + k, t) for k, t in continuation if k not in openers and not raw[k])
+        for at, part in chain([(line, tail)], parts):
+            if _comment_outside_code(part):
+                self.add(at, "malformed_comment", INLINE)
+                break
         # The block closes the first line, or else the joined text. With a nested
         # item in the text, the block that ends it may be that item's: it is not read.
-        head = m["rest"][c.end() :].strip()
+        head = tail.strip()
         block = _ending_block(head)
         if block is not None:
             head = head[: block.start()].rstrip()
@@ -469,19 +686,27 @@ def parse_requirements(text, namespace, *, source, first_line=1, layers, br_name
     _check_args(namespace, layers, br_namespace)
     reader = _Reader(namespace, source, first_line, frozenset(layers), br_namespace)
     lines = split_lines(text)
-    hidden = fenced(lines)
+    hidden, skip, nested, comment, _, listed, raw = _scan(lines)
+    if comment is not None:
+        reader.add(first_line + comment[0], "malformed_comment", comment[1])
     i = 0
     while i < len(lines):
         m = None if hidden[i] else ITEM_RE.fullmatch(lines[i])
         if m is None:
             i += 1
             continue
-        # The item's text runs on through lines indented deeper than its marker.
+        # The item's text runs on through lines indented deeper than its marker,
+        # and across the comment lines inside it.
         indent = _width(m["indent"])
+        floor = indent + 1  # after a blank line inside a comment, a page keeps only lines at the content column
         end = i + 1
-        while end < len(lines) and not hidden[end] and lines[end].strip() and _width(lines[end]) > indent:
+        while end < len(lines) and (skip[end] or (not hidden[end] and lines[end].strip()
+                                                  and _width(lines[end]) >= floor)):
+            if skip[end] and not lines[end].strip():
+                floor = max(floor, _content_column(lines[i], m))
             end += 1
-        reader.item(i, m, [(k, lines[k]) for k in range(i + 1, end)])
+        continuation = [(k, lines[k]) for k in range(i + 1, end) if not skip[k]]
+        reader.item(i, m, continuation, nested=nested[i], listed=listed, raw=raw)
         i = end
     return reader.result()
 

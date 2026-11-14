@@ -94,12 +94,6 @@ def test_header_links_the_format_doc():
     assert re.search(rf"\]\({re.escape(FORMAT_DOC.name)}[#)]", header(own_text()))
 
 
-def test_no_html_comments():
-    # The reader reads an ID item inside a comment as live, so the rendered
-    # page and the read set would disagree.
-    assert "<!--" not in own_text()
-
-
 def test_header_states_source_of_truth():
     text = normalised(header(own_text()))
     assert [p for p in SOT_PHRASES if p not in text] == []
