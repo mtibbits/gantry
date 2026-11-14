@@ -27,6 +27,8 @@ from gantry.views.worksite import page_model, plan_finish_day
 from page_safety import HOSTILE, _strings, assert_no_external_resources, assert_page_safe
 from page_script.harness import Planted, open_page, run_function
 from sample_roles import READABLE, SMALL
+from test_build import heading_slugs
+from test_own_requirements import own_set
 from test_samples import GANTRY_SAMPLE, ROOT
 from test_schedule_agreement import constructed, it, js_plan, random_dags
 from test_trace_page import (CYCLE, CYCLE_REQS, EMPTY_MARKS, ONE_LEAF, built, by_id, hand_trace,  # noqa: F401
@@ -755,3 +757,28 @@ def test_hostile_path_under_harness(node, tmp_path):
         assert [i.split(" ")[0] for i in box_items(page, "path-list")] == ["__proto__", "Issue-3"]
         used = {c for e in page.query("[class]") for c in e.classes}
         assert used - CLASS_TOKENS - STRUCTURAL == set()
+
+
+# --- Task 8: requirements and docs -----------------------------------------------------
+
+PATH_TEXTS = [value for name, value in vars(worksite).items()
+              if (name.startswith("PATH_") or name == "NOT_CHECKED") and isinstance(value, str)]
+
+
+def test_own_requirements_state_the_path():
+    reqs = own_set().requirements
+    fr25 = reqs["gantry:FR-25"]
+    assert fr25.layer == "FR" and str(fr25.refines) == "gantry:SR-4"
+    uc5 = reqs["gantry:UC-5"]
+    assert "gantry:FR-25" in [str(n) for n in uc5.needs]
+    assert "and the work they wait on" in uc5.text
+
+
+def test_doc_states_path_texts():
+    doc = (ROOT / "docs" / "worksite-page.md").read_bytes().decode("utf-8")
+    assert "the-path-to-a-requirements-work" in heading_slugs(doc)
+    assert len(PATH_TEXTS) >= 20
+    assert [text for text in PATH_TEXTS if f"`{text}`" not in doc] == []
+    assert [key for key in PATH_KEYS if f"`{key}`" not in doc] == []
+    (classes,) = [s for s in re.split(r"(?<=\.)\s", " ".join(doc.split())) if s.startswith("A selection sets only")]
+    assert "`req-upstream`" in classes and "`req-chain`" in classes

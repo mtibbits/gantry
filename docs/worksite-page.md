@@ -541,6 +541,8 @@ requirements panel and no trace report.
   `Requirements`). Shown on a site in the trace, and on any site whose
   leaves name an ID that resolves. Under the heading, the line
   `Select a requirement, or a chip under a box, to mark the leaves that serve it: a solid outline serves it directly, a dashed one through refinement or a use case's needs. Select it again, or press Escape, to clear.`
+  and then the line
+  `A selection also marks the open leaves its serving leaves wait on, with a dotted outline, and the chain with the most hours with a heavier one.`
   The panel lists the site's own requirements (when it is in the trace)
   and every other requirement one of its leaves names, together, grouped by layer
   under `Business requirements`, `Business rules`, `Use cases`,
@@ -552,17 +554,22 @@ requirements panel and no trace report.
   held-out or finished serving leaves, a `serving leaves not drawn` button
   opens a list of them: key, issue id (or `no issue id`), title, then
   `waiting on a cycle` or `finished`, joined by ` · `. A row with neither
-  has no such button.
+  has no such button. After the lists comes the path box (element id
+  `req-path`; see [The path to a requirement's work](#the-path-to-a-requirements-work)).
 - **Selecting a requirement.** A click or tap on a chip or a panel row, or
   Enter or Space on a focused one, selects it. Every serving leaf the page
   draws is marked, in the network (boxes and circles) and in the schedule:
   a direct one with a solid outline, an indirect one (through `refines:`
   or a use case's `needs:`) with a dashed one, so the two never differ by
-  colour alone; the rest dims. A collapsed epic row in the schedule shows
-  `{n} lit` for its marked leaves, one form for every count. Selecting the
-  same requirement again, or Escape, clears the selection; selecting
-  another replaces it. A requirement with no drawn serving leaf marks its
-  row and chips and dims nothing.
+  colour alone. Every open leaf those leaves wait on is marked upstream,
+  with a dotted outline, and the chain with the most hours with a heavier
+  one (#77, below); the rest dims. A collapsed epic row in the schedule
+  shows `{n} lit` for its marked leaves, served and upstream together, one
+  form for every count. Selecting the same requirement again, or Escape,
+  clears the selection; selecting another replaces it. A requirement with
+  no drawn serving leaf and no upstream leaf marks its row and chips and
+  dims nothing; one whose serving leaves are all held out but wait on
+  leaves the schedule plans marks those leaves upstream.
 - **Use cases.** Selecting a use case also marks the panel rows and chips
   of the requirements it needs, and lights its serving set: the leaves
   that name it (direct) and every leaf serving a requirement it needs,
@@ -589,12 +596,94 @@ requirements panel and no trace report.
   report stops the page rendering.
 - **The `trace` data.** An object with exactly the keys `in_trace`,
   `scope`, `requirements` (one record per row: `id`, `label`, `layer`,
-  `text`, `needs`, `light`, `held`, `finished`, `counts`), `leaves` (each
+  `text`, `needs`, `light`, `held`, `finished`, `counts` and `path`,
+  below), `leaves` (each
   drawn leaf naming an ID that resolves, with its IDs and labels) and
   `report` (each category with its items). Records are arrays, and the
   light sets are computed at build time from the serving sets: the page's
   script maps a selection to marks with `gantryTrace.marks`, a function
   with no DOM access, and looks every key up in a `Map`.
+
+### The path to a requirement's work
+
+Selecting a requirement or a use case (#77) also shows the path to its
+serving work: what has to be done, and in what order, before the work that
+serves it is finished. The build computes it (`gantry/path.py`) and words
+it in each trace row's `path`; the page's script only draws it.
+
+- **The path set.** From each serving leaf the page draws (the row's
+  targets) and each held-out serving leaf, the build follows `depends_on`
+  links backwards, through open leaves, and keeps every leaf the schedule
+  plans. A finished leaf is never in it: a link joins open leaves only.
+  The targets keep their mark, direct or indirect; every other leaf of the
+  set is upstream, even one that serves another requirement. A use case's
+  targets are its serving set, above.
+- **The order.** The set is worked in one lane by the schedule's own rule:
+  a leaf comes once everything it waits on is done, the most urgent
+  effective priority first, then the lowest WBS position, each leaf keeping
+  its site-wide effective priority.
+- **The chain.** The chain of waits with the most hours over the set, a
+  leaf that waits on nothing in it being a chain of one; a tie goes to the
+  leaf earlier in `WBS.md`. Its hours are the schedule's own chain walk
+  over the same leaves.
+- **The marks.** In the network (boxes and circles) and the schedule, an
+  upstream leaf has a dotted outline (`req-upstream`) and each chain leaf a
+  heavier one (`req-chain`), beside direct (solid) and indirect (dashed);
+  the heavier outline composes with the other three. Upstream leaves are
+  not dimmed. A hover's dependency trace still wins while it lasts, and the
+  marks return when it ends.
+- **The box** (element id `req-path`, after the layer lists, so selecting
+  never moves a row). Hidden with no selection and for a constraint. In
+  order: the schedule label (`agent capacity only; ...`) when the path has
+  leaves; the record's `lines`; the end-day line; the path's leaves in work
+  order, each its key, issue id (or `no issue id`), title, hours with
+  ` h`, its mark (`direct`, `indirect` or `upstream`), then `chain` for a
+  chain leaf, joined by ` · `; then, when the path is not whole,
+  `incomplete` and one line per reason. Everything is inserted as text. The
+  box is rebuilt when the selection changes; a lane-count change rewrites
+  only the end-day line, an `aria-live="polite"` region.
+- **The texts.** The heading is
+  `{n} leaves, {hours} agent-hours to finish its serving work`, or
+  `1 leaf, {hours} agent-hours to finish its serving work`; when every
+  serving leaf is held out,
+  `{n} upstream leaves, {hours} agent-hours feed its held-out serving work`
+  or `1 upstream leaf, {hours} agent-hours feed its held-out serving work`.
+  ` ({n} unestimated)` follows when the path holds an unestimated leaf.
+  Then `Longest chain: {hours} agent-hours, about {days}`, the days
+  `{n} working days` or `1 working day`. Hours are half up to one decimal,
+  a whole number bare, as everywhere on the page. The end-day line is
+  `In the current schedule on {lanes}, its serving work ends in working day {day}`.
+- **D against E.** D, the chain's days, is its hours at 6 a day, half up
+  with no floor: a chain under half a day reads "about 0 working days", as
+  the summary's chain days can. E is the working day the schedule at the
+  chosen lane count ends the targets' work: rounded up, never below 1, the
+  index's finish-day rule (`plan_finish_day`, and `gantryTrace.endDay` in
+  the page's script). So E can read a day later than the summary's "around
+  working day", which rounds half up. E follows the lane control; with no
+  target (every serving leaf held out) there is no end-day line.
+- **The reasons.** `incomplete` lists `{key} waits on a cycle` for each
+  held-out serving leaf, then `{key} waits on {text}` once for each
+  distinct foreign entry of the path's leaves, the leaves that hold it
+  joined by `, `. The text is the leaf's foreign wording
+  ([Foreign entries](#foreign-entries)); in a `--site` build it is followed
+  by `not checked in this build`, and in a full build an entry found
+  finished is not there to be a reason. A held-out serving leaf's own
+  foreign entries are not named, on purpose: its hold is the reason. Two
+  more forms wait for #21, and no page shows them yet:
+  `also served on {site} by {issue}, which this page does not plan` and
+  `sites not read: {sites}`.
+- **Empty cases.** With no open serving leaf, the box shows one line and
+  no list or figures: `No leaf on this site serves it` or
+  `Its serving work on this site is finished`. The unscoped
+  `No leaf serves it` and `Its serving work is finished` are for an
+  installation-wide trace that read every site (#21); every page today uses
+  the site forms.
+- **The `path` record.** Exactly the keys `state` (`path`, `unserved`,
+  `finished` or `constraint`), `lines`, `order` (`[key, mark]` pairs in
+  work order), `chain`, `targets`, `end_day` (E at the default lane count,
+  or null) and `incomplete` (the worded reasons). The script reads it
+  through `gantryTrace.marks`, whose result gains `upstream` (keys in work
+  order) and `chain`.
 
 ### Foreign entries
 
@@ -780,7 +869,8 @@ tests use that document's checkers and harness. This page applies them so:
   and `requirement-detail`, one per requirements-panel row, valued by the
   requirement's ID, and the chips (`g.chip`, keyed by `data-req`, read with
   `getAttribute`). A selection sets only fixed classes: `req-direct`,
-  `req-indirect`, `req-on`, `req-need`, `selecting` and `g-lit`.
+  `req-indirect`, `req-upstream`, `req-chain`, `req-on`, `req-need`,
+  `selecting` and `g-lit`.
   Listeners are delegated on `document`; there are no inline handlers.
 - **No resource from any URL.** The head opens with
   `<meta charset="utf-8">`, then the CSP meta with the content
