@@ -41,7 +41,8 @@
   // view: {lane_of: [[leafKey, laneIndex], ...], collapsed: [laneIndex, ...]}
   function marks(trace, state, view) {
     const hover = isObj(state) && isText(state.hover) ? state.hover : null;
-    const out = { selected: null, selecting: false, leaves: new Map(), needs: [], lanes: [], tracing: hover };
+    const out = { selected: null, selecting: false, leaves: new Map(), needs: [], lanes: [], tracing: hover,
+      upstream: [], chain: [] };
     if (!isObj(trace) || !Array.isArray(trace.requirements)) return out;
     const rows = new Map(trace.requirements.map((r) => [r.id, r]));
     const id = isObj(state) && isText(state.selected) ? state.selected : null;
@@ -49,13 +50,18 @@
     if (row === undefined) return out;
     out.selected = id;
     out.leaves = new Map(row.light);
-    out.selecting = out.leaves.size > 0;
+    // The path (#77): the open leaves the serving leaves wait on, in work order, and the heaviest chain.
+    const path = isObj(row.path) ? row.path : {};
+    const order = Array.isArray(path.order) ? path.order : [];
+    out.upstream = order.filter((o) => Array.isArray(o) && o[1] === "upstream").map((o) => o[0]);
+    out.chain = Array.isArray(path.chain) ? path.chain.slice() : [];
+    out.selecting = out.leaves.size > 0 || out.upstream.length > 0;
     out.needs = row.needs.filter((n) => rows.has(n));
     const v = isObj(view) ? view : {};
     const laneOf = new Map(Array.isArray(v.lane_of) ? v.lane_of : []);
     const collapsed = new Set(Array.isArray(v.collapsed) ? v.collapsed : []);
     const counts = new Map();
-    for (const k of out.leaves.keys()) {
+    for (const k of [...out.leaves.keys(), ...out.upstream]) {
       const lane = laneOf.get(k);
       if (lane !== undefined && collapsed.has(lane)) counts.set(lane, (counts.get(lane) || 0) + 1);
     }
@@ -63,7 +69,23 @@
     return out;
   }
 
-  globalThis.gantryTrace = Object.freeze({ step, marks });
+  // The working day a plan ends the targets' work in (#77): views/worksite.py's
+  // plan_finish_day, with toFixed(9) for its round(end, 9). `plan` is a Map or
+  // its [key, [start, end, lane]] pairs; null when no target is in it.
+  function endDay(plan, targets, hoursPerDay) {
+    const p = plan instanceof Map ? plan : new Map(plan);
+    let end = null;
+    for (const k of targets) {
+      const v = p.get(k);
+      if (v !== undefined) end = Math.max(end === null ? 0 : end, v[1] / hoursPerDay);
+    }
+    return end === null ? null : Math.max(1, Math.ceil(Number(end.toFixed(9))));
+  }
+
+  // Hours as text: half up to one decimal, a whole number bare (views/worksite.py's _num1).
+  const num = (x) => (Math.round(x * 10) / 10).toString();
+
+  globalThis.gantryTrace = Object.freeze({ step, marks, endDay, num });
 
   const block = document.getElementById("gantry-data");
   if (block === null) return;
@@ -77,7 +99,6 @@
   const HPD = DATA.hours_per_day;
   const ELLIPSIS = "\u2026";
   const cut = (s, n) => (s.length > n ? s.slice(0, n - 1).trimEnd() + ELLIPSIS : s);
-  const num = (x) => (Math.round(x * 10) / 10).toString();
   const laneText = (i) => [lanes[i].tag, lanes[i].name].filter((s) => s !== "").join(" ");
   const lanesText = (k) => (k === 1 ? "1 lane" : k + " lanes");
   // The page's count texts (#10): numbers only are filled in.

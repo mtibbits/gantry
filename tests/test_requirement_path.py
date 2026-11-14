@@ -19,13 +19,15 @@ from gantry.schedule import chain_hours, plan
 from gantry.sites import config_roots, load_sites
 from gantry.trace import build_site_trace, load_catalog, page_trace
 from gantry.views import worksite
-from gantry.views.worksite import page_model
+from gantry.model import HOURS_PER_DAY
+from gantry.views.worksite import page_model, plan_finish_day
 from page_safety import assert_page_safe
+from page_script.harness import run_function
 from sample_roles import READABLE, SMALL
 from test_samples import GANTRY_SAMPLE
-from test_schedule_agreement import constructed, it, random_dags
-from test_trace_page import (CYCLE, CYCLE_REQS, built, hostile_trace_site, installation, render_traced, row,
-                             trace_of)
+from test_schedule_agreement import constructed, it, js_plan, random_dags
+from test_trace_page import (CYCLE, CYCLE_REQS, EMPTY_MARKS, built, hand_trace, hostile_trace_site,  # noqa: F401
+                             installation, marks_after, render_traced, row, sample_page, select, trace_of)
 
 
 def site_read(config_path, site):
@@ -454,3 +456,87 @@ def test_work_order_is_the_one_lane_plan():
     for bad in ([it("a", 1, ["b"])], [it("a", 1, ["b"]), it("b", 1, ["a"])], [it("a", 0)]):
         with pytest.raises(ValueError):
             work_order(bad)
+
+
+# --- Task 5: the selection function and endDay (Node) ---------------------------------
+
+def test_select_marks_upstream_and_chain(node, sample_page):
+    path, trace, _ = sample_page
+    marks = marks_after(path, trace, [select("lighthouse:FR-1")])
+    assert marks["leaves"] == row(trace, "lighthouse:FR-1")["light"]
+    assert marks["upstream"] == ["Issue-12"] and marks["chain"] == ["Issue-7", "Issue-10"]
+
+
+def test_clear_clears_upstream_and_chain(node, sample_page):
+    path, trace, _ = sample_page
+    assert marks_after(path, trace, [select("lighthouse:FR-1"), select("lighthouse:FR-1")]) == EMPTY_MARKS
+    escape = {"type": "key", "key": "Escape", "id": None}
+    assert marks_after(path, trace, [select("lighthouse:FR-1"), escape]) == EMPTY_MARKS
+
+
+def test_hover_and_leave_keep_upstream_and_chain(node, sample_page):
+    path, trace, _ = sample_page
+    marks = marks_after(path, trace, [select("lighthouse:FR-1"), {"type": "hover", "leaf": "Issue-9"},
+                                      {"type": "leave"}])
+    assert marks["upstream"] == ["Issue-12"] and marks["chain"] == ["Issue-7", "Issue-10"]
+    assert marks["tracing"] is None
+
+
+def test_collapsed_lane_counts_upstream(node, sample_page):
+    path, trace, data = sample_page
+    view = {"lane_of": [[leaf["key"], leaf["lane"]] for leaf in data["leaves"]],
+            "collapsed": list(range(len(data["lanes"])))}
+    assert marks_after(path, trace, [select("lighthouse:FR-1")], view)["lanes"] == [[1, 3]]
+
+
+def path_trace(order, light=()):
+    trace = hand_trace([list(x) for x in light])
+    trace["requirements"][0]["path"] = {"state": "path", "lines": [], "order": order, "chain": [], "targets": [],
+                                        "end_day": None, "incomplete": []}
+    return trace
+
+
+def test_proto_key_path_marks_exactly_it(node, sample_page):
+    path, _, _ = sample_page
+    view = {"lane_of": [["__proto__", 0], ["constructor", 1]], "collapsed": [0, 1]}
+    marks = marks_after(path, path_trace([["__proto__", "upstream"]]), [select("alpha:FR-1")], view)
+    assert marks["upstream"] == ["__proto__"] and marks["lanes"] == [[0, 1]]
+
+
+def test_upstream_only_selection_is_selecting(node, sample_page):
+    path, _, _ = sample_page
+    marks = marks_after(path, path_trace([["U", "upstream"]]), [select("alpha:FR-1")])
+    assert marks["leaves"] == [] and marks["selecting"] is True
+
+
+def test_row_without_path_marks_as_before(node, sample_page):
+    path, _, _ = sample_page
+    marks = marks_after(path, hand_trace([["Issue-1", "direct"]]), [select("alpha:FR-1")])
+    assert marks["upstream"] == [] and marks["chain"] == [] and marks["leaves"] == [["Issue-1", "direct"]]
+
+
+def end_day(path, pairs, targets):
+    return run_function(path, "gantryTrace.endDay", [pairs, targets, HOURS_PER_DAY])
+
+
+def test_end_day_agrees_with_plan_finish_day(node, sample_page):
+    path = sample_page[0]
+    for name, items, lanes in constructed():
+        p = js_plan(path, items, lanes)
+        targets = [item["key"] for item in items][::2]
+        expected = plan_finish_day([item for item in items if item["key"] in targets], plan(items, lanes))
+        assert end_day(path, [[k, list(v)] for k, v in p.items()], targets) == expected, name
+        assert end_day(path, [[k, list(v)] for k, v in p.items()], []) is None, name
+    ends = [2, 14.4, 12.000000000001, 108.000000003]
+    ends += [d * HOURS_PER_DAY + s * k * 1e-10 for d in (1, 2, 17, 18) for k in range(1, 10) for s in (1, -1)]
+    for end in ends:
+        python = plan_finish_day([{"key": "a"}], {"a": (0.0, end, 0)})
+        assert end_day(path, [["a", [0.0, end, 0]]], ["a"]) == python, end
+    assert [end_day(path, [["a", [0, e, 0]]], ["a"]) for e in (2, 14.4, 12.000000000001)] == [1, 3, 2]
+    assert end_day(path, [["a", [0, 2, 0]]], ["b"]) is None
+
+
+def test_hours_text_agrees_with_num_in_the_script(node, sample_page):
+    path = sample_page[0]
+    for x in (2.25, 0.05, 123456.75, 6.0, 108.0, 14.4, 1 / 3):
+        assert run_function(path, "gantryTrace.num", [x]) == worksite._num1(x), x

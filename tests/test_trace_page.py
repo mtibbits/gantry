@@ -697,7 +697,8 @@ def test_hostile_trace_page_is_safe(tmp_path):
 
 START = {"selected": None, "hover": None}
 NO_VIEW = {"lane_of": [], "collapsed": []}
-EMPTY_MARKS = {"selected": None, "selecting": False, "leaves": [], "needs": [], "lanes": [], "tracing": None}
+EMPTY_MARKS = {"selected": None, "selecting": False, "leaves": [], "needs": [], "lanes": [], "tracing": None,
+               "upstream": [], "chain": []}
 SR1_LIGHT = [["Issue-7", "indirect"], ["Issue-8", "direct"], ["Issue-10", "indirect"], ["Issue-11", "direct"]]
 
 
@@ -776,7 +777,7 @@ def test_collapsed_lane_count(node, sample_page):
     lane_of = [[leaf["key"], leaf["lane"]] for leaf in data["leaves"]]
     lanes = list(range(len(data["lanes"])))
     view = {"lane_of": lane_of, "collapsed": lanes}
-    assert marks_after(path, trace, [select("lighthouse:SR-1")], view)["lanes"] == [[1, 4]]
+    assert marks_after(path, trace, [select("lighthouse:SR-1")], view)["lanes"] == [[1, 5]]
     view = {"lane_of": lane_of, "collapsed": [i for i in lanes if i != 1]}
     assert marks_after(path, trace, [select("lighthouse:SR-1")], view)["lanes"] == []
 
@@ -876,11 +877,11 @@ def test_collapsed_lane_shows_lit_count(node, sample_page):
     path, _, _ = sample_page
     with open_page(path) as page:
         page.drive("requirement", "lighthouse:SR-1")
-        assert lit_counts(page) == {1: "4 lit"}
+        assert lit_counts(page) == {1: "5 lit"}
         page.drive("expand", "all")
         assert page.query(".g-lit") == []
         page.drive("expand", "none")
-        assert lit_counts(page) == {1: "4 lit"}
+        assert lit_counts(page) == {1: "5 lit"}
 
 
 def test_marks_survive_schedule_redraw(node, sample_page):
