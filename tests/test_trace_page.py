@@ -156,7 +156,7 @@ def test_sample_leaf_chips_data():
     assert leaf_ids_of(page, "Issue-7") == [["lighthouse:FR-1", "FR-1"], ["life:BR-1", "life:BR-1"],
                                             ["lighthouse:QA-1", "QA-1"], ["lighthouse:UC-1", "UC-1"]]
     # Finished and untraced leaves have no element to carry chips.
-    assert [k for k, _ in page["leaves"]] == ["Issue-7", "Issue-8", "Issue-10", "Issue-11"]
+    assert [k for k, _ in page["leaves"]] == ["Issue-7", "Issue-8", "Issue-10", "Issue-11", "Issue-12"]
     br = row(page, "life:BR-1")
     assert (br["label"], br["text"]) == ("life:BR-1", None)
     assert page["in_trace"] is True and page["scope"] == "site"
