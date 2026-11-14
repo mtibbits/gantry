@@ -18,8 +18,17 @@ from gantry import schedule
 
 @dataclass(frozen=True)
 class ReqPath:
-    """One row's path. `order` is (key, "direct" | "indirect" | "upstream")
-    in work order; `chain` runs first to last."""
+    """One row's path.
+
+    `state` is "path" when an open leaf serves the row, else "finished" when a
+    finished one does, else "unserved". `order` is (key, "direct" |
+    "indirect" | "upstream") in work order; `chain` runs first to last.
+    `reasons` say why the path is not whole, as records the view words, in
+    this order: ("held", key, None) per held-out serving leaf; ("foreign",
+    keys, text) per distinct foreign-wait text of the path's leaves, with the
+    leaves that hold it; ("other_site", site, issue or None) per serving leaf
+    on another site. `notes` are the sites the build did not read.
+    """
     state: str
     order: tuple[tuple[str, str], ...]
     targets: tuple[str, ...]
@@ -27,7 +36,8 @@ class ReqPath:
     chain_hours: float
     hours: float
     unestimated: int
-    reasons: tuple[tuple[str, str | None, object], ...]
+    reasons: tuple[tuple[str, object, object], ...]
+    notes: tuple[str, ...]
 
 
 def path_set(targets, held, links, scheduled) -> set[str]:
@@ -107,8 +117,8 @@ def heaviest(items) -> tuple[tuple[str, ...], float]:
     return tuple(chain), best[end]
 
 
-def build_paths(serving, items, *, unestimated, links, foreign, scope,
-                sites_not_read=None, other_serving=None) -> dict[str, ReqPath]:
+def build_paths(serving, items, *, unestimated, links, foreign, sites_not_read=None,
+                other_serving=None) -> dict[str, ReqPath]:
     """{row id: ReqPath} for each row of `serving`.
 
     `serving` is {row id: (lit, held, finished_count)}: `lit` the row's
@@ -116,11 +126,25 @@ def build_paths(serving, items, *, unestimated, links, foreign, scope,
     keys. `items` are the site's schedule items; a row's subset keeps their
     order and site-wide eff_priority, and its preds unfiltered, so a breach of
     the path set's closure raises in schedule.plan instead of hiding.
-    `unestimated` is the set of unestimated keys; `links` the site's links.
+    `unestimated` is the set of unestimated keys; `links` the site's links;
+    `foreign` is {key: [worded foreign-wait text, ...]}.
+
+    Provisional (#21, not yet passed by any caller): `sites_not_read` is None
+    when the build does not know which sites it read, else a tuple of the
+    sites it did not read, which becomes every row's `notes`; `other_serving`
+    is {row id: [(site, issue or None), ...]}, the row's open serving leaves
+    on other sites, each a reason, and any makes the row's state "path".
     """
     scheduled = {item["key"] for item in items}
+    notes = tuple(sites_not_read or ())
     out = {}
-    for rid, (lit, held, _finished) in serving.items():
+    for rid, (lit, held, finished_count) in serving.items():
+        elsewhere = (other_serving or {}).get(rid, ())
+        reasons = []
+        if lit or held or elsewhere:
+            state = "path"
+        else:
+            state = "finished" if finished_count > 0 else "unserved"
         how = {key: h for key, h in lit}
         targets = tuple(key for key, _ in lit)
         members = path_set(targets, held, links, scheduled)
@@ -130,7 +154,16 @@ def build_paths(serving, items, *, unestimated, links, foreign, scope,
         hours = 0.0
         for item in subset:
             hours += item["hours"]
-        out[rid] = ReqPath(state="path", order=order, targets=targets, chain=chain, chain_hours=chain_total,
+        reasons.extend(("held", key, None) for key in held)
+        holders = {}
+        for key, _ in order:
+            for text in foreign.get(key, ()):
+                keys = holders.setdefault(text, [])
+                if key not in keys:
+                    keys.append(key)
+        reasons.extend(("foreign", tuple(keys), text) for text, keys in holders.items())
+        reasons.extend(("other_site", site, issue) for site, issue in elsewhere)
+        out[rid] = ReqPath(state=state, order=order, targets=targets, chain=chain, chain_hours=chain_total,
                            hours=hours, unestimated=sum(item["key"] in unestimated for item in subset),
-                           reasons=())
+                           reasons=tuple(reasons), notes=notes)
     return out

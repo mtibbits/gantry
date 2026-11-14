@@ -59,7 +59,7 @@ def one_row(items, lit, held=(), finished=0, *, unestimated=(), links=None, fore
     if links is None:
         links = [(p, item["key"]) for item in items for p in item["preds"]]
     return build_paths({"R": (lit, list(held), finished)}, items, unestimated=set(unestimated), links=links,
-                       foreign=foreign or {}, scope="site")["R"]
+                       foreign=foreign or {})["R"]
 
 
 def test_walk_collects_scheduled_predecessors():
@@ -176,3 +176,72 @@ def test_heaviest_tie_on_hostile_site(tmp_path):
     lit = {k for k, _ in row(trace, first)["light"]}
     keys, total = heaviest([item for item in items if item["key"] in lit])
     assert (keys, total) == (("Issue-1", "Issue-2"), 96.0)
+
+
+# --- Task 3: states and reasons -------------------------------------------------------
+
+
+def test_held_serving_leaf_is_a_reason_and_feeds_upstream():
+    # H waits on held-out H2, H2 on scheduled S.
+    items = [it("S", 5, ix=0)]
+    p = one_row(items, [], held=["H"], links=[("H2", "H"), ("S", "H2")])
+    assert p.order == (("S", "upstream"),) and p.targets == ()
+    assert p.reasons == (("held", "H", None),) and p.state == "path"
+    assert p.hours == p.chain_hours == 5.0 and p.chain == ("S",)
+
+
+def test_held_leaf_with_no_scheduled_work():
+    p = one_row([], [], held=["H"], links=[])
+    assert p.order == () and p.hours == 0 and p.chain == ()
+    assert p.reasons == (("held", "H", None),)
+
+
+def test_foreign_waits_of_path_leaves_only():
+    items = [it("U", 1, ix=0), it("T", 1, ["U"], ix=1), it("N", 1, ix=2)]
+    p = one_row(items, lit_of(("T", "direct")), held=["H"],
+                foreign={"U": ["beta:Issue-9 (on another site)"], "N": ["beta:Issue-8 (on another site)"]})
+    assert p.reasons == (("held", "H", None), ("foreign", ("U",), "beta:Issue-9 (on another site)"))
+
+
+def test_row_foreign_once():
+    # One ancestor row's entry reaches three path leaves: one reason, naming all three.
+    items = [it("A", 1, ix=0), it("B", 1, ["A"], ix=1), it("T", 1, ["B"], ix=2)]
+    text = "beta:Issue-8 (on another site)"
+    p = one_row(items, lit_of(("T", "direct")), foreign={"A": [text], "B": [text], "T": [text, "x"]})
+    assert p.reasons == (("foreign", ("A", "B", "T"), text), ("foreign", ("T",), "x"))
+
+
+def test_empty_states():
+    unserved = one_row([], [], finished=0)
+    finished = one_row([], [], finished=2)
+    assert (unserved.state, finished.state) == ("unserved", "finished")
+    for p in (unserved, finished):
+        assert p.order == () and p.targets == () and p.reasons == () and p.notes == ()
+
+
+def test_not_read_and_other_site_reasons():
+    # Provisional (#21): nothing in the repository passes either argument yet.
+    items = [it("T", 1)]
+    serving = {"R": ([["T", "direct"]], [], 0)}
+
+    def built(**kw):
+        return build_paths(serving, items, unestimated=set(), links=[], foreign={},
+                           **kw)["R"]
+    p = built(sites_not_read=("marsh", "bakery"), other_serving={"R": [("harbor", "Issue-4"), ("bay", None)]})
+    assert p.notes == ("marsh", "bakery")
+    assert p.reasons == (("other_site", "harbor", "Issue-4"), ("other_site", "bay", None))
+    assert built(sites_not_read=()).notes == () and built().notes == ()
+    assert built().reasons == ()
+
+
+def test_not_read_in_empty_state_is_a_note():
+    p = build_paths({"R": ([], [], 0)}, [], unestimated=set(), links=[], foreign={},
+                    sites_not_read=("marsh",))["R"]
+    assert p.state == "unserved" and p.notes == ("marsh",) and p.reasons == ()
+
+
+def test_other_site_only_is_path():
+    p = build_paths({"R": ([], [], 1)}, [], unestimated=set(), links=[], foreign={},
+                    other_serving={"R": [("harbor", "Issue-4")]})["R"]
+    assert p.state == "path" and p.order == ()
+    assert p.reasons == (("other_site", "harbor", "Issue-4"),)
