@@ -77,13 +77,33 @@ gantry build --config <file>
 On Windows, `py -3 -m venv .venv` and `.venv\Scripts\activate` take the place
 of the first two lines.
 
-As a Claude Code plugin, load a clone and run the build from a session; it
-needs no install. A marketplace install comes with the first release.
+<!-- Editor note: tests/test_plugin_versioning.py pins the plugin install lines between the two markers below, and the commands under Versioning & releases. -->
+<!-- plugin-install:begin -->
+As a Claude Code plugin, Gantry installs from this repository's marketplace
+and needs no pip install. Its `/gantry:build` runs the command `python`, or
+`python3` when there is no `python`, which must be Python 3.11 or later.
+
+```
+claude plugin marketplace add mtibbits/gantry
+claude plugin install gantry@gantry
+```
+
+Then, in a Claude Code session:
+
+```
+/gantry:build <installation config>
+```
+
+For how a marketplace install gets a new version, see
+[Versioning & releases](#versioning--releases).
+
+Or load a clone in place, which runs whatever the clone has checked out:
 
 ```
 claude --plugin-dir <clone>
 /gantry:build <installation config>
 ```
+<!-- plugin-install:end -->
 
 What a run does (`gantry` here is `python3 -m gantry` when you run in place):
 
@@ -153,6 +173,147 @@ one pytest session per checkout at a time. See
 adds a view turns its line above into a link.
 `.github/workflows/quickstart.yml` runs the quickstart above verbatim on a
 fresh clone.
+
+## Versioning & releases
+
+<!-- Editor note: tests/test_plugin_versioning.py pins the commands in this section and the plugin install lines under Install. -->
+
+Gantry follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html),
+with plain `X.Y.Z` versions (no pre-release or build suffix), so one version
+string is valid in both files that carry it. `.claude-plugin/plugin.json`
+carries the version, `pyproject.toml`'s `[project] version` mirrors it, and
+`tests/test_cli.py` keeps the two equal. The plugin's entry in
+`.claude-plugin/marketplace.json` carries no version, because Claude Code
+uses plugin.json's value. [CHANGELOG.md](CHANGELOG.md) follows Keep a
+Changelog: each user-visible change adds a line under its `## [Unreleased]`
+section.
+
+A break is a change that makes something an existing installation depends
+on fail. An installation depends on:
+
+- its installation config: a change that bumps `config_version` is a break
+  ([the version rule](docs/config.md#the-version-rule));
+- the private files that config names, in formats Gantry defines: today the
+  [requirements file](docs/requirements-format.md) and the
+  [portfolio file](docs/portfolio-file.md). Files in devagent's formats,
+  such as `WBS.md` and the estimates file, follow devagent's
+  compatibility, not this rule;
+- the output folder: its page paths (`index.html`, `sites/<name>.html`), and
+  `week-plan.json`, where a change that bumps `plan_version` is a break
+  ([its version rule](docs/week-plan.md#the-version-rule));
+- a command's contract: `gantry build`, `gantry portfolio` and
+  `/gantry:build`.
+
+Before 1.0.0, a break bumps the minor version and any other change the
+patch. From 1.0.0, a fix bumps the patch; an added view, command or optional
+config key bumps the minor; and a break bumps the major.
+
+A change reaches installed users as a release, under a new version string.
+Whether `claude plugin update` also delivers a merge that leaves the version
+unchanged to an install from GitHub is not yet checked; the second release's
+update check is the first to show it. A fresh install between releases is
+expected to take `main`'s tree as it is then, under the last released
+version string, so the release checks below run while `main` is still at
+the tag; the first release's install check is the first to confirm it. A
+clone loaded with
+`--plugin-dir` is not pinned: it runs whatever the clone has checked out.
+
+### Cutting a release
+
+1. In one change, bump `version` in `.claude-plugin/plugin.json`, set the
+   same value as `pyproject.toml`'s `[project] version`, and move the
+   `## [Unreleased]` lines of CHANGELOG.md under a new
+   `## [<version>] — <date>` section, where `<date>` is the day you tag.
+   Merge it.
+2. Tag `main` only while its head is the release commit: the last commit
+   that changed the release section. If anything else merged after it,
+   first move that change's `## [Unreleased]` lines into the release
+   section (that commit is then the release commit), or cut a new version.
+3. On a clean, up-to-date `main`, validate both manifests with warnings
+   treated as errors. The tag command does not do this; it checks only that
+   `plugin.json` and the marketplace entry agree:
+
+   ```
+   claude plugin validate --strict .
+   ```
+
+4. Then push the annotated tag `gantry--v<version>`:
+
+   ```
+   claude plugin tag --push
+   ```
+
+5. Save that version's CHANGELOG section to `<section file>` and publish the
+   GitHub release on the tag. `--verify-tag` stops the release when the tag
+   is missing, instead of letting `gh` create a tag of its own that skipped
+   the steps above:
+
+   ```
+   gh release create gantry--v<version> --verify-tag --title "gantry <version>" --notes-file "<section file>"
+   ```
+
+### Checks every release runs
+
+Run these while `main` is still at the tag.
+
+- The quickstart job at the tag: its run for the tag push, or this:
+
+  ```
+  gh workflow run quickstart.yml --ref gantry--v<version>
+  ```
+
+- The plugin, by hand. At the first release, a fresh install with the two
+  commands under [Install](#install). At each later release, the update
+  path from an install of the previous release; it is not yet exercised,
+  and the second release is the first to run it. That release replaces this
+  "not yet" and the one under Versioning & releases with what it showed:
+
+  ```
+  claude plugin marketplace update gantry
+  claude plugin update gantry@gantry
+  ```
+
+  `claude plugin update` says a restart is required to apply the update.
+  Either way, `claude plugin list` then shows the new version. Then build
+  the demo with the installed plugin:
+
+  1. In a folder that is in no git work tree, clone the tag, then run the
+     demo build in `<clone>`, which runs every preparation step the demo
+     needs:
+
+     ```
+     git clone --branch gantry--v<version> https://github.com/mtibbits/gantry.git "<clone>"
+     cd "<clone>"
+     python3 tools/demo_build.py
+     ```
+
+  2. Remove `<clone>/.git`, so the history-less sample site is in no
+     repository and its history would read "no data: in no repository".
+     No page shows history yet (docs/wbs-history.md), so the check is that
+     this fails with "not a git repository":
+
+     ```
+     git -C "<clone>/samples" rev-parse --show-toplevel
+     ```
+
+  3. Delete `<clone>/samples/out`, the sample config's output folder.
+  4. Start a Claude Code session in a new, empty folder `<start>` and run:
+
+     ```
+     /gantry:build <clone>/samples/gantry.sample.toml
+     ```
+
+  5. Check that every page written carries `built <time>; data as of
+     <date>`, not `sample data as of <date>`: that shows the installed
+     plugin wrote them.
+
+- What is posted about a release (the issue comment, and the PR's record of
+  the manifest checks) writes every local path as `<start>`, `<clone>` or
+  `<home>`, and must pass this with exit 0 before it is posted:
+
+  ```
+  python3 tools/commit_check.py names --text "<file>"
+  ```
 
 ## License
 
