@@ -59,6 +59,7 @@ FLOOR = {
     "tools/commit_check.py",
     "tools/commit_check_exempt.txt",
     ".claude-plugin/plugin.json",
+    ".claude-plugin/marketplace.json",
 }
 
 

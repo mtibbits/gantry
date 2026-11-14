@@ -70,8 +70,8 @@ def test_no_subcommand_is_usage_error():
 def test_versions_agree():
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     plugin = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
-    assert pyproject["project"]["version"] == "0.0.0"
-    assert plugin["version"] == "0.0.0"
+    # plugin.json carries the release version; pyproject.toml mirrors it (#47).
+    assert pyproject["project"]["version"] == plugin["version"]
     assert pyproject["project"]["name"] == "gantry"
     assert plugin["name"] == "gantry"
 

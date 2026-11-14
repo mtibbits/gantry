@@ -1,0 +1,15 @@
+{
+  "name": "gantry",
+  "description": "The Gantry plugin: planning pages for many projects, built from devagent WBS files",
+  "owner": {
+    "name": "Matthew Tibbits",
+    "url": "https://github.com/mtibbits"
+  },
+  "plugins": [
+    {
+      "name": "gantry",
+      "description": "Planning pages for many projects, built from devagent WBS files",
+      "source": "./"
+    }
+  ]
+}
