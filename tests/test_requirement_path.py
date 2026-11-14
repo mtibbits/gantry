@@ -6,6 +6,7 @@ Sample literals are hand-derived from samples/lighthouse/.
 """
 
 import copy
+import re
 import random
 import time
 
@@ -22,12 +23,14 @@ from gantry.views import worksite
 from gantry.model import HOURS_PER_DAY
 from gantry.views.worksite import page_model, plan_finish_day
 from page_safety import assert_page_safe
-from page_script.harness import run_function
+from page_script.harness import open_page, run_function
 from sample_roles import READABLE, SMALL
-from test_samples import GANTRY_SAMPLE
+from test_samples import GANTRY_SAMPLE, ROOT
 from test_schedule_agreement import constructed, it, js_plan, random_dags
-from test_trace_page import (CYCLE, CYCLE_REQS, EMPTY_MARKS, built, hand_trace, hostile_trace_site,  # noqa: F401
-                             installation, marks_after, render_traced, row, sample_page, select, trace_of)
+from test_trace_page import (CYCLE, CYCLE_REQS, EMPTY_MARKS, built, by_id, hand_trace,  # noqa: F401
+                             hostile_trace_site, installation, lit_counts, marked, marks_after, render_traced, row,
+                             sample, sample_page, select, trace_of)
+from test_worksite_page import tree
 
 
 def site_read(config_path, site):
@@ -540,3 +543,149 @@ def test_hours_text_agrees_with_num_in_the_script(node, sample_page):
     path = sample_page[0]
     for x in (2.25, 0.05, 123456.75, 6.0, 108.0, 14.4, 1 / 3):
         assert run_function(path, "gantryTrace.num", [x]) == worksite._num1(x), x
+
+
+# --- Task 6: the path box, the marks and their CSS ------------------------------------
+
+CSS_PATH = ROOT / "gantry" / "templates" / "worksite.html"
+
+
+def box(page):
+    (found,) = page.query("#req-path")
+    return found
+
+
+def box_items(page, ul):
+    return [e.text for e in page.query(f"#req-path ul.{ul} li")]
+
+
+def test_path_box_on_sample(node, sample_page):
+    path, trace, _ = sample_page
+    p = row(trace, "lighthouse:FR-1")["path"]
+    with open_page(path) as page:
+        page.drive("requirement", "lighthouse:FR-1")
+        assert "gone" not in box(page).classes
+        items = box_items(page, "path-list")
+        assert [i.split(" ")[0] for i in items] == ["Issue-7", "Issue-12", "Issue-10"]
+        assert items[1].endswith(" · 6 h · upstream") and "chain" not in items[1]
+        assert items[0].endswith(" · 90 h · direct · chain") and items[2].endswith(" · 12 h · direct · chain")
+        assert items[0] == "Issue-7 · Issue-7 · Record a nightly check · 90 h · direct · chain"
+        assert marked(page, "g.node", "req-upstream") == {"Issue-12"} == marked(page, "rect.seg", "req-upstream")
+        assert marked(page, "g.node", "req-chain") == {"Issue-7", "Issue-10"} == marked(page, "rect.seg",
+                                                                                         "req-chain")
+        text = box(page).text
+        assert worksite.SCHEDULE_LABEL in text and all(line in text for line in p["lines"])
+        (end,) = page.query("#req-path .path-end")
+        assert end.attrs.get("aria-live") == "polite" and "aria-live" not in box(page).attrs
+
+
+def test_end_day_follows_lanes(node, sample_page):
+    path, trace, data = sample_page
+    p = row(trace, "lighthouse:FR-1")["path"]
+    items = data["schedule"]["items"]
+    targets = [item for item in items if item["key"] in p["targets"]]
+    one = plan_finish_day(targets, plan(items, 1))
+    assert (p["end_day"], one) == (17, 29)
+    with open_page(path) as page:
+        page.drive("requirement", "lighthouse:FR-1")
+        assert [e.text for e in page.query("#req-path .path-end")] == [worksite.path_end_text(17, 4)]
+        page.drive("lanes", "1")
+        assert [e.text for e in page.query("#req-path .path-end")] == [worksite.path_end_text(one, 1)]
+
+
+def test_box_hidden_without_selection(node, sample_page):
+    path, _, _ = sample_page
+    with open_page(path) as page:
+        assert "gone" in box(page).classes and page.query("#req-path *") == []
+        page.drive("requirement", "lighthouse:FR-1")
+        page.drive("requirement", "lighthouse:FR-1")
+        assert "gone" in box(page).classes and page.query("#req-path *") == []
+        assert page.query(".req-upstream, .req-chain") == []
+
+
+def test_upstream_marks_survive_hover_and_redraw(node, sample_page):
+    path, _, _ = sample_page
+
+    def sets(page):
+        return [marked(page, sel, cls) for sel in ("g.node", "rect.seg") for cls in ("req-upstream", "req-chain")]
+
+    with open_page(path) as page:
+        page.drive("requirement", "lighthouse:FR-1")
+        first = sets(page)
+        assert first[0] == {"Issue-12"}
+        page.drive("network-detail", "Issue-9")
+        page.leave("network-detail", "Issue-9")
+        assert sets(page) == first
+        page.drive("lanes", "2")
+        assert sets(page) == first
+        page.drive("group", "lane")
+        assert sets(page) == first
+
+
+def test_collapsed_row_counts_upstream(node, sample_page):
+    path, _, _ = sample_page
+    with open_page(path) as page:
+        page.drive("requirement", "lighthouse:FR-1")
+        assert lit_counts(page) == {1: "3 lit"}
+
+
+def test_empty_case_box(node, sample_page):
+    path, _, _ = sample_page
+    with open_page(path) as page:
+        page.drive("requirement", "lighthouse:UC-2")
+        assert "gone" not in box(page).classes
+        assert worksite.PATH_UNSERVED_SITE in box(page).text
+        assert page.query("#req-path .path-list li, #req-path .path-end, #req-path .label") == []
+
+
+def test_constraint_row_has_no_box_on_the_page(node, sample_page):
+    path, _, _ = sample_page
+    with open_page(path) as page:
+        page.drive("requirement", "lighthouse:CON-1")
+        assert "gone" in box(page).classes and page.query("#req-path *") == []
+
+
+def test_incomplete_box(node, tmp_path):
+    config_path = installation(tmp_path, {"alpha": CYCLE_UP}, {"alpha": FR1})
+    path = tmp_path / "alpha.html"
+    path.write_bytes(render_traced(config_path, "alpha")[0].encode("utf-8"))
+    with open_page(path) as page:
+        page.drive("requirement", "alpha:FR-1")
+        assert worksite.PATH_INCOMPLETE in box(page).text
+        assert box_items(page, "path-why") == [worksite.PATH_HELD.format(key="Issue-1")]
+        assert [i.split(" ")[0] for i in box_items(page, "path-list")] == ["Issue-3"]
+        assert box_items(page, "path-list")[0].endswith(" · upstream · chain")
+        assert page.query("#req-path .path-end") == []
+
+
+def css_rules(text):
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+    return [(sel.strip(), body) for sel, body in re.findall(r"([^{}]*)\{([^}]*)\}", text)]
+
+
+def props(body):
+    return {p.split(":")[0].strip(): p.split(":", 1)[1].strip() for p in body.split(";") if ":" in p}
+
+
+def test_upstream_and_chain_css():
+    rules = css_rules(CSS_PATH.read_bytes().decode("utf-8"))
+    indirect = {props(b)["stroke-dasharray"] for s, b in rules if "req-indirect" in s and "stroke:" in b}
+    upstream = [props(b) for s, b in rules if "req-upstream" in s and "stroke:" in b]
+    assert len(upstream) == 2
+    for p in upstream:
+        assert p["stroke-dasharray"] not in ({"none"} | indirect)
+    chain = [(i, props(b)) for i, (s, b) in enumerate(rules) if "req-chain" in s]
+    assert len(chain) == 2 and all(list(p) == ["stroke-width"] for _, p in chain)
+    last_how = max(i for i, (s, b) in enumerate(rules)
+                   if any(c in s for c in ("req-direct", "req-indirect", "req-upstream")) and "stroke:" in b)
+    assert all(i > last_how for i, _ in chain)
+    dims = [s for s, b in rules if "opacity" in b and ":not(.req-direct):not(.req-indirect)" in s]
+    assert len(dims) == 2 and all(":not(.req-upstream)" in s for s in dims)
+    assert not any("req-path" in s and "display" in b for s, b in rules)
+
+
+def test_box_mounts_after_the_layer_lists(tmp_path):
+    t = tree(sample(tmp_path).pages[SMALL])
+    panel = by_id(t, "requirements")
+    kids = [i for i, e in enumerate(t.elements) if e.get("parent") == panel]
+    assert t.elements[kids[-1]]["attrs"].get("id") == "req-path"

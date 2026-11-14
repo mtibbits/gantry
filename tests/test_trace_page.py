@@ -834,7 +834,7 @@ def test_empty_light_set_not_selecting(node, sample_page):
 
 # --- Task 8: the thin layer, under the harness ---------------------------------------
 
-MARK_SELECTOR = ".req-direct, .req-indirect, .req-on, .req-need"
+MARK_SELECTOR = ".req-direct, .req-indirect, .req-on, .req-need, .req-upstream, .req-chain"
 
 
 def marked(page, selector, cls):
@@ -1003,7 +1003,8 @@ def test_hostile_trace_under_harness(node, tmp_path):
 def test_requirements_panel_states_the_marks(tmp_path):
     t = tree(sample(tmp_path).pages[SMALL])
     panel = by_id(t, "requirements")
-    assert [text_of(t, i) for i in find(t, "p", ["label"], within=panel)] == [worksite.SELECT_NOTE]
+    assert [text_of(t, i) for i in find(t, "p", ["label"], within=panel)] == [worksite.SELECT_NOTE,
+                                                                           worksite.PATH_NOTE]
 
 
 # --- Task 9: the docs ----------------------------------------------------------------

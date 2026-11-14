@@ -1015,10 +1015,12 @@ def _requirements(trace):
     for r in trace["requirements"]:
         groups.setdefault(r["layer"], []).append(r)
     parts = [f'<section class="prose" id="requirements"><h2>{esc(REQUIREMENTS_HEADING)}</h2>'
-             f'<p class="label">{esc(SELECT_NOTE)}</p>']
+             f'<p class="label">{esc(SELECT_NOTE)}</p><p class="label">{esc(PATH_NOTE)}</p>']
     for layer, rows in groups.items():
         parts.append(f'<h3>{esc(LAYER_HEADINGS[layer])}</h3><ul class="panel reqs">'
                      + "".join(_req_row(r) for r in rows) + "</ul>")
+    # The path box (#77): after the lists, so selecting never moves a row; the script fills it.
+    parts.append('<div class="req-path gone" id="req-path"></div>')
     return Markup("".join(parts) + "</section>")
 
 

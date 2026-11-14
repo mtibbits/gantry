@@ -242,6 +242,7 @@
   let critEnd = 0;
   let span = 20;
   let hot = null;
+  let planNow = new Map();
   const W = LABW + TW + PADR;
   const px = (d) => LABW + (d / span) * TW;
 
@@ -252,6 +253,7 @@
 
   function compute() {
     const p = gantrySchedule.plan(items, k);
+    planNow = p;
     rows = items.map((item) => {
       const [a, b, wl] = p.get(item.key);
       return { leaf: leaves.get(item.key), a: a / HPD, b: b / HPD, wl };
@@ -472,7 +474,7 @@
   // One state; every change goes through gantryTrace.step, then applyMarks,
   // which sets fixed classes on elements matched with getAttribute.
 
-  const HOW_CLASS = new Map([["direct", "req-direct"], ["indirect", "req-indirect"]]);
+  const HOW_CLASS = new Map([["direct", "req-direct"], ["indirect", "req-indirect"], ["upstream", "req-upstream"]]);
   let sel = { selected: null, hover: null };
   const LANE_OF = DATA.leaves.map((leaf) => [leaf.key, leaf.lane]);
 
@@ -483,22 +485,108 @@
     };
   }
 
-  function mark(el, how) {
+  // One mark per leaf: how it serves the selection, else "upstream"; the chain mark composes with it.
+  function mark(el, m, upstream, chain) {
+    const key = el.getAttribute("data-item");
+    const how = m.leaves.has(key) ? m.leaves.get(key) : upstream.has(key) ? "upstream" : undefined;
     for (const c of HOW_CLASS.values()) el.classList.remove(c);
     if (how !== undefined) el.classList.add(HOW_CLASS.get(how));
+    el.classList.toggle("req-chain", chain.has(key));
+  }
+
+  // --- the path box (#77), built as text -------------------------------------
+
+  const pathBox = document.getElementById("req-path");
+  const MARK_WORDS = new Map([["direct", DATA.texts.path_direct], ["indirect", DATA.texts.path_indirect],
+    ["upstream", DATA.texts.path_upstream]]);
+  let boxFor = null;
+
+  function para(parent, text, cls) {
+    const p = document.createElement("p");
+    if (cls !== undefined) p.setAttribute("class", cls);
+    p.textContent = text;
+    parent.append(p);
+    return p;
+  }
+
+  function endText(path) {
+    const day = gantryTrace.endDay(planNow, path.targets, HPD);
+    return day === null ? null : fillIn(DATA.texts.path_end, [["lanes", lanesText(k)], ["day", day]]);
+  }
+
+  function fillBox(path) {
+    pathBox.replaceChildren();
+    if (path.order.length) para(pathBox, DATA.texts.label, "label");
+    for (const text of path.lines) para(pathBox, text);
+    const end = endText(path);
+    if (end !== null) para(pathBox, end, "path-end").setAttribute("aria-live", "polite");
+    if (path.order.length) {
+      const chain = new Set(path.chain);
+      const ul = document.createElement("ul");
+      ul.setAttribute("class", "path-list");
+      for (const [key, how] of path.order) {
+        const leaf = leaves.get(key);
+        const li = document.createElement("li");
+        const id = document.createElement("span");
+        id.setAttribute("class", "mono");
+        id.textContent = key;
+        const parts = leaf === undefined ? [] : [leaf.issue === null ? DATA.texts.no_issue_id : leaf.issue, leaf.title,
+          num(leaf.hours) + " h"];
+        parts.push(MARK_WORDS.get(how) || how);
+        if (chain.has(key)) parts.push(DATA.texts.mark_chain);
+        li.append(id, document.createTextNode(" \u00b7 " + parts.join(" \u00b7 ")));
+        ul.append(li);
+      }
+      pathBox.append(ul);
+    }
+    if (path.incomplete.length) {
+      para(pathBox, DATA.texts.path_incomplete, "label");
+      const ul = document.createElement("ul");
+      ul.setAttribute("class", "path-why");
+      for (const text of path.incomplete) {
+        const li = document.createElement("li");
+        li.textContent = text;
+        ul.append(li);
+      }
+      pathBox.append(ul);
+    }
+  }
+
+  // Rebuilt only when the selection changes; a lane change rewrites the end-day line alone,
+  // so its aria-live region announces the new day and every other redraw leaves the box be.
+  function applyBox(id) {
+    if (pathBox === null) return;
+    const row = id === null || TRACE === null ? undefined : TRACE.requirements.find((r) => r.id === id);
+    const path = row === undefined || !isObj(row.path) || row.path.state === "constraint" ? null : row.path;
+    const key = path === null ? null : id;
+    if (key !== (boxFor === null ? null : boxFor.id)) {
+      boxFor = key === null ? null : { id: key, path, lanes: k };
+      if (path === null) pathBox.replaceChildren();
+      else fillBox(path);
+      pathBox.classList.toggle("gone", path === null);
+      return;
+    }
+    if (boxFor !== null && boxFor.lanes !== k) {
+      boxFor.lanes = k;
+      const end = pathBox.querySelector(".path-end");
+      if (end !== null) end.textContent = endText(path) || "";
+    }
   }
 
   function applyMarks() {
     const m = gantryTrace.marks(TRACE, sel, view());
     const needs = new Set(m.needs);
+    const upstream = new Set(m.upstream);
+    const chain = new Set(m.chain);
+    applyBox(m.selected);
     if (svg !== null) {
       svg.classList.toggle("tracing", m.tracing !== null);
       svg.classList.toggle("selecting", m.selecting);
-      for (const g of svg.querySelectorAll(".node")) mark(g, m.leaves.get(g.getAttribute("data-item")));
+      for (const g of svg.querySelectorAll(".node")) mark(g, m, upstream, chain);
     }
     if (host !== null) {
       host.classList.toggle("selecting", m.selecting);
-      for (const s of host.querySelectorAll(".seg")) mark(s, m.leaves.get(s.getAttribute("data-item")));
+      for (const s of host.querySelectorAll(".seg")) mark(s, m, upstream, chain);
       const lit = new Map(m.lanes);
       for (const g of host.querySelectorAll(".g-toggle")) {
         for (const old of g.querySelectorAll(".g-lit")) old.remove();
