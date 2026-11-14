@@ -319,6 +319,9 @@ claude --plugin-dir <clone>
 /gantry:build <installation config>
 ```
 
+A marketplace install runs the same launcher; see the README's
+[Install](../README.md#install).
+
 `/gantry:build` runs `tools/gantry-build.sh`, which runs
 `python -P -m gantry build --config <config>` with the plugin's root on
 `PYTHONPATH`, so it needs no pip install. It runs the command `python`, or
