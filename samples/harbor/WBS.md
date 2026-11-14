@@ -4,7 +4,7 @@
   - [x] Survey the quay wall {issue: Issue-3, priority: P2}
   - [x] Order the crane rails {issue: Issue-4}
   - [x] Pour the crane footings {issue: Issue-5, priority: P3}
-  - [~] Erect crane one {issue: Issue-6, priority: P1, est: ?w}
+  - [~] Erect crane one {issue: Issue-6, priority: P1, est: ?w, depends_on: [quarry:Issue-3]}
   - [ ] Brief the crane crew {priority: P1, est: 1h}
   - [ ] Erect crane two {issue: Issue-7, priority: P2, est: ?w, depends_on: [Issue-6]}
   - [ ] Load-test both cranes {issue: Issue-8, priority: P4}
