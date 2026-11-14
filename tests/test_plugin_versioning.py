@@ -14,6 +14,7 @@ edits a tracked file. The README pins at the bottom keep the release commands
 and the plugin install lines the README promises.
 """
 
+import copy
 import json
 import re
 import shutil
@@ -181,7 +182,7 @@ def plant_json(root, rel, change):
     """Parse the copy's `rel`, apply `change` to it, write it back; assert it changed."""
     path = root / rel
     before = json.loads(path.read_text(encoding="utf-8"))
-    doc = json.loads(path.read_text(encoding="utf-8"))
+    doc = copy.deepcopy(before)
     change(doc)
     path.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8", newline="\n")
     assert json.loads(path.read_text(encoding="utf-8")) != before
