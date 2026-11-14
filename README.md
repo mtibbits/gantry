@@ -94,7 +94,7 @@ Then, in a Claude Code session:
 /gantry:build <installation config>
 ```
 
-A marketplace install stays at its version until the next release; see
+For how a marketplace install gets a new version, see
 [Versioning & releases](#versioning--releases).
 
 Or load a clone in place, which runs whatever the clone has checked out:
@@ -261,6 +261,7 @@ Run these while `main` is still at the tag.
   claude plugin update gantry@gantry
   ```
 
+  `claude plugin update` says a restart is required to apply the update.
   Either way, `claude plugin list` then shows the new version. Then build
   the demo with the installed plugin:
 
@@ -270,12 +271,14 @@ Run these while `main` is still at the tag.
 
      ```
      git clone --branch gantry--v<version> https://github.com/mtibbits/gantry.git "<clone>"
+     cd "<clone>"
      python3 tools/demo_build.py
      ```
 
-  2. Remove `<clone>/.git`. This must then fail with "not a git
-     repository", so the history-less sample site's history reads "no
-     data: in no repository":
+  2. Remove `<clone>/.git`, so the history-less sample site is in no
+     repository and its history would read "no data: in no repository".
+     No page shows history yet (docs/wbs-history.md), so the check is that
+     this fails with "not a git repository":
 
      ```
      git -C "<clone>/samples" rev-parse --show-toplevel

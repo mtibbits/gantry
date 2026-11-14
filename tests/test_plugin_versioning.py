@@ -1,9 +1,9 @@
 """The plugin's release files follow devagent's release policy (#47).
 
-`.claude-plugin/plugin.json` is the only home of the plugin's version, a plain
-`X.Y.Z` semver string. The marketplace entry carries no version, because Claude
-Code uses plugin.json's value when both are set, so a second copy can only go
-stale. `CHANGELOG.md` opens with `## [Unreleased]` and has a dated section for
+`.claude-plugin/plugin.json` carries the plugin's version, a plain `X.Y.Z`
+semver string (`pyproject.toml` mirrors it; tests/test_cli.py keeps the two
+equal). The marketplace entry carries no version, because Claude Code uses
+plugin.json's value when both are set, so a copy there can only go stale. `CHANGELOG.md` opens with `## [Unreleased]` and has a dated section for
 plugin.json's version. Both manifests name their author or owner by a name and
 a profile url only, and hold no email.
 
@@ -26,8 +26,8 @@ from helpers_docs import markdown_text, section, unfenced_lines
 
 ROOT = Path(__file__).resolve().parents[1]
 
-SEMVER = re.compile(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)")  # fullmatch only
-RELEASE_HEADING = re.compile(r"## \[(?P<version>[^\]]+)\](?: — (?P<date>\d{4}-\d{2}-\d{2}))?")  # fullmatch
+SEMVER = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")  # fullmatch only; ASCII digits
+RELEASE_HEADING = re.compile(r"## \[(?P<version>[^\]]+)\](?: — (?P<date>[0-9]{4}-[0-9]{2}-[0-9]{2}))?")  # fullmatch
 UNRELEASED = "## [Unreleased]"
 PLUGIN = ".claude-plugin/plugin.json"
 MARKETPLACE = ".claude-plugin/marketplace.json"
@@ -80,7 +80,7 @@ def marketplace_problems(root):
         elif "version" in entry:
             name = entry.get("name") if isinstance(entry.get("name"), str) else "?"
             problems.append(f"{MARKETPLACE}: plugins[{i}] ({name}) has a version; "
-                            "plugin.json is the only home of the version")
+                            "plugin.json carries the version")
     return problems
 
 
@@ -212,9 +212,10 @@ def test_planted_copy_is_clean(release_tree):
 ABSENT = object()
 
 
-@pytest.mark.parametrize("value", ["0.1", "v0.1.0", "01.0.0", "0.1.0.0", "0.1.0\n", "0.1.0-rc.1", 1, ABSENT],
+@pytest.mark.parametrize("value", ["0.1", "v0.1.0", "01.0.0", "0.1.0.0", "0.1.0\n", "0.1.0-rc.1",
+                                   "1٢.0.0", 1, ABSENT],
                          ids=["two-part", "v-prefix", "leading-zero", "four-part", "trailing-newline",
-                              "prerelease", "not-a-string", "absent"])
+                              "prerelease", "non-ascii-digit", "not-a-string", "absent"])
 def test_planted_bad_version(release_tree, value):
     if value is ABSENT:
         plant_json(release_tree, PLUGIN, lambda doc: doc.pop("version"))
@@ -227,7 +228,7 @@ def test_planted_bad_version(release_tree, value):
 def test_planted_marketplace_entry_version(release_tree):
     plant_json(release_tree, MARKETPLACE, lambda doc: doc["plugins"][0].__setitem__("version", "0.1.0"))
     assert marketplace_problems(release_tree) == [
-        f"{MARKETPLACE}: plugins[0] (gantry) has a version; plugin.json is the only home of the version"]
+        f"{MARKETPLACE}: plugins[0] (gantry) has a version; plugin.json carries the version"]
 
 
 @pytest.mark.parametrize("plugins", [[], ABSENT, {}], ids=["empty-list", "absent", "object"])

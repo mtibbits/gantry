@@ -30,8 +30,8 @@ line under `## [Unreleased]`.
   worksite pages (docs/requirements-format.md, docs/worksite-page.md).
 - The portfolio file: the operator's private priorities and capacity
   (docs/portfolio-file.md).
-- `WBS.md` history, read from each site's planning repository
-  (docs/wbs-history.md).
+- The `WBS.md` history reader, which reads each site's planning repository;
+  no page shows its answers yet (docs/wbs-history.md).
 - The `/gantry:build` Claude Code plugin command, which runs the build with no
   pip install (docs/config.md).
 - The public demo, built only from fictional sample projects, and its Pages
