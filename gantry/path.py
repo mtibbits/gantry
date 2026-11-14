@@ -3,8 +3,9 @@
 For each requirement or use case row of the trace, the path set is every
 scheduled leaf its open serving leaves wait on, directly or through other
 open leaves, together with its scheduled serving leaves (the targets). The
-set is worked in one lane through the unchanged schedule.plan, and its
-heaviest chain of waits is walked here, held to schedule.chain_hours.
+set is worked in one lane in schedule.plan's order (work_order, held equal
+to it by a test), and its heaviest chain of waits is walked here, held to
+schedule.chain_hours.
 
 Imports only gantry.schedule and the standard library. Plain loops and no
 recursion: Python's float sum is compensated and the page script's is not,
@@ -45,7 +46,8 @@ def path_set(targets, held, links, scheduled) -> set[str]:
     """The scheduled leaves reached from `targets` and `held` by following
     `links` ((prerequisite, dependent) pairs) backwards, the targets included.
     The walk passes through leaves that are not scheduled (held-out ones) but
-    keeps only those in `scheduled`."""
+    keeps only those in `scheduled`. build_paths walks with one prebuilt link
+    map instead; this is the single-row form."""
     return _walk_back([*targets, *held], _before(links), scheduled)
 
 
@@ -160,7 +162,7 @@ def build_paths(serving, items, *, unestimated, links, foreign, sites_not_read=N
     scheduled serving leaves as (key, how), `held` its held-out serving leaf
     keys. `items` are the site's schedule items; a row's subset keeps their
     order and site-wide eff_priority, and its preds unfiltered, so a breach of
-    the path set's closure raises in schedule.plan instead of hiding.
+    the path set's closure raises in work_order's schedule._check instead of hiding.
     `unestimated` is the set of unestimated keys; `links` the site's links;
     `foreign` is {key: [worded foreign-wait text, ...]}.
 
