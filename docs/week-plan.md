@@ -359,7 +359,11 @@ that can use the pool, judged before the charge: a site can use attention
 while it has a ready leaf of rate above 0 under its 6 agent hours that day,
 and lanes while it has any ready leaf under its 6 agent hours. A site that
 cannot absorb a minute today accrues nothing, so the share it cannot use
-goes to the share sites that can.
+goes to the share sites that can. A site that can absorb a little, such as
+one slow leaf still under its 6 agent hours, accrues its whole share until
+it cannot: its target can run ahead of anything it will use, and the other
+share sites then sit over their own targets, so their blocks hand over at
+`block_default_hours` while both fit.
 
 | A charge to | In phases | Each share site that can use the pool gains | Each share-less site that can use it gains |
 |---|---|---|---|
@@ -505,15 +509,19 @@ them, attention first:
   longer fits.
 
 Both are judged against the day's attention, never against a block's
-fair-share cap. The check runs for the share sites' leaves after phase 5
-and for the share-less sites' after phase 7, against the block open then:
-a leaf whose site's block is open is short when the attention left holds no
-more agent minute of it, and a leaf whose site's block is not open is short
-when the attention left, less the open block's padding, cannot open one.
-Keyed on the open block instead of a site's one block of the day, the two
-mean what they meant when a site had one block a day, so `ran_out`,
-`days_run_out` and `binding` keep their meaning and
-[the version rule](#the-version-rule) is not triggered.
+fair-share cap. A waiting leaf of rate above 0 is judged when its tier's
+blocks have been planned and before that tier's lanes row: `p0` leaves
+after phase 1, `started` leaves after phase 3, the share sites' `fair_share`
+leaves after phase 5 and the share-less sites' after phase 7, each against
+the block open then. A leaf whose site's block is open is short when the
+attention left holds no more agent minute of it, and a leaf whose site's
+block is not open is short when the attention left, less the open block's
+padding, cannot open one. `ran_out`, `days_run_out` and `binding` keep
+their meaning, so [the version rule](#the-version-rule) is not triggered.
+A day's values can still differ from an earlier Gantry's for the same
+placements: the lanes rows of tiers 1 and 2 now come before the later
+tiers' blocks, so a leaf whose turn comes after such a row took the last
+lane waits on lanes alone where it used to wait on attention.
 
 A leaf with no lane minute free waits on lanes alone, with one exception:
 when a single placement takes the last lane minute and the last of the

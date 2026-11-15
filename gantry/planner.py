@@ -451,6 +451,8 @@ class _Day:
         # being the start cost plus the operator minutes placed; its padding
         # up to block_min is charged when it closes.
         self.open = None
+        # The pools the day's block-leaf checks found run out (block_pools_run_out).
+        self.ran = set()
         # Whether the placement that took the last lane minute also took the
         # last of the attention its block could give that leaf.
         self.tied = False
@@ -644,6 +646,7 @@ class _Day:
             for name in self.names if self.order[name][tier])]
         for name in sites:
             self.block_pass(name, self.order[name][tier])
+        self.block_pools_run_out(self.names, tier)
         self.phase += 1
         for name in sites:
             for item in self.order[name][tier]:
@@ -748,9 +751,11 @@ class _Day:
             name = max(fitting, key=lambda n: (self.deficit(n, POOL_LANES), -self.position[n]))
             self.row_place(fitting[name][0])
 
-    def block_pools_run_out(self, members) -> set:
-        """The pools that ran out while a ready leaf of rate above 0 of a site
-        in `members` still waited, against the block open now.
+    def block_pools_run_out(self, members, tier):
+        """Add to the day's pools those that ran out while a ready leaf of rate
+        above 0 of `tier` and a site in `members` still waited, judged right
+        after that tier's blocks and before its lanes row, against the block
+        open then: a leaf of a tier is never placed after its blocks' phase.
 
         Lanes: no lane minute is left. Attention: a block stopped at the
         day's attention while its leaf could take a lane minute; or, with a
@@ -760,9 +765,11 @@ class _Day:
         (docs/week-plan.md). With no lane minute free, attention ran out too
         only when one placement took the last of both pools.
         """
-        ran = {POOL_ATTENTION} if self.stopped else set()
+        ran = self.ran
+        if self.stopped:
+            ran.add(POOL_ATTENTION)
         for name in members:
-            for item in self.ready(name):
+            for item in self.order[name][tier]:
                 if not item["ppm"] or not self.waiting(item):
                     continue
                 if self.lanes == 0:
@@ -773,7 +780,6 @@ class _Day:
                     short = not self.block_fits(item["ppm"])
                 if short and (self.lanes > 0 or self.tied):
                     ran.add(POOL_ATTENTION)
-        return ran
 
     def plan(self) -> dict:
         """Plan the day and return its record. The items and the ledger change in place."""
@@ -782,15 +788,16 @@ class _Day:
         self.tier_phase(TIER_P0)  # phases 1 and 2
         self.tier_phase(TIER_STARTED)  # phases 3 and 4
         self.fair_blocks(share_sites)  # phase 5
-        ran = self.block_pools_run_out(share_sites)
+        self.block_pools_run_out(share_sites, TIER_FAIR)
         self.phase = 6
         self.fair_row(share_sites)
         self.phase = 7
         self.fair_blocks(shareless)
-        ran |= self.block_pools_run_out(shareless)
+        self.block_pools_run_out(shareless, TIER_FAIR)
         self.phase = 8
         self.fair_row(shareless)
         self.close()
+        ran = self.ran
         if any(not item["ppm"] and self.waiting(item) for name in self.names for item in self.ready(name)):
             ran.add(POOL_LANES)
         for item in self.today:
