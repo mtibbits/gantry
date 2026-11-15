@@ -1,0 +1,27 @@
+{
+  "pin": "devagent--v3.0.0",
+  "devagent_commit": "3ac02b852fd7c9be71d9ac4aa51f2646cfd270b5",
+  "devagent_version": "3.0.0",
+  "writer": "stuck.sh",
+  "expected_exit": 1,
+  "steps": [
+    [
+      "checklist-init.sh",
+      "--project",
+      "harbor",
+      "<dir>"
+    ],
+    [
+      "checklist-mark.sh",
+      "<dir>",
+      "0",
+      "x",
+      "pull"
+    ],
+    [
+      "stuck.sh",
+      "harbor",
+      "The ferry timetable changed.\nThe second line names the new pier."
+    ]
+  ]
+}
