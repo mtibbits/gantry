@@ -343,8 +343,9 @@ leaf gates is the operator's statement, not Gantry's judgment.
   or a comment before the ID) goes with it, covered by that entry. A line
   in a fence or a comment is never read, and a line after an unclosed fence
   inside the item is code on a page: it is never a statement and is not
-  reported. So every `Threshold:` or `Objective:` list item outside a fence
-  or a comment fills a field or is covered by one entry.
+  reported. So every `Threshold:` or `Objective:` list item outside a fence,
+  a comment or the code after an unclosed fence fills a field or is covered
+  by one entry.
 - A meta block in a statement is not read: it is reported
   `malformed_meta`, "a meta block inside the text", and stays in the
   statement. An unclosed block opener or an inline comment in a statement
@@ -355,8 +356,6 @@ leaf gates is the operator's statement, not Gantry's judgment.
   its statements are read but not shown. A business requirement's
   statements are read like any other, in the portfolio file, and never
   embedded in a worksite page, as no business requirement's text is.
-- These statements are unrelated to the portfolio file's `[thresholds]`
-  view settings (`wip_max` and the like).
 
 ### The `objective:` key
 
@@ -482,7 +481,9 @@ an unbracketed `satisfies: a:X, a:Y` splits at its first comma into
   known namespace (a site's name, or `br_namespace`) is reported
   `unbracketed_list`, naming the key: a probable unbracketed list. A key
   that follows `objective:` is reported `unbracketed_objective` instead
-  ([The `objective:` key](#the-objective-key)).
+  ([The `objective:` key](#the-objective-key)). On a site named
+  `objective`, the `objective:` key itself equals a known namespace, so it
+  is reported `unbracketed_list` too: give such a site another name.
 - An ID repeated on one leaf counts once.
 - `satisfies: []` names nothing.
 

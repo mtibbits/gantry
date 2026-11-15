@@ -35,6 +35,12 @@ line under `## [Unreleased]`.
 
 ### Changed
 
+- The requirements reader (#79): a meta block that ends a requirement's own
+  text before its first nested item is now read, no longer reported; a
+  `Threshold:` or `Objective:` list item it cannot place, silent prose
+  before, is now reported `malformed_item`; and a statement leaves the
+  requirement's text, so the Requirements panel no longer shows it and the
+  path box shows it on selection (docs/requirements-format.md).
 - In a full build, a requirement served only by another site's leaf is no
   longer unserved (#21): unserved counts, the unserved label and the
   `trace <site>:` line's `unserved` count every read site's leaves, and the

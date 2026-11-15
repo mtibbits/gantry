@@ -573,13 +573,13 @@ class _Reader:
             text = _joined([own_text, *after])
         threshold, objective = statements.get("Threshold"), statements.get("Objective")
         broken = False
-        for part in (text, threshold, objective):
+        for n, part in enumerate((text, threshold, objective)):
             if part is None:
                 continue
             starts = set()
             for other in BLOCK_RE.finditer(part):
                 starts.add(other.start())
-                if part is text and second is not None and other.start() == second.start():
+                if n == 0 and second is not None and other.start() == second.start():
                     self.add(line, "malformed_meta",
                              "a second meta block on one item; it stays in the text and is not read")
                 else:
@@ -628,7 +628,7 @@ class _Reader:
                 found[word] = into = [sub["rest"][len(word) + 1 :].strip()]
                 continue
             after.append(text.strip())
-        return own, after, {word: _joined(lines) for word, lines in found.items()}
+        return own, after, {key: _joined(body) for key, body in found.items()}
 
     def links(self, line, rid, block):
         """(refines, needs) read from an item's meta block."""

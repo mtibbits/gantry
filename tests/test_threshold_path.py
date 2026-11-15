@@ -20,7 +20,7 @@ from gantry.views.worksite import plan_finish_day
 from helpers_config import write_site_tree
 from sample_roles import SMALL
 from page_script.harness import open_page
-from test_requirement_path import CSS_PATH, PATH_KEYS, box, box_items, css_rules, props, site_model, path_of, site_read
+from test_requirement_path import CSS_PATH, PATH_KEYS, box, box_items, css_rules, props, site_model, site_read
 from test_samples import GANTRY_SAMPLE
 from test_schedule_agreement import random_dags
 from test_trace_cross_site import installation_models
@@ -175,6 +175,13 @@ def test_threshold_empty_cases(tmp_path):
         assert t["lines"] == [status], case
         assert t["order"] == [] and t["targets"] == [] and t["end_day"] is None and t["rest"] == [["Issue-2", "direct"]]
         assert t["objective_lines"] == TAIL_FIGURES, case
+    # A finished objective-only leaf gates nothing, so no leaf gates: here, or on another site in a full build.
+    done_tail = ONLY_TAIL + "- [x] Old {issue: Issue-1, satisfies: alpha:FR-1, objective: alpha:FR-1}\n"
+    assert split_row(tmp_path / "done-tail", done_tail)["threshold_path"]["lines"] == [w.PATH_T_UNSERVED_SITE]
+    config_path = installation(tmp_path / "done-tail-all", {"alpha": ONLY_TAIL, "beta": (
+        "# Beta\n\n- [x] Far {issue: Issue-7, satisfies: alpha:FR-1, objective: alpha:FR-1}\n")}, {"alpha": FR1})
+    t = row(trace_of(build.build_all(load_config(config_path)).pages["alpha"]), "alpha:FR-1")["threshold_path"]
+    assert t["lines"] == [w.PATH_T_UNSERVED]
     # A full build that read every site: the unscoped texts.
     for case, wbs, status in (("none-all", ONLY_TAIL, w.PATH_T_UNSERVED), ("done-all", DONE_GATE, w.PATH_T_FINISHED)):
         config_path = installation(tmp_path / case, {"alpha": wbs}, {"alpha": FR1})
@@ -456,6 +463,29 @@ def test_threshold_empty_case_box(node, tmp_path):
         assert children(page)[1][2] == w.PATH_T_UNSERVED_SITE
         assert [c[2] for c in children(page)[4:6]] == TAIL_FIGURES
         assert page.query("#req-path .path-end-t, #req-path .path-divider") == []
+
+
+def reasons_by_section(page):
+    """{section word: the texts of the path-why lists after it}."""
+    found, word = {}, None
+    for _, cls, text in children(page):
+        if cls == "path-section":
+            word = text
+            found[word] = []
+        elif cls == "path-why":
+            found[word].append(text)
+    return found
+
+
+def test_split_box_reasons_by_section(node, tmp_path):
+    # AC5 on the page: a held-out objective-only leaf is a reason in the Objective section only.
+    held = w.PATH_HELD.format(key="Issue-1")
+    for case, wbs, threshold in (("tail", HELD_TAIL, []), ("gate", HELD_GATE, [held])):
+        (tmp_path / case).mkdir()
+        path, _, _ = page_file(tmp_path / case, wbs)
+        with open_page(path) as page:
+            page.drive("requirement", "alpha:FR-1")
+            assert reasons_by_section(page) == {"Threshold": threshold, "Objective": [held]}, case
 
 
 def test_objective_css():
