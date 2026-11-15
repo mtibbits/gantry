@@ -595,3 +595,64 @@ def test_single_reader_scan_planted(tmp_path):
     (copy / "identifier.py").write_bytes(b"STUCK_LINE = 1\nTEXT = 'a STUCK marker'\n")
     hits, _ = record_name_hits(copy)
     assert hits == {"devagent_records.py", "named.py"}
+
+
+# --- sample issue folders on harbor (Task 9) -----------------------------------------------
+
+SAMPLE_CONFIG = ROOT / "samples" / "gantry.sample.toml"
+HARBOR = ROOT / "samples" / "harbor"
+SAMPLE_ISSUES = ("Issue-12", "Issue-13", "Issue-14", "Issue-15", "Issue-6", "Issue-7", "Issue-8")
+
+
+def sample_site(name):
+    from gantry.config import load_config
+    from gantry.sites import config_roots, load_sites
+
+    config = load_config(SAMPLE_CONFIG)
+    roots = config_roots(config)
+    sites, _ = load_sites(config, roots)
+    return config, roots, next(s for s in sites if s.name == name)
+
+
+def test_sample_records_are_fixture_copies():
+    copies = sorted(p for p in HARBOR.rglob("*") if p.is_file() and p.name in ("STUCK", "checklist.md"))
+    assert len(copies) == 9
+    for path in copies:
+        assert path.read_bytes() == (WRITTEN / path.parent.name / path.name).read_bytes(), path
+    from devagent_record_fixtures import RECIPES
+
+    assert sorted(r.issue for r in RECIPES if r.sample) == sorted(SAMPLE_ISSUES)
+
+
+def test_sample_site_records_shapes():
+    config, roots, site = sample_site("harbor")
+    got = dr.read_site_records(roots, site.planning_dir, site="harbor")
+    assert got.status == "read" and got.skipped == {}
+    assert sorted(got.issues) == sorted(SAMPLE_ISSUES)
+    issues = got.issues
+    assert issues["Issue-6"].checklist.value.next_step.glyph == "~"
+    assert (issues["Issue-6"].plan.value.shape, issues["Issue-6"].plan.value.marks_done) == ("checkbox", True)
+    assert issues["Issue-7"].plan.value.shape == "headings"
+    assert issues["Issue-8"].plan.value.shape == "numbered"
+    assert issues["Issue-12"].checklist.value.parked
+    assert issues["Issue-13"].stuck.value.created_format == "local_minutes"
+    assert issues["Issue-14"].stuck.value.created_format == "iso_offset"
+    assert issues["Issue-15"].plan.status == "absent" and issues["Issue-12"].plan.status == "absent"
+    stucks = [r.stuck.value for r in issues.values() if r.stuck.status == "present"]
+    assert len(stucks) == 2
+    for marker in stucks:
+        assert marker.created.date() < config.as_of
+    for records in issues.values():
+        for record in (records.stuck, records.checklist, records.plan):
+            assert record.status in ("present", "absent") and record.reason is None
+            assert record.status == "absent" or record.value.problems == ()
+
+
+def test_sample_stuck_folders_name_open_leaves():
+    from gantry.wbs_stopgap import parse_wbs
+
+    data = parse_wbs((HARBOR / "WBS.md").read_bytes().decode("utf-8"), "harbor")
+    open_issues = {leaf.issue for leaf in data.leaves if leaf.open and leaf.issue}
+    stuck = {p.parent.name for p in HARBOR.glob("*/STUCK")}
+    assert stuck == {"Issue-13", "Issue-14"}
+    assert stuck <= open_issues

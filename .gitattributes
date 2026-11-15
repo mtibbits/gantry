@@ -22,4 +22,5 @@ tools/*.sh text eol=lf
 # The page assets are read as bytes and written into pages as they are (#9).
 gantry/templates/** text eol=lf
 gantry/static/** text eol=lf
+samples/**/STUCK text eol=lf
 samples/marsh/WBS.md -text
