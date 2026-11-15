@@ -16,7 +16,7 @@ from gantry.inputs import scheduled
 from gantry.path import build_paths, split_paths, work_order
 from gantry.views import worksite
 from gantry.schedule import plan
-from gantry.views.worksite import THRESHOLD_KEYS, plan_finish_day
+from gantry.views.worksite import plan_finish_day
 from helpers_config import write_site_tree
 from sample_roles import SMALL
 from page_script.harness import open_page
@@ -35,6 +35,8 @@ from test_trace_page import (EMPTY_MARKS, hand_trace, hostile_leaf, installation
 from test_worksite_page import STRUCTURAL, visible_text
 
 w = worksite
+# A trace row's `threshold_path`: `path`'s seven keys over the threshold path set, then these.
+THRESHOLD_KEYS = [*PATH_KEYS, "waits", "rest", "objective_lines"]
 
 # The paths fixture of the ACs: a 4-hour gating leaf and an independent 20-hour
 # objective-only leaf, ahead by priority.
@@ -149,7 +151,7 @@ def test_no_open_objective_only_leaf_keeps_77(tmp_path):
 
 
 def test_threshold_status():
-    assert [w.threshold_status(*case) for case in (
+    assert [w.path_status(*case, w.THRESHOLD_TEXTS) for case in (
         ("unserved", "site", None), ("unserved", "installation", ("marsh",)), ("unserved", "installation", ()),
         ("finished", "site", None), ("finished", "installation", ()), ("finished", "installation", ("marsh",)))] == [
         w.PATH_T_UNSERVED_SITE, w.PATH_T_UNSERVED_SITE, w.PATH_T_UNSERVED,
@@ -214,7 +216,8 @@ def check_split(items, links, lit, tail):
     threshold set is a subset of the path set and closed under preds (U3)."""
     paths = build_paths({"R": (lit, [], 0)}, items, unestimated=set(), links=links, foreign={})
     gating = {"R": ([x for x in lit if x[0] not in tail], [], 0)}
-    s = split_paths(paths, gating, {"R": tail}, items, unestimated=set(), links=links, foreign={})["R"]
+    threshold = build_paths(gating, items, unestimated=set(), links=links, foreign={})
+    s = split_paths(paths, threshold, {"R": tail})["R"]
     members = {k for k, _ in s.threshold.order}
     assert members <= {k for k, _ in paths["R"].order}
     by_key = {item["key"]: item for item in items}
@@ -242,7 +245,6 @@ def test_threshold_set_is_closed_subset():
 
 
 def test_threshold_keys_exact(tmp_path):
-    assert THRESHOLD_KEYS == [*PATH_KEYS, "waits", "rest", "objective_lines"]
     m = site_model(tmp_path, PATHS)
     for r in m["trace"]["requirements"]:
         assert list(r["path"]) == PATH_KEYS

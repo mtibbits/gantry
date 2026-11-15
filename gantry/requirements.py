@@ -508,8 +508,10 @@ class _Reader:
         START report needs a list item, and a line after an unclosed fence is code on a page."""
         line = self.first_line + index
         openers = set()  # nested items that start with an unclosed <!--: START or nothing, never INLINE
+        lines = []  # (k, text, its item match or None, the statement word it starts or None)
         for k, text in continuation:
             sub = ITEM_RE.fullmatch(text)
+            lines.append((k, text, sub, None if sub is None or raw[k] else _statement_word(sub["rest"])))
             if sub is not None:
                 self.candidate(self.first_line + k, sub, nested=True)
                 if _opens_comment(sub["rest"]):
@@ -532,9 +534,7 @@ class _Reader:
             word = None if raw[index] else _statement_word(rest)
             if word is not None:
                 self.stray(line, word)
-            for k, text in continuation:
-                sub = ITEM_RE.fullmatch(text)
-                word = None if sub is None or raw[k] else _statement_word(sub["rest"])
+            for k, _, _, word in lines:
                 if word is not None:
                     self.stray(self.first_line + k, word)
             return
@@ -555,7 +555,7 @@ class _Reader:
             if _comment_outside_code(part):
                 self.add(at, "malformed_comment", INLINE)
                 break
-        own, after, statements = self.statements(continuation, raw)
+        own, after, statements = self.statements(lines)
         # The block closes the first line, or else the own text: the text before the first
         # nested item. A block after a nested item, or in a statement, is not read.
         head = tail.strip()
@@ -599,8 +599,8 @@ class _Reader:
     def stray(self, line, word, reason=_WHY["stray_statement"]):
         self.add(line, "malformed_item", f"{word + ':'!r} is not read: {reason}")
 
-    def statements(self, continuation, raw):
-        """(own, after, statements) from a requirement's continuation lines: the own text
+    def statements(self, lines):
+        """(own, after, statements) from a requirement's continuation `lines`, item()'s: the own text
         before the first nested item, the other text after it in file order, and
         {word: text} for the first Threshold: and Objective: statement. A first-level
         item is a nested item not inside an earlier one; a line is inside one while
@@ -609,10 +609,8 @@ class _Reader:
         own, after, found = [], [], {}
         width = None  # the marker width of the open first-level item
         into = after  # where the open first-level item's lines go
-        for k, text in continuation:
-            sub = ITEM_RE.fullmatch(text)
+        for k, text, sub, word in lines:
             if width is not None and (sub is None or _width(text) > width):
-                word = None if sub is None or raw[k] else _statement_word(sub["rest"])
                 if word is not None:
                     self.stray(self.first_line + k, word)
                 into.append(text.strip())
@@ -621,7 +619,6 @@ class _Reader:
                 own.append(text.strip())
                 continue
             width, into = _width(text), after
-            word = None if raw[k] else _statement_word(sub["rest"])
             if word is not None and sub["marker"] not in ("-", "*", "+"):
                 self.stray(self.first_line + k, word)
             elif word in found:

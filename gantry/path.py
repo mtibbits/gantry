@@ -215,7 +215,6 @@ def build_paths(serving, items, *, unestimated, links, foreign, sites_not_read=N
     return out
 
 
-
 @dataclass(frozen=True)
 class SplitPath:
     """A row's path split at its threshold (#79). `threshold` is the path of
@@ -227,23 +226,19 @@ class SplitPath:
     rest: tuple[tuple[str, str], ...]
 
 
-def split_paths(paths, gating, objective_only, items, *, unestimated, links, foreign, sites_not_read=None,
-                other_serving=None) -> dict[str, SplitPath]:
-    """{row id: SplitPath} for each row of `gating`.
+def split_paths(paths, thresholds, objective_only) -> dict[str, SplitPath]:
+    """{row id: SplitPath} for each row of `thresholds`.
 
-    `paths` is build_paths' result over every serving leaf; `gating` is its
-    `serving` argument holding gating leaves only, and `other_serving` its
-    `other_serving` holding other sites' open gating leaves, keyed by every
-    covered row of `gating`. `objective_only` is {row id: the row's
-    objective-only leaf keys}. The threshold is build_paths' own walk over
-    the gating leaves, so its set is a subset of the row's path set and
+    `paths` is build_paths' result over every serving leaf and `thresholds`
+    its result over each split row's gating leaves alone (other sites' open
+    gating leaves as its `other_serving`); `objective_only` is {row id: the
+    row's objective-only leaf keys}. The threshold is build_paths' own walk
+    over the gating leaves, so its set is a subset of the row's path set and
     closed under waits."""
-    threshold = build_paths(gating, items, unestimated=unestimated, links=links, foreign=foreign,
-                            sites_not_read=sites_not_read, other_serving=other_serving)
     out = {}
-    for rid, t in threshold.items():
+    for rid, t in thresholds.items():
         members = {key for key, _ in t.order}
-        tail = objective_only.get(rid, ())
+        tail = objective_only[rid]
         out[rid] = SplitPath(threshold=t, waits=tuple(key for key, _ in t.order if key in tail),
                              rest=tuple(pair for pair in paths[rid].order if pair[0] not in members))
     return out

@@ -158,9 +158,6 @@ PATH_T_FINISHED_SITE = "Its threshold work on this site is finished"
 PATH_WAITS = "threshold work waits on objective-only {key}"
 PATH_SECTION_T, PATH_SECTION_O = "Threshold", "Objective"
 PATH_MARK_OBJECTIVE = "objective"
-# A trace row's `threshold_path`: `path`'s seven keys over the threshold path set, then these.
-THRESHOLD_KEYS = ["state", "lines", "order", "chain", "targets", "end_day", "incomplete", "waits", "rest",
-                  "objective_lines"]
 PATH_NOTE = ("A selection also marks the open leaves its serving leaves wait on, with a dotted outline, and the "
              "chain with the most hours with a heavier one.")
 
@@ -258,40 +255,36 @@ def path_end_text(day, lanes):
     return PATH_END.format(lanes=_lanes_text(lanes), day=day)
 
 
-def path_status(state, scope, sites_not_read):
-    """An empty path's status. Unserved: the unscoped text only when the build
-    read every site of an installation-wide trace; `sites_not_read` None is
-    unknown, never empty. Finished: unscoped in any installation-wide trace,
-    whose finished count holds other sites' leaves (#21)."""
-    if state == "finished":
-        # In a full build the finished count holds every read site's leaves (#21),
-        # so "on this site" could be false; a site not read is the row's reason.
-        return PATH_FINISHED if scope == "installation" else PATH_FINISHED_SITE
-    return PATH_UNSERVED if scope == "installation" and sites_not_read == () else PATH_UNSERVED_SITE
-
-
-def threshold_status(state, scope, sites_not_read):
-    """An empty threshold path's status (#79), under path_status' two conditions."""
-    if state == "finished":
-        return PATH_T_FINISHED if scope == "installation" else PATH_T_FINISHED_SITE
-    return PATH_T_UNSERVED if scope == "installation" and sites_not_read == () else PATH_T_UNSERVED_SITE
-
-
 class _PathTexts(NamedTuple):
     """The texts one `path` record is worded with: the heading pair, the
-    held-out heading pair and the empty-path status."""
+    held-out heading pair and path_status' four statuses."""
     heading: str
     heading_one: str
     head_held: str
     head_held_one: str
-    status: object
+    finished: str
+    finished_site: str
+    unserved: str
+    unserved_site: str
 
 
-PATH_TEXTS = _PathTexts(PATH_HEADING, PATH_HEADING_ONE, PATH_HEAD_HELD, PATH_HEAD_HELD_ONE, path_status)
+PATH_TEXTS = _PathTexts(PATH_HEADING, PATH_HEADING_ONE, PATH_HEAD_HELD, PATH_HEAD_HELD_ONE,
+                        PATH_FINISHED, PATH_FINISHED_SITE, PATH_UNSERVED, PATH_UNSERVED_SITE)
 THRESHOLD_TEXTS = _PathTexts(PATH_T_HEADING, PATH_T_HEADING_ONE, PATH_T_HEAD_HELD, PATH_T_HEAD_HELD_ONE,
-                             threshold_status)
-OBJECTIVE_TEXTS = _PathTexts(PATH_ALL_HEADING, PATH_ALL_HEADING_ONE, PATH_HEAD_HELD, PATH_HEAD_HELD_ONE,
-                             path_status)
+                             PATH_T_FINISHED, PATH_T_FINISHED_SITE, PATH_T_UNSERVED, PATH_T_UNSERVED_SITE)
+OBJECTIVE_TEXTS = PATH_TEXTS._replace(heading=PATH_ALL_HEADING, heading_one=PATH_ALL_HEADING_ONE)
+
+
+def path_status(state, scope, sites_not_read, texts=PATH_TEXTS):
+    """An empty path's status, worded with `texts`. Unserved: the unscoped text
+    only when the build read every site of an installation-wide trace;
+    `sites_not_read` None is unknown, never empty. Finished: unscoped in any
+    installation-wide trace, whose finished count holds other sites' leaves (#21)."""
+    if state == "finished":
+        # In a full build the finished count holds every read site's leaves (#21),
+        # so "on this site" could be false; a site not read is the row's reason.
+        return texts.finished if scope == "installation" else texts.finished_site
+    return texts.unserved if scope == "installation" and sites_not_read == () else texts.unserved_site
 
 
 def _reason_text(reason):
@@ -307,12 +300,8 @@ def _reason_text(reason):
     return PATH_OTHER_SITE.format(site=a, issue=NO_ISSUE_ID if b is None else b)
 
 
-def _path_record(p, layer, scope, items, planned, texts=PATH_TEXTS):
-    """A trace row's `path` (#77): exactly the seven keys docs/worksite-page.md names,
-    worded with `texts`."""
-    if layer == "CON":
-        return {"state": "constraint", "lines": [], "order": [], "chain": [], "targets": [], "end_day": None,
-                "incomplete": []}
+def _path_lines(p, scope, texts):
+    """A `path` record's `lines`, worded with `texts`."""
     lines = []
     if p.order:
         n, hours = len(p.order), _num1(p.hours)
@@ -326,10 +315,20 @@ def _path_record(p, layer, scope, items, planned, texts=PATH_TEXTS):
         # The sites not read come from the row's reason, the one source (#21); an
         # installation-scoped row without one was built from every site.
         not_read = next((r[1] for r in p.reasons if r[0] == "not_read"), () if scope == "installation" else None)
-        lines.append(texts.status(p.state, scope, not_read))
+        lines.append(path_status(p.state, scope, not_read, texts))
+    return lines
+
+
+def _path_record(p, layer, scope, items, planned, texts=PATH_TEXTS):
+    """A trace row's `path` (#77): exactly the seven keys docs/worksite-page.md names,
+    worded with `texts`."""
+    if layer == "CON":
+        return {"state": "constraint", "lines": [], "order": [], "chain": [], "targets": [], "end_day": None,
+                "incomplete": []}
     targets = set(p.targets)
     return {
-        "state": p.state, "lines": lines, "order": [[k, mark] for k, mark in p.order], "chain": list(p.chain),
+        "state": p.state, "lines": _path_lines(p, scope, texts), "order": [[k, mark] for k, mark in p.order],
+        "chain": list(p.chain),
         "targets": list(p.targets),
         "end_day": plan_finish_day([item for item in items if item["key"] in targets], planned) if targets else None,
         "incomplete": [_reason_text(r) for r in p.reasons],
@@ -337,29 +336,37 @@ def _path_record(p, layer, scope, items, planned, texts=PATH_TEXTS):
 
 
 def _threshold_record(split, p, layer, scope, items, planned):
-    """A trace row's `threshold_path` (#79): exactly THRESHOLD_KEYS."""
+    """A trace row's `threshold_path` (#79): `path`'s seven keys over the threshold
+    path set, then waits, rest and objective_lines."""
     record = _path_record(split.threshold, layer, scope, items, planned, THRESHOLD_TEXTS)
     record["waits"] = [PATH_WAITS.format(key=key) for key in split.waits]
     record["rest"] = [[key, mark] for key, mark in split.rest]
-    record["objective_lines"] = _path_record(p, layer, scope, items, planned, OBJECTIVE_TEXTS)["lines"]
+    record["objective_lines"] = _path_lines(p, scope, OBJECTIVE_TEXTS)
     return record
 
 
-def _gating(r, own, trace):
-    """(gating serving triple, objective-only keys, other sites' open gating leaves or None)
-    of a trace row that splits (#79), or None: a row splits when an open objective-only
-    leaf serves it, on this site or, on a row the installation trace covers, on another."""
-    tail, tail_foreign = set(r.get("objective_only", ())), set(r.get("objective_only_foreign", ()))
+def _row_serving(r, trace, covered, tail=frozenset(), tail_foreign=frozenset()):
+    """(build_paths' serving triple, other sites' open leaves or None) of a trace
+    row, without the keys in `tail` nor the foreign indices in `tail_foreign`.
+    Only a covered row has other sites' leaves (#21)."""
     leaves_from = [(i, trace["foreign"][i]) for i, _ in r["foreign"]]
-    covered = r["id"] in own
-    if r["layer"] == "CON" or not (any(x[0] in tail for x in (*r["light"], *r["held"]))
-                                   or (covered and any(f[5] and i in tail_foreign for i, f in leaves_from))):
-        return None
     triple = ([(x[0], x[1]) for x in r["light"] if x[0] not in tail], [x[0] for x in r["held"] if x[0] not in tail],
               sum(x[0] not in tail for x in r["finished"]) + sum(not f[5] for i, f in leaves_from
                                                                  if i not in tail_foreign))
     elsewhere = [(f[0], f[2]) for i, f in leaves_from if f[5] and i not in tail_foreign] if covered else None
-    return triple, tail, elsewhere
+    return triple, elsewhere
+
+
+def _objective_tail(r, covered, trace):
+    """(objective-only keys, objective-only foreign indices) of a trace row that
+    splits (#79), or None: a row splits when an open objective-only leaf serves
+    it, on this site or, on a row the installation trace covers, on another."""
+    tail, tail_foreign = set(r.get("objective_only", ())), set(r.get("objective_only_foreign", ()))
+    if r["layer"] == "CON" or not (any(x[0] in tail for x in (*r["light"], *r["held"]))
+                                   or (covered and any(trace["foreign"][i][5] for i, _ in r["foreign"]
+                                                       if i in tail_foreign))):
+        return None
+    return tail, tail_foreign
 
 
 def summary_text(items, p, path, lanes, unest_site, unest_path, no_chain=SUMMARY_NO_CHAIN):
@@ -571,24 +578,21 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None, built
         wide = trace["scope"] == "installation" and trace["in_trace"]
         own = {r["id"] for r in trace["requirements"]
                if (rid := parse_id(r["id"])) is not None and rid.namespace == site} if wide else set()
-        other_serving, serving = {}, {}
+        serving, other_serving, gating, gating_elsewhere, tails = {}, {}, {}, {}, {}
         for r in trace["requirements"]:
-            leaves_from = [trace["foreign"][i] for i, _ in r["foreign"]]
-            if r["id"] in own:
-                other_serving[r["id"]] = [(f[0], f[2]) for f in leaves_from if f[5]]
-            serving[r["id"]] = ([(x[0], x[1]) for x in r["light"]], [x[0] for x in r["held"]],
-                                len(r["finished"]) + sum(not f[5] for f in leaves_from))
-        req_paths = build_paths(serving, items, unestimated=unest, links=data.links, foreign=foreign,
-                                sites_not_read=trace.get("not_read"), other_serving=other_serving)
-        gating, tails, gating_elsewhere = {}, {}, {}
-        for r in trace["requirements"]:
-            found = _gating(r, own, trace)
-            if found is not None:
-                gating[r["id"]], tails[r["id"]], elsewhere = found
-                if elsewhere is not None:
-                    gating_elsewhere[r["id"]] = elsewhere
-        splits = split_paths(req_paths, gating, tails, items, unestimated=unest, links=data.links, foreign=foreign,
-                             sites_not_read=trace.get("not_read"), other_serving=gating_elsewhere)
+            rid, covered = r["id"], r["id"] in own
+            serving[rid], elsewhere = _row_serving(r, trace, covered)
+            if covered:
+                other_serving[rid] = elsewhere
+            split = _objective_tail(r, covered, trace)
+            if split is not None:
+                tails[rid] = split[0]
+                gating[rid], elsewhere = _row_serving(r, trace, covered, *split)
+                if covered:
+                    gating_elsewhere[rid] = elsewhere
+        given = {"unestimated": unest, "links": data.links, "foreign": foreign, "sites_not_read": trace.get("not_read")}
+        req_paths = build_paths(serving, items, other_serving=other_serving, **given)
+        splits = split_paths(req_paths, build_paths(gating, items, other_serving=gating_elsewhere, **given), tails)
 
         def recorded(r):
             scope = trace["scope"] if r["id"] in own else "site"

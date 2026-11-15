@@ -537,7 +537,6 @@
     return day === null ? null : fillIn(template, [["lanes", lanesText(k)], ["day", day]]);
   }
 
-  // A section's word, then its statement (#79) when the row states one.
   function section(word, statement) {
     para(pathBox, word, "path-section");
     if (isText(statement) && statement !== "") para(pathBox, statement, "path-statement");
@@ -555,7 +554,6 @@
     list("path-why", path.incomplete, (li, text) => { li.textContent = text; });
   }
 
-  // Each leaf: its key, issue id, title, hours and mark, then objective (#79) and chain.
   function workOrder(order, chainKeys, tail) {
     const chain = new Set(chainKeys);
     list("path-list", order, (li, [key, how]) => {
@@ -573,11 +571,11 @@
   }
 
   // #77's box; split into Threshold and Objective (#79) when the row has a threshold_path.
-  function fillBox(row) {
+  // `tail` is marks()' objective set: the row's drawn objective-only leaves.
+  function fillBox(row, tail) {
     pathBox.replaceChildren();
     const path = row.path;
     const t = isObj(row.threshold_path) ? row.threshold_path : null;
-    const tail = new Set(Array.isArray(row.objective_only) ? row.objective_only.filter(isText) : []);
     if (t === null) {
       if (isText(row.threshold)) section(DATA.texts.section_t, row.threshold);
       if (isText(row.objective)) section(DATA.texts.section_o, row.objective);
@@ -604,7 +602,7 @@
 
   // Rebuilt only when the selection changes; a lane change rewrites the end-day line alone,
   // so its aria-live region announces the new day and every other redraw leaves the box be.
-  function applyBox(id) {
+  function applyBox(id, objective) {
     if (pathBox === null) return;
     const row = id === null || TRACE === null ? undefined : TRACE.requirements.find((r) => r.id === id);
     const path = row === undefined || !isObj(row.path) || row.path.state === "constraint" ? null : row.path;
@@ -612,7 +610,7 @@
     if (key !== (boxFor === null ? null : boxFor.id)) {
       boxFor = key === null ? null : { id: key, lanes: k };
       if (path === null) pathBox.replaceChildren();
-      else fillBox(row);
+      else fillBox(row, objective);
       pathBox.classList.toggle("gone", path === null);
       return;
     }
@@ -631,7 +629,7 @@
     const upstream = new Set(m.upstream);
     const chain = new Set(m.chain);
     const objective = new Set(m.objective);
-    applyBox(m.selected);
+    applyBox(m.selected, objective);
     if (svg !== null) {
       svg.classList.toggle("tracing", m.tracing !== null);
       svg.classList.toggle("selecting", m.selecting);

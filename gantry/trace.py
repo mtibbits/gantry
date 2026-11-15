@@ -491,13 +491,12 @@ def _reach(named, flows):
     return seen
 
 
-def _serving(leaves, leaf_ids, catalog, objective=None):
+def _serving(leaves, leaf_ids, catalog, objective):
     """{str(ReqId): serving leaves in WBS order}, keyed in catalog order. A
     skipped leaf never serves; a leaf serves directly what it names, and
     indirectly what that flows to. `objective` is {leaf key: the str(ReqId)
     its objective: names}: an entry is gating when the leaf's other IDs reach
     the requirement too (#79)."""
-    objective = objective or {}
     found = {}
     for leaf in leaves:
         if leaf.state == "skipped" or leaf.key not in leaf_ids:
@@ -563,8 +562,10 @@ def page_trace(trace: SiteTrace, catalog: Catalog, data, *, built=frozenset()) -
     rows = []
     for key in keys:
         r = reqs[key]
-        light, held, finished = [], [], []
+        light, held, finished, objective_only = [], [], [], []
         for s in trace.serving.get(key, ()):
+            if not s.gating:
+                objective_only.append(s.leaf)
             leaf = by_key[s.leaf]
             if s.leaf in drawn:
                 light.append([s.leaf, s.how])
@@ -582,7 +583,7 @@ def page_trace(trace: SiteTrace, catalog: Catalog, data, *, built=frozenset()) -
             "objective": None if br else r.objective,
             "needs": [str(n) for n in r.needs if str(n) in wanted and str(n) != key] if r.layer == "UC" else [],
             # This site's leaves serving the row at objective only, in WBS order, and other sites' by index (#79).
-            "objective_only": [s.leaf for s in trace.serving.get(key, ()) if not s.gating],
+            "objective_only": objective_only,
             "objective_only_foreign": tail.get(key, []),
             "light": light, "held": held, "finished": finished, "foreign": lit.get(key, []),
             "counts": ", ".join(counts),
