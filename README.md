@@ -208,7 +208,7 @@ on fail. An installation depends on:
 - a command's contract: `gantry build`, `gantry portfolio` and
   `/gantry:build`;
 - the tools it runs on: raising a stated oldest supported version of a tool
-  under [Supported versions](#supported-versions).
+  under [Supported versions](#supported-versions) is a break.
 
 A release with a break says, in its CHANGELOG section, what broke and what
 an operator changes.
@@ -368,7 +368,7 @@ can.
 | Tool | Oldest supported | How it is checked |
 |---|---|---|
 | Python | 3.11 | On every change: 3.11 and the latest 3.x release, on Ubuntu and Windows (`.github/workflows/test.yml`). |
-| git | 2.45 | Latest: on every change, the git on the CI runners, Ubuntu and Windows, which may trail git's latest release; each release records the git it ran on. Oldest: not yet checked. 2.45 is the oldest git that honours `GIT_NO_LAZY_FETCH` (see [Your data stays private](#your-data-stays-private)). |
+| git | 2.45 | Latest: on every change, the git on the CI runners, Ubuntu and Windows, which may trail git's latest release; each release records the git it ran on. Oldest: stated from git's release notes, not yet tested: 2.45 is the oldest git that honours `GIT_NO_LAZY_FETCH` (see [Your data stays private](#your-data-stays-private)). |
 | Claude Code | Not yet stated | At every release: the plugin check under [Checks every release runs](#checks-every-release-runs), on the latest release. |
 | bash | Not yet stated | `/gantry:build` runs its launcher with bash. On every change: the launcher's tests, with the bash on the Ubuntu CI runner. At every release: the plugin check, with the bash Claude Code uses there. |
 
