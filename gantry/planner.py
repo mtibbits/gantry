@@ -2,22 +2,24 @@
 
 plan_week plans every built site's open leaves from the build's resolved
 inputs, the portfolio file's capacity and each leaf's attention rate
-(gantry/attention.py). It reads no file and no clock and works in whole
-minutes, so the same inputs and as-of date give the same plan on any
-machine. docs/week-plan.md states the rules.
+(gantry/attention.py). It reads no file and no clock; it charges whole
+minutes and its targets are exact fractions, so the same inputs and as-of
+date give the same plan on any machine. docs/week-plan.md states the rules.
 """
 
 import json
 from dataclasses import asdict, dataclass
+from fractions import Fraction
 from datetime import timedelta
 from graphlib import TopologicalSorter
 
 from gantry import priority, schedule
 from gantry.attention import MAX_RATE, leaf_attention, mapping_in_use, site_ratio_source
+from gantry.crosssite import WAITING
 from gantry.deps import find_cycles, inside, open_sources
 from gantry.inputs import scheduled
 from gantry.model import HOURS_PER_DAY
-from gantry.portfolio_file import DEFAULTS, WEEKDAYS
+from gantry.portfolio_file import DEFAULTS, WEEKDAYS, intended_shares
 from gantry.roots import write_confined
 
 PLAN_VERSION = 1
@@ -30,6 +32,19 @@ CAPACITY_SOURCE = "portfolio file"
 NO_POOL = "no pool ran out"
 HORIZON_DAYS = 10
 WEEK_DAYS = 5
+# A leaf's priority tier, fixed for the whole plan (#37): effective P0, then
+# started (in progress or stuck), then the rest, divided by intended shares.
+TIERS = ("p0", "started", "fair_share")
+TIER_P0, TIER_STARTED, TIER_FAIR = TIERS
+STARTED_STATES = ("in_progress", "stuck")
+SHARE_NOTE = "no intended share set; planned only into capacity left after the sites with shares"
+# The kinds of a plan note, in the order a day's notes are written.
+NOTE_KINDS = ("shares_dropped", "no_allocation")
+SHARES_DROPPED, NO_ALLOCATION = NOTE_KINDS
+NOTE_TEXTS = {
+    SHARES_DROPPED: "shares dropped on {date} for projects that are not built sites: {projects}",
+    NO_ALLOCATION: "no intended shares apply on {date}; every site planned with equal shares",
+}
 # Why there is no plan, in the order checked: the first that applies is the reason.
 NO_PLAN = {
     "no_portfolio": "no portfolio_file is configured",
@@ -89,6 +104,7 @@ class WeekPlan:
     leaves: list
     sites: list
     report: list
+    notes: list
 
 
 def _is_number(value) -> bool:
@@ -138,6 +154,7 @@ class _Capacity:
     lanes: int
     block_min: int
     start_cost: int
+    block_default: int  # never under block_min
 
 
 def _setting(value, key):
@@ -159,13 +176,16 @@ def _capacity(portfolio) -> _Capacity:
         reserved[block.day].append({"start": block.start, "hours": _hours(minutes), "label": block.label})
         taken[block.day] += minutes
     lanes = capacity.agent_lanes
+    block_min = to_minutes(_setting(capacity.block_min_hours, "capacity.block_min_hours"))
     return _Capacity(
         declared=declared,
         reserved=reserved,
         attention={day: max(0, declared[day] - taken[day]) for day in WEEKDAYS},
         lanes=min(lanes, MAX_LANES) if _is_number(lanes) and lanes > 0 else 0,
-        block_min=to_minutes(_setting(capacity.block_min_hours, "capacity.block_min_hours")),
+        block_min=block_min,
         start_cost=to_minutes(_setting(capacity.block_start_cost_hours, "capacity.block_start_cost_hours")),
+        block_default=max(block_min, to_minutes(_setting(capacity.block_default_hours,
+                                                          "capacity.block_default_hours"))),
     )
 
 
@@ -199,6 +219,54 @@ def _working_days(as_of, capacity) -> list:
             days.append(day)
         day += timedelta(days=1)
     return days
+
+
+def _note(kind, day, projects) -> dict:
+    return {"kind": kind, "date": day.isoformat(), "projects": list(projects),
+            "text": NOTE_TEXTS[kind].format(date=day.isoformat(), projects=", ".join(projects))}
+
+
+def _day_shares(portfolio, day, names):
+    """({share site: its share as a Fraction}, [share-less sites], [notes]) of
+    one planned day, against `names`, the built sites in config order.
+
+    The allocation that applies on the day (intended_shares) loses every
+    project that is not a built site (a shares_dropped note); the sites left
+    with a share above 0 are the share sites, their shares scaled to sum to 1,
+    and every other built site is share-less that day. With no allocation, or
+    nothing left to scale, every built site is a share site at 1/n and the day
+    has a no_allocation note."""
+    found = intended_shares(portfolio, day)
+    notes, shares = [], {}
+    if found is not None:
+        built = set(names)
+        dropped = [project for project in found.shares if project not in built]
+        if dropped:
+            notes.append(_note(SHARES_DROPPED, day, dropped))
+        kept = {name: Fraction(found.shares[name]) for name in names if found.shares.get(name, 0) > 0}
+        total = sum(kept.values())
+        shares = {name: value / total for name, value in kept.items()}
+    if not shares:
+        notes.append(_note(NO_ALLOCATION, day, []))
+        return dict.fromkeys(names, Fraction(1, len(names))), [], notes
+    return shares, [name for name in names if name not in shares], notes
+
+
+def _p0_entries(data, leaves) -> list[dict]:
+    """The site's P0 list (priority.p0_keys over the leaves the worksite page
+    schedules, with its effective priority), each with the cross-site
+    outcomes that hold it: open, absent and unresolved, in depends_on order."""
+    work = scheduled(data)
+    by_key = {leaf.key: leaf for leaf in work}
+    return [{"key": key, "held_by": [f"{o.target_site}:{o.target_issue}"
+                                     for o in by_key[key].foreign_targets or () if o.status in WAITING]}
+            for key in priority.p0_keys(work, priority.effective(work, data.links))]
+
+
+def _tier(eff_priority, state) -> str:
+    if eff_priority == 0:
+        return TIER_P0
+    return TIER_STARTED if state in STARTED_STATES else TIER_FAIR
 
 
 def _pools(run_out):
@@ -244,9 +312,10 @@ def _site_work(name, inputs, mapping, unit) -> list[dict]:
         hours = (estimate.lo_h + estimate.hi_h) / 2 if estimate is not None else unit
         attention = leaf_attention(leaf, data, mapping)
         need = _leaf_minutes(hours)
+        eff = effective.get(leaf.key, priority.rank(leaf.priority))
         items.append({
             "site": name, "key": leaf.key, "wbs_index": index[leaf.key],
-            "eff_priority": effective.get(leaf.key, priority.rank(leaf.priority)),
+            "eff_priority": eff, "tier": _tier(eff, leaf.state),
             "preds": preds[leaf.key], "reason": None, "finished": None,
             "need": need, "left": need, "ppm": _ppm(attention.rate), "attention": attention,
             "unestimated": estimate is None or estimate.source == "default", "state": leaf.state,
@@ -545,7 +614,7 @@ def _leaf_record(item) -> dict:
         "tag": attention.tag, "basis": attention.basis, "agent_hours": _hours(item["need"]),
         "unestimated": item["unestimated"], "state": item["state"],
         "hours_after_horizon": _hours(item["left"]), "days": list(item["days"]),
-        "unresolved_local": item["unresolved_local"],
+        "unresolved_local": item["unresolved_local"], "tier": item["tier"],
     }
 
 
@@ -567,7 +636,7 @@ def plan_week(result, portfolio, config) -> WeekPlan:
         run_out, binding = _binding([])
         return WeekPlan(status="no_plan", reason=NO_PLAN[key], unestimated_planned=0, horizon_days=[],
                         planned_week=[], pools=_pools(run_out), binding=binding,
-                        days=[], leaves=[], sites=[], report=[], **fields)
+                        days=[], leaves=[], sites=[], report=[], notes=[], **fields)
     names = _built_sites(result)
     items = {name: _site_work(name, result.inputs[name], mapping, config.default_unit_hours) for name in names}
     _cross_site_preds(result, items)
@@ -580,6 +649,7 @@ def plan_week(result, portfolio, config) -> WeekPlan:
         item["preds"] = [by_node[pred] for pred in item["preds"]]
     work = {name: [item for item in items[name] if item["reason"] is None] for name in names}
     horizon = _working_days(config.as_of, capacity)
+    day_shares = [_day_shares(portfolio, day, names) for day in horizon]
     placed_order = []
     charged = dict.fromkeys(names, 0)
     days = [_Day(index, day, capacity, names, work, placed_order, charged).plan()
@@ -602,12 +672,20 @@ def plan_week(result, portfolio, config) -> WeekPlan:
             "unplanned": [{"key": item["key"], "reason": item["reason"] or BEYOND_HORIZON, "state": item["state"],
                            "unresolved_local": item["unresolved_local"]}
                           for item in items[name] if not item["days"]],
+            "shares": [{"date": day.isoformat(),
+                        "share": float(100 * shares[name]) if name in shares else None}
+                       for day, (shares, _, _) in zip(horizon, day_shares)],
+            "shareless_days": [day.isoformat() for day, (_, shareless, _) in zip(horizon, day_shares)
+                               if name in shareless],
+            "p0": _p0_entries(result.inputs[name].data, items[name]),
         })
+        sites[-1]["share_note"] = SHARE_NOTE if sites[-1]["shareless_days"] else None
     dates = [day.isoformat() for day in horizon]
     return WeekPlan(status="planned", reason=None,
                     unestimated_planned=sum(item["unestimated"] for item in placed_order),
                     horizon_days=dates, planned_week=dates[:WEEK_DAYS], pools=_pools(run_out), binding=binding,
-                    days=days, leaves=leaves, sites=sites, report=_report(cycles), **fields)
+                    days=days, leaves=leaves, sites=sites, report=_report(cycles),
+                    notes=[note for _, _, notes in day_shares for note in notes], **fields)
 
 
 def plan_to_json(plan) -> str:

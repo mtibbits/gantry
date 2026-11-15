@@ -103,3 +103,18 @@ def test_p0_not_reported_p5_p_minus_1_are():
     assert [e.line for e in found] == [5, 6]
     assert "'P5'" in found[0].message and "'P-1'" in found[1].message
     assert "is not P0, P1, P2, P3 or P4" in found[0].message
+
+
+def test_p0_keys_are_effective_p0_in_order():
+    from gantry.priority import p0_keys
+
+    data = parse_wbs("- [ ] Epic\n"
+                     "  - [ ] First {issue: Issue-1}\n"
+                     "  - [ ] Waited on {issue: Issue-2}\n"
+                     "  - [ ] Urgent {issue: Issue-3, priority: P0, depends_on: [Issue-2]}\n", "alpha")
+    work = schedulable(data)
+    eff = effective(work, data.links)
+    assert p0_keys(work, eff) == ["Issue-2", "Issue-3"]
+    assert p0_keys(list(reversed(work)), eff) == ["Issue-3", "Issue-2"]
+    calm = [leaf for leaf in work if leaf.key == "Issue-1"]
+    assert p0_keys(calm, effective(calm, [])) == []

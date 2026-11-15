@@ -86,6 +86,7 @@ PLAIN_MODULES = {
     "typing": "type annotations",
     "enum": "enumerations",
     "math": "arithmetic",
+    "fractions": "exact rational arithmetic (the week plan's share targets, #37)",
     "hashlib": "hashing bytes",
     "graphlib": "topological sort over values",
     "heapq": "heaps over lists",

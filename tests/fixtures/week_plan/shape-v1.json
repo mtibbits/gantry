@@ -72,7 +72,8 @@
       "state": "string",
       "hours_after_horizon": "number",
       "days": {"array": "date"},
-      "unresolved_local": "integer"
+      "unresolved_local": "integer",
+      "tier": "string"
     }}},
     "sites": {"array": {"object": {
       "name": "string",
@@ -85,6 +86,16 @@
         "reason": "string",
         "state": "string",
         "unresolved_local": "integer"
+      }}},
+      "shares": {"array": {"object": {
+        "date": "date",
+        "share": ["null", "number"]
+      }}},
+      "shareless_days": {"array": "date"},
+      "share_note": ["null", "string"],
+      "p0": {"array": {"object": {
+        "key": "string",
+        "held_by": {"array": "string"}
       }}}
     }}},
     "report": {"array": {"object": {
@@ -93,6 +104,12 @@
         "site": "string",
         "key": "string"
       }}}
+    }}},
+    "notes": {"array": {"object": {
+      "kind": "string",
+      "date": "date",
+      "projects": {"array": "string"},
+      "text": "string"
     }}}
   }}
 }

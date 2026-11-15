@@ -209,7 +209,8 @@ allocation that applies on a day is the latest whose `from` is on or before
 that day; with none, no intended share is set. Two valid allocations with the
 same `from` are reported (`duplicate_allocation_date`) and the first in file
 order is used. A view asks for the allocation on the build's as-of date
-(`as_of`), never on the build machine's clock.
+(`as_of`), or on a planned day derived from it (the week plan asks for each
+of its 10 days), never on the build machine's clock.
 
 ## The report
 

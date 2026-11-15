@@ -440,6 +440,7 @@ Hours are minutes divided by 60, and a date is `YYYY-MM-DD` text.
 | `leaves` | one record per placed leaf, sites in config order, then by first placement |
 | `sites` | one record per built site, in config order |
 | `report` | what the plan found across sites, one entry per finding; empty when there is none and on a `no_plan` plan |
+| `notes` | what the plan says about the intended shares it applied, by date; empty on a `no_plan` plan |
 
 A day holds its `date` and `weekday` (`mon` to `sun`), its
 `attention_hours_declared` and its `attention_hours` after reserved blocks,
@@ -453,19 +454,42 @@ holds `site`, `key` and `agent_hours`.
 
 A leaf holds its `site` and `key`, its `rate`, `need`, `tag` and `basis`,
 its total `agent_hours`, whether it is `unestimated`, its `state`, its
-`hours_after_horizon` and the `days` it is on, and its `unresolved_local`
-count: its own and its open rows' `depends_on` entries that name nothing.
+`hours_after_horizon` and the `days` it is on, its `unresolved_local`
+count: its own and its open rows' `depends_on` entries that name nothing,
+and its `tier`: `p0`, `started` or `fair_share`.
 
 A site holds its `name`, its `ratio_source` (the
 [site ratio source](#the-site-ratio-source): `estimated` until #39 or #40
 passes a ratio), its `attention_hours_charged` (its block lengths over the
 10 days, start costs and minimum-length padding included), its
 `lane_hours_charged` (the agent hours placed), its `unestimated_planned`
-count and its `unplanned` list (`key`, `reason`, `state`,
-`unresolved_local`). An unplanned leaf's `reason` is one of
+count, its `unplanned` list (`key`, `reason`, `state`,
+`unresolved_local`), its `shares` (one per horizon day: the `date` and its
+`share` in percent, null on a day the site is share-less), its
+`shareless_days`, its `share_note` (null, or the text "no intended share
+set; planned only into capacity left after the sites with shares" when
+`shareless_days` is not empty) and its `p0` list: each leaf the worksite
+page lists as P0, by `key`, with `held_by`, the `<site>:<issue>` of each
+cross-site entry that holds it. An unplanned leaf's `reason` is one of
 `blocked_externally`, `parked`, `waits_on_cycle`, `cross_site_cycle`,
 `waits_on_site_absent`, `waits_on_unresolved`, `waits_on_unplanned` and
 `beyond_horizon` ([Unplanned leaves](#unplanned-leaves)).
+
+A note holds its `kind`, its `date`, the `projects` it names and its
+`text`. A `shares_dropped` note names, in the allocation's own order, the
+projects whose shares were dropped that day because they are not built
+sites: "shares dropped on <date> for projects that are not built sites:
+<names>". A `no_allocation` note names none: "no intended shares apply on
+<date>; every site planned with equal shares". Notes go by date, and on one
+date `shares_dropped` before `no_allocation`.
+
+The fields added by #37 (`notes`, a leaf's `tier`, and a site's `shares`,
+`shareless_days`, `share_note` and `p0`) are provisional until the first
+view reads them (#38). A site may hold more than one block a day, and a
+leaf may sit in two blocks of one day; #38, #33 and #24 must not assume
+either away. A `p0` entry's `held_by` keeps absent and unresolved
+outcomes as well as open ones, since each holds the leaf (#62), and
+`share_note` is set for the whole site once any day is share-less.
 
 A report entry holds its `kind`, `cross_site_cycle`, and its `leaves`,
 each a `site` and `key`, in devagent's config order of site, then `WBS.md`
@@ -475,7 +499,8 @@ until the first view reads it (#38); a kind with another shape changes the
 pinned shape and this section in the same change.
 
 A planned file, from `tests/fixtures/week_plan/binds_lanes/`, with `days`,
-`leaves` and `sites` cut to their first item:
+`leaves`, `sites` and `notes`, and the site's `shares`, cut to their first
+item:
 
 ```json
 {
@@ -553,6 +578,7 @@ A planned file, from `tests/fixtures/week_plan/binds_lanes/`, with `days`,
       "site": "alpha",
       "state": "pending",
       "tag": "scored",
+      "tier": "fair_share",
       "unestimated": false,
       "unresolved_local": 0
     }
@@ -568,6 +594,14 @@ A planned file, from `tests/fixtures/week_plan/binds_lanes/`, with `days`,
       1.0
     ]
   },
+  "notes": [
+    {
+      "date": "2026-01-19",
+      "kind": "no_allocation",
+      "projects": [],
+      "text": "no intended shares apply on 2026-01-19; every site planned with equal shares"
+    }
+  ],
   "plan_version": 1,
   "planned_week": [
     "2026-01-19",
@@ -598,7 +632,16 @@ A planned file, from `tests/fixtures/week_plan/binds_lanes/`, with `days`,
       "attention_hours_charged": 1.0,
       "lane_hours_charged": 14.0,
       "name": "alpha",
+      "p0": [],
       "ratio_source": "estimated",
+      "share_note": null,
+      "shareless_days": [],
+      "shares": [
+        {
+          "date": "2026-01-19",
+          "share": 100.0
+        }
+      ],
       "unestimated_planned": 0,
       "unplanned": []
     }
@@ -633,6 +676,7 @@ The `no_plan` form keeps every key:
       1.0
     ]
   },
+  "notes": [],
   "plan_version": 1,
   "planned_week": [],
   "pools": [
@@ -692,6 +736,50 @@ The `report` list from `tests/fixtures/week_plan/cross_site_cycle/`:
 ]
 ```
 
+A `p0` entry held by another site, from `tests/fixtures/week_plan/p0/`
+(site `a`):
+
+```json
+{
+  "held_by": [
+    "b:Issue-3"
+  ],
+  "key": "Issue-3"
+}
+```
+
+A `shares_dropped` note, the first of `tests/fixtures/week_plan/share_unbuilt/`:
+
+```json
+{
+  "date": "2026-01-19",
+  "kind": "shares_dropped",
+  "projects": [
+    "zz"
+  ],
+  "text": "shares dropped on 2026-01-19 for projects that are not built sites: zz"
+}
+```
+
+A share-less site, `c` of `tests/fixtures/week_plan/no_share/`, with
+`shares` and `shareless_days` cut to their first item:
+
+```json
+{
+  "name": "c",
+  "share_note": "no intended share set; planned only into capacity left after the sites with shares",
+  "shareless_days": [
+    "2026-01-19"
+  ],
+  "shares": [
+    {
+      "date": "2026-01-19",
+      "share": null
+    }
+  ]
+}
+```
+
 ### The version rule
 
 Adding a field is compatible and does not change `plan_version`. So is a
@@ -702,7 +790,9 @@ binding pool is null and on the two pool names, and shows any other value
 it does not know as text. A new `status` value changes `plan_version`, and
 so does removing or renaming a field or changing its type or meaning.
 A file written before a field was added lacks it: a reader takes a missing
-`report` as empty and a missing `unresolved_local` as 0.
+`report` as empty and a missing `unresolved_local` as 0, and a missing
+`notes`, `shares`, `shareless_days` or `p0` as empty and a missing
+`share_note` or `tier` as not given.
 
 ### The pinned shape
 

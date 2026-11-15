@@ -204,6 +204,7 @@ def test_no_plan_reasons(tmp_path, key, case, changes):
     assert plan.binding == {"pool": None, "first_day": None, "text": planner.NO_POOL}
     assert plan.mapping["values"] == [0.0, 0.1, 0.25, 0.5, 1.0]
     assert plan.report == []
+    assert plan.notes == []
 
 
 def test_planned_plan_has_no_reason(tmp_path):
@@ -1054,6 +1055,178 @@ def test_rate_0_by_rounding_goes_in_the_lanes_row(tmp_path):
     assert row_keys(plan.days[0]) == [("alpha", "Issue-1"), ("alpha", "Issue-2")]
 
 
+# --- tiers, each day's shares, notes and the P0 list (#37) ---------------------------------------
+
+
+def site_record(plan, name):
+    return next(site for site in plan.sites if site["name"] == name)
+
+
+def two_sites_portfolio(*allocations, hours=6, lanes=2):
+    """two_sites/' capacity with the given allocation tables in place of its own."""
+    return portfolio_md(hours=hours, lanes=lanes, tail="".join(allocations))
+
+
+def test_leaf_tier_values(tmp_path):
+    plan = plan_of(tmp_path, "states")
+    assert [placed(plan, "a", key)["tier"] for key in ("Issue-1", "Issue-2", "Issue-3")] == ["started"] * 3
+    assert placed(plan, "b", "Issue-2")["tier"] == "fair_share"
+    plan = plan_of(tmp_path, "p0")
+    assert placed(plan, "a", "Issue-2")["tier"] == "p0"
+    assert planner.TIERS == ("p0", "started", "fair_share")
+    for base in FIXTURE_NAMES:
+        assert {entry["tier"] for entry in plan_of(tmp_path, base).leaves} <= set(planner.TIERS), base
+
+
+def test_continues_leaf_keeps_fair_share_on_day_two(tmp_path):
+    plan = plan_of(tmp_path, "continues")
+    entry = placed(plan, "alpha", "Issue-1")
+    assert entry["days"][:2] == plan.horizon_days[:2]
+    assert entry["tier"] == "fair_share"
+
+
+def p0_cases(tmp_path):
+    """(plan, {site: the worksite page's notes.p0 or []}) of p0/, cross_site/ and the demo."""
+    from gantry.views import worksite
+
+    for base in ("p0", "cross_site", "demo"):
+        if base == "demo":
+            result = sample_build(tmp_path)
+            portfolio = read_portfolio_file(result.roots, result.config.portfolio_file,
+                                            br_namespace=result.config.requirements.br_namespace)
+            config = result.config
+        else:
+            result, portfolio, config = built(install(tmp_path, base))
+        pages = {}
+        for name in result.pages:
+            inputs = result.inputs[name]
+            pages[name] = worksite.page_model(name, inputs.data, default_unit_hours=config.default_unit_hours,
+                                              inputs=inputs)["notes"]["p0"] or []
+        yield plan_week(result, portfolio, config), pages
+
+
+def test_p0_list_matches_worksite_page(tmp_path):
+    with_p0 = 0
+    for plan, pages in p0_cases(tmp_path):
+        assert {site["name"] for site in plan.sites} == set(pages)
+        for site in plan.sites:
+            assert [entry["key"] for entry in site["p0"]] == pages[site["name"]], site["name"]
+            with_p0 += bool(site["p0"])
+    assert with_p0 >= 2
+
+
+def test_p0_leaf_held_by_other_site(tmp_path):
+    entries = {e["key"]: e for e in site_record(plan_of(tmp_path, "p0"), "a")["p0"]}
+    assert entries["Issue-3"] == {"key": "Issue-3", "held_by": ["b:Issue-3"]}
+    assert entries["Issue-1"]["held_by"] == entries["Issue-2"]["held_by"] == []
+    cross = {e["key"]: e for e in site_record(plan_of(tmp_path, "cross_site"), "a")["p0"]}
+    assert cross["Issue-12"]["held_by"] == ["b:Issue-8"]
+    # An absent and an unresolved outcome hold the leaf too, in depends_on order.
+    text = (FIXTURES / "p0" / "a" / "WBS.md").read_bytes().decode("utf-8").replace(
+        "depends_on: [b:Issue-3]", "depends_on: [zz:Issue-1, b:Issue-99, b:Issue-3]")
+    entries = {e["key"]: e for e in site_record(plan_of(tmp_path, "p0", wbs={"a": text}), "a")["p0"]}
+    assert entries["Issue-3"]["held_by"] == ["zz:Issue-1", "b:Issue-99", "b:Issue-3"]
+
+
+def shares_of(plan, name):
+    return [entry["share"] for entry in site_record(plan, name)["shares"]]
+
+
+def test_day_shares_recorded(tmp_path):
+    plan = plan_of(tmp_path, "two_sites")
+    days = plan.horizon_days
+    plan = plan_of(tmp_path, "two_sites", portfolio=two_sites_portfolio(
+        allocation("2026-01-05", a=50, b=50), allocation(days[2], a=75, b=25)))
+    assert [entry["date"] for entry in site_record(plan, "a")["shares"]] == days
+    assert shares_of(plan, "a") == [50.0, 50.0] + [75.0] * 8
+    assert shares_of(plan, "b") == [50.0, 50.0] + [25.0] * 8
+    assert plan.notes == []
+
+
+def test_shareless_site_is_marked(tmp_path):
+    plan = plan_of(tmp_path, "no_share")
+    for name in ("c", "d"):
+        site = site_record(plan, name)
+        assert site["share_note"] == planner.SHARE_NOTE
+        assert site["shareless_days"] == plan.horizon_days
+        assert shares_of(plan, name) == [None] * 10
+    a = site_record(plan, "a")
+    assert (shares_of(plan, "a"), a["shareless_days"], a["share_note"]) == ([100.0] * 10, [], None)
+
+
+def test_no_allocation_notes_and_equal_shares(tmp_path):
+    plan = plan_of(tmp_path, "no_allocation")
+    assert plan.notes == [
+        {"kind": "no_allocation", "date": day, "projects": [],
+         "text": f"no intended shares apply on {day}; every site planned with equal shares"}
+        for day in plan.horizon_days]
+    for site in plan.sites:
+        assert shares_of(plan, site["name"]) == [50.0] * 10
+        assert (site["shareless_days"], site["share_note"]) == ([], None)
+
+
+def test_shareless_days_only_while_an_allocation_applies(tmp_path):
+    days = plan_of(tmp_path, "no_allocation").horizon_days
+    plan = plan_of(tmp_path, "no_allocation", portfolio=two_sites_portfolio(allocation(days[2], a=100)))
+    b = site_record(plan, "b")
+    assert b["shareless_days"] == days[2:]
+    assert b["share_note"] == planner.SHARE_NOTE
+    assert shares_of(plan, "b") == [50.0, 50.0] + [None] * 8
+    assert [(note["kind"], note["date"]) for note in plan.notes] == [("no_allocation", day) for day in days[:2]]
+
+
+def test_unbuilt_share_dropped_and_rest_scaled(tmp_path):
+    from fractions import Fraction
+
+    plan = plan_of(tmp_path, "share_unbuilt")
+    days = plan.horizon_days
+    early = [note for note in plan.notes if note["date"] in days[:5]]
+    assert early == [{"kind": "shares_dropped", "date": day, "projects": ["zz"],
+                      "text": f"shares dropped on {day} for projects that are not built sites: zz"}
+                     for day in days[:5]]
+    assert shares_of(plan, "a")[:5] == [float(Fraction(100, 3))] * 5
+    assert shares_of(plan, "b")[:5] == [float(Fraction(200, 3))] * 5
+
+
+def test_allocation_of_only_unbuilt_sites_is_a_no_allocation_day(tmp_path):
+    plan = plan_of(tmp_path, "share_unbuilt")
+    days = plan.horizon_days
+    late = [(note["kind"], note["date"], note["projects"]) for note in plan.notes if note["date"] in days[5:]]
+    assert late == [entry for day in days[5:]
+                    for entry in (("shares_dropped", day, ["zz", "yy"]), ("no_allocation", day, []))]
+    assert plan.notes[5]["text"] == f"shares dropped on {days[5]} for projects that are not built sites: zz, yy"
+    for name in ("a", "b"):
+        assert shares_of(plan, name)[5:] == [50.0] * 5
+        assert site_record(plan, name)["shareless_days"] == []
+
+
+def test_all_zero_remaining_shares_is_a_no_allocation_day(tmp_path):
+    # A valid allocation sums to 100, so every built site at 0 means an unbuilt project holds the rest.
+    plan = plan_of(tmp_path, "two_sites", portfolio=two_sites_portfolio(allocation("2026-01-05", a=0, b=0, zz=100)))
+    assert [(note["kind"], note["projects"]) for note in plan.notes[:2]] == [
+        ("shares_dropped", ["zz"]), ("no_allocation", [])]
+    assert len(plan.notes) == 20
+    for name in ("a", "b"):
+        assert shares_of(plan, name) == [50.0] * 10
+        assert site_record(plan, name)["shareless_days"] == []
+    # The limb with nothing dropped, which no valid file reaches: straight through _day_shares.
+    from types import SimpleNamespace
+
+    from gantry.portfolio_file import Allocation
+
+    portfolio = SimpleNamespace(allocations=(Allocation(date(2026, 1, 5), {"a": 0, "b": 0}, None),))
+    shares, shareless, notes = planner._day_shares(portfolio, date(2026, 1, 19), ["a", "b"])
+    assert [note["kind"] for note in notes] == ["no_allocation"]
+    assert (shares, shareless) == ({"a": 0.5, "b": 0.5}, [])
+
+
+def test_site_with_no_page_is_not_a_share_site(tmp_path):
+    plan = plan_of(tmp_path, "two_sites", wbs={"b": DELETE})
+    assert [site["name"] for site in plan.sites] == ["a"]
+    assert {(note["kind"], tuple(note["projects"])) for note in plan.notes} == {("shares_dropped", ("b",))}
+    assert shares_of(plan, "a") == [100.0] * 10
+
+
 # --- through the build ------------------------------------------------------------------------
 
 
@@ -1130,14 +1303,16 @@ def test_week_plan_doc_examples_are_real(tmp_path):
     from gantry.planner import plan_to_json
 
     section = doc_section(WEEK_PLAN_DOC.read_bytes().decode("utf-8"), "## The plan file")
-    planned, no_plan, report = doc_json_blocks(section)
+    planned, no_plan, report, p0_entry, note, shareless = doc_json_blocks(section)
     # The no_plan form is a whole file, byte for byte.
     assert no_plan == plan_to_json(plan_of(tmp_path, "binds_lanes", config={"portfolio_file": None}))
     assert json.loads(no_plan)["status"] == "no_plan"
-    # The planned example is binds_lanes' file with days, leaves and sites cut to their first item.
+    # The planned example is binds_lanes' file with days, leaves, sites and notes, and the
+    # site's shares, cut to their first item.
     document = json.loads(plan_to_json(plan_of(tmp_path, "binds_lanes")))
-    for name in ("days", "leaves", "sites"):
+    for name in ("days", "leaves", "sites", "notes"):
         document[name] = document[name][:1]
+    document["sites"][0]["shares"] = document["sites"][0]["shares"][:1]
     assert json.loads(planned) == document
     assert planned == json.dumps(document, sort_keys=True, ensure_ascii=False, indent=2) + "\n"
     assert document["status"] == "planned"
@@ -1145,6 +1320,25 @@ def test_week_plan_doc_examples_are_real(tmp_path):
     found = json.loads(plan_to_json(plan_of(tmp_path, "cross_site_cycle")))["report"]
     assert json.loads(report) == found and found
     assert report == json.dumps(found, sort_keys=True, ensure_ascii=False, indent=2) + "\n"
+
+    def site_of(base, name):
+        return next(s for s in json.loads(plan_to_json(plan_of(tmp_path, base)))["sites"] if s["name"] == name)
+
+    # Three excerpts of real plans: a held p0 entry, a shares_dropped note, a share-less site.
+    excerpts = []
+    entry = json.loads(p0_entry)
+    assert entry["held_by"] and entry in site_of("p0", "a")["p0"]
+    excerpts.append((p0_entry, entry))
+    found = json.loads(plan_to_json(plan_of(tmp_path, "share_unbuilt")))["notes"][0]
+    assert found["kind"] == "shares_dropped"
+    excerpts.append((note, found))
+    site = site_of("no_share", "c")
+    found = {"name": "c", "share_note": site["share_note"], "shareless_days": site["shareless_days"][:1],
+             "shares": site["shares"][:1]}
+    assert found["shares"][0]["share"] is None and found["shareless_days"]
+    excerpts.append((shareless, found))
+    for text, value in excerpts:
+        assert text == json.dumps(value, sort_keys=True, ensure_ascii=False, indent=2) + "\n"
 
 
 def test_week_plan_doc_names_every_field():
