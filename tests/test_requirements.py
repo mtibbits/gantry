@@ -3,6 +3,7 @@
 docs/requirements-format.md states the rules these tests pin.
 """
 
+import json
 import re
 import time
 from pathlib import Path
@@ -11,6 +12,7 @@ import pytest
 
 import gantry.config as cfg
 from gantry import requirements as req
+from gantry.portfolio_file import read_portfolio_file
 from gantry.requirements import (
     LAYERS,
     PROJECT_LAYERS,
@@ -922,6 +924,7 @@ FIXTURE_READS = {
     "layers.md": ("alpha", ALL, "life"),
     "empty.md": DEFAULT_READ,
     "candidates.md": DEFAULT_READ,
+    "block-before-nested.md": DEFAULT_READ,
     **{f"report/{name}": DEFAULT_READ for name in REPORT_CASES if name != "fr-in-br.md"},
     "report/fr-in-br.md": ("life", {"BR"}, "life"),
     "report/other-site.md": DEFAULT_READ,
@@ -1020,3 +1023,276 @@ def test_format_doc_examples_read_clean():
     s = parse(comments, "gantry")
     assert list(s.requirements) == ["gantry:FR-1", "gantry:FR-3"]
     assert s.requirements["gantry:FR-1"].text == "The log lists each check of the last thirty nights."
+
+
+# --- threshold and objective statements (#79) ------------------------------------------
+
+STRAY = "a statement not directly under a requirement"
+
+
+def ST(n, word, reason=STRAY):
+    """The report row of a Threshold: or Objective: item on line n that is not read."""
+    return (n, "malformed_item", f"'{word}:' is not read: {reason}")
+
+
+def SECOND(n, word):
+    return ST(n, word, f"a second {word}: statement; it stays in the text")
+
+
+def INSIDE(n):
+    return (n, "malformed_meta", "a meta block inside the text; it stays in the text and is not read")
+
+
+def fields(r):
+    return (r.threshold, r.objective, r.text)
+
+
+def test_statements_read_and_removed():
+    s = parse("- SR-1: The tool reads each site's work breakdown.\n"
+              "- FR-21: A dependency on another site's leaf is shown and\n"
+              "  checked. {refines: SR-1}\n"
+              "  - Threshold: dependencies within one installation.\n"
+              "  - Objective: also dependencies on sites that are not read, named.\n", "gantry")
+    assert rows(s) == []
+    fr = s.requirements["gantry:FR-21"]
+    assert fr.threshold == "dependencies within one installation."
+    assert fr.objective == "also dependencies on sites that are not read, named."
+    assert fr.text == "A dependency on another site's leaf is shown and checked."
+    assert fr.refines == parse_id("gantry:SR-1")
+
+
+def test_statement_continuation_lines_join():
+    s = parse("- FR-1: a\n  - Threshold: x\n    y\n      z\n  - Objective: o\n    p\n")
+    assert rows(s) == []
+    assert fields(_fr1(s)) == ("x y z", "o p", "a")
+
+
+def test_statements_absent_and_empty():
+    assert fields(_fr1(parse("- FR-1: a\n  b\n"))) == (None, None, "a b")
+    s = parse("- FR-1: a\n  - Threshold:\n  - Objective:   \n")
+    assert rows(s) == []
+    assert fields(_fr1(s)) == ("", "", "a")
+
+
+def test_block_before_first_nested_item_is_read():
+    s = parse("- FR-1: a\n  b {refines: SR-1}\n  - note\n- SR-1: s\n")
+    assert rows(s) == []
+    assert _fr1(s).refines == rid("SR-1")
+    assert _fr1(s).text == "a b - note"
+
+
+def test_block_before_nested_item_in_a_corpus_shaped_file():
+    s = read("block-before-nested.md")
+    assert s.report == []
+    assert _fr1(s).refines == rid("SR-1")
+    assert _fr1(s).text == "The page lists each leaf's checks and their results. - The list is sorted by date."
+
+
+def test_first_line_block_still_read_with_statements():
+    s = parse("- FR-1: a {refines: SR-1}\n  - Threshold: x\n- SR-1: s\n")
+    assert rows(s) == []
+    assert _fr1(s).refines == rid("SR-1")
+    assert fields(_fr1(s)) == ("x", None, "a")
+
+
+@pytest.mark.parametrize(
+    ("text", "fr1"),
+    [
+        ("- FR-1: a\n  - note {refines: SR-1}\n- SR-1: s\n", "a - note {refines: SR-1}"),
+        ("- FR-1: a\n  - note\n  more {refines: SR-1}\n- SR-1: s\n", "a - note more {refines: SR-1}"),
+        ("- FR-1: a\n  - Threshold: x\n  - note {refines: SR-1}\n- SR-1: s\n", "a - note {refines: SR-1}"),
+    ],
+)
+def test_block_after_nested_item_reported(text, fr1):
+    s = parse(text)
+    assert rows(s) == [INSIDE(1)]
+    assert _fr1(s).refines is None
+    assert _fr1(s).text == fr1
+
+
+def test_block_in_statement_reported_and_kept():
+    s = parse("- FR-1: a\n  - Threshold: x {refines: SR-1}\n- SR-1: s\n")
+    assert rows(s) == [INSIDE(1)]
+    assert _fr1(s).threshold == "x {refines: SR-1}"
+    assert _fr1(s).refines is None
+    assert _fr1(s).text == "a"
+
+
+@pytest.mark.parametrize("word", ["Threshold", "Objective"])
+def test_second_threshold_reported_and_kept(word):
+    s = parse(f"- FR-1: a\n  - {word}: x\n  - {word}: y\n")
+    assert rows(s) == [SECOND(3, word)]
+    assert getattr(_fr1(s), word.lower()) == "x"
+    assert _fr1(s).text == f"a - {word}: y"
+
+
+@pytest.mark.parametrize(
+    ("text", "line", "fr1"),
+    [
+        # Two levels down: inside a first-level item.
+        ("- FR-1: a\n  - note\n    - Threshold: x\n", 3, "a - note - Threshold: x"),
+        ("- FR-1: a\n  - Threshold: t\n    - Objective: x\n", 3, "a"),
+        # An ordered marker.
+        ("- FR-1: a\n  1. Threshold: x\n", 2, "a 1. Threshold: x"),
+        # At column 0 after a requirement: the main loop reads it as its own item.
+        ("- FR-1: a\n- Threshold: x\n", 2, "a"),
+        ("- FR-1: a\n1. Objective: x\n", 2, "a"),
+        # Under a prose bullet, which is not stored.
+        ("- Notes\n  - Threshold: x\n- FR-1: a\n", 2, "a"),
+    ],
+)
+def test_stray_statements_reported(text, line, fr1):
+    s = parse(text)
+    word = "Objective" if "- Objective" in text or ". Objective" in text else "Threshold"
+    assert rows(s) == [ST(line, word)]
+    assert _fr1(s).text == fr1
+    if fr1 == "a" and "Threshold: t" not in text:
+        assert fields(_fr1(s)) == (None, None, "a")
+
+
+@pytest.mark.parametrize("word", ["Threshold", "Objective"])
+def test_statement_after_blank_line(word):
+    text = f"- FR-1: a\n\n  - {word}: x\n"
+    s = parse(text)
+    assert rows(s) == [ST(3, word)]
+    assert fields(_fr1(s)) == (None, None, "a")
+    assert req._scan(req.split_lines(text)).nested[2] is True  # no layout change
+
+
+def test_lowercase_and_plural_stay_text():
+    s = parse("- FR-1: a\n  - threshold: x\n  - Thresholds: y\n  - **Threshold:** z\n  - Objective : w\n")
+    assert rows(s) == []
+    assert fields(_fr1(s)) == (None, None, "a - threshold: x - Thresholds: y - **Threshold:** z - Objective : w")
+
+
+def test_statement_after_unclosed_fence_is_text():
+    # After an unclosed fence opener in the item, a page shows code: never a statement, never reported.
+    s = parse("- FR-1: a\n  ```\n  - Threshold: x\n")
+    assert rows(s) == []
+    assert fields(_fr1(s)) == (None, None, "a ``` - Threshold: x")
+
+
+def test_statement_under_dropped_requirement_not_reported():
+    s = parse("- FR-1: a\n- FR-1: b\n  - Threshold: x\n")
+    assert [(e.line, e.kind) for e in s.report] == [(2, "duplicate_id")]
+    assert fields(_fr1(s)) == (None, None, "a")
+
+
+def test_statement_one_column_in():
+    s = parse("- FR-1: a\n - Threshold: x\n")
+    assert rows(s) == []
+    assert fields(_fr1(s)) == ("x", None, "a")
+
+
+def test_statement_lazy_continuation():
+    s = parse("- FR-1: a\n  - Threshold: x\n  more\n")
+    assert rows(s) == []
+    assert fields(_fr1(s)) == ("x more", None, "a")
+
+
+@pytest.mark.parametrize(
+    ("text", "want", "report"),
+    [
+        # An own-text-looking line right after a statement continues it, as a page shows it.
+        ("- FR-1: a\n  - Threshold: x\n b\n", {"alpha:FR-1": ("x b", None, "a")}, []),
+        # Rule 7: the text keeps file order with a non-statement item between two statements.
+        ("- FR-1: a\n  - Threshold: x\n  - note\n  - Objective: y\n  - more\n",
+         {"alpha:FR-1": ("x", "y", "a - note - more")}, []),
+        # A statement after a first-level item with deeper lines.
+        ("- FR-1: a\n  - note\n    deeper\n  - Threshold: x\n", {"alpha:FR-1": ("x", None, "a - note deeper")}, []),
+        # The * and + markers.
+        ("- FR-1: a\n  * Threshold: x\n  + Objective: y\n", {"alpha:FR-1": ("x", "y", "a")}, []),
+        # Under a malformed candidate (not stored): reported.
+        ("- FR12: a\n  - Threshold: x\n- FR-1: b\n", {"alpha:FR-1": (None, None, "b")},
+         [(1, "malformed_item", "'FR12:' is not a requirement: no '-' between the code and the number"),
+          ST(2, "Threshold")]),
+        # Under a misplaced or a BEFORE_ID parent: dropped with it, covered by its entry.
+        ("- BR-1: a\n  - Threshold: x\n- FR-1: b\n", {"alpha:FR-1": (None, None, "b")},
+         [(1, "misplaced", "alpha:BR-1 is a BR item, a layer this file does not hold "
+                           "(BRule, UC, SR, FR, QA, EI, CON)")]),
+        ("- <!-- c --> FR-2: a\n  - Threshold: x\n- FR-1: b\n", {"alpha:FR-1": (None, None, "b")},
+         [MC(1, BEFORE_ID)]),
+    ],
+)
+def test_statement_shape_legs(text, want, report):
+    s = parse(text)
+    assert rows(s) == report
+    assert {key: fields(s.requirements[key]) for key in want} == want
+
+
+@pytest.mark.parametrize(
+    ("text", "want"),
+    [
+        # A new first-level item closes the one before: its statement is first-level.
+        ("- FR-1: a\n  - note\n    more\n  - Threshold: x\n", {"alpha:FR-1": ("x", None, "a - note more")}),
+        # The next requirement closes it.
+        ("- FR-1: a\n  - note\n- FR-2: b\n  - Threshold: x\n",
+         {"alpha:FR-1": (None, None, "a - note"), "alpha:FR-2": ("x", None, "b")}),
+        # A blank line closes it.
+        ("- FR-1: a\n  - note\n\n- FR-2: b\n  - Threshold: x\n",
+         {"alpha:FR-1": (None, None, "a - note"), "alpha:FR-2": ("x", None, "b")}),
+    ],
+)
+def test_first_level_state_closes(text, want):
+    s = parse(text)
+    assert rows(s) == []
+    assert {key: fields(s.requirements[key]) for key in want} == want
+
+
+def test_candidate_shaped_statement_is_candidate():
+    s = parse("- FR-1: a\n  - Threshold:FR-2: x\n")
+    (entry,) = s.report
+    assert (entry.line, entry.kind) == (2, "malformed_item")
+    assert entry.message.startswith("'Threshold:FR-2:' is not a requirement: a namespace"), entry
+    assert fields(_fr1(s)) == (None, None, "a - Threshold:FR-2: x")
+
+
+@pytest.mark.parametrize(
+    ("text", "threshold", "report"),
+    [
+        ("- FR-1: a\n  - Threshold: x {refines: SR-1\n", "x {refines: SR-1",
+         [(1, "malformed_meta", "the meta block starting '{refines:' cannot be read: an unclosed or nested brace")]),
+        ("- FR-1: a {refines: SR-1\n  - Threshold: x {needs: UC-1\n", "x {needs: UC-1",
+         [(1, "malformed_meta", "the meta block starting '{refines:' cannot be read: an unclosed or nested brace")]),
+        ("- FR-1: a\n  - Threshold: x <!-- c -->\n", "x <!-- c -->", [MC(2, INLINE)]),
+    ],
+)
+def test_unclosed_opener_and_comment_in_statement_reported(text, threshold, report):
+    s = parse(text)
+    assert rows(s) == report
+    assert _fr1(s).threshold == threshold
+
+
+# The reader corpus (U1): the parse of every repo requirements text, captured on the tree before
+# #79 as a literal golden. The files #79 itself changes are excluded by name.
+CORPUS_GOLDEN = FIXTURES / "corpus_golden.json"
+CORPUS_CHANGED = ("docs/requirements.md", "samples/lighthouse/requirements.md")
+CORPUS_NEW = ("tests/fixtures/requirements/block-before-nested.md",)
+
+
+def _corpus_entry(s):
+    return {"requirements": [[key, r.layer, r.text, None if r.refines is None else str(r.refines),
+                              [str(t) for t in r.needs], r.line] for key, r in s.requirements.items()],
+            "report": [[e.line, e.kind, e.message] for e in s.report]}
+
+
+def _corpus():
+    """{repo path: its RequirementSet}, for the corpus outside CORPUS_CHANGED."""
+    c, _, _ = _sample_trace()
+    portfolio = ROOT / "samples" / "portfolio.md"
+    sets = {"samples/portfolio.md": read_portfolio_file(roots_around(portfolio), portfolio,
+                                                        br_namespace=c.requirements.br_namespace).brs}
+    for name in sorted(FIXTURE_READS):
+        namespace, layers, br = FIXTURE_READS[name]
+        sets[f"tests/fixtures/requirements/{name}"] = read(name, namespace, layers=layers, br=br)
+    return sets
+
+
+def test_reader_corpus_unchanged():
+    golden = json.loads(CORPUS_GOLDEN.read_bytes().decode("utf-8"))
+    sets = _corpus()
+    assert sorted(sets) == sorted([*golden, *CORPUS_NEW])
+    assert not set(golden) & set(CORPUS_CHANGED)
+    for path, want in golden.items():
+        assert _corpus_entry(sets[path]) == want, path
+        assert all((r.threshold, r.objective) == (None, None) for r in sets[path].requirements.values()), path

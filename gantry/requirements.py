@@ -4,8 +4,10 @@ A requirement ID is `<namespace>:<code>-<n>` (`gantry:FR-12`), a strict subset
 of the `<namespace>:<id>` shape mtibbits/devagent#888 checks in `satisfies:`.
 A requirements file is Markdown; a requirement is an unordered list item whose
 text starts with a bare ID and a colon (`- FR-12: <text>`). Lines in fences and
-block HTML comments are hidden. Every other line is prose, except an ID-shaped
-item that is not a requirement, or an HTML comment the reader does not hide,
+block HTML comments are hidden. A requirement may hold one `Threshold:` and one
+`Objective:` statement, a list item directly under it (#79). Every other line is
+prose, except an ID-shaped item that is not a requirement, a statement-shaped
+item that is not a statement, or an HTML comment the reader does not hide,
 which is reported.
 The module has its own meta-block reader and fence pairing and shares no code
 with gantry/wbs_stopgap.py or gantry/model.py, so #12 can delete the stopgap
@@ -46,6 +48,8 @@ CANDIDATE_RE = re.compile(  # .match on an item's rest
     r"(?P<code>[A-Za-z]+)(?P<dash>-?)(?P<digits>[0-9]+)(?P<suffix>[A-Za-z]*)"
     r"(?P<close>[*_`~ \t]*):"
 )
+# A Threshold: or Objective: statement (#79), exact case: .match on an item's rest.
+STATEMENT_RE = re.compile(r"(?P<word>Threshold|Objective):")
 BREAK_RE = re.compile(r"[ \t]*([-*_])(?:[ \t]*\1){2,}[ \t]*")  # fullmatch: a thematic break, not a list item
 HEADING_START_RE = re.compile(r"[ \t]*#{1,6}(?:[ \t]|$)")  # match, at most 3 columns in: an ATX heading
 HTML_START_RE = re.compile(r"[ \t]*</?[A-Za-z]")  # match, at most 3 columns in: an HTML block may start
@@ -74,6 +78,8 @@ _WHY = {
     "long": "the number has more than 9 digits",
     "suffix": "letters after the number",
     "nested": "requirements are not nested",
+    "second_statement": "a second {word}: statement",
+    "stray_statement": "a statement not directly under a requirement",
 }
 
 
@@ -103,6 +109,8 @@ class Requirement:
     needs: list[ReqId]
     source: str
     line: int
+    threshold: str | None = None  # the Threshold: statement (#79); "" when empty
+    objective: str | None = None  # the Objective: statement
 
 
 @dataclass(frozen=True)
@@ -394,6 +402,19 @@ def _reasons(marker, c, nested):
     return why
 
 
+def _statement_word(rest):
+    """`Threshold` or `Objective` when an item's text starts a statement, else
+    None. An ID-shaped item is a candidate first, never a statement."""
+    if rest is None or CANDIDATE_RE.match(rest):
+        return None
+    s = STATEMENT_RE.match(rest)
+    return None if s is None else s["word"]
+
+
+def _joined(parts):
+    return " ".join(part for part in parts if part)
+
+
 def _ending_block(text):
     """The meta block that ends `text`, or None."""
     last = None
@@ -486,12 +507,10 @@ class _Reader:
         """Read the item on line `index`. `listed` and `raw` are _scan's per-line flags: a
         START report needs a list item, and a line after an unclosed fence is code on a page."""
         line = self.first_line + index
-        has_nested = False
         openers = set()  # nested items that start with an unclosed <!--: START or nothing, never INLINE
         for k, text in continuation:
             sub = ITEM_RE.fullmatch(text)
             if sub is not None:
-                has_nested = True
                 self.candidate(self.first_line + k, sub, nested=True)
                 if _opens_comment(sub["rest"]):
                     if listed[k] and not _text_is_code(text, sub):
@@ -509,6 +528,15 @@ class _Reader:
                 return
         c = self.candidate(line, m, nested=nested)
         if c is None:
+            # Not stored: no statement under it, nor the item itself, is directly under a requirement.
+            word = None if raw[index] else _statement_word(rest)
+            if word is not None:
+                self.stray(line, word)
+            for k, text in continuation:
+                sub = ITEM_RE.fullmatch(text)
+                word = None if sub is None or raw[k] else _statement_word(sub["rest"])
+                if word is not None:
+                    self.stray(self.first_line + k, word)
             return
         rid = ReqId(self.namespace, c["code"], int(c["digits"]))  # _reasons found no fault
         # A misplaced or duplicate item is dropped before its block is read.
@@ -527,39 +555,83 @@ class _Reader:
             if _comment_outside_code(part):
                 self.add(at, "malformed_comment", INLINE)
                 break
-        # The block closes the first line, or else the joined text. With a nested
-        # item in the text, the block that ends it may be that item's: it is not read.
+        own, after, statements = self.statements(continuation, raw)
+        # The block closes the first line, or else the own text: the text before the first
+        # nested item. A block after a nested item, or in a statement, is not read.
         head = tail.strip()
         block = _ending_block(head)
+        second = None
         if block is not None:
             head = head[: block.start()].rstrip()
-        parts = [head] + [text.strip() for _, text in continuation]
-        text = " ".join(part for part in parts if part)
-        second = None
-        if block is None:
-            block = None if has_nested else _ending_block(text)
-            if block is not None:
-                text = text[: block.start()].rstrip()
-        else:
+            text = _joined([head, *own, *after])
             second = _ending_block(text)
-        starts = set()
-        for other in BLOCK_RE.finditer(text):
-            starts.add(other.start())
-            if second is not None and other.start() == second.start():
-                self.add(line, "malformed_meta",
-                         "a second meta block on one item; it stays in the text and is not read")
-            else:
-                self.add(line, "malformed_meta",
-                         "a meta block inside the text; it stays in the text and is not read")
-        # A block opener no match consumed has no closing brace, or holds one: once per item.
-        # A block's body holds no brace, so a consumed opener is always a block's start.
-        for opener in _OPENER_RE.finditer(text):
-            if opener.start() not in starts:
-                self.add(line, "malformed_meta", f"the meta block starting {opener.group(0)!r} cannot be "
-                                                 "read: an unclosed or nested brace")
-                break
+        else:
+            own_text = _joined([head, *own])
+            block = _ending_block(own_text)
+            if block is not None:
+                own_text = own_text[: block.start()].rstrip()
+            text = _joined([own_text, *after])
+        threshold, objective = statements.get("Threshold"), statements.get("Objective")
+        broken = False
+        for part in (text, threshold, objective):
+            if part is None:
+                continue
+            starts = set()
+            for other in BLOCK_RE.finditer(part):
+                starts.add(other.start())
+                if part is text and second is not None and other.start() == second.start():
+                    self.add(line, "malformed_meta",
+                             "a second meta block on one item; it stays in the text and is not read")
+                else:
+                    self.add(line, "malformed_meta",
+                             "a meta block inside the text; it stays in the text and is not read")
+            # A block opener no match consumed has no closing brace, or holds one: once per item.
+            # A block's body holds no brace, so a consumed opener is always a block's start.
+            for opener in _OPENER_RE.finditer(part):
+                if not broken and opener.start() not in starts:
+                    self.add(line, "malformed_meta", f"the meta block starting {opener.group(0)!r} cannot be "
+                                                     "read: an unclosed or nested brace")
+                    broken = True
         refines, needs = self.links(line, rid, block)
-        self.requirements[str(rid)] = Requirement(rid, rid.code, text, refines, needs, self.source, line)
+        self.requirements[str(rid)] = Requirement(rid, rid.code, text, refines, needs, self.source, line,
+                                                  threshold, objective)
+
+    def stray(self, line, word, reason=_WHY["stray_statement"]):
+        self.add(line, "malformed_item", f"{word + ':'!r} is not read: {reason}")
+
+    def statements(self, continuation, raw):
+        """(own, after, statements) from a requirement's continuation lines: the own text
+        before the first nested item, the other text after it in file order, and
+        {word: text} for the first Threshold: and Objective: statement. A first-level
+        item is a nested item not inside an earlier one; a line is inside one while
+        indented deeper than its marker, and a line that is not an item continues it
+        (as a page continues its paragraph). docs/requirements-format.md states the rules."""
+        own, after, found = [], [], {}
+        width = None  # the marker width of the open first-level item
+        into = after  # where the open first-level item's lines go
+        for k, text in continuation:
+            sub = ITEM_RE.fullmatch(text)
+            if width is not None and (sub is None or _width(text) > width):
+                word = None if sub is None or raw[k] else _statement_word(sub["rest"])
+                if word is not None:
+                    self.stray(self.first_line + k, word)
+                into.append(text.strip())
+                continue
+            if sub is None:
+                own.append(text.strip())
+                continue
+            width, into = _width(text), after
+            word = None if raw[k] else _statement_word(sub["rest"])
+            if word is not None and sub["marker"] not in ("-", "*", "+"):
+                self.stray(self.first_line + k, word)
+            elif word in found:
+                self.stray(self.first_line + k, word,
+                           _WHY["second_statement"].format(word=word) + "; it stays in the text")
+            elif word is not None:
+                found[word] = into = [sub["rest"][len(word) + 1 :].strip()]
+                continue
+            after.append(text.strip())
+        return own, after, {word: _joined(lines) for word, lines in found.items()}
 
     def links(self, line, rid, block):
         """(refines, needs) read from an item's meta block."""
