@@ -19,10 +19,10 @@ from gantry.views import worksite
 from gantry.views.worksite import NO_LEAVES
 from helpers_config import (
     add_site_key,
-    add_top_level,
     append_bytes,
     copy_samples,
     demo_build,
+    replace_bytes,
     sample_projects,
     write_config,
     write_site_tree,
@@ -280,7 +280,8 @@ def test_site_page_reads_estimates_file(tmp_path, capsys):
     assert f"no estimates file: site.{BUSY}.estimates is false" in page
 
 
-# The build does not read fires_list yet, so it changes nothing. The
+# The build does not read fires_list yet (#32 adds the read), so repointing it
+# changes nothing. The
 # requirements key and the portfolio file are the trace's (#20): each changes
 # the pages whose trace it reaches, and no other page, and neither warns.
 def test_unread_keys_leave_pages_and_trace_inputs_change_them(tmp_path, monkeypatch):
@@ -290,7 +291,7 @@ def test_unread_keys_leave_pages_and_trace_inputs_change_them(tmp_path, monkeypa
     assert code == 0
     plain = written_bytes(out)
     assert len(plain) == 6  # four pages, the index and week-plan.json (#61)
-    add_top_level(config, 'fires_list = "fires.md"\n')
+    replace_bytes(config, 'fires_list = "fires.md"', 'fires_list = "nope.md"')
     code, out, _, err = demo_build(tmp_path, monkeypatch, copy=copy)
     assert code == 0 and err == plain_err
     assert written_bytes(out) == plain
@@ -752,3 +753,20 @@ def test_fires_unknown_site_is_marked(tmp_path, capsys):
     lines = out.splitlines()
     assert lines[0] == "line 1: @nowhere (not a site), 2026-10-31, 1d"
     assert "line 1: fires_unknown_site: @nowhere names no site in this installation" in lines
+
+
+def test_fires_sample_exits_0():
+    result = run_module("fires", "--config", SAMPLE_CONFIG)
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == b""
+    assert b"\r" not in result.stdout
+    assert result.stdout.decode("utf-8").split("\n") == [
+        "line 6: @harbor, 2026-01-19, 1d",
+        "line 8: no site, 2026-01-18, 2d",
+        "line 9: @quarry, 2026-01-12, 8d, still a fire?",
+        "line 10: no site, 2026-01-19 16:30, 0d 7h",
+        "fires: 4, ended: 2",
+        "skipped_empty: 0, skipped_in_fences: 0",
+        "status: read",
+        "",
+    ]

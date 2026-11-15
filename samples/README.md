@@ -26,6 +26,13 @@ public tools (in prose, in the `samples/devagent/` folder name and in
   roles: harbor serves two BRs, orchard serves one, quarry has a share and
   serves none, and lighthouse has neither but holds the milestone leaf
   (`Issue-5`). It has no `[thresholds]` table, so the defaults apply.
+- `fires.md`: the sample installation's fires list (#30), named by the
+  sample config's `fires_list` and dated against its `as_of`. It holds an
+  open fire at a site, one at no site, one old enough to be flagged "still
+  a fire?", one with a time (the day before `as_of`), a resolved and a
+  promoted entry, and a note under an entry; no unreadable line (those
+  are test fixtures). `gantry fires --config samples/gantry.sample.toml`
+  checks it; the build does not read it yet (#32).
 - `lighthouse/requirements.md`: lighthouse's requirements file (#15). The
   sample config's `[site.lighthouse]` table names it, so lighthouse is the
   one sample site in the trace; the other sites are not. `UC-3` (#20)

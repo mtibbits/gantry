@@ -5,6 +5,7 @@ devagent_config = "devagent/config.toml"
 output_dir = "out"
 as_of = 2026-01-20
 portfolio_file = "portfolio.md"
+fires_list = "fires.md"
 
 [site.lighthouse]
 requirements = "lighthouse/requirements.md"

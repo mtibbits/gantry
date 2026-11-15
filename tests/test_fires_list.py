@@ -16,6 +16,7 @@ from gantry import model
 from gantry.config import load_config
 from gantry.roots import directory_roots
 from page_safety import HOSTILE
+from test_samples import GANTRY_SAMPLE
 from helpers_config import write_config
 
 FIXTURES = Path(__file__).parent / "fixtures" / "fires_list"
@@ -583,3 +584,27 @@ def test_stray_fence_counts():
     result = parse_fixture("stray_fence.md")
     assert lines_of(result) == EXPECTED["stray_fence.md"]
     assert (result.skipped_in_fences, result.status) == (1, "read")
+
+
+
+# --- the sample (Task 8) -------------------------------------------------------------
+
+
+def test_sample_reads_clean():
+    from gantry.build import site_list
+    from gantry.sites import config_roots
+
+    config = load_config(GANTRY_SAMPLE)
+    roots = config_roots(config, purpose="check")
+    sites, _ = site_list(config, roots)
+    reference = fl.fires_reference(config, None)
+    assert config.as_of_pinned and reference == datetime(2026, 1, 20)
+    result = fl.read_fires_list(roots, config.fires_list, [s.name for s in sites], reference)
+    assert (result.status, result.report, result.skipped_empty) == ("read", (), 0)
+    assert lines_of(result) == [6, 8, 9, 10, 11, 12]  # line 7 is a note
+    assert [e.state for e in result.entries] == ["open"] * 4 + ["resolved", "promoted"]
+    timed = [e for e in result.entries if e.time is not None]
+    assert len(timed) == 1 and timed[0].date < config.as_of
+    flagged = [e.line for e in result.entries if fl.still_a_fire(e, reference, config.fires_check_days)]
+    assert flagged == [9]
+    assert all(e.site_known for e in result.entries if e.site is not None)
