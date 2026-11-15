@@ -22,10 +22,15 @@ from test_requirement_path import CSS_PATH, PATH_KEYS, box, box_items, css_rules
 from test_samples import GANTRY_SAMPLE
 from test_schedule_agreement import random_dags
 from test_trace_cross_site import installation_models
-from page_safety import assert_page_safe
-from test_trace_page import (EMPTY_MARKS, hand_trace, installation, marked, marks_after, render_traced,  # noqa: F401
-                             row, sample_page, select, trace_of)
-from test_worksite_page import STRUCTURAL
+from gantry.model import SiteData
+from gantry.render import CLASS_TOKENS
+from gantry.sites import config_roots, load_sites
+from gantry.trace import build_site_trace, load_catalog, page_trace
+from page_safety import HOSTILE, _strings, assert_no_external_resources, assert_page_safe
+from page_script.harness import Planted
+from test_trace_page import (EMPTY_MARKS, hand_trace, hostile_leaf, installation, marked, marks_after,  # noqa: F401
+                             render_traced, row, sample_page, select, trace_of)
+from test_worksite_page import STRUCTURAL, visible_text
 
 w = worksite
 
@@ -458,3 +463,65 @@ def test_objective_css():
 
 def test_structural_classes_cover_the_box():
     assert {"req-objective", "path-section", "path-statement", "path-end-t", "path-waits", "path-divider"} <= STRUCTURAL
+
+
+# --- hostile strings ----------------------------------------------------------------------
+
+
+def hostile_threshold_site(tmp_path):
+    """(page, planted, malformed): site alpha in the trace. FR-1 states HOSTILE[0] as its
+    threshold and HOSTILE[2] as its objective; its gating leaf waits, through a mid leaf,
+    on an objective-only leaf keyed and numbered HOSTILE[1] and titled HOSTILE[3]; a
+    fourth leaf's objective: holds HOSTILE[5], a malformed entry. The requirements file
+    is on disk; the leaves are built in memory, as hostile_path_site builds them."""
+    h = HOSTILE
+    reqs = ("# R\n\n## Functional requirements\n\n- FR-1: One.\n"
+            f"  - Threshold: {h[0]}\n  - Objective: {h[2]}\n")
+    config_path = installation(tmp_path, {"alpha": "# A\n\n- [ ] One {issue: Issue-1}\n"}, {"alpha": reqs})
+    config = load_config(config_path)
+    roots = config_roots(config)
+    catalog = load_catalog(roots, config, load_sites(config, roots)[0])
+    leaves = (
+        hostile_leaf("Issue-1", "Issue-1", 1, satisfies="alpha:FR-1"),
+        hostile_leaf("Issue-2", "Issue-2", 2),
+        hostile_leaf(h[1], h[1], 3, title=h[3], satisfies="alpha:FR-1", objective="alpha:FR-1"),
+        hostile_leaf("Issue-4", "Issue-4", 4, satisfies="alpha:FR-1", objective=h[5]),
+    )
+    data = SiteData(leaves, (), ((h[1], "Issue-2"), ("Issue-2", "Issue-1")), (), ())
+    trace = page_trace(build_site_trace("alpha", leaves, catalog), catalog, data)
+    page = worksite.render_page("alpha", data, default_unit_hours=6, trace=trace)
+    malformed = (f"WBS.md line 4: objective: entry {h[5]!r} is not a full requirement ID "
+                 "(<namespace>:<code>-<n>); it is ignored")
+    return page, [h[0], h[1], h[2], h[3], h[5]], malformed
+
+
+def test_hostile_threshold_page_is_safe(tmp_path):
+    page, planted, malformed = hostile_threshold_site(tmp_path)
+    # HOSTILE[5] is only ever inside its malformed entry's message, so not a whole embedded value.
+    data = assert_page_safe(page, [p for p in planted if p != HOSTILE[5]])
+    assert_no_external_resources(page)
+    # The title is in the leaves data, not the trace; every planted value is whole in a string of the data.
+    strings = list(_strings(data))
+    assert [p for p in planted if not any(p in s for s in strings)] == []
+    r = row(data["trace"], "alpha:FR-1")
+    assert (r["threshold"], r["objective"]) == (HOSTILE[0], HOSTILE[2])
+    assert r["objective_only"] == [HOSTILE[1]]
+    assert r["threshold_path"]["waits"] == [w.PATH_WAITS.format(key=HOSTILE[1])]
+    assert malformed in visible_text(page)
+
+
+def test_hostile_threshold_under_harness(node, tmp_path):
+    page_text, planted, _ = hostile_threshold_site(tmp_path)
+    path = tmp_path / "hostile.html"
+    path.write_bytes(page_text.encode("utf-8"))
+    with open_page(path) as page:
+        # The statements are shown only in the path box, on selection: unrendered until then.
+        assert page.planted_nodes(planted) == Planted([], [], [HOSTILE[0], HOSTILE[2]])
+        page.drive("requirement", "alpha:FR-1")
+        assert page.planted_nodes(planted) == Planted([], [], [])
+        assert box_items(page, "path-waits") == [w.PATH_WAITS.format(key=HOSTILE[1])]
+        assert [e.text for e in page.query("#req-path .path-statement")] == [HOSTILE[0], HOSTILE[2]]
+        assert box_items(page, "path-list")[0].startswith(HOSTILE[1] + " · " + HOSTILE[1] + " · " + HOSTILE[3])
+        assert marked(page, "rect.seg", "req-objective") == {HOSTILE[1]}
+        used = {c for e in page.query("[class]") for c in e.classes}
+        assert used - CLASS_TOKENS - STRUCTURAL == set()

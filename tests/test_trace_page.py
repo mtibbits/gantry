@@ -662,10 +662,12 @@ def test_direct_marks_are_solid():
 # --- Task 5: hostile strings in the trace (AC 7) ------------------------------------
 
 
-def hostile_leaf(key, issue, line, title="Plain", glyph=" ", hours=6, satisfies=None):
+def hostile_leaf(key, issue, line, title="Plain", glyph=" ", hours=6, satisfies=None, objective=None):
     meta = {"issue": issue} if issue is not None else {}
     if satisfies is not None:
         meta["satisfies"] = satisfies
+    if objective is not None:
+        meta["objective"] = objective
     return Leaf(key, issue, str(line), title, glyph, STATE_GLYPHS[glyph], glyph not in FINISHED_GLYPHS, None, (),
                 meta, None, line, estimate=Estimate(hours, hours, "est", "time", None))
 
