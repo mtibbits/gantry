@@ -299,3 +299,224 @@ def test_plan_bom_and_crlf_read_like_plain():
         text = path.read_bytes().decode("utf-8")
         assert dr.read_plan(bom_crlf(text)) == dr.read_plan(text), path.name
     assert len(list(PLANS.iterdir())) == 15
+
+
+# --- read_issue_records and read_site_records (Task 6) -------------------------------------
+
+import commit_check  # noqa: E402
+import helpers_links  # noqa: E402
+from gantry.roots import directory_roots  # noqa: E402
+
+RECORD_NAMES = ("STUCK", "checklist.md", "imPlan.md")
+FIELDS = {"STUCK": "stuck", "checklist.md": "checklist", "imPlan.md": "plan"}
+
+
+def issue_folder(parent, name="Issue-13", files=None):
+    """An issue folder holding Issue-13's STUCK and checklist and a check-box plan."""
+    folder = parent / name
+    folder.mkdir(parents=True)
+    files = files if files is not None else {
+        "STUCK": (WRITTEN / "Issue-13" / "STUCK").read_bytes(),
+        "checklist.md": (WRITTEN / "Issue-13" / "checklist.md").read_bytes(),
+        "imPlan.md": (PLANS / "checkbox_one_ticked.md").read_bytes(),
+    }
+    for file_name, data in files.items():
+        (folder / file_name).write_bytes(data)
+    return folder
+
+
+def records_of(got):
+    return (got.stuck, got.checklist, got.plan)
+
+
+def all_reasons(result):
+    """Every reason string in an IssueRecords or SiteRecords."""
+    if isinstance(result, dr.SiteRecords):
+        found = [result.reason, *result.skipped.values()]
+        for records in result.issues.values():
+            found += all_reasons(records)
+        return [r for r in found if r is not None]
+    return [r.reason for r in records_of(result) if r.reason is not None]
+
+
+def assert_no_path(reasons, tmp_path):
+    for reason in reasons:
+        assert str(tmp_path) not in reason and commit_check.path_form_hits(reason) == [], reason
+        assert not reason.endswith(": "), reason
+
+
+def test_issue_records_present_absent_unreadable(tmp_path):
+    plan_dir = tmp_path / "plan"
+    folder = issue_folder(plan_dir)
+    roots = directory_roots([plan_dir])
+    got = dr.read_issue_records(roots, folder)
+    assert got.issue == "Issue-13"
+    assert got.stuck == dr.Record("present", dr.read_stuck(written("Issue-13", "STUCK")), None)
+    assert got.checklist == dr.Record("present", dr.read_checklist(written("Issue-13", "checklist.md")), None)
+    assert got.plan == dr.Record("present", dr.read_plan(plan("checkbox_one_ticked.md")), None)
+    reasons = []
+    for name in RECORD_NAMES:
+        data = (folder / name).read_bytes()
+        (folder / name).unlink()
+        record = getattr(dr.read_issue_records(roots, folder), FIELDS[name])
+        assert record == dr.Record("absent", None, None)
+        (folder / name).write_bytes(b"ok\n\xff\xfe")
+        record = getattr(dr.read_issue_records(roots, folder), FIELDS[name])
+        assert record == dr.Record("unreadable", None, f"{name} is not valid UTF-8 at byte 3")
+        reasons.append(record.reason)
+        (folder / name).unlink()
+        (folder / name).mkdir()
+        record = getattr(dr.read_issue_records(roots, folder), FIELDS[name])
+        assert record == dr.Record("unreadable", None, f"{name} is not a file")
+        reasons.append(record.reason)
+        (folder / name).rmdir()
+        (folder / name).write_bytes(data)
+    assert len(reasons) == 6
+    assert_no_path(reasons, tmp_path)
+
+
+def test_issue_records_bom_and_crlf(tmp_path):
+    plan_dir = tmp_path / "plan"
+    plain = issue_folder(plan_dir, "Issue-13")
+    files = {name: bom_crlf((plain / name).read_bytes().decode("utf-8")).encode("utf-8") for name in RECORD_NAMES}
+    odd = issue_folder(plan_dir, "Issue-14", files)
+    roots = directory_roots([plan_dir])
+    a, b = dr.read_issue_records(roots, plain), dr.read_issue_records(roots, odd)
+    assert records_of(a) == records_of(b)
+    assert b.stuck.status == "present"
+
+
+def test_text_and_disk_read_alike(tmp_path):
+    plan_dir = tmp_path / "plan"
+    roots = directory_roots([plan_dir])
+    for issue in ("Issue-6", "Issue-12", "Issue-24"):
+        data = (WRITTEN / issue / "checklist.md").read_bytes()
+        for variant, raw in (("plain", data), ("odd", bom_crlf(data.decode("utf-8")).encode("utf-8"))):
+            folder = issue_folder(plan_dir, f"{issue}-{variant}", {"checklist.md": raw})
+            got = dr.read_issue_records(roots, folder).checklist
+            assert got.status == "present"
+            assert got.value == dr.read_checklist(data.decode("utf-8"))
+
+
+def test_site_records_direct_subfolders_only(tmp_path):
+    plan_dir = tmp_path / "plan"
+    issue_folder(plan_dir, "Issue-13")
+    issue_folder(plan_dir, "ISSUE-x", {"imPlan.md": b"## Tasks\n\n1. One\n"})
+    issue_folder(plan_dir, "Captures", {"notes.md": b"none of the three\n"})
+    issue_folder(plan_dir / "Captures", "deep", {"STUCK": (WRITTEN / "Issue-13" / "STUCK").read_bytes()})
+    (plan_dir / "STUCK").write_bytes(b"a top-level file\n")
+    (plan_dir / "WBS.md").write_bytes(b"# WBS\n")
+    got = dr.read_site_records(directory_roots([plan_dir]), plan_dir)
+    assert got.status == "read" and got.reason is None and got.skipped == {}
+    assert list(got.issues) == ["ISSUE-x", "Issue-13"]
+    assert len(got.issues) == 2
+    assert got.issues["ISSUE-x"].issue == "ISSUE-x"
+    assert got.issues["ISSUE-x"].stuck.status == "absent" and got.issues["ISSUE-x"].plan.status == "present"
+
+
+def test_site_not_read(tmp_path):
+    roots = directory_roots([tmp_path])
+    missing = dr.read_site_records(roots, tmp_path / "nowhere")
+    assert missing == dr.SiteRecords("not_read", "planning directory does not exist", {}, {})
+    (tmp_path / "file").write_bytes(b"x")
+    a_file = dr.read_site_records(roots, tmp_path / "file")
+    assert a_file == dr.SiteRecords("not_read", "planning directory is not a directory", {}, {})
+
+
+def test_link_subfolder_is_skipped(tmp_path):
+    plan_dir = tmp_path / "plan"
+    plan_dir.mkdir()
+    outside = issue_folder(tmp_path / "elsewhere", "Issue-99")
+    helpers_links.link_dir(outside, plan_dir / "Issue-99")
+    issue_folder(plan_dir, "Issue-13")
+    got = dr.read_site_records(directory_roots([plan_dir]), plan_dir)
+    assert got.skipped == {"Issue-99": "is a link"}
+    assert list(got.issues) == ["Issue-13"]
+
+
+@pytest.mark.parametrize("name", RECORD_NAMES)
+def test_link_record_file_is_unreadable(tmp_path, name):
+    plan_dir = tmp_path / "plan"
+    folder = issue_folder(plan_dir, files={})
+    target = tmp_path / "target"
+    target.write_bytes(b"Step:        2 SENTINEL-NEVER-READ\nReason:      SENTINEL-NEVER-READ\n")
+    helpers_links.symlink(target, folder / name)
+    got = dr.read_issue_records(directory_roots([plan_dir]), folder)
+    record = getattr(got, FIELDS[name])
+    assert record == dr.Record("unreadable", None, f"{name} is a link")
+    assert "SENTINEL" not in repr(got)
+
+
+def test_path_outside_roots_is_reported_not_raised(tmp_path):
+    inside = tmp_path / "inside"
+    inside.mkdir()
+    folder = issue_folder(tmp_path / "elsewhere")
+    roots = directory_roots([inside])
+    got = dr.read_issue_records(roots, folder)
+    for record in records_of(got):
+        assert record.status == "unreadable" and record.value is None
+        assert record.reason.startswith("issue folder cannot be read: ")
+    site = dr.read_site_records(roots, tmp_path / "elsewhere")
+    assert site.status == "not_read" and site.reason.startswith("planning directory cannot be listed: ")
+    assert_no_path(all_reasons(got) + all_reasons(site), tmp_path)
+
+
+def test_issue_folder_states(tmp_path):
+    plan_dir = tmp_path / "plan"
+    plan_dir.mkdir()
+    roots = directory_roots([plan_dir])
+    (plan_dir / "Issue-2").write_bytes(b"a file\n")
+    cases = [(plan_dir / "Issue-1", "issue folder does not exist"),
+             (plan_dir / "Issue-2", "issue folder is not a directory")]
+    for path, reason in cases:
+        got = dr.read_issue_records(roots, path)
+        assert {(r.status, r.value, r.reason) for r in records_of(got)} == {("unreadable", None, reason)}
+    target = issue_folder(plan_dir, "Issue-real")
+    helpers_links.link_dir(target, plan_dir / "Issue-3")
+    got = dr.read_issue_records(roots, plan_dir / "Issue-3")
+    assert {(r.status, r.reason) for r in records_of(got)} == {("unreadable", "issue folder is a link")}
+
+
+def test_issue_folder_that_is_a_root_reads(tmp_path):
+    folder = issue_folder(tmp_path / "plan")
+    got = dr.read_issue_records(directory_roots([folder]), folder)
+    assert [r.status for r in records_of(got)] == ["present"] * 3
+
+
+def test_empty_error_reason_has_fallback(tmp_path, monkeypatch):
+    plan_dir = tmp_path / "plan"
+    folder = issue_folder(plan_dir)
+
+    def refuse(*args, **kwargs):
+        raise OSError()
+
+    monkeypatch.setattr(dr, "read_bytes_confined", refuse)
+    got = dr.read_issue_records(directory_roots([plan_dir]), folder)
+    assert got.checklist == dr.Record("unreadable", None, "checklist.md cannot be read: unknown error")
+    monkeypatch.setattr(dr, "list_confined", refuse)
+    site = dr.read_site_records(directory_roots([plan_dir]), plan_dir)
+    assert site.reason == "planning directory cannot be listed: unknown error"
+    lone = dr.read_issue_records(directory_roots([plan_dir]), folder)
+    assert {r.reason for r in records_of(lone)} == {"issue folder cannot be read: unknown error"}
+    assert_no_path(all_reasons(got) + all_reasons(site) + all_reasons(lone), tmp_path)
+
+
+def test_roots_marks_settled():
+    text = (ROOT / "gantry" / "roots.py").read_bytes().decode("utf-8")
+    assert "provisional for #31" not in text and "for #31" not in text
+    assert text.count("gantry/devagent_records.py") == 2
+
+
+def test_readers_never_raise_on_bytes(tmp_path):
+    plan_dir = tmp_path / "plan"
+    long_text = ("- [ ]  " + "4" * 5000 + ". pull\n## Revision " + "9" * 5000 + "\nStep:        "
+                 + "8" * 5000 + " x\n")
+    files = {"STUCK": b"\x00\x00Step: \x00\n", "checklist.md": b"", "imPlan.md": long_text.encode("utf-8")}
+    folder = issue_folder(plan_dir, files=files)
+    got = dr.read_issue_records(directory_roots([plan_dir]), folder)
+    assert [r.status for r in records_of(got)] == ["present"] * 3
+    for name in RECORD_NAMES:
+        (folder / name).write_bytes(long_text.encode("utf-8"))
+    again = dr.read_issue_records(directory_roots([plan_dir]), folder)
+    assert [r.status for r in records_of(again)] == ["present"] * 3
+    assert again.checklist.value.revision is None and again.stuck.value.step is None

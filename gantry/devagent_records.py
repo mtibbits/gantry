@@ -6,9 +6,13 @@ text and never raise on any str. Record text comes back verbatim: escaping
 happens once, where a page renders it.
 """
 
+import os
 import re
 from dataclasses import dataclass
 from datetime import datetime
+
+from gantry.config import error_reason
+from gantry.roots import OutsideRoots, list_confined, read_bytes_confined
 
 # Whitespace here is space and tab only, and every digit run that reaches
 # int() is at most nine ASCII digits: never \s, \d, split() with no argument
@@ -286,3 +290,168 @@ def read_plan(text: str) -> PlanState:
         open_task = next((m.group(2) for m in matches if m.group(1) not in TICKED), None)
         return PlanState(CHECKBOX, open_task, any(m.group(1) in TICKED for m in matches), ())
     return PlanState(shape, matches[0].group(1), False, ())
+
+
+# --- issue folders and planning directories -----------------------------------------------
+
+KEY = "devdoc_dir"
+STUCK_FILE = "STUCK"
+CHECKLIST_FILE = "checklist.md"
+PLAN_FILE = "imPlan.md"
+RECORD_FILES = ((STUCK_FILE, "stuck", read_stuck), (CHECKLIST_FILE, "checklist", read_checklist),
+                (PLAN_FILE, "plan", read_plan))
+
+PRESENT = "present"
+ABSENT = "absent"
+UNREADABLE = "unreadable"
+READ = "read"
+NOT_READ = "not_read"
+
+UNKNOWN_ERROR = "unknown error"
+FILE_IS_LINK = "{name} is a link"
+FILE_NOT_FILE = "{name} is not a file"
+FILE_CANNOT_READ = "{name} cannot be read: {error}"
+FILE_NOT_UTF8 = "{name} is not valid UTF-8 at byte {offset}"
+FOLDER_MISSING = "issue folder does not exist"
+FOLDER_NOT_DIR = "issue folder is not a directory"
+FOLDER_IS_LINK = "issue folder is a link"
+FOLDER_CANNOT_READ = "issue folder cannot be read: {error}"
+PLANNING_MISSING = "planning directory does not exist"
+PLANNING_NOT_DIR = "planning directory is not a directory"
+PLANNING_CANNOT_LIST = "planning directory cannot be listed: {error}"
+SKIPPED_LINK = "is a link"
+REASONS = (FILE_IS_LINK, FILE_NOT_FILE, FILE_CANNOT_READ, FILE_NOT_UTF8, FOLDER_MISSING, FOLDER_NOT_DIR,
+           FOLDER_IS_LINK, FOLDER_CANNOT_READ, PLANNING_MISSING, PLANNING_NOT_DIR, PLANNING_CANNOT_LIST,
+           SKIPPED_LINK)
+
+
+@dataclass(frozen=True)
+class Record:
+    status: str  # PRESENT, ABSENT or UNREADABLE
+    value: object  # the parsed StuckMarker, ChecklistState or PlanState when present
+    reason: str | None  # why it is unreadable; never an absolute path
+
+
+@dataclass(frozen=True)
+class IssueRecords:
+    issue: str  # the folder's name, as on disk
+    stuck: Record
+    checklist: Record
+    plan: Record
+
+
+@dataclass(frozen=True)
+class SiteRecords:
+    status: str  # READ or NOT_READ
+    reason: str | None
+    issues: dict  # folder name -> IssueRecords, in sorted name order
+    skipped: dict  # folder name -> reason, in sorted name order
+
+
+def _why(e: Exception) -> str:
+    return error_reason(e) or UNKNOWN_ERROR
+
+
+def _all_unreadable(issue: str, reason: str) -> IssueRecords:
+    record = Record(UNREADABLE, None, reason)
+    return IssueRecords(issue, record, record, record)
+
+
+def _record(roots, folder, entries, name, reader, site) -> Record:
+    entry = entries.get(name)
+    if entry is None:
+        return Record(ABSENT, None, None)
+    if entry.is_link:
+        return Record(UNREADABLE, None, FILE_IS_LINK.format(name=name))
+    if not entry.is_file:
+        return Record(UNREADABLE, None, FILE_NOT_FILE.format(name=name))
+    try:
+        data = read_bytes_confined(roots, os.path.join(folder, name), key=KEY, site=site, follow_links=False)
+    except (OSError, ValueError, OutsideRoots) as e:
+        return Record(UNREADABLE, None, FILE_CANNOT_READ.format(name=name, error=_why(e)))
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError as e:
+        return Record(UNREADABLE, None, FILE_NOT_UTF8.format(name=name, offset=e.start))
+    return Record(PRESENT, reader(text), None)
+
+
+def _read_folder(roots, folder: str, issue: str, site) -> IssueRecords:
+    """The three records of a folder already known not to be a link."""
+    try:
+        listed = list_confined(roots, folder, key=KEY, site=site)
+    except FileNotFoundError:
+        return _all_unreadable(issue, FOLDER_MISSING)
+    except NotADirectoryError:
+        return _all_unreadable(issue, FOLDER_NOT_DIR)
+    except (OSError, ValueError, OutsideRoots) as e:
+        return _all_unreadable(issue, FOLDER_CANNOT_READ.format(error=_why(e)))
+    entries = {entry.name: entry for entry in listed}
+    stuck, checklist, plan = (_record(roots, folder, entries, name, reader, site)
+                              for name, _, reader in RECORD_FILES)
+    return IssueRecords(issue, stuck, checklist, plan)
+
+
+def _find(entries, name):
+    """The entry named `name`; by the platform's case rule when no name matches exactly."""
+    for entry in entries:
+        if entry.name == name:
+            return entry
+    folded = os.path.normcase(name)
+    return next((entry for entry in entries if os.path.normcase(entry.name) == folded), None)
+
+
+def read_issue_records(roots, issue_dir, *, site=None) -> IssueRecords:
+    """The STUCK, checklist.md and imPlan.md records of one issue folder.
+
+    Every listing and read goes through gantry.roots under the devdoc_dir
+    key and follows no link: a linked issue folder or record file is
+    unreadable and its target is never opened. Never raises for a missing,
+    odd or refused path."""
+    folder = os.path.normpath(os.fspath(issue_dir))
+    issue = os.path.basename(folder)
+    parent = os.path.dirname(folder) or "."
+    try:
+        siblings = list_confined(roots, parent, key=KEY, site=site)
+    except OutsideRoots:
+        siblings = None  # the issue folder may be a root itself; it is listed below
+    except FileNotFoundError:
+        return _all_unreadable(issue, FOLDER_MISSING)
+    except (OSError, ValueError) as e:
+        return _all_unreadable(issue, FOLDER_CANNOT_READ.format(error=_why(e)))
+    if siblings is not None:
+        entry = _find(siblings, issue)
+        if entry is None:
+            return _all_unreadable(issue, FOLDER_MISSING)
+        if entry.is_link:
+            return _all_unreadable(issue, FOLDER_IS_LINK)
+        if not entry.is_dir:
+            return _all_unreadable(issue, FOLDER_NOT_DIR)
+    return _read_folder(roots, folder, issue, site)
+
+
+def read_site_records(roots, planning_dir, *, site=None) -> SiteRecords:
+    """The records of every direct subfolder of a planning directory that
+    holds at least one of the three files, keyed by its name on disk. A
+    linked subfolder is not read and is listed in `skipped`; nothing deeper
+    is listed."""
+    try:
+        listed = list_confined(roots, planning_dir, key=KEY, site=site)
+    except FileNotFoundError:
+        return SiteRecords(NOT_READ, PLANNING_MISSING, {}, {})
+    except NotADirectoryError:
+        return SiteRecords(NOT_READ, PLANNING_NOT_DIR, {}, {})
+    except (OSError, ValueError, OutsideRoots) as e:
+        return SiteRecords(NOT_READ, PLANNING_CANNOT_LIST.format(error=_why(e)), {}, {})
+    issues, skipped = {}, {}
+    for entry in sorted(listed, key=lambda e: e.name):
+        if entry.is_link:
+            if not entry.is_file:
+                skipped[entry.name] = SKIPPED_LINK
+            continue
+        if not entry.is_dir:
+            continue
+        records = _read_folder(roots, os.path.join(os.fspath(planning_dir), entry.name), entry.name, site)
+        if any(record.status != ABSENT for record in (records.stuck, records.checklist, records.plan)):
+            issues[entry.name] = records
+    return SiteRecords(READ, None, issues, skipped)
