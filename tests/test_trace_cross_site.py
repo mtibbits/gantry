@@ -264,6 +264,18 @@ def test_trace_data_keys(tmp_path):
     assert [r["id"] for r in pages[UNESTIMATED]["requirements"]] == ["lighthouse:FR-2"]
 
 
+def test_row_objective_only_foreign_is_index(tmp_path):
+    wbs = {"alpha": "# A\n\n- [ ] Own {issue: Issue-1, satisfies: alpha:FR-1}\n",
+           "beta": ("# B\n\n- [ ] Tail {issue: Issue-1, satisfies: alpha:FR-1, objective: alpha:FR-1}\n"
+                    "- [ ] Core {issue: Issue-2, satisfies: alpha:FR-1}\n")}
+    pages, wide, *_ = sample_installation(installation(tmp_path, wbs, {"alpha": "- FR-1: a\n"}))
+    assert [(f.key, f.objective_only) for f in wide["alpha"].foreign] == [("Issue-1", ("alpha:FR-1",)),
+                                                                          ("Issue-2", ())]
+    fr1 = row(pages["alpha"], "alpha:FR-1")
+    assert fr1["objective_only_foreign"] == [0]
+    assert fr1["objective_only"] == []
+
+
 def test_foreign_index_not_key():
     pages, *_ = sample_installation()
     trace = pages[SMALL]

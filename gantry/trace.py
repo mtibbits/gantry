@@ -543,9 +543,12 @@ def page_trace(trace: SiteTrace, catalog: Catalog, data, *, built=frozenset()) -
     states it."""
     site, reqs = trace.site, catalog.requirements
     lit = {}  # str(ReqId) -> [[foreign index, how], ...]: an index, never a key, so keys of two sites never meet
+    tail = {}  # str(ReqId) -> [foreign index, ...] of the foreign leaves serving it at objective only (#79)
     for i, f in enumerate(trace.foreign):
         for key, how in f.serves:
             lit.setdefault(key, []).append([i, how])
+        for key in f.objective_only:
+            tail.setdefault(key, []).append(i)
     wanted = dict.fromkeys(catalog.sets[site].requirements if trace.in_trace else ())
     for ids in trace.leaf_ids.values():
         wanted.update(dict.fromkeys(str(rid) for rid in ids))
@@ -570,11 +573,17 @@ def page_trace(trace: SiteTrace, catalog: Catalog, data, *, built=frozenset()) -
         counts = [COUNT_OPEN.format(n=len(light))]
         counts += [COUNT_HELD.format(n=len(held))] if held else []
         counts += [COUNT_FINISHED.format(n=len(finished))] if finished else []
+        br = r.id.namespace == catalog.br_namespace
         rows.append({
             "id": key, "label": _label(r.id, site), "layer": r.layer,
-            # A business requirement's text is never on a worksite page (#23).
-            "text": None if r.id.namespace == catalog.br_namespace else r.text,
+            # A business requirement's text, statements included, is never on a worksite page (#23, #79).
+            "text": None if br else r.text,
+            "threshold": None if br else r.threshold,
+            "objective": None if br else r.objective,
             "needs": [str(n) for n in r.needs if str(n) in wanted and str(n) != key] if r.layer == "UC" else [],
+            # This site's leaves serving the row at objective only, in WBS order, and other sites' by index (#79).
+            "objective_only": [s.leaf for s in trace.serving.get(key, ()) if not s.gating],
+            "objective_only_foreign": tail.get(key, []),
             "light": light, "held": held, "finished": finished, "foreign": lit.get(key, []),
             "counts": ", ".join(counts),
         })
