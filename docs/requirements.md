@@ -108,7 +108,7 @@ acknowledging a security report within seven days (BRule-6).
   block each planned issue falls on. {needs: [FR-17, FR-18, FR-19, QA-4]}
 - UC-5: An operator follows the trace from a leaf to the requirements it
   serves, and from a requirement or a use case to its leaves and the work
-  they wait on. {needs: [FR-20, FR-25, FR-26, SR-5]}
+  they wait on. {needs: [FR-20, FR-25, FR-27, SR-5]}
 - UC-6: An operator plans Gantry's own work in Gantry, as its first site.
   {needs: [FR-23]}
 - UC-7: A visitor views the public demo, which is built only from made-up
@@ -222,7 +222,7 @@ acknowledging a security report within seven days (BRule-6).
   chain with the most hours and the working day the current schedule ends
   that work, labelled as agent capacity only. A path it cannot show whole
   says why. {refines: SR-4}
-- FR-26: A requirement may state a threshold and an objective, and a leaf
+- FR-27: A requirement may state a threshold and an objective, and a leaf
   may serve a requirement at objective only; a selection shows the path
   and end day of each. {refines: SR-4}
 

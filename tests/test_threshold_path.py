@@ -583,9 +583,9 @@ def test_sample_split_box(node, sample_page):
 
 def test_own_requirements_state_the_threshold():
     reqs = own_set().requirements
-    fr26 = reqs["gantry:FR-26"]
-    assert fr26.layer == "FR" and str(fr26.refines) == "gantry:SR-4"
-    assert "gantry:FR-26" in [str(n) for n in reqs["gantry:UC-5"].needs]
+    fr27 = reqs["gantry:FR-27"]
+    assert fr27.layer == "FR" and str(fr27.refines) == "gantry:SR-4"
+    assert "gantry:FR-27" in [str(n) for n in reqs["gantry:UC-5"].needs]
     assert all((r.threshold, r.objective) == (None, None) for r in reqs.values())
 
 
