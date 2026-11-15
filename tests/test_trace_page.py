@@ -26,7 +26,7 @@ from gantry.views.worksite import BH, BW, ROWH, page_model
 from helpers_config import copy_samples, demo_build, page_ids, sample_build, write_site_tree
 from page_safety import HOSTILE, _strings, assert_no_external_resources, assert_page_safe
 from page_script.harness import Planted, PageScriptError, open_page, run_function
-from sample_roles import BUSY, READABLE, SMALL
+from sample_roles import BUSY, READABLE, SMALL, UNESTIMATED
 from test_build import heading_slugs
 from test_cli import run_module
 from test_samples import GANTRY_SAMPLE, ROOT
@@ -255,7 +255,13 @@ def test_every_built_page_carries_trace(tmp_path):
         if name == SMALL:
             assert trace["in_trace"] is True
             continue
-        assert trace["in_trace"] is False and trace["requirements"] == [] and trace["leaves"] == [], name
+        assert trace["in_trace"] is False, name
+        if name == UNESTIMATED:
+            # Quarry's Issue-3 names lighthouse's FR-2, the sample foreign leaf (#21).
+            assert [r["id"] for r in trace["requirements"]] == ["lighthouse:FR-2"]
+            assert trace["leaves"] == [["Issue-3", [["lighthouse:FR-2", "lighthouse:FR-2"]]]]
+        else:
+            assert trace["requirements"] == [] and trace["leaves"] == [], name
         assert trace["report"] == [[n, []] for n in REPORT_NAMES], name
 
 
