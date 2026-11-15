@@ -5,6 +5,7 @@ import re
 import shutil
 import tomllib
 from datetime import date
+from fractions import Fraction
 
 import pytest
 
@@ -59,6 +60,12 @@ def built(copy):
         portfolio = read_portfolio_file(result.roots, config.portfolio_file,
                                         br_namespace=config.requirements.br_namespace)
     return result, portfolio, config
+
+
+def with_portfolio(result):
+    """(build result, its portfolio file as read, config) of a build of the samples."""
+    return result, read_portfolio_file(result.roots, result.config.portfolio_file,
+                                       br_namespace=result.config.requirements.br_namespace), result.config
 
 
 def plan_of(tmp_path, base, wbs=None, portfolio=None, config=None):
@@ -613,7 +620,8 @@ def file_capacity(portfolio_path):
 
 
 def check_invariants(plan, portfolio_path):
-    """The invariants of the first acceptance criterion; returns the number of blocks."""
+    """The invariants of the first acceptance criterion; returns (the number
+    of blocks, the number of blocks holding leaves of two tiers)."""
     hours, lanes, block_min, start_cost = file_capacity(portfolio_path)
     rate = {(entry["site"], entry["key"]): entry["rate"] for entry in plan.leaves}
     tier = {(entry["site"], entry["key"]): entry["tier"] for entry in plan.leaves}
@@ -668,8 +676,7 @@ def check_invariants(plan, portfolio_path):
     for site in plan.sites:
         assert site["attention_hours_charged"] == pytest.approx(charged[site["name"]][0])
         assert site["lane_hours_charged"] == pytest.approx(charged[site["name"]][1])
-    check_invariants.two_tiers = two_tiers
-    return blocks
+    return blocks, two_tiers
 
 
 def invariant_subjects():
@@ -680,11 +687,7 @@ def invariant_subjects():
 def subject_plan(tmp_path, subject):
     """(plan, the portfolio file's path) of one invariant subject."""
     if subject == "demo":
-        result = sample_build(tmp_path)
-        path = tmp_path / "samples" / "portfolio.md"
-        portfolio = read_portfolio_file(result.roots, result.config.portfolio_file,
-                                        br_namespace=result.config.requirements.br_namespace)
-        return plan_week(result, portfolio, result.config), path
+        return plan_week(*with_portfolio(sample_build(tmp_path))), tmp_path / "samples" / "portfolio.md"
     copy = install(tmp_path, subject)
     return plan_week(*built(copy)), copy / "portfolio.md"
 
@@ -700,9 +703,10 @@ def test_invariant_subjects(tmp_path):
     assert set(FIXTURE_NAMES) | {"demo"} <= set(subjects)
     with_block, two_tiers = [], []
     for subject in subjects:
-        if check_invariants(*subject_plan(tmp_path, subject)) > 0:
+        blocks, mixed = check_invariants(*subject_plan(tmp_path, subject))
+        if blocks > 0:
             with_block.append(subject)
-        if check_invariants.two_tiers:
+        if mixed:
             two_tiers.append(subject)
     assert len(with_block) >= 3, with_block
     assert two_tiers, "some subject has a block holding leaves of two tiers"
@@ -1091,13 +1095,8 @@ def p0_cases(tmp_path):
     from gantry.views import worksite
 
     for base in ("p0", "cross_site", "demo"):
-        if base == "demo":
-            result = sample_build(tmp_path)
-            portfolio = read_portfolio_file(result.roots, result.config.portfolio_file,
-                                            br_namespace=result.config.requirements.br_namespace)
-            config = result.config
-        else:
-            result, portfolio, config = built(install(tmp_path, base))
+        result, portfolio, config = (with_portfolio(sample_build(tmp_path)) if base == "demo"
+                                     else built(install(tmp_path, base)))
         pages = {}
         for name in result.pages:
             inputs = result.inputs[name]
@@ -1136,8 +1135,7 @@ def shares_of(plan, name):
 def test_day_shares_recorded(tmp_path):
     plan = plan_of(tmp_path, "two_sites")
     days = plan.horizon_days
-    plan = plan_of(tmp_path, "two_sites", portfolio=two_sites_portfolio(
-        allocation("2026-01-05", a=50, b=50), allocation(days[2], a=75, b=25)))
+    plan = plan_of(tmp_path, "two_sites", portfolio=dated_portfolio(days))
     assert [entry["date"] for entry in site_record(plan, "a")["shares"]] == days
     assert shares_of(plan, "a") == [50.0, 50.0] + [75.0] * 8
     assert shares_of(plan, "b") == [50.0, 50.0] + [25.0] * 8
@@ -1177,7 +1175,6 @@ def test_shareless_days_only_while_an_allocation_applies(tmp_path):
 
 
 def test_unbuilt_share_dropped_and_rest_scaled(tmp_path):
-    from fractions import Fraction
 
     plan = plan_of(tmp_path, "share_unbuilt")
     days = plan.horizon_days
@@ -1319,25 +1316,21 @@ def test_binding_pool_cells_with_tiers(tmp_path, case, base, hours, lanes, wbs, 
 
 # --- fair share between sites (#37) ---------------------------------------------------------------
 
-from fractions import Fraction  # noqa: E402
-
 DEFAULT_MINUTES = 120  # block_default_hours' default, 2 h
 
 
 @pytest.fixture
-def trace(monkeypatch):
-    """The planner's private charge trace: one entry per charge, plus lift and flag entries.
-    Plan through traced(), so the build's own plan_week does not add to it."""
-    found = []
-    monkeypatch.setattr(planner, "_trace", found)
-    return found
+def trace():
+    """The planner's charge trace: one entry per charge, plus lift and flag
+    entries. Plan through traced(), which passes it to plan_week."""
+    return []
 
 
 def traced(trace, copy):
     """plan_week of an installation, the trace holding only its charges."""
     args = built(copy)
     trace.clear()
-    return plan_week(*args)
+    return plan_week(*args, trace=trace)
 
 
 def mins(hours):
@@ -1837,7 +1830,6 @@ def raised(text, line):
 def priority_subjects(result):
     """(site, key, line) of each open leaf of a built site with no open predecessor, local
     or across sites, whose own rank is not 0."""
-    from gantry.crosssite import WAITING
     from gantry.priority import rank
 
     subjects = []
@@ -1847,7 +1839,7 @@ def priority_subjects(result):
         waits = {after for before, after in data.links if before in open_keys}
         subjects += [(name, found.key, found.line) for found in data.leaves
                      if found.open and found.key not in waits and rank(found.priority) != 0
-                     and not any(o.status in WAITING for o in found.foreign_targets or ())]
+                     and not found.foreign_targets]
     return subjects
 
 
@@ -1883,9 +1875,7 @@ def test_raising_priority_never_delays_first_placement(tmp_path):
 
     def sample_build_and_plan():
         result = build_all(load_config(copy / "gantry.sample.toml"), samples=copy)
-        portfolio = read_portfolio_file(result.roots, result.config.portfolio_file,
-                                        br_namespace=result.config.requirements.br_namespace)
-        return result, plan_week(result, portfolio, result.config)
+        return result, plan_week(*with_portfolio(result))
 
     placed_n, later = priority_property(copy, sample_build_and_plan)
     assert later == []

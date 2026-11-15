@@ -10,13 +10,13 @@ date give the same plan on any machine. docs/week-plan.md states the rules.
 import json
 import math
 from dataclasses import asdict, dataclass
+from typing import NamedTuple
 from fractions import Fraction
 from datetime import timedelta
 from graphlib import TopologicalSorter
 
 from gantry import priority, schedule
 from gantry.attention import MAX_RATE, leaf_attention, mapping_in_use, site_ratio_source
-from gantry.crosssite import WAITING
 from gantry.deps import find_cycles, inside, open_sources
 from gantry.inputs import scheduled
 from gantry.model import HOURS_PER_DAY
@@ -75,10 +75,6 @@ LANE_MINUTES = HOURS_PER_DAY * 60
 MAX_LANES = 1_000_000
 MAX_LEAF_MINUTES = 60 * 1_000_000_000
 PPM = 1_000_000
-
-# A test sets this to a list to read each charge's deficits (#37); it changes no record.
-_trace = None
-
 
 @dataclass(frozen=True)
 class WeekPlan:
@@ -230,9 +226,14 @@ def _note(kind, day, projects) -> dict:
             "text": NOTE_TEXTS[kind].format(date=day.isoformat(), projects=", ".join(projects))}
 
 
-def _day_shares(portfolio, day, names):
-    """({share site: its share as a Fraction}, [share-less sites], [notes]) of
-    one planned day, against `names`, the built sites in config order.
+class _DayShares(NamedTuple):
+    shares: dict  # share site -> its share as a Fraction
+    shareless: list
+    notes: list
+
+
+def _day_shares(portfolio, day, names) -> _DayShares:
+    """The shares, share-less sites and notes of one planned day, against `names`, the built sites in config order.
 
     The allocation that applies on the day (intended_shares) loses every
     project that is not a built site (a shares_dropped note); the sites left
@@ -252,19 +253,23 @@ def _day_shares(portfolio, day, names):
         shares = {name: value / total for name, value in kept.items()}
     if not shares:
         notes.append(_note(NO_ALLOCATION, day, []))
-        return dict.fromkeys(names, Fraction(1, len(names))), [], notes
-    return shares, [name for name in names if name not in shares], notes
+        return _DayShares(dict.fromkeys(names, Fraction(1, len(names))), [], notes)
+    return _DayShares(shares, [name for name in names if name not in shares], notes)
 
 
-def _p0_entries(data, leaves) -> list[dict]:
-    """The site's P0 list (priority.p0_keys over the leaves the worksite page
-    schedules, with its effective priority), each with the cross-site
-    outcomes that hold it: open, absent and unresolved, in depends_on order."""
+def _ranked(data):
+    """(the leaves the worksite page schedules, their effective priority)."""
     work = scheduled(data)
+    return work, priority.effective(work, data.links)
+
+
+def _p0_entries(work, effective) -> list[dict]:
+    """The site's P0 list (priority.p0_keys over `_ranked`), each with the
+    cross-site outcomes that hold it (crosssite keeps only open, absent and
+    unresolved ones), in depends_on order."""
     by_key = {leaf.key: leaf for leaf in work}
-    return [{"key": key, "held_by": [f"{o.target_site}:{o.target_issue}"
-                                     for o in by_key[key].foreign_targets or () if o.status in WAITING]}
-            for key in priority.p0_keys(work, priority.effective(work, data.links))]
+    return [{"key": key, "held_by": [f"{o.target_site}:{o.target_issue}" for o in by_key[key].foreign_targets or ()]}
+            for key in priority.p0_keys(work, effective)]
 
 
 def _tier(eff_priority, state) -> str:
@@ -290,19 +295,18 @@ def _unresolved_local(data, open_leaves) -> dict:
     return {leaf.key: sum(per_line.get(node.line, 0) for node in open_sources(leaf, row_at)) for leaf in open_leaves}
 
 
-def _site_work(name, inputs, mapping, unit) -> list[dict]:
+def _site_work(name, inputs, mapping, unit, effective) -> list[dict]:
     """One item per open leaf of a site, in WBS.md order, its reason not yet
     decided. An item with no `reason` is work for the day loop, and a
     schedule.pick_ready item.
 
-    Effective priority is the worksite page's (every scheduled leaf, with
+    `effective` is _ranked's: the worksite page's effective priority (every scheduled leaf, with
     blocked, parked and cross-site waiters), so an unplanned dependent still
     lifts its blocker; it never crosses sites. A leaf's predecessors are its
     open prerequisites within the site, as (site, key) ids for now.
     """
     data = inputs.data
     open_leaves = [leaf for leaf in data.leaves if leaf.open]
-    effective = priority.effective(scheduled(data), data.links)
     preds = {leaf.key: [] for leaf in open_leaves}
     for before, after in data.links:
         if before in preds and after in preds:
@@ -435,14 +439,15 @@ class _Day:
     block's site continues it, with no second start cost. Every charge to a
     site moves the targets of the sites that can use the pool (_Ledger)."""
 
-    def __init__(self, index, day, capacity, names, work, placed_order, ledger, day_shares):
+    def __init__(self, index, day, capacity, names, work, placed_order, ledger, day_shares, trace=None):
         self.index, self.text, self.capacity, self.names = index, day.isoformat(), capacity, names
         self.weekday = WEEKDAYS[day.weekday()]
         self.attention = capacity.attention[self.weekday]
         self.lanes = capacity.lanes * LANE_MINUTES
         self.placed_order, self.ledger = placed_order, ledger
-        self.shares, shareless, _ = day_shares
-        self.classes = ([name for name in names if name in self.shares], shareless)
+        self.shares, self.shareless = day_shares.shares, day_shares.shareless
+        # plan_week's trace: a list gets one entry per charge, lift and flag (#37); it changes no record.
+        self.trace = trace
         self.position = {name: position for position, name in enumerate(names)}
         self.phase = 1
         self.today = []
@@ -490,7 +495,8 @@ class _Day:
         """The sites that can use `pool` now, in config order: a ready leaf
         under its 6 agent hours today, of rate above 0 for attention."""
         return [name for name in self.names
-                if any(self.waiting(item) and (item["ppm"] or pool == POOL_LANES) for item in self.ready(name))]
+                if any(self.waiting(item) and (item["ppm"] or pool == POOL_LANES)
+                       for tier in TIERS for item in self.order[name][tier])]
 
     def accrual(self, name, pool, phase):
         """({site: its target's gain per minute charged to `name`}, the can-use
@@ -507,18 +513,19 @@ class _Day:
                 gains[user] = gains.get(user, 0) + Fraction(1, len(shareless))
         return gains, users
 
-    def charge(self, name, pool, minutes, phase, accrual=None, what="work"):
-        """Charge `minutes` of `pool` to the site; `accrual` taken before the charge."""
+    def charge(self, name, pool, minutes, phase, what="work"):
+        """Charge `minutes` of `pool` to the site, its accrual judged before
+        the minutes are placed: a caller charges, then places."""
         if minutes <= 0:
             return
-        gains, users = accrual if accrual is not None else self.accrual(name, pool, phase)
+        gains, users = self.accrual(name, pool, phase)
         charged, target = self.ledger[pool]["charged"], self.ledger[pool]["target"]
-        before = {site: (charged[site], target[site]) for site in self.names} if _trace is not None else None
+        before = {site: (charged[site], target[site]) for site in self.names} if self.trace is not None else None
         for site, gain in gains.items():
             target[site] += minutes * gain
         charged[name] += minutes
-        if _trace is not None:
-            _trace.append({"date": self.text, "site": name, "pool": pool, "phase": phase, "minutes": minutes,
+        if self.trace is not None:
+            self.trace.append({"date": self.text, "site": name, "pool": pool, "phase": phase, "minutes": minutes,
                            "what": what, "before": before, "users": users,
                            "after": {site: (charged[site], target[site]) for site in self.names}})
 
@@ -545,15 +552,16 @@ class _Day:
     def open_for(self, name) -> bool:
         return self.open is not None and self.open["site"] == name
 
-    def fits(self, item) -> bool:
-        """Whether a ready leaf fits now (docs/week-plan.md, A ready leaf that fits)."""
+    def fits(self, item, attention=None, work=None) -> bool:
+        """Whether a ready leaf fits now (docs/week-plan.md, A ready leaf that
+        fits), or at `attention` left with the open block at `work`."""
         if not (self.lanes > 0 and self.waiting(item)):
             return False
         if not item["ppm"]:
             return True
         if self.open_for(item["site"]):
-            return _agent_fit(self.attention, item["ppm"]) >= 1
-        return self.block_fits(item["ppm"])
+            return _agent_fit(self.attention if attention is None else attention, item["ppm"]) >= 1
+        return self.block_fits(item["ppm"], attention, work)
 
     def place(self, item, room):
         """Place `room` agent minutes of the leaf: once in its days and in the
@@ -597,13 +605,12 @@ class _Day:
         name, phase, block = item["site"], self.phase, self.open
         self.tied = agent == self.lanes == fit
         operator = _operator(agent, item["ppm"])
-        accrual = self.accrual(name, POOL_ATTENTION, phase), self.accrual(name, POOL_LANES, phase)
+        self.charge(name, POOL_ATTENTION, operator, phase)
+        self.charge(name, POOL_LANES, agent, phase)
         self.place(item, agent)
         self.attention -= operator
         block["work"] += operator
         block["phase"] = phase
-        self.charge(name, POOL_ATTENTION, operator, phase, accrual[0])
-        self.charge(name, POOL_LANES, agent, phase, accrual[1])
         if block["entries"] and block["entries"][-1][0] is item:
             last = block["entries"][-1]
             block["entries"][-1] = (item, last[1] + agent, last[2] + operator)
@@ -631,9 +638,8 @@ class _Day:
     def row_place(self, item):
         """The rate-0 leaf joins the lanes row, up to its 6 agent hours or the lanes left."""
         agent = self.room(item)
-        accrual = self.accrual(item["site"], POOL_LANES, self.phase)
+        self.charge(item["site"], POOL_LANES, agent, self.phase)
         self.place(item, agent)
-        self.charge(item["site"], POOL_LANES, agent, self.phase, accrual)
         self.row.append({"site": item["site"], "key": item["key"], "agent_hours": _hours(agent)})
 
     def tier_phase(self, tier):
@@ -642,7 +648,7 @@ class _Day:
         gets one block for its leaves of the tier, then in the same order its
         rate-0 leaves of the tier join the lanes row."""
         sites = [name for _, _, name in sorted(
-            (min(item["eff_priority"] for item in self.order[name][tier]), self.position[name], name)
+            (schedule.pick_ready(self.order[name][tier])["eff_priority"], self.position[name], name)
             for name in self.names if self.order[name][tier])]
         for name in sites:
             self.block_pass(name, self.order[name][tier])
@@ -656,15 +662,16 @@ class _Day:
 
     # --- fair share --------------------------------------------------------------------
 
-    def rated_fitting(self, name):
-        return [item for item in self.order[name][TIER_FAIR] if item["ppm"] and self.fits(item)]
+    def fitting(self, name, rated, attention=None, work=None):
+        """The site's ready fair_share leaves of rate above 0 (`rated`) or of
+        rate 0 that fit, lazily, in order; `attention` and `work` as for fits."""
+        return (item for item in self.order[name][TIER_FAIR]
+                if bool(item["ppm"]) == rated and self.fits(item, attention, work))
 
     def others_fit(self, name, members, attention, work) -> bool:
         """Whether another site of the class has a ready fair_share leaf of rate
         above 0 that fits at `attention` left with the open block at `work`."""
-        return any(item["ppm"] and self.lanes > 0 and self.waiting(item)
-                   and self.block_fits(item["ppm"], attention, work)
-                   for other in members if other != name for item in self.order[other][TIER_FAIR])
+        return any(any(self.fitting(other, True, attention, work)) for other in members if other != name)
 
     def cap(self, name, members):
         """(operator minutes the open block of `name` may still place now, of
@@ -697,8 +704,10 @@ class _Day:
         for item in self.order[name][TIER_FAIR]:
             if not item["ppm"]:
                 continue
-            fit = _agent_fit(self.attention, item["ppm"])
             want = self.room(item)
+            if want <= 0:
+                continue
+            fit = _agent_fit(self.attention, item["ppm"])
             self.stopped = self.stopped or fit < want  # the day's attention only, never the cap
             if lifted:
                 cap = max(budget, _operator(1, item["ppm"]) if not placed else 0)
@@ -711,8 +720,8 @@ class _Day:
             placed += agent
             if lifted:
                 budget = max(0, budget - operator)
-            elif operator > bound and _trace is not None:
-                _trace.append({"flag": True, "date": self.text, "site": name})
+            elif operator > bound and self.trace is not None:
+                self.trace.append({"flag": True, "date": self.text, "site": name})
         return placed
 
     def fair_blocks(self, members):
@@ -721,7 +730,7 @@ class _Day:
         that fits, the one with the largest attention deficit, ties to config
         order, continues or opens its block."""
         while True:
-            fitting = [name for name in members if self.rated_fitting(name)]
+            fitting = [name for name in members if any(self.fitting(name, True))]
             if not fitting:
                 return
             name = max(fitting, key=lambda n: (self.deficit(n, POOL_ATTENTION), -self.position[n]))
@@ -733,8 +742,8 @@ class _Day:
             elif not self.capped_pass(name, members):
                 # The continue rule: the open block's site can place no agent
                 # minute under its cap while another site of the class fits.
-                if _trace is not None:
-                    _trace.append({"lift": True, "date": self.text, "site": name})
+                if self.trace is not None:
+                    self.trace.append({"lift": True, "date": self.text, "site": name})
                 self.capped_pass(name, members, budget=self.capacity.block_default)
 
     def fair_row(self, members):
@@ -743,13 +752,21 @@ class _Day:
         fair_share rate-0 leaf that fits, the one with the largest lane
         deficit, ties to config order, places its first such leaf."""
         while self.lanes > 0:
-            fitting = {name: [item for item in self.order[name][TIER_FAIR] if not item["ppm"] and self.fits(item)]
-                       for name in members}
-            fitting = {name: leaves for name, leaves in fitting.items() if leaves}
-            if not fitting:
+            first = {name: next(self.fitting(name, False), None) for name in members}
+            first = {name: item for name, item in first.items() if item is not None}
+            if not first:
                 return
-            name = max(fitting, key=lambda n: (self.deficit(n, POOL_LANES), -self.position[n]))
-            self.row_place(fitting[name][0])
+            name = max(first, key=lambda n: (self.deficit(n, POOL_LANES), -self.position[n]))
+            self.row_place(first[name])
+
+    def fair_phase(self, members):
+        """Phases 5 and 6 among the share sites, 7 and 8 among the share-less
+        ones: the class's fair_share blocks, then its lanes row."""
+        self.fair_blocks(members)
+        self.block_pools_run_out(members, TIER_FAIR)
+        self.phase += 1
+        self.fair_row(members)
+        self.phase += 1
 
     def block_pools_run_out(self, members, tier):
         """Add to the day's pools those that ran out while a ready leaf of rate
@@ -784,18 +801,10 @@ class _Day:
     def plan(self) -> dict:
         """Plan the day and return its record. The items and the ledger change in place."""
         capacity = self.capacity
-        share_sites, shareless = self.classes
         self.tier_phase(TIER_P0)  # phases 1 and 2
         self.tier_phase(TIER_STARTED)  # phases 3 and 4
-        self.fair_blocks(share_sites)  # phase 5
-        self.block_pools_run_out(share_sites, TIER_FAIR)
-        self.phase = 6
-        self.fair_row(share_sites)
-        self.phase = 7
-        self.fair_blocks(shareless)
-        self.block_pools_run_out(shareless, TIER_FAIR)
-        self.phase = 8
-        self.fair_row(shareless)
+        self.fair_phase([name for name in self.names if name in self.shares])  # phases 5 and 6
+        self.fair_phase(self.shareless)  # phases 7 and 8
         self.close()
         ran = self.ran
         if any(not item["ppm"] and self.waiting(item) for name in self.names for item in self.ready(name)):
@@ -843,13 +852,14 @@ def _leaf_record(item) -> dict:
     }
 
 
-def plan_week(result, portfolio, config) -> WeekPlan:
+def plan_week(result, portfolio, config, trace=None) -> WeekPlan:
     """The week plan of one full build.
 
     `result` is build_all's BuildResult, `portfolio` the portfolio file as
     read (its settings_read and capacity) or None, and `config` gives as_of
     and default_unit_hours. A built site is one with a page in result.pages,
-    in config order. Never raises on a portfolio file's content.
+    in config order. Never raises on a portfolio file's content. A `trace`
+    list gets each day's charges, lifts and flags (_Day); the plan is the same.
     """
     mapping = mapping_in_use(portfolio)
     fields = {
@@ -863,7 +873,9 @@ def plan_week(result, portfolio, config) -> WeekPlan:
                         planned_week=[], pools=_pools(run_out), binding=binding,
                         days=[], leaves=[], sites=[], report=[], notes=[], **fields)
     names = _built_sites(result)
-    items = {name: _site_work(name, result.inputs[name], mapping, config.default_unit_hours) for name in names}
+    ranked = {name: _ranked(result.inputs[name].data) for name in names}
+    items = {name: _site_work(name, result.inputs[name], mapping, config.default_unit_hours, ranked[name][1])
+             for name in names}
     _cross_site_preds(result, items)
     by_node = {(name, item["key"]): item for name in names for item in items[name]}
     cycles = _cross_site_cycles(by_node)
@@ -879,7 +891,7 @@ def plan_week(result, portfolio, config) -> WeekPlan:
     # One ledger per site and pool for the horizon: whole minutes charged, an exact target.
     ledger = {pool: {"charged": dict.fromkeys(names, 0), "target": dict.fromkeys(names, Fraction(0))}
               for pool in POOLS}
-    days = [_Day(index, day, capacity, names, work, placed_order, ledger, shares).plan()
+    days = [_Day(index, day, capacity, names, work, placed_order, ledger, shares, trace).plan()
             for index, (day, shares) in enumerate(zip(horizon, day_shares))]
     run_out, binding = _binding(days)
     placed_by_site = {name: [] for name in names}
@@ -889,33 +901,33 @@ def plan_week(result, portfolio, config) -> WeekPlan:
     sites = []
     for name in names:
         placed = placed_by_site[name]
+        shareless_days = [day.isoformat() for day, found in zip(horizon, day_shares) if name in found.shareless]
         sites.append({
             "name": name, "ratio_source": site_ratio_source(),
             # Block lengths (start cost and minimum-length padding included) and agent hours placed.
             "attention_hours_charged": _hours(ledger[POOL_ATTENTION]["charged"][name]),
             "lane_hours_charged": _hours(ledger[POOL_LANES]["charged"][name]),
             # Each pool's target at the horizon's end (docs/week-plan.md, Fair share between sites).
-            "attention_hours_target": float(ledger[POOL_ATTENTION]["target"][name] / 60),
-            "lane_hours_target": float(ledger[POOL_LANES]["target"][name] / 60),
+            "attention_hours_target": float(_hours(ledger[POOL_ATTENTION]["target"][name])),
+            "lane_hours_target": float(_hours(ledger[POOL_LANES]["target"][name])),
             "unestimated_planned": sum(item["unestimated"] for item in placed),
             # Never placed in the 10 days: beyond the horizon.
             "unplanned": [{"key": item["key"], "reason": item["reason"] or BEYOND_HORIZON, "state": item["state"],
                            "unresolved_local": item["unresolved_local"]}
                           for item in items[name] if not item["days"]],
             "shares": [{"date": day.isoformat(),
-                        "share": float(100 * shares[name]) if name in shares else None}
-                       for day, (shares, _, _) in zip(horizon, day_shares)],
-            "shareless_days": [day.isoformat() for day, (_, shareless, _) in zip(horizon, day_shares)
-                               if name in shareless],
-            "p0": _p0_entries(result.inputs[name].data, items[name]),
+                        "share": float(100 * found.shares[name]) if name in found.shares else None}
+                       for day, found in zip(horizon, day_shares)],
+            "shareless_days": shareless_days,
+            "share_note": SHARE_NOTE if shareless_days else None,
+            "p0": _p0_entries(*ranked[name]),
         })
-        sites[-1]["share_note"] = SHARE_NOTE if sites[-1]["shareless_days"] else None
     dates = [day.isoformat() for day in horizon]
     return WeekPlan(status="planned", reason=None,
                     unestimated_planned=sum(item["unestimated"] for item in placed_order),
                     horizon_days=dates, planned_week=dates[:WEEK_DAYS], pools=_pools(run_out), binding=binding,
                     days=days, leaves=leaves, sites=sites, report=_report(cycles),
-                    notes=[note for _, _, notes in day_shares for note in notes], **fields)
+                    notes=[note for found in day_shares for note in found.notes], **fields)
 
 
 def plan_to_json(plan) -> str:
