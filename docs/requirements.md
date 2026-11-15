@@ -174,11 +174,12 @@ None yet.
 - FR-24: Where devagent's portfolio JSON is available for a site, that
   site's plan is read from it; otherwise it is read from the site's
   `WBS.md`. {refines: SR-7}
-- FR-25: For a selected requirement or use case, the worksite page shows
-  the path to its serving work: every open leaf its serving leaves wait on,
-  an order to work them in, the chain with the most hours and the working
-  day the current schedule ends that work, labelled as agent capacity only.
-  A path it cannot show whole says why. {refines: SR-4}
+- FR-25: For a selected requirement or use case other than a
+  constraint, the worksite page shows the path to its serving work: every
+  open leaf its serving leaves wait on, an order to work them in, the
+  chain with the most hours and the working day the current schedule ends
+  that work, labelled as agent capacity only. A path it cannot show whole
+  says why. {refines: SR-4}
 
 ## Quality attributes
 

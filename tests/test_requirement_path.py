@@ -226,6 +226,7 @@ def test_row_foreign_once():
     text = "beta:Issue-8 (on another site)"
     p = one_row(items, lit_of(("T", "direct")), foreign={"A": [text], "B": [text], "T": [text, "x"]})
     assert p.reasons == (("foreign", ("A", "B", "T"), text), ("foreign", ("T",), "x"))
+    assert [worksite._reason_text(r) for r in p.reasons] == [f"A, B, T wait on {text}", "T waits on x"]
 
 
 def test_empty_states():
@@ -679,11 +680,21 @@ def test_upstream_and_chain_css():
     for p in upstream:
         assert p["stroke-dasharray"] not in ({"none"} | indirect)
     chain = [(i, props(b)) for i, (s, b) in enumerate(rules) if "req-chain" in s]
-    assert len(chain) == 3 and all(set(p) <= {"stroke-width", "paint-order"} for _, p in chain)
-    # A small dot or a narrow bar keeps its fill: the chain stroke paints under it, outside the edge.
-    filled = [p for s, p in ((rules[i][0], p) for i, p in chain) if ".dot" in s or ".seg" in s]
-    assert len(filled) == 2 and all(p.get("paint-order") == "stroke" for p in filled)
-    assert all(".dot" not in s for s, b in rules if "req-chain" in s and ".outline" in s)
+    assert len(chain) == 3 and all("stroke-width" in p and set(p) <= {"stroke-width", "paint-order"}
+                                   for _, p in chain)
+    # A small dot or a narrow bar keeps its fill: the chain stroke paints under it, outside the edge,
+    # so only half its width shows, and that half must still be heavier than a direct mark's whole one.
+    (how_dot,) = [props(b)["stroke-width"] for s, b in rules if "req-direct" in s and ".dot" in s]
+    (how_seg,) = [props(b)["stroke-width"] for s, b in rules if s == ".seg.req-direct"]
+    width = {s: p for s, p in ((rules[i][0], p) for i, p in chain)}
+    (outline,) = [p for s, p in width.items() if ".outline" in s]
+    (dot,) = [p for s, p in width.items() if ".dot" in s]
+    (seg,) = [p for s, p in width.items() if s.startswith(".seg")]
+    assert "paint-order" not in outline
+    for p in (dot, seg):
+        assert p["paint-order"] == "stroke"
+    assert float(seg["stroke-width"]) / 2 > float(how_seg)
+    assert float(dot["stroke-width"]) / 2 > float(how_dot)
     last_how = max(i for i, (s, b) in enumerate(rules)
                    if any(c in s for c in ("req-direct", "req-indirect", "req-upstream")) and "stroke:" in b)
     assert all(i > last_how for i, _ in chain)

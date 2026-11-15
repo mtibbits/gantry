@@ -125,6 +125,7 @@ PATH_DAYS_ONE = "1 working day"
 PATH_END = "In the current schedule on {lanes}, its serving work ends in working day {day}"
 PATH_INCOMPLETE = "incomplete"
 PATH_HELD = "{key} waits on a cycle"
+PATH_FOREIGN_MANY = "{keys} wait on {text}"  # one foreign entry held by several leaves
 NOT_CHECKED = "not checked in this build"
 PATH_OTHER_SITE = "also served on {site} by {issue}, which this page does not plan"
 PATH_NOT_READ = "sites not read: {sites}"
@@ -245,7 +246,9 @@ def _reason_text(reason):
     if kind == "held":
         return PATH_HELD.format(key=a)
     if kind == "foreign":
-        return FBOX_TIP.format(key=", ".join(a), text=b)
+        if len(a) > 1:
+            return PATH_FOREIGN_MANY.format(keys=", ".join(a), text=b)
+        return FBOX_TIP.format(key=a[0], text=b)
     return PATH_OTHER_SITE.format(site=a, issue=NO_ISSUE_ID if b is None else b)
 
 

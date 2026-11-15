@@ -561,8 +561,8 @@ requirements panel and no trace report.
   draws is marked, in the network (boxes and circles) and in the schedule:
   a direct one with a solid outline, an indirect one (through `refines:`
   or a use case's `needs:`) with a dashed one, so the two never differ by
-  colour alone. Every open leaf those leaves wait on is marked upstream,
-  with a dotted outline, and the chain with the most hours with a heavier
+  colour alone. Every open leaf those leaves wait on is marked upstream
+  (not for a constraint, which gets no path), with a dotted outline, and the chain with the most hours with a heavier
   one (#77, below); the rest dims. A collapsed epic row in the schedule
   shows `{n} lit` for its marked leaves, served and upstream together, one
   form for every count. Selecting the same requirement again, or Escape,
@@ -631,8 +631,13 @@ it in each trace row's `path`; the page's script only draws it.
   heavier one (`req-chain`), beside direct (solid) and indirect (dashed);
   the heavier outline composes with the other three. On a circle or a
   schedule bar it is drawn outside the shape, so a 1-hour dot or a bar a
-  pixel wide keeps its model colour. Upstream leaves are not dimmed. A hover's dependency trace still wins while it lasts, and the
-  marks return when it ends.
+  pixel wide keeps its model colour. Two limits: an unestimated bar's
+  fill is see-through, so the outline shows through it; and a bar's
+  outline lies 3 px over the bar drawn before it in the same row, so a
+  bar that narrow, directly before a chain bar, is covered. The path box
+  still lists every leaf. Upstream leaves are not dimmed. A hover's
+  dependency trace still wins while it lasts, and the marks return when
+  it ends.
 - **The box** (element id `req-path`, after the layer lists, so selecting
   never moves a row). Hidden with no selection and for a constraint. In
   order: the schedule label (`agent capacity only; ...`) when the path has
@@ -664,8 +669,8 @@ it in each trace row's `path`; the page's script only draws it.
   target (every serving leaf held out) there is no end-day line.
 - **The reasons.** `incomplete` lists `{key} waits on a cycle` for each
   held-out serving leaf, then `{key} waits on {text}` once for each
-  distinct foreign entry of the path's leaves, the leaves that hold it
-  joined by `, `. The text is the leaf's foreign wording
+  distinct foreign entry of the path's leaves (`{keys} wait on {text}`
+  when several leaves hold it, their keys joined by `, `). The text is the leaf's foreign wording
   ([Foreign entries](#foreign-entries)); in a `--site` build it is followed
   by `not checked in this build`, and in a full build an entry found
   finished is not there to be a reason. A held-out serving leaf's own
