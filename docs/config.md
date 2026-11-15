@@ -26,7 +26,9 @@ error (exit 2) naming the flag.
 
 <!-- Editor note: tests/test_portfolio_file.py reads the portfolio_file row
 below; the issue that makes the build check the milestone or use the rest
-of the settings (#23) rewords "#23 adds the rest" and that test together. -->
+of the settings (#23) rewords "#23 adds the rest" and that test together.
+tests/test_config.py::test_config_doc_fires_rows reads the fires_list and
+fires_check_days rows; reword them and that test together. -->
 
 | Key | Type | Required | Default | Meaning | Owner |
 |---|---|---|---|---|---|
@@ -36,7 +38,8 @@ of the settings (#23) rewords "#23 adds the rest" and that test together. -->
 | `as_of` | TOML date (a string is refused) | no | the build machine's local date when the run starts | the date a build treats as today | every dated view |
 | `default_unit_hours` | positive number, integer or float (0, a negative, infinity or a boolean is refused) | no | `6` | the agent-hours given to a leaf with no estimate | #9 |
 | `portfolio_file` | path | no | none | the installation's portfolio file ([format](portfolio-file.md)); `gantry portfolio` checks it; the build reads its business requirements, for the trace (#20), and its capacity settings, for the week plan (#61); #23 adds the rest | #22 |
-| `fires_list` | path | no | none | the installation's list of things that need the operator now | #30 |
+| `fires_list` | path | no | none | the installation's fires list, its things that need the operator now; `gantry fires` checks it; the build does not read it yet (#32) | #30 |
+| `fires_check_days` | integer, 1 or more (a float or a boolean is refused) | no | `3` | an open fire this many whole days old is flagged "still a fire?"; it is here and not in the portfolio file's `[thresholds]` because the fires list is a fail-closed source, whose flag must not depend on a portfolio file being configured or readable | #30 |
 | `[requirements]` | table | no | none | settings for requirements files | #15 |
 | `[site.<name>]` | table | no | none | per-site overrides, keyed by the devagent `[project.<name>]` table name | #7 |
 
@@ -170,7 +173,7 @@ only then the planning directories. **No default config is ever read**, from
 the working directory, the home folder or the environment.
 
 **Writable roots** depend on the command. `gantry build` may write only under
-`output_dir`; `gantry portfolio` writes nothing; a later `gantry refresh` will
+`output_dir`; `gantry portfolio` and `gantry fires` write nothing; a later `gantry refresh` will
 write only under its `[refresh] dir`, and a later `gantry serve` writes
 nothing. Every other root is read-only. A writable root may not equal or
 contain an input root (either config file, a planning directory, a site's

@@ -51,6 +51,7 @@ KEYS = (
     Key("default_unit_hours", "positive_number", False, 6, "#9", "`default_unit_hours`"),
     Key("portfolio_file", "path", False, None, "#22", "`portfolio_file`", "file"),
     Key("fires_list", "path", False, None, "#30", "`fires_list`", "file"),
+    Key("fires_check_days", "int_min_1", False, 3, "#30", "`fires_check_days`"),
     Key("requirements", "table", False, None, "#15", "`[requirements]`"),
     Key("site", "table", False, None, "#7", "`[site.<name>]`"),
 )
@@ -99,6 +100,10 @@ class Config:
     fires_list: PurePath | None
     requirements: RequirementsSettings
     sites: dict[str, SiteOverride]
+    fires_check_days: int
+    # Not a key: true when the file wrote as_of, so a run can tell a pinned
+    # date from the load-time default (#30's reference time).
+    as_of_pinned: bool
 
 
 # --- paths ---------------------------------------------------------------------
@@ -160,6 +165,7 @@ def resolve_path(raw: str, base_dir, *, flavour: str) -> PurePath:
 
 _KIND_TEXT = {
     "int": "an integer",
+    "int_min_1": "an integer, 1 or more",
     "path": "a path string",
     "date": "a TOML date (YYYY-MM-DD)",
     "positive_number": "a positive number",
@@ -194,6 +200,8 @@ def describe(value) -> str:
 def _kind_ok(kind: str, value) -> bool:
     if kind == "int":
         return isinstance(value, int) and not isinstance(value, bool)
+    if kind == "int_min_1":
+        return isinstance(value, int) and not isinstance(value, bool) and value >= 1
     if kind == "path":
         return isinstance(value, str) and value != ""
     if kind == "date":
@@ -342,6 +350,7 @@ def load_config(path) -> Config:
         for name, table in site_tables.items()
     }
     as_of = raw.get("as_of")
+    as_of_pinned = as_of is not None
     if as_of is None:
         as_of = date.today()  # at load time, never a def-time default
     return Config(
@@ -357,4 +366,6 @@ def load_config(path) -> Config:
             br_namespace=requirements_table.get("br_namespace", DEFAULT_BR_NAMESPACE),
         ),
         sites=sites,
+        fires_check_days=raw.get("fires_check_days", _KEYS_BY_NAME["fires_check_days"].default),
+        as_of_pinned=as_of_pinned,
     )
