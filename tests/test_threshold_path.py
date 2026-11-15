@@ -6,6 +6,8 @@ The model tests need no Node; the page-script tests take the `node` fixture.
 Literals are hand-derived from each fixture's estimates (HOURS_PER_DAY 6).
 """
 
+import re
+
 import pytest
 
 from gantry import build
@@ -543,3 +545,29 @@ def test_sample_split_box(node, sample_page):
         assert [e.text for e in page.query("#req-path .path-end-t")] == [
             w.PATH_T_END.format(lanes="4 lanes", day=t["end_day"])]
         assert [e.text for e in page.query("#req-path .path-end")] == [w.path_end_text(r["path"]["end_day"], 4)]
+
+
+# --- requirements and docs -------------------------------------------------------------------
+
+
+def test_own_requirements_state_the_threshold():
+    from test_own_requirements import own_set
+
+    reqs = own_set().requirements
+    fr26 = reqs["gantry:FR-26"]
+    assert fr26.layer == "FR" and str(fr26.refines) == "gantry:SR-4"
+    assert "gantry:FR-26" in [str(n) for n in reqs["gantry:UC-5"].needs]
+    assert all((r.threshold, r.objective) == (None, None) for r in reqs.values())
+
+
+def test_doc_states_threshold_record():
+    from test_samples import ROOT
+
+    doc = (ROOT / "docs" / "worksite-page.md").read_bytes().decode("utf-8")
+    flat = " ".join(doc.split())
+    assert [key for key in THRESHOLD_KEYS if f"`{key}`" not in doc] == []
+    for key in ("threshold", "objective", "objective_only", "objective_only_foreign", "threshold_path"):
+        assert f"`{key}`" in doc, key
+    (classes,) = [s for s in re.split(r"(?<=\.)\s", flat) if s.startswith("A selection sets only")]
+    assert "`req-objective`" in classes
+    assert "`objective`" in flat and "E_t" in flat

@@ -592,7 +592,10 @@ requirements panel and no trace report.
   or a use case's `needs:`) with a dashed one, so the two never differ by
   colour alone. Every open leaf those leaves wait on is marked upstream
   (not for a constraint, which gets no path), with a dotted outline, and the chain with the most hours with a heavier
-  one (#77, below); the rest dims. A collapsed epic row in the schedule
+  one (#77, below); the rest dims. A drawn leaf that serves the
+  selection at objective only (#79) is also faded to between a marked and
+  a dimmed leaf (`req-objective`, opacity alone, so it keeps its outline).
+  A collapsed epic row in the schedule
   shows `{n} lit` for its marked leaves, served and upstream together, one
   form for every count. Selecting the same requirement again, or Escape,
   clears the selection; selecting another replaces it. A requirement with
@@ -634,8 +637,13 @@ requirements panel and no trace report.
   report stops the page rendering.
 - **The `trace` data.** An object with exactly the keys `in_trace`,
   `scope`, `requirements` (one record per row: `id`, `label`, `layer`,
-  `text`, `needs`, `light`, `held`, `finished`, `foreign`, `counts` and
-  `path`, below), `leaves` (each
+  `text`, `threshold` and `objective` (the row's statements, null when it
+  has none and always for a business requirement, #79), `needs`,
+  `objective_only` (the keys of this site's leaves serving the row at
+  objective only, in WBS order, whatever their state) and
+  `objective_only_foreign` (such leaves on other sites, as indexes into
+  `foreign`), `light`, `held`, `finished`, `foreign`, `counts`, `path` and
+  `threshold_path`, below), `leaves` (each
   drawn leaf naming an ID that resolves, with its IDs and labels),
   `report` (each category with its items), `not_read` and `foreign`
   (#21). `not_read` is the sites a full build did not read, in config
@@ -744,6 +752,63 @@ it in each trace row's `path`; the page's script only draws it.
   order) and `chain`.
 
 #### Threshold and objective
+
+A requirement may state a threshold and an objective, and a leaf may serve
+it at objective only (#79; [requirements-format.md](requirements-format.md#threshold-and-objective)).
+The leaves that are not objective-only are its **gating** leaves.
+
+- **When the box splits.** When an open objective-only leaf serves the
+  selection (drawn, held out, or, on a row the full build's trace covers,
+  on another site), the box has two sections. **Threshold**: the threshold
+  statement, when the row has a non-empty one; the schedule label when the
+  threshold path has leaves; the threshold's figures; its end-day line,
+  E_t; one line per objective-only leaf the threshold work waits on; and
+  the threshold's reasons. **Objective**: the objective statement; the
+  schedule label; #77's figures worded for all its serving work; the end
+  day E; and #77's reasons. Then the work order: the threshold path set,
+  in its own work order, a divider, and the rest of the path set in the
+  path's work order. There is no divider when either list is empty, and no
+  empty list. Both sections are agent capacity only.
+- **The threshold path set** is #77's path set built from the gating
+  leaves instead of every serving leaf: the scheduled gating leaves are its
+  targets, and the walk follows `depends_on` back from them and from the
+  held-out gating leaves. An objective-only leaf a gating leaf waits on,
+  directly or through other leaves, is in it: the tail is delaying the
+  threshold, so the box names it and its figures count it. Every #77 rule
+  that names serving leaves uses gating leaves instead: the held-out walk,
+  `{key} waits on a cycle`, the other-site reason and the empty cases. So a
+  held-out objective-only leaf, or an open one on another site, never makes
+  the threshold section incomplete. The objective section keeps #77's
+  rules.
+- **E_t against E.** E_t is the working day the schedule at the chosen
+  lane count ends the gating leaves' work: the end of the last threshold
+  target, by `plan_finish_day`'s rule. E is #77's. The schedule is
+  unchanged: an objective-only leaf is not ranked lower, so when the tail
+  takes the lanes first E_t can equal E, and that says the tail is
+  delaying the threshold. A lane change rewrites both lines (`path-end-t`
+  and `path-end`, each an `aria-live="polite"` region). With no scheduled
+  gating leaf there is no E_t line.
+- **Row marks.** In the threshold list each row takes #77's marks with the
+  threshold targets as the targets, then `objective` for an objective-only
+  leaf, then `chain` on the threshold's own chain; so an objective-only
+  leaf the threshold work waits on reads `upstream · objective`. In the
+  rest of the list the rows keep #77's marks, then `objective`, then
+  `chain` on the path's chain. The two chains are intended to differ: the
+  graph's `req-chain` marks follow the whole selection's path, and the
+  threshold list's `chain` word follows the threshold's.
+- **No split.** With no open objective-only leaf the box is #77's, with
+  each statement the row has shown above it under its section word (an
+  empty statement shows the word alone). A constraint has no box.
+- **The `threshold_path` record.** null when the row does not split, and
+  for a constraint; else exactly the keys of `path` computed over the
+  threshold path set (`state`, `lines`, `order`, `chain`, `targets`,
+  `end_day` as E_t at the default lane count, `incomplete`), then `waits`
+  (the worded waits-on lines), `rest` (`[key, mark]` pairs of the path set
+  outside the threshold's, in the path's work order) and `objective_lines`
+  (the row's `path` lines with the heading worded for all its serving
+  work). `path` itself is unchanged. `gantryTrace.marks`' result gains
+  `objective`: the drawn serving leaves in the row's `objective_only`, in
+  row order.
 
 - **The texts** (#79). When the box splits, its two sections are headed
   `Threshold` and `Objective`. The threshold's heading is
@@ -948,8 +1013,8 @@ tests use that document's checkers and harness. This page applies them so:
   and `requirement-detail`, one per requirements-panel row, valued by the
   requirement's ID, and the chips (`g.chip`, keyed by `data-req`, read with
   `getAttribute`). A selection sets only fixed classes: `req-direct`,
-  `req-indirect`, `req-upstream`, `req-chain`, `req-on`, `req-need`,
-  `selecting` and `g-lit`.
+  `req-indirect`, `req-upstream`, `req-chain`, `req-objective`, `req-on`,
+  `req-need`, `selecting` and `g-lit`.
   Listeners are delegated on `document`; there are no inline handlers.
 - **No resource from any URL.** The head opens with
   `<meta charset="utf-8">`, then the CSP meta with the content

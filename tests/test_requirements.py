@@ -1296,3 +1296,31 @@ def test_reader_corpus_unchanged():
     for path, want in golden.items():
         assert _corpus_entry(sets[path]) == want, path
         assert all((r.threshold, r.objective) == (None, None) for r in sets[path].requirements.values()), path
+
+
+def test_format_doc_statement_example():
+    blocks = [body for info, body in doc_blocks(FORMAT_DOC.read_bytes().decode("utf-8")) if info == "markdown"]
+    stated = [s for s in (parse(body, "gantry") for body in blocks)
+              if any(r.threshold is not None for r in s.requirements.values())]
+    assert len(stated) == 1
+    (s,) = stated
+    assert s.report == []
+    fr21 = s.requirements["gantry:FR-21"]
+    assert fr21.threshold and fr21.objective
+    assert fr21.refines == parse_id("gantry:SR-1")
+    # It sits between the first project example and the empty form, which stays last.
+    index = next(i for i, body in enumerate(blocks) if "FR-21" in body)
+    assert 0 < index < len(blocks) - 1
+
+
+def test_format_doc_states_threshold_rules():
+    from test_build import heading_slugs
+
+    text = FORMAT_DOC.read_bytes().decode("utf-8")
+    assert "threshold-and-objective" in heading_slugs(text.replace("\r", ""))
+    doc = " ".join(text.split())
+    wanted = [req._WHY["stray_statement"], "a second `Threshold:` statement", "`malformed_objective`",
+              "`unmatched_objective`", "`[thresholds]`", "holds without it", "needs brackets", "objective:",
+              "a list item the reader cannot place", "the own text before the first nested item",
+              "no longer shows a statement's text"]
+    assert [w for w in wanted if w not in doc] == []

@@ -11,6 +11,12 @@ line under `## [Unreleased]`.
 
 ### Added
 
+- Threshold and objective paths (#79): a requirement may state a
+  `Threshold:` and an `Objective:`, a leaf's `objective:` names the
+  requirements it serves at objective only, and selecting a requirement
+  with an open objective-only leaf splits its path box into the threshold's
+  path and end day and the objective's (docs/requirements-format.md,
+  docs/worksite-page.md).
 - A security policy with private vulnerability reporting (SECURITY.md).
 - The README's Support section: what Gantry promises, what it does not, and
   the supported versions of Python, git, Claude Code and bash; git's oldest
