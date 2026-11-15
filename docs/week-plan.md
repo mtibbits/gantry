@@ -464,8 +464,7 @@ passes a ratio), its `attention_hours_charged` (its block lengths over the
 10 days, start costs and minimum-length padding included), its
 `lane_hours_charged` (the agent hours placed), its `attention_hours_target`
 and `lane_hours_target` (each pool's fair-share target at the horizon's
-end: [Fair share between sites](#fair-share-between-sites)), its
-`unestimated_planned` count, its `unplanned` list (`key`, `reason`, `state`,
+end), its `unestimated_planned` count, its `unplanned` list (`key`, `reason`, `state`,
 `unresolved_local`), its `shares` (one per horizon day: the `date` and its
 `share` in percent, null on a day the site is share-less), its
 `shareless_days`, its `share_note` (null, or the text "no intended share
