@@ -862,7 +862,7 @@ def _leaf_record(item) -> dict:
     }
 
 
-def plan_week(result, portfolio, config, trace=None) -> WeekPlan:
+def plan_week(result, portfolio, config, *, trace=None) -> WeekPlan:
     """The week plan of one full build.
 
     `result` is build_all's BuildResult, `portfolio` the portfolio file as

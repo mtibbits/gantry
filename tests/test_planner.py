@@ -1782,6 +1782,19 @@ def test_rate_zero_work_does_not_cap_a_block(tmp_path, trace):
     assert not [entry for entry in trace if entry.get("lift")]
 
 
+def test_other_sites_fit_is_judged_at_the_bound(tmp_path):
+    # As above, with a second rated leaf on a. Whether b fits is judged with the attention
+    # left after a's block reaches its bound (45 minutes, under block_min), so a's first leaf
+    # runs on to its 270 minutes. Judged at the pass's start, b would fit, the block would
+    # stop at the bound (225) and hand its last 45 minutes to a's second leaf.
+    plan = plan_of(tmp_path, "two_sites", portfolio=two_sites_portfolio(
+        allocation("2026-01-05", a=50, b=50), hours=4.75),
+        wbs={"a": wbs_md(leaf(1, est="4.5h", h=4), leaf(2, est="1h", h=4)),
+             "b": wbs_md(leaf(1, est="3w", h=4), leaf(2, est="1h", h=0))})
+    block, = plan.days[0]["blocks"]
+    assert [(entry["key"], mins(entry["agent_hours"])) for entry in block["leaves"]] == [("Issue-1", 270)]
+
+
 def test_equal_shares_byte_identical_under_hash_seeds(tmp_path):
     import os
     import subprocess

@@ -296,7 +296,8 @@ leaf of the tier put those leaves in the lanes row, the sites in the same
 kind of order taken over their rate-0 leaves alone. A leaf's priority
 orders only the pass that places it, so raising a rate-0 leaf never moves
 its site's block ahead of another's. P0 work and work already in progress
-go first whatever a site's share, and their charges count against it. A P0 leaf held by another site's open leaf is
+go first whatever a site's share, and their charges count against it. A P0
+leaf held by another site's open leaf is
 not ready until that leaf finishes; a site's `p0` list names, for each
 of its P0 leaves, the other sites' leaves it waits on through `depends_on`
 entries on its own line or on an open row above it. A hold that reaches
@@ -389,8 +390,9 @@ site's block.
 ### The lanes row
 
 The lanes row holds the day's rate-0 leaves, each up to its 6 agent hours
-or the lane hours left. In phases 2 and 4 they join site by site, in the
-tier's site order. In phase 6, while lane minutes are left and a share
+or the lane hours left. In phases 2 and 4 they join site by site, the
+sites ordered by their most urgent rate-0 leaf of the tier, ties to config
+order. In phase 6, while lane minutes are left and a share
 site has a ready `fair_share` rate-0 leaf that fits, the share site with
 the largest lane deficit, ties to config order, places its first such
 leaf; phase 8 does the same among the share-less sites.
@@ -410,7 +412,8 @@ left after the sites with shares".
 
 A leaf the plan placed on an earlier day and has not finished goes first
 among its site's leaves of its tier on each following day, ahead of a more
-urgent leaf that became ready since, until it finishes. Several such leaves of one site
+urgent leaf that became ready since, until it finishes. Several such leaves
+of one site
 keep the order within a site among themselves.
 
 ### States
@@ -514,7 +517,8 @@ them, attention first:
 
 Both are judged against the day's attention, never against a block's
 fair-share cap: a block the cap cut short has not stopped at the day's
-attention, even when less attention was left than its leaf wanted. A waiting leaf of rate above 0 is judged when its tier's
+attention, even when less attention was left than its leaf wanted. A waiting
+leaf of rate above 0 is judged when its tier's
 blocks have been planned and before that tier's lanes row: `p0` leaves
 after phase 1, `started` leaves after phase 3, the share sites' `fair_share`
 leaves after phase 5 and the share-less sites' after phase 7, each against
