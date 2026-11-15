@@ -36,7 +36,10 @@ folder** may hold three records: `STUCK`, `checklist.md` and `imPlan.md`.
 `read_site_records(roots, planning_dir, *, site=None)` lists the planning
 directory's direct subfolders and reads each one that holds at least one of
 the three, keyed by its name exactly as on disk. It does not descend further,
-so captures and other folders holding none of the three are left out.
+so captures and other folders holding none of the three are left out. A
+subfolder that cannot be listed is kept, with all three records
+`unreadable`: it is not known to hold none of them, so the reader fails
+closed.
 `read_issue_records(roots, issue_dir, *, site=None)` reads one folder. Both
 read through the run's roots under the `devdoc_dir` key
 ([config reference](config.md#where-a-build-may-read-and-write)).
@@ -45,7 +48,9 @@ read through the run's roots under the `devdoc_dir` key
 
 **The record reader follows no link at all.** A subfolder of the planning
 directory that is a link (a symlink or a Windows junction) is not read and
-is listed in `skipped` with the reason `is a link`. A record file that is a
+is listed in `skipped` with the reason `is a link`, as is any other link in
+it that is not a link to a file inside the roots (a dangling link, or a
+link out of the roots). A record file that is a
 link is `unreadable` with `<name> is a link`, and its target is never
 opened. An issue folder given to `read_issue_records` that is itself a link
 gives `issue folder is a link`. This is stricter than the rest of Gantry,
@@ -214,7 +219,9 @@ Every reader takes text. A leading byte-order mark is dropped, lines are
 split on line feed only, and one carriage return at a line's end is dropped,
 so a CRLF file reads like its LF form. U+2028, U+2029 and other characters
 are kept inside a line. Every digit run read as a number is at most nine
-ASCII digits; a longer one is a problem, never an error. Reasons, step
+ASCII digits; a longer one is never an error. In a STUCK `Step:` line it
+gives `stuck_no_step`; a checklist row or `## Revision` heading holding one
+is not read as a step or a revision, with no problem recorded. Reasons, step
 names, task text and folder names are returned byte for byte: escaping
 happens once, where a page renders them.
 
@@ -230,6 +237,7 @@ holds a path:
 | a record file that is a link | `<name> is a link` |
 | a record file that is not a regular file | `<name> is not a file` |
 | a record file that cannot be read | `<name> cannot be read: <error>` |
+| a record file deleted between the listing and the read | none: it is `absent` |
 | a record file that is not UTF-8 | `<name> is not valid UTF-8 at byte <offset>` |
 | the issue folder is missing (all three records) | `issue folder does not exist` |
 | the issue folder is not a directory | `issue folder is not a directory` |
@@ -246,7 +254,7 @@ holds a path:
 | the planning directory is missing | `planning directory does not exist` |
 | the planning path is not a directory | `planning directory is not a directory` |
 | it cannot be listed, or is outside the roots | `planning directory cannot be listed: <error>` |
-| a subfolder that is a link (in `skipped`) | `is a link` |
+| a link that is not a link to a file inside the roots (in `skipped`) | `is a link` |
 
 ## Fixtures and the contract test
 
@@ -293,9 +301,10 @@ the text it is cited for. Locally it skips when `GANTRY_DEVAGENT_DIR` is
 unset or is not a devagent checkout, and warns when the checkout's
 `plugin.json` version differs from the pin's, naming both; with `CI` set
 each of these fails the run. On Windows it always skips with the reason
-"needs devagent's own toolchain (bash and GNU coreutils)". The Ubuntu CI
-legs clone devagent at the pin, check the tag's commit against the
-fixtures' `provenance.json`, and run it.
+"needs devagent's own toolchain (bash and GNU coreutils)". Every CI leg
+clones devagent at the pin and checks the tag's commit against the
+fixtures' `provenance.json`, because the test workflow has no conditional
+steps; only the Ubuntu legs run the test.
 
 ## What can move to the portfolio JSON
 

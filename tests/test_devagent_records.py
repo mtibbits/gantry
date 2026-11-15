@@ -7,6 +7,7 @@ text inside the test, never hand-written. Plan inputs are hand-written to the
 plan template at the pin (tests/fixtures/devagent_records/plans/).
 """
 
+import os
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -24,7 +25,7 @@ def written(issue, name):
 
 
 def bom_crlf(text):
-    return "﻿" + text.replace("\n", "\r\n")
+    return "\ufeff" + text.replace("\n", "\r\n")
 
 
 # --- read_stuck (Task 3) -------------------------------------------------------------------
@@ -100,7 +101,7 @@ def test_unparseable_created(value):
     assert got.reason == "The harbour crane is waiting for a spare part."
 
 
-@pytest.mark.parametrize("text", ["the crane fell over, call someone\nplease\n", "", "﻿"])
+@pytest.mark.parametrize("text", ["the crane fell over, call someone\nplease\n", "", "\ufeff"])
 def test_arbitrary_text_reads_with_unknown_step_and_reason(text):
     got = dr.read_stuck(text)
     assert isinstance(got, dr.StuckMarker)
@@ -122,9 +123,9 @@ def test_stuck_overlong_step_number():
 
 
 def test_stuck_line_separators_are_not_line_ends():
-    text = written("Issue-13", "STUCK").replace("spare part.", "spare part .")
+    text = written("Issue-13", "STUCK").replace("spare part.", "spare\u2028part\u2029.")
     got = dr.read_stuck(text)
-    assert got.reason == "The harbour crane is waiting for a spare part ."
+    assert got.reason == "The harbour crane is waiting for a spare\u2028part\u2029."
 
 
 # --- read_checklist (Task 4) ---------------------------------------------------------------
@@ -709,3 +710,28 @@ def test_listing_race_is_retried_once(tmp_path, monkeypatch):
     assert [r.status for r in records_of(lone)] == ["present"] * 3
     # A folder that is really gone still reads as missing.
     assert dr.read_site_records(roots, plan_dir / "nowhere").reason == "planning directory does not exist"
+
+
+def test_record_deleted_after_listing_reads_absent(tmp_path, monkeypatch):
+    """devagent's unstuck deletes STUCK; one deleted between the listing and
+    the read is absent, not unreadable, so no fire shows for it."""
+    plan_dir = tmp_path / "plan"
+    folder = issue_folder(plan_dir)
+    real = dr.read_bytes_confined
+
+    def unstuck_first(roots, path, **kwargs):
+        if os.path.basename(path) == "STUCK" and os.path.exists(path):
+            os.remove(path)
+        return real(roots, path, **kwargs)
+
+    monkeypatch.setattr(dr, "read_bytes_confined", unstuck_first)
+    got = dr.read_issue_records(directory_roots([plan_dir]), folder)
+    assert got.stuck == dr.Record("absent", None, None)
+    assert got.checklist.status == "present" and got.plan.status == "present"
+    # Another read error stays unreadable.
+    def denied(roots, path, **kwargs):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(dr, "read_bytes_confined", denied)
+    got = dr.read_issue_records(directory_roots([plan_dir]), folder)
+    assert got.checklist == dr.Record("unreadable", None, "checklist.md cannot be read: Permission denied")

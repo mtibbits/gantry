@@ -293,6 +293,10 @@ def fetch_order_problems(text):
         problems.append("no git clone of the pinned tag before pytest")
     if not env or env[0] > pytest_at:
         problems.append("GANTRY_DEVAGENT_DIR is not written to $GITHUB_ENV before pytest")
+    want = [i for i, line in enumerate(lines) if "devagent_commit" in line and "provenance.json" in line]
+    check = [i for i, line in enumerate(lines) if line.startswith('test "$got" = "$want"') and "exit 1" in line]
+    if not want or not check or not env or max(want[0], check[0]) > env[0]:
+        problems.append("no check of the clone's commit against provenance.json before GANTRY_DEVAGENT_DIR")
     if any("devagent--v" in line for line in lines):
         problems.append("a literal devagent tag in the workflow")
     return problems
@@ -310,6 +314,13 @@ def test_workflow_fetches_devagent_before_pytest():
     planted = "\n".join(kept)
     assert "tests/devagent.pin" in planted
     assert fetch_order_problems(planted) == ["no git clone of the pinned tag before pytest"]
+    # Planted control: the commit comparison gone, the comment naming provenance.json kept.
+    kept = [line for line in lines if not line.strip().startswith('test "$got" = "$want"')]
+    assert len(kept) == len(lines) - 1
+    planted = "\n".join(kept)
+    assert "provenance.json" in planted
+    assert fetch_order_problems(planted) == [
+        "no check of the clone's commit against provenance.json before GANTRY_DEVAGENT_DIR"]
 
 
 def test_every_fixture_names_the_same_devagent_commit():

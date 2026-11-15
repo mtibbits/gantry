@@ -399,7 +399,8 @@ def compare(fixtures_dir, generated_dir):
         a = fix_timestamps(name, (Path(fixtures_dir) / issue / name).read_bytes(), token=b"<TS>").split(b"\n")
         b = fix_timestamps(name, (Path(generated_dir) / issue / name).read_bytes(), token=b"<TS>").split(b"\n")
         if a != b:
-            n = next(i for i in range(max(len(a), len(b))) if _line(a, i) != _line(b, i))
+            # On the bytes: two lines can differ only in bytes that decode alike.
+            n = next(i for i in range(max(len(a), len(b))) if a[i:i + 1] != b[i:i + 1])
             diffs.append(f"{issue}/{name}: written by {writer} at devagent {version}: first differing line {n + 1}: "
                          f"fixture {_line(a, n)!r}, devagent {_line(b, n)!r}")
     for issue in issues:
