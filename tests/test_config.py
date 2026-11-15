@@ -491,6 +491,6 @@ def _doc_row(name):
 def test_config_doc_fires_rows():
     # docs/config.md's editor note names this test beside the two rows (#30).
     row = _doc_row("fires_list")
-    assert "`gantry fires`" in row
+    assert "`gantry fires`" in row and "(fires-list.md)" in row
     row = _doc_row("fires_check_days")
     assert "`3`" in row and "portfolio" in row

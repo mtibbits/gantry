@@ -608,3 +608,61 @@ def test_sample_reads_clean():
     flagged = [e.line for e in result.entries if fl.still_a_fire(e, reference, config.fires_check_days)]
     assert flagged == [9]
     assert all(e.site_known for e in result.entries if e.site is not None)
+
+
+
+# --- the docs (Task 9) ---------------------------------------------------------------
+
+
+DOC = Path(__file__).parent.parent / "docs" / "fires-list.md"
+
+
+def doc_text():
+    from helpers_docs import markdown_text
+
+    return markdown_text(DOC)
+
+
+def first_fence_under(heading):
+    """The lines of the first fenced block in the section under `heading`."""
+    lines = doc_text().split("\n")
+    start = lines.index(heading)
+    section = []
+    for line in lines[start + 1:]:
+        if line.startswith("## "):
+            break
+        section.append(line)
+    opener = next(i for i, line in enumerate(section) if line.startswith("```"))
+    closer = next(i for i in range(opener + 1, len(section)) if section[i].startswith("```"))
+    return section[opener + 1:closer]
+
+
+def test_doc_names_every_kind_status_and_key():
+    text = doc_text()
+    assert len(fl.REPORT_KINDS) == 5
+    statuses = ("read", "read_with_problems", "not_read", "not_configured")
+    tokens = [*fl.REPORT_KINDS, *statuses, "fires_check_days", "fires_list", "gantry fires", "skipped_empty",
+              "skipped_in_fences", "[-]", "[/]", "as_of", "fires_list_unreadable"]
+    assert [t for t in tokens if f"`{t}`" not in text] == []
+    # One heading per prose limb of the documentation criterion, in its order.
+    headings = ["## Entries", "## Lines", "## Notes under an entry", "## Items that hold nothing",
+                "## Entry-like lines", "## Fences", "## How an entry ends", "## Still a fire?",
+                "## The reference time", "## Statuses", "## Checking the file", "## Editing from a phone",
+                "## Why not a file-sync tool", "## Where the file may live"]
+    lines = text.split("\n")
+    assert [h for h in headings if h not in lines] == []
+    assert [lines.index(h) for h in headings] == sorted(lines.index(h) for h in headings)
+    joined = text.replace(LF, " ")
+    for phrase in ("U+2028", "lone carriage return", "same day", "public repository",
+                   "Gantry's own repository", "paid work", "not freshness"):
+        assert phrase in joined, phrase
+
+
+def test_doc_examples_read_as_documented():
+    block = first_fence_under("## Entries")
+    assert block
+    result = parse(LF.join(block) + LF, names=("harbor", "quarry"))
+    assert (result.status, len(result.entries)) == ("read", 4)
+    notes = first_fence_under("## Notes under an entry")
+    result = parse(LF.join(notes) + LF, names=("harbor", "quarry"))
+    assert (result.status, lines_of(result), len(notes)) == ("read", [1], 2)
