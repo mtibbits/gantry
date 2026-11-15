@@ -494,13 +494,14 @@
     };
   }
 
-  // One mark per leaf: how it serves the selection, else "upstream"; the chain mark composes with it.
-  function mark(el, m, upstream, chain) {
+  // One mark per leaf: how it serves the selection, else "upstream"; the chain and objective marks compose with it.
+  function mark(el, m, upstream, chain, objective) {
     const key = el.getAttribute("data-item");
     const how = m.leaves.has(key) ? m.leaves.get(key) : upstream.has(key) ? "upstream" : undefined;
     for (const c of HOW_CLASS.values()) el.classList.remove(c);
     if (how !== undefined) el.classList.add(HOW_CLASS.get(how));
     el.classList.toggle("req-chain", chain.has(key));
+    el.classList.toggle("req-objective", objective.has(key));
   }
 
   // --- the path box (#77), built as text -------------------------------------
@@ -530,19 +531,34 @@
     pathBox.append(ul);
   }
 
-  function endText(path) {
+  // E (#77) or, with texts.path_end_t, E_t (#79): the day the plan at the current lane count ends `path`'s targets.
+  function endText(path, template) {
     const day = gantryTrace.endDay(planNow, path.targets, HPD);
-    return day === null ? null : fillIn(DATA.texts.path_end, [["lanes", lanesText(k)], ["day", day]]);
+    return day === null ? null : fillIn(template, [["lanes", lanesText(k)], ["day", day]]);
   }
 
-  function fillBox(path) {
-    pathBox.replaceChildren();
+  // A section's word, then its statement (#79) when the row states one.
+  function section(word, statement) {
+    para(pathBox, word, "path-section");
+    if (isText(statement) && statement !== "") para(pathBox, statement, "path-statement");
+  }
+
+  function figures(path, lines, cls, template) {
     if (path.order.length) para(pathBox, DATA.texts.label, "label");
-    for (const text of path.lines) para(pathBox, text);
-    const end = endText(path);
-    if (end !== null) para(pathBox, end, "path-end").setAttribute("aria-live", "polite");
-    const chain = new Set(path.chain);
-    list("path-list", path.order, (li, [key, how]) => {
+    for (const text of lines) para(pathBox, text);
+    const end = endText(path, template);
+    if (end !== null) para(pathBox, end, cls).setAttribute("aria-live", "polite");
+  }
+
+  function reasons(path) {
+    if (path.incomplete.length) para(pathBox, DATA.texts.path_incomplete, "label");
+    list("path-why", path.incomplete, (li, text) => { li.textContent = text; });
+  }
+
+  // Each leaf: its key, issue id, title, hours and mark, then objective (#79) and chain.
+  function workOrder(order, chainKeys, tail) {
+    const chain = new Set(chainKeys);
+    list("path-list", order, (li, [key, how]) => {
       const leaf = leaves.get(key);
       const id = document.createElement("span");
       id.setAttribute("class", "mono");
@@ -550,11 +566,40 @@
       const parts = leaf === undefined ? [] : [leaf.issue === null ? DATA.texts.no_issue_id : leaf.issue, leaf.title,
         num(leaf.hours) + " h"];
       parts.push(MARK_WORDS.get(how) || how);
+      if (tail.has(key)) parts.push(DATA.texts.mark_objective);
       if (chain.has(key)) parts.push(DATA.texts.mark_chain);
       li.append(id, document.createTextNode(" \u00b7 " + parts.join(" \u00b7 ")));
     });
-    if (path.incomplete.length) para(pathBox, DATA.texts.path_incomplete, "label");
-    list("path-why", path.incomplete, (li, text) => { li.textContent = text; });
+  }
+
+  // #77's box; split into Threshold and Objective (#79) when the row has a threshold_path.
+  function fillBox(row) {
+    pathBox.replaceChildren();
+    const path = row.path;
+    const t = isObj(row.threshold_path) ? row.threshold_path : null;
+    const tail = new Set(Array.isArray(row.objective_only) ? row.objective_only.filter(isText) : []);
+    if (t === null) {
+      if (isText(row.threshold)) section(DATA.texts.section_t, row.threshold);
+      if (isText(row.objective)) section(DATA.texts.section_o, row.objective);
+      figures(path, path.lines, "path-end", DATA.texts.path_end);
+      workOrder(path.order, path.chain, tail);
+      reasons(path);
+      return;
+    }
+    section(DATA.texts.section_t, row.threshold);
+    figures(t, t.lines, "path-end-t", DATA.texts.path_end_t);
+    list("path-waits", t.waits, (li, text) => { li.textContent = text; });
+    reasons(t);
+    section(DATA.texts.section_o, row.objective);
+    figures(path, t.objective_lines, "path-end", DATA.texts.path_end);
+    reasons(path);
+    workOrder(t.order, t.chain, tail);
+    if (t.order.length && t.rest.length) {
+      const hr = document.createElement("hr");
+      hr.setAttribute("class", "path-divider");
+      pathBox.append(hr);
+    }
+    workOrder(t.rest, path.chain, tail);
   }
 
   // Rebuilt only when the selection changes; a lane change rewrites the end-day line alone,
@@ -567,14 +612,16 @@
     if (key !== (boxFor === null ? null : boxFor.id)) {
       boxFor = key === null ? null : { id: key, lanes: k };
       if (path === null) pathBox.replaceChildren();
-      else fillBox(path);
+      else fillBox(row);
       pathBox.classList.toggle("gone", path === null);
       return;
     }
     if (boxFor !== null && boxFor.lanes !== k) {
       boxFor.lanes = k;
       const end = pathBox.querySelector(".path-end");
-      if (end !== null) end.textContent = endText(path) || "";
+      if (end !== null) end.textContent = endText(path, DATA.texts.path_end) || "";
+      const endT = pathBox.querySelector(".path-end-t");
+      if (endT !== null) endT.textContent = endText(row.threshold_path, DATA.texts.path_end_t) || "";
     }
   }
 
@@ -583,15 +630,16 @@
     const needs = new Set(m.needs);
     const upstream = new Set(m.upstream);
     const chain = new Set(m.chain);
+    const objective = new Set(m.objective);
     applyBox(m.selected);
     if (svg !== null) {
       svg.classList.toggle("tracing", m.tracing !== null);
       svg.classList.toggle("selecting", m.selecting);
-      for (const g of svg.querySelectorAll(".node")) mark(g, m, upstream, chain);
+      for (const g of svg.querySelectorAll(".node")) mark(g, m, upstream, chain, objective);
     }
     if (host !== null) {
       host.classList.toggle("selecting", m.selecting);
-      for (const s of host.querySelectorAll(".seg")) mark(s, m, upstream, chain);
+      for (const s of host.querySelectorAll(".seg")) mark(s, m, upstream, chain, objective);
       const lit = new Map(m.lanes);
       for (const g of host.querySelectorAll(".g-toggle")) {
         for (const old of g.querySelectorAll(".g-lit")) old.remove();

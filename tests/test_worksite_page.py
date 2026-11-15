@@ -245,6 +245,8 @@ STRUCTURAL = {
     "req-direct", "req-indirect", "req-on", "req-need", "selecting", "g-lit",
     # The path to a requirement's work (#77): its box and its two marks.
     "req-path", "path-end", "path-list", "path-why", "req-upstream", "req-chain",
+    # The threshold and objective box and the objective mark (#79).
+    "req-objective", "path-section", "path-statement", "path-end-t", "path-waits", "path-divider",
     # Boxes on another site, their links and the flagged leaf (#68).
     "arrow-foreign", "fbox", "fb", "fid", "ftitle", "fedge", "xsite", "fbox-open", "fbox-none",
     # The "Served from other sites" panel: its list (xsite, shared with #68) and its items (#21).

@@ -260,10 +260,15 @@ figcaption { color: var(--muted); font-size: 14px; max-width: 72ch; }
    half of a bar's stroke still lies over the bar drawn before it in its row (docs). */
 .net:not(.tracing) .node.req-chain .dot { stroke-width: 8; paint-order: stroke; }
 .seg.req-chain { stroke-width: 6; paint-order: stroke; }
+/* An objective-only serving leaf (#79): faded, between a marked leaf and a dimmed one. */
+.net.selecting:not(.tracing) .node.req-objective { opacity: .6; }
+#gantt.selecting .seg.req-objective { opacity: .6; }
 /* No display here: .gone alone hides the box. */
 .req-path { margin: 12px 0 0; padding: 8px 12px; border: 1px solid var(--rule); border-radius: 3px; }
 .req-path p { margin: 0 0 4px; }
 .req-path ul { margin: 4px 0 8px; padding-left: 20px; font-size: 14px; }
+.req-path .path-section { font-weight: 600; margin-top: 8px; }
+.req-path .path-divider { border: none; border-top: 1px solid var(--rule); margin: 4px 0; }
 .chip.req-on .chip-box { fill: var(--ink); stroke: var(--ink); }
 .chip.req-on text.chip-t { fill: var(--bg); }
 .chip.req-need .chip-box { stroke: var(--cross); stroke-width: 1.5; stroke-dasharray: 2 2; }

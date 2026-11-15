@@ -6,21 +6,26 @@ The model tests need no Node; the page-script tests take the `node` fixture.
 Literals are hand-derived from each fixture's estimates (HOURS_PER_DAY 6).
 """
 
+import pytest
+
 from gantry import build
 from gantry.config import load_config
 from gantry.inputs import scheduled
 from gantry.path import build_paths, split_paths, work_order
 from gantry.views import worksite
-from gantry.views.worksite import THRESHOLD_KEYS
+from gantry.schedule import plan
+from gantry.views.worksite import THRESHOLD_KEYS, plan_finish_day
 from helpers_config import write_site_tree
 from sample_roles import SMALL
-from test_requirement_path import PATH_KEYS, site_model, path_of, site_read
+from page_script.harness import open_page
+from test_requirement_path import CSS_PATH, PATH_KEYS, box, box_items, css_rules, props, site_model, path_of, site_read
 from test_samples import GANTRY_SAMPLE
 from test_schedule_agreement import random_dags
 from test_trace_cross_site import installation_models
 from page_safety import assert_page_safe
-from test_trace_page import (EMPTY_MARKS, hand_trace, installation, marks_after, render_traced, row,  # noqa: F401
-                             sample_page, select, trace_of)
+from test_trace_page import (EMPTY_MARKS, hand_trace, installation, marked, marks_after, render_traced,  # noqa: F401
+                             row, sample_page, select, trace_of)
+from test_worksite_page import STRUCTURAL
 
 w = worksite
 
@@ -278,15 +283,16 @@ def test_render_traced_still_renders(tmp_path):
 
 
 def page_file(tmp_path, wbs, reqs=FR1):
-    """(path, trace) of site alpha's page, written to tmp_path as a --site build renders it."""
+    """(path, trace, data) of site alpha's page, written to tmp_path as a --site build renders it."""
     html, _ = render_traced(installation(tmp_path / "site", {"alpha": wbs}, {"alpha": reqs}), "alpha")
     path = tmp_path / "alpha.html"
     path.write_bytes(html.encode("utf-8"))
-    return path, assert_page_safe(html, [])["trace"]
+    data = assert_page_safe(html, [])
+    return path, data["trace"], data
 
 
 def test_objective_mark_set_and_cleared(node, tmp_path):
-    path, trace = page_file(tmp_path, PATHS)
+    path, trace, _ = page_file(tmp_path, PATHS)
     assert marks_after(path, trace, [select("alpha:FR-1")])["objective"] == ["Issue-2"]
     assert marks_after(path, trace, [select("alpha:FR-1"), select("alpha:FR-1")]) == EMPTY_MARKS
     escape = {"type": "key", "key": "Escape", "id": None}
@@ -294,7 +300,7 @@ def test_objective_mark_set_and_cleared(node, tmp_path):
 
 
 def test_objective_mark_survives_hover_and_leave(node, tmp_path):
-    path, trace = page_file(tmp_path, PATHS)
+    path, trace, _ = page_file(tmp_path, PATHS)
     marks = marks_after(path, trace, [select("alpha:FR-1"), {"type": "hover", "leaf": "Issue-1"}])
     assert marks["objective"] == ["Issue-2"] and marks["tracing"] == "Issue-1"
     marks = marks_after(path, trace, [select("alpha:FR-1"), {"type": "hover", "leaf": "Issue-1"}, {"type": "leave"}])
@@ -314,3 +320,141 @@ def test_objective_only_undrawn_leaf_not_marked(node, sample_page):
     trace["requirements"][0]["objective_only"] = ["B", "C", 7, None, ["A"], "A"]
     assert marks_after(path, trace, [select("alpha:FR-1")])["objective"] == ["C", "A"]
     assert marks_after(path, hand_trace([["A", "direct"]]), [select("alpha:FR-1")])["objective"] == []
+
+
+# --- the page: the split box, E_t, the mark's look --------------------------------------
+
+
+def children(page):
+    """(tag, class, text) of each element directly in the path box, in order."""
+    return [(e.tag.lower(), e.attrs.get("class", ""), e.text) for e in page.query("#req-path > *")]
+
+
+def shape(page):
+    return [(tag, cls) for tag, cls, _ in children(page)]
+
+
+def test_split_box_on_fixture(node, tmp_path):
+    path, trace, _ = page_file(tmp_path, PATHS)
+    with open_page(path) as page:
+        page.drive("requirement", "alpha:FR-1")
+        assert "gone" not in box(page).classes
+        assert shape(page) == [("p", "path-section"), ("p", "label"), ("p", ""), ("p", ""), ("p", "path-end-t"),
+                               ("p", "path-section"), ("p", "label"), ("p", ""), ("p", ""), ("p", "path-end"),
+                               ("ul", "path-list"), ("hr", "path-divider"), ("ul", "path-list")]
+        assert [e.text for e in page.query("#req-path .path-section")] == ["Threshold", "Objective"]
+        text = box(page).text
+        assert "1 leaf, 4 agent-hours to finish its threshold work" in text
+        assert "2 leaves, 24 agent-hours to finish all its serving work" in text
+        (end_t,) = page.query("#req-path .path-end-t")
+        assert end_t.text == w.PATH_T_END.format(lanes="4 lanes", day=1)
+        assert end_t.attrs.get("aria-live") == "polite"
+        assert [e.text for e in page.query("#req-path .path-end")] == [w.path_end_text(4, 4)]
+        assert box_items(page, "path-list") == ["Issue-1 · Issue-1 · Core · 4 h · direct · chain",
+                                                "Issue-2 · Issue-2 · Tail · 20 h · direct · objective · chain"]
+        assert [e.text for e in page.query("#req-path .label")].count(w.SCHEDULE_LABEL) == 2
+
+
+def test_two_chains(node, tmp_path):
+    # The graph's chain marks follow the whole selection's path; the threshold list's chain word, the threshold's.
+    path, trace, _ = page_file(tmp_path, PATHS)
+    r = row(trace, "alpha:FR-1")
+    assert (r["path"]["chain"], r["threshold_path"]["chain"]) == (["Issue-2"], ["Issue-1"])
+    with open_page(path) as page:
+        page.drive("requirement", "alpha:FR-1")
+        assert marked(page, "rect.seg", "req-chain") == {"Issue-2"}
+        # Issue-1 is the threshold's chain, though its bar carries no req-chain.
+        assert box_items(page, "path-list")[0] == "Issue-1 · Issue-1 · Core · 4 h · direct · chain"
+
+
+def test_e_t_follows_lanes(node, tmp_path):
+    path, trace, data = page_file(tmp_path, PATHS)
+    t = row(trace, "alpha:FR-1")["threshold_path"]
+    items = data["schedule"]["items"]
+    one = plan_finish_day([item for item in items if item["key"] in t["targets"]], plan(items, 1))
+    assert (t["end_day"], one) == (1, 4)
+    default = w.PATH_T_END.format(lanes="4 lanes", day=t["end_day"])
+    with open_page(path) as page:
+        page.drive("requirement", "alpha:FR-1")
+        assert [e.text for e in page.query("#req-path .path-end-t")] == [default]
+        page.drive("lanes", "1")
+        (end_t,) = page.query("#req-path .path-end-t")
+        assert end_t.text == w.PATH_T_END.format(lanes="1 lane", day=one) != default
+        assert [e.text for e in page.query("#req-path .path-end")] == [w.path_end_text(one, 1)]
+
+
+def test_waits_line_and_upstream_objective_row(node, tmp_path):
+    path, _, _ = page_file(tmp_path, WAITS)
+    with open_page(path) as page:
+        page.drive("requirement", "alpha:FR-1")
+        assert box_items(page, "path-waits") == ["threshold work waits on objective-only Issue-3"]
+        items = box_items(page, "path-list")
+        assert items[0].startswith("Issue-3 ") and items[0].endswith(" · upstream · objective · chain")
+        # rest is empty: one list, no divider.
+        assert len(page.query("#req-path ul.path-list")) == 1 and page.query("#req-path .path-divider") == []
+
+
+def test_objective_mark_on_page(node, tmp_path):
+    def marks(page):
+        return marked(page, "g.node", "req-objective"), marked(page, "rect.seg", "req-objective")
+
+    path, _, _ = page_file(tmp_path / "waits", WAITS)
+    with open_page(path) as page:
+        page.drive("requirement", "alpha:FR-1")
+        assert marks(page) == ({"Issue-3"}, {"Issue-3"})
+        page.drive("network-detail", "Issue-2")
+        page.leave("network-detail", "Issue-2")
+        assert marks(page) == ({"Issue-3"}, {"Issue-3"})
+        page.drive("lanes", "1")
+        assert marks(page) == ({"Issue-3"}, {"Issue-3"})
+        page.drive("group", "lane")
+        assert marks(page) == ({"Issue-3"}, {"Issue-3"})
+        page.drive("requirement", "alpha:FR-1")
+        assert marks(page) == (set(), set())
+    path, _, _ = page_file(tmp_path / "paths", PATHS)
+    with open_page(path) as page:
+        page.drive("requirement", "alpha:FR-1")
+        assert marked(page, "rect.seg", "req-objective") == {"Issue-2"}
+        assert page.query("g.node") == []  # unlinked leaves are not drawn in the network
+
+
+@pytest.mark.parametrize(("reqs", "above"), [
+    (STATED, [("p", "path-section", "Threshold"), ("p", "path-statement", "the common cases."),
+              ("p", "path-section", "Objective"), ("p", "path-statement", "every case.")]),
+    (FR1 + "  - Threshold: t\n", [("p", "path-section", "Threshold"), ("p", "path-statement", "t")]),
+    (FR1 + "  - Objective:\n", [("p", "path-section", "Objective")]),
+])
+def test_unsplit_box_shows_statements(node, tmp_path, reqs, above):
+    def box_of(case, reqs_):
+        path, trace, _ = page_file(tmp_path / case, no_objective(PATHS), reqs_)
+        assert row(trace, "alpha:FR-1")["threshold_path"] is None
+        with open_page(path) as page:
+            page.drive("requirement", "alpha:FR-1")
+            return children(page)
+
+    plain = box_of("plain", FR1)
+    assert plain[0][1] == "label" and ("p", "path-end", w.path_end_text(4, 4)) in plain
+    assert box_of("stated", reqs) == above + plain
+    assert not any(cls in ("path-end-t", "path-divider", "path-waits") for _, cls, _ in plain)
+
+
+def test_threshold_empty_case_box(node, tmp_path):
+    path, trace, _ = page_file(tmp_path, ONLY_TAIL)
+    with open_page(path) as page:
+        page.drive("requirement", "alpha:FR-1")
+        assert shape(page) == [("p", "path-section"), ("p", ""), ("p", "path-section"), ("p", "label"), ("p", ""),
+                               ("p", ""), ("p", "path-end"), ("ul", "path-list")]
+        assert children(page)[1][2] == w.PATH_T_UNSERVED_SITE
+        assert [c[2] for c in children(page)[4:6]] == TAIL_FIGURES
+        assert page.query("#req-path .path-end-t, #req-path .path-divider") == []
+
+
+def test_objective_css():
+    rules = [(s, props(b)) for s, b in css_rules(CSS_PATH.read_bytes().decode("utf-8")) if "req-objective" in s]
+    assert [s for s, _ in rules] == [".net.selecting:not(.tracing) .node.req-objective",
+                                     "#gantt.selecting .seg.req-objective"]
+    assert all(list(p) == ["opacity"] and 0.3 < float(p["opacity"]) < 1 for _, p in rules)
+
+
+def test_structural_classes_cover_the_box():
+    assert {"req-objective", "path-section", "path-statement", "path-end-t", "path-waits", "path-divider"} <= STRUCTURAL
