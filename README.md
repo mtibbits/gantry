@@ -132,6 +132,10 @@ holds only the tool, its documentation and made-up sample data.
   only the demo and a page that links to it. Pages built from real data are meant to be served only as
   private pages or on a private network, never on a public site; Gantry
   writes them to your output folder and publishes nothing itself.
+- Gantry's commands make no network connection: there is no telemetry and
+  no update check. This needs git 2.45 or later: history reads tell git not
+  to fetch missing objects (`GIT_NO_LAZY_FETCH`), and older git ignores
+  that, so in a partial clone it may fetch them from the clone's remote.
 - A commit check, in CI and as an optional local hook, checks what is
   committed here for real pages, configs, local paths and, in the local
   hook, private names; what it can and cannot catch is in
@@ -202,7 +206,12 @@ on fail. An installation depends on:
   `week-plan.json`, where a change that bumps `plan_version` is a break
   ([its version rule](docs/week-plan.md#the-version-rule));
 - a command's contract: `gantry build`, `gantry portfolio` and
-  `/gantry:build`.
+  `/gantry:build`;
+- the tools it runs on: raising a stated oldest supported version of a tool
+  under [Supported versions](#supported-versions) is a break.
+
+A release with a break says, in its CHANGELOG section, what broke and what
+an operator changes.
 
 Before 1.0.0, a break bumps the minor version and any other change the
 patch. From 1.0.0, a fix bumps the patch; an added view, command or optional
@@ -255,6 +264,17 @@ clone loaded with
 ### Checks every release runs
 
 Run these while `main` is still at the tag.
+
+- Private vulnerability reporting is on: this prints `true`.
+
+  ```
+  gh api repos/mtibbits/gantry/private-vulnerability-reporting --jq .enabled
+  ```
+
+- The plugin check below runs on the latest Claude Code release: run
+  `claude update` first. What is posted about the release records the
+  machine's operating system, `claude --version`, `git --version` and
+  `bash --version`.
 
 - The quickstart job at the tag: its run for the tag push, or this:
 
@@ -314,6 +334,49 @@ Run these while `main` is still at the tag.
   ```
   python3 tools/commit_check.py names --text "<file>"
   ```
+
+## Support
+
+Gantry has one maintainer and is offered as is, under the MIT license. It
+supports Linux (checked on Ubuntu) and Windows.
+
+### What is promised
+
+For the latest release:
+
+- No silent breaks: a break ships only under the version rule above, and
+  its CHANGELOG section says what to change.
+- Every user-visible change is in [CHANGELOG.md](CHANGELOG.md), and every
+  release is a tag and a GitHub release.
+- Gantry sends nothing anywhere (see
+  [Your data stays private](#your-data-stays-private)).
+- Gantry needs no third-party Python package at run time.
+- The tool versions below work.
+- Security reports have a private route, are acknowledged within seven
+  days, and have a published policy ([SECURITY.md](SECURITY.md)).
+
+### What is not promised
+
+No deadline for a fix, no release cadence, no backports to older releases,
+no commitment to a requested feature, and no platform but Linux and
+Windows. Gantry may run elsewhere, such as macOS, but nothing checks it.
+Issues and pull requests are welcome; they are read when the maintainer
+can.
+
+### Supported versions
+
+| Tool | Oldest supported | How it is checked |
+|---|---|---|
+| Python | 3.11 | On every change: 3.11 and the latest 3.x release, on Ubuntu and Windows (`.github/workflows/test.yml`). |
+| git | 2.45 | Latest: on every change, the git on the CI runners, Ubuntu and Windows, which may trail git's latest release; each release records the git it ran on. Oldest: stated from git's release notes, not yet tested: 2.45 is the oldest git that honours `GIT_NO_LAZY_FETCH` (see [Your data stays private](#your-data-stays-private)). |
+| Claude Code | Not yet stated | At every release: the plugin check under [Checks every release runs](#checks-every-release-runs), on the latest release. |
+| bash | Not yet stated | `/gantry:build` runs its launcher with bash. On every change: the launcher's tests, with the bash on the Ubuntu CI runner. At every release: the plugin check, with the bash Claude Code uses there. |
+
+Until a tool's oldest version is stated, only its latest release is
+supported. That moves with each upstream release and is not a break.
+Stating an oldest version widens support; raising a stated one is a break.
+A failure on a tool's latest release is a defect, fixed in a release under
+the version rule.
 
 ## License
 

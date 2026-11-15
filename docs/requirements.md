@@ -22,7 +22,17 @@ ID here is in another namespace.
 ## Terms
 
 - **operator:** the person running a Gantry installation.
+- **maintainer:** the person who makes Gantry's releases. One person may be
+  both operator and maintainer, but the roles differ: an operator keeps
+  their own records, and the maintainer keeps the tool working.
 - **installation:** one private copy of Gantry with its own data and config.
+- **release:** a version of Gantry published by the procedure in the
+  README's "Versioning & releases" section: a version number, a changelog
+  section, an annotated tag and a GitHub release.
+- **break:** a change that makes something an existing installation depends
+  on fail, as the README's "Versioning & releases" section lists it.
+- **supported tool:** a program Gantry runs on whose supported versions the
+  README states: Python, git, Claude Code and bash.
 - **site (worksite):** one project, with its planning page.
 - **leaf:** a line in a project's work breakdown (`WBS.md`) with no
   children, usually one tracker issue.
@@ -55,7 +65,31 @@ ID here is in another namespace.
 
 ## Business rules
 
-None yet.
+These are Gantry's commitments to the people who install it. Each holds for
+the latest release. None promises the maintainer's time, beyond
+acknowledging a security report within seven days (BRule-6).
+
+- BRule-1: Gantry never breaks an existing installation silently. A break
+  ships only in a release whose version says so, by the README's version
+  rule, and whose changelog says what broke and what an operator changes.
+- BRule-2: Every user-visible change adds a line to the changelog. Every
+  release is an annotated tag and a GitHub release whose notes are that
+  version's changelog section.
+- BRule-3: Gantry sends nothing anywhere. With supported tools, its
+  commands make no network connection: no telemetry and no update check.
+  {refines: CON-3}
+- BRule-4: Gantry needs no third-party Python package at run time, only the
+  standard library and the supported tools.
+- BRule-5: The README states Gantry's support: how it is maintained (by one
+  maintainer), the platforms it supports (Linux and Windows), what these
+  business rules and QA-7 promise, and what is not promised. Not promised: a
+  deadline for a fix, a release cadence, backports to older releases, a
+  requested feature, or any other platform.
+- BRule-6: Gantry publishes a security policy for its latest release, with a
+  private way to report a vulnerability that is turned on and checked at
+  every release. A report is acknowledged within seven days. A security fix
+  ships in a release, with a security advisory and a `Security` entry in the
+  changelog.
 
 ## Use cases
 
@@ -80,6 +114,10 @@ None yet.
   sample data. {needs: [FR-22, CON-3]}
 - UC-8: An operator records a fire that is not yet a leaf, from a phone.
   {needs: [FR-12, EI-7]}
+- UC-9: An operator installs Gantry from its marketplace as a Claude Code
+  plugin, builds an installation's pages with `/gantry:build`, and later
+  takes a new release through the plugin's update path.
+  {needs: [SR-8, QA-7, EI-10, BRule-1]}
 
 ## System requirements
 
@@ -97,6 +135,9 @@ None yet.
   with no priority sorts as P3.
 - SR-7: devagent owns the plan data, and Gantry owns what the operator sees.
   Gantry reads devagent's data rather than deriving it again.
+- SR-8: Gantry runs two ways from one package: as a Claude Code plugin whose
+  `/gantry:` commands run it, and as a plain command that a scheduled job
+  runs without Claude.
 
 ## Functional requirements
 
@@ -189,6 +230,14 @@ None yet.
 - QA-5: Text taken from records is shown as text, never as markup, and a
   page loads nothing from outside itself.
 - QA-6: The daily screen works at phone width and on a touch screen.
+- QA-7: Gantry works on the latest release of each supported tool and on
+  every version back to the oldest the README names for it. For each tool
+  the README states its oldest supported version, or that none is stated
+  yet, and how each end is checked. Until an oldest version is stated, only
+  the latest release is supported; that moves with each upstream release
+  and is not a break. Once stated, raising it is a break. A failure on a
+  tool's latest release is a defect, fixed in a release under the version
+  rule.
 
 ## External interfaces
 
@@ -210,11 +259,19 @@ None yet.
 - EI-8: A phone browser.
 - EI-9: The installation's private portfolio file: the operator's intended
   shares across sites.
+- EI-10: Claude Code's plugin and marketplace manifests,
+  `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`.
+  `plugin.json` carries the version, and the marketplace entry carries
+  none.
 
 ## Constraints
 
-- CON-1: Gantry needs no upkeep of its own. Every number comes from records
-  kept as a side effect of the work.
+- CON-1: No site and no page needs upkeep of its own. Every number Gantry
+  shows comes from records kept as a side effect of the work, and keeping
+  the pages true takes no maintenance session. Keeping Gantry itself working
+  on current tools is the maintainer's job, delivered in releases (QA-7).
+  An operator's part is taking a release, and following its changelog when
+  it is a break (BRule-1).
 - CON-2: Gantry asks for no more data entry than paper would. A layer is
   derived from an existing record or written once, and the operator is never
   asked to backfill one.
