@@ -609,9 +609,10 @@ def test_portfolio_config_error_exits_1(tmp_path, capsys):
     assert err.startswith("gantry: error:")
 
 
-def test_portfolio_no_config_exits_2(capsys):
+@pytest.mark.parametrize("command", ["portfolio", "fires"])
+def test_check_command_no_config_exits_2(capsys, command):
     with pytest.raises(SystemExit) as exc:
-        main(["portfolio"])
+        main([command])
     assert exc.value.code == 2
     assert "--config" in capsys.readouterr().err
 
@@ -647,7 +648,7 @@ def fires_run(capsys, config):
     return code, captured.out, captured.err
 
 
-def fires_config(tmp_path, fixture=None, text=None, as_of="2026-11-01", **raw):
+def fires_config(tmp_path, fixture=None, text=None, as_of="2026-11-01"):
     """A config whose fires list is a copy of `fixture` (or `text`), with
     as_of pinned unless `as_of` is None. Its sites are the sample's, none built."""
     tmp_path.mkdir(parents=True, exist_ok=True)
@@ -655,7 +656,7 @@ def fires_config(tmp_path, fixture=None, text=None, as_of="2026-11-01", **raw):
         shutil.copyfile(FIRES_FIXTURES / fixture, tmp_path / "fires.md")
     if text is not None:
         (tmp_path / "fires.md").write_bytes(text.encode("utf-8"))
-    return write_config(tmp_path, fires_list='"fires.md"', as_of=as_of, **raw)
+    return write_config(tmp_path, fires_list='"fires.md"', as_of=as_of)
 
 
 def test_fires_bad_entry_exits_1(tmp_path, capsys):
@@ -703,13 +704,6 @@ def test_fires_config_error_exits_1(tmp_path, capsys):
     assert code == 1 and err.startswith("gantry: error:")
     code, _, err = fires_run(capsys, write_config(tmp_path / "devagent", devagent_config='"nope.toml"'))
     assert code == 1 and err.startswith("gantry: error:") and "devagent" in err
-
-
-def test_fires_no_config_exits_2(capsys):
-    with pytest.raises(SystemExit) as exc:
-        main(["fires"])
-    assert exc.value.code == 2
-    assert "--config" in capsys.readouterr().err
 
 
 def test_fires_unpinned_uses_now(tmp_path, capsys, monkeypatch):

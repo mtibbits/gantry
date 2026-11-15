@@ -201,7 +201,7 @@ def _kind_ok(kind: str, value) -> bool:
     if kind == "int":
         return isinstance(value, int) and not isinstance(value, bool)
     if kind == "int_min_1":
-        return isinstance(value, int) and not isinstance(value, bool) and value >= 1
+        return _kind_ok("int", value) and value >= 1
     if kind == "path":
         return isinstance(value, str) and value != ""
     if kind == "date":

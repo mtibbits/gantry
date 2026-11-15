@@ -10,7 +10,6 @@ gantry.model's: the fire collector (#32) merges the two reports. Every
 import re
 import stat
 from dataclasses import dataclass
-from dataclasses import replace
 from datetime import date as Date
 from datetime import datetime as Datetime
 from datetime import time as Time
@@ -172,12 +171,12 @@ def _read_date(token):
     return None
 
 
-def _read_entry(number, raw, text, entry_like):
+def _read_entry(number, raw, text, entry_like, names):
     """(FireEntry, failure phrases). A token with a field's shape is consumed
     even when its value is invalid; a missing required field consumes nothing."""
     failures = [NOT_TOP_LEVEL] if entry_like else []
     cur = _Cursor(text)
-    state = ended = None
+    state, ended = None, False
     box = BOX_RE.match(text)
     if box is None:
         failures.append("no state box")
@@ -229,7 +228,7 @@ def _read_entry(number, raw, text, entry_like):
 
     if failures:
         state = "unreadable"
-    return FireEntry(number, state, bool(ended), day, at, site, False, reason, raw), failures
+    return FireEntry(number, state, ended, day, at, site, site in names, reason, raw), failures
 
 
 def _fire_checks(entry, reference):
@@ -311,8 +310,7 @@ def parse_fires_list(text, site_names, reference) -> FiresList:
         if kind == "blank":
             continue
         if kind in ("entry", "entry_like"):
-            entry, failures = _read_entry(number, line, item, kind == "entry_like")
-            entry = replace(entry, site_known=entry.site is not None and entry.site in names)
+            entry, failures = _read_entry(number, line, item, kind == "entry_like", names)
             entries.append(entry)
             if failures:
                 report.append(FiresReportEntry(None, number, "fires_bad_entry", "; ".join(failures)))

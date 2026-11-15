@@ -65,12 +65,6 @@ def _parser():
         "its reason. With --site, build only that site's page: no index and no plan.",
     )
     build.add_argument(
-        "--config",
-        required=True,
-        metavar="FILE",
-        help="the installation config (a TOML file); there is no default",
-    )
-    build.add_argument(
         "--site",
         metavar="NAME",
         help="build only that site's worksite page, and no index and no plan",
@@ -81,25 +75,20 @@ def _parser():
         description="Read the portfolio file an installation config names and print one line per "
         "report entry, grouped by section, then a count. Exit 0 with no entries, 1 otherwise.",
     )
-    portfolio.add_argument(
-        "--config",
-        required=True,
-        metavar="FILE",
-        help="the installation config (a TOML file); there is no default",
-    )
-    fires = commands.add_parser(
+    fires =commands.add_parser(
         "fires",
         help="check the fires list the config names, without building",
         description="Read the fires list an installation config names and print one line per "
         "fire, the counts, one line per report entry and the status. Exit 0 when the status "
         "is read, 1 otherwise.",
     )
-    fires.add_argument(
-        "--config",
-        required=True,
-        metavar="FILE",
-        help="the installation config (a TOML file); there is no default",
-    )
+    for command in (build, portfolio, fires):
+        command.add_argument(
+            "--config",
+            required=True,
+            metavar="FILE",
+            help="the installation config (a TOML file); there is no default",
+        )
     return parser
 
 
@@ -224,7 +213,9 @@ def _build(args):
 MILESTONE_NOTE = "note: the milestone leaf is not checked here (this command reads no WBS.md), nor yet by the build"
 
 
-def _portfolio(args):
+def _load_for_check(args):
+    """(config, roots, site names) for a command that checks one file; None
+    after printing the config error."""
     _utf8_streams()
     try:
         config = load_config(args.config)
@@ -232,14 +223,22 @@ def _portfolio(args):
         sites, _ = site_list(config, roots)  # the site list's own warnings belong to the build
     except ConfigError as e:
         print(f"gantry: error: {e}", file=sys.stderr)
+        return None
+    return config, roots, [s.name for s in sites]
+
+
+def _portfolio(args):
+    loaded = _load_for_check(args)
+    if loaded is None:
         return 1
+    config, roots, site_names = loaded
     if config.portfolio_file is None:
         print(f"gantry: error: {config.path}: portfolio_file is not set; add portfolio_file = \"<path>\" "
               "to check a portfolio file (docs/portfolio-file.md)", file=sys.stderr)
         return 1
     portfolio = read_portfolio_file(roots, config.portfolio_file, br_namespace=config.requirements.br_namespace)
     # It reads no WBS.md, so no issues_by_site: the milestone leaf is not checked.
-    entries = report_entries(portfolio, [s.name for s in sites])
+    entries = report_entries(portfolio, site_names)
     for section in (None, *SECTIONS):
         group = [e for e in entries if e.section == section]
         if group:
@@ -275,17 +274,13 @@ def _fire_line(entry, reference, check_days):
 
 
 def _fires(args):
-    _utf8_streams()
-    try:
-        config = load_config(args.config)
-        roots = config_roots(config, purpose="check")  # it writes nothing
-        sites, _ = site_list(config, roots)  # the site list's own warnings belong to the build
-    except ConfigError as e:
-        print(f"gantry: error: {e}", file=sys.stderr)
+    loaded = _load_for_check(args)
+    if loaded is None:
         return 1
+    config, roots, site_names = loaded
     # The same reference a build uses: as_of at 00:00 when set, else now.
     reference = fires_reference(config, datetime.now())
-    result = read_fires_list(roots, config.fires_list, [s.name for s in sites], reference)
+    result = read_fires_list(roots, config.fires_list, site_names, reference)
     if result.status == "not_configured":
         print(f"gantry: error: {config.path}: fires_list is not set; add fires_list = \"<path>\" "
               "to check a fires list (docs/fires-list.md)", file=sys.stderr)

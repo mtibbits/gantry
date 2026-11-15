@@ -625,13 +625,9 @@ def doc_text():
 
 def first_fence_under(heading):
     """The lines of the first fenced block in the section under `heading`."""
-    lines = doc_text().split("\n")
-    start = lines.index(heading)
-    section = []
-    for line in lines[start + 1:]:
-        if line.startswith("## "):
-            break
-        section.append(line)
+    from helpers_docs import section as doc_section
+
+    section = doc_section(doc_text(), heading).split("\n")
     opener = next(i for i, line in enumerate(section) if line.startswith("```"))
     closer = next(i for i in range(opener + 1, len(section)) if section[i].startswith("```"))
     return section[opener + 1:closer]
