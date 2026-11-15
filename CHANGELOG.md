@@ -13,7 +13,9 @@ line under `## [Unreleased]`.
 
 - A security policy with private vulnerability reporting (SECURITY.md).
 - The README's Support section: what Gantry promises, what it does not, and
-  the supported versions of Python, git and Claude Code (README.md).
+  the supported versions of Python, git, Claude Code and bash; git's oldest
+  supported version is 2.45, the oldest that keeps history reads off the
+  network (README.md).
 
 ### Changed
 

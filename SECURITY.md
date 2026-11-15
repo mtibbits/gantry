@@ -2,8 +2,9 @@
 
 Gantry is a Python standard-library program, a Claude Code plugin command
 and a launcher script. It reads an operator's private planning records and
-writes static HTML pages from them. It holds no credentials and makes no
-network connection. The data it guards is the operator's own: what is in
+writes static HTML pages from them. It holds no credentials and, with a
+supported git (see the README's Support section), makes no network
+connection. The data it guards is the operator's own: what is in
 their records, and which projects they run. That is the surface this policy
 covers.
 
@@ -19,9 +20,9 @@ next release, and the remedy is to update.
 ## Reporting a vulnerability
 
 Use GitHub's private vulnerability reporting: open the repository's
-**Security** tab and choose **Report a vulnerability**. Only the maintainer
-sees the report until a fix is published, and GitHub notifies the
-maintainer directly.
+**Security** tab and choose **Report a vulnerability**. Only you and the
+maintainer see the report until its advisory is published, and GitHub
+notifies the maintainer directly.
 
 Please do not open a public issue for anything exploitable. Do not put real
 planning records, configs, pages, project names or other private data in a
@@ -57,7 +58,7 @@ GitHub.
   run a `gantry` package other than the installed plugin's, or widens the
   `allowed-tools` grant in `commands/build.md`.
 - **Network use.** Anything that makes a Gantry command open a network
-  connection.
+  connection when it runs with supported tools.
 
 ## What is out of scope
 
