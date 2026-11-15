@@ -11,6 +11,9 @@ line under `## [Unreleased]`.
 
 ### Added
 
+- The fires list: a private Markdown file of fires that are not leaves yet,
+  the `fires_check_days` config key and `gantry fires --config <file>`,
+  which checks it; the build does not read it yet (docs/fires-list.md).
 - A security policy with private vulnerability reporting (SECURITY.md).
 - The README's Support section: what Gantry promises, what it does not, and
   the supported versions of Python, git, Claude Code and bash; git's oldest
@@ -20,8 +23,21 @@ line under `## [Unreleased]`.
   devagent's latest release, and on an older one what needs a newer
   devagent contract is shown as missing (README.md).
 
+- The "Served from other sites" panel on a worksite page (#21): in a full
+  build, each leaf on another site whose `satisfies:` names one of this
+  site's requirements, linked to its leaf on that site's page and lit when
+  its requirement is selected; requirement IDs of another built site link
+  to its page; the trace report gains `sites_not_read` and
+  `undefined_foreign` (docs/worksite-page.md, docs/requirements-format.md).
+
 ### Changed
 
+- In a full build, a requirement served only by another site's leaf is no
+  longer unserved (#21): unserved counts, the unserved label and the
+  `trace <site>:` line's `unserved` count every read site's leaves, and the
+  label names any site not read ("not counted: …") instead of "served only
+  within this site". A `--site` build is unchanged
+  (docs/worksite-page.md).
 - The week plan divides each day between sites by priority tier, P0 work
   and work in progress first, then by the portfolio file's intended shares;
   `week-plan.json` gains `notes`, each leaf's `tier`, and each site's

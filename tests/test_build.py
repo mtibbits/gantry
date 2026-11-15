@@ -337,11 +337,13 @@ def test_every_link_lands(tmp_path, monkeypatch):
         links = page_links(text)
         counts[rel] = len(links)
         assert all(lands(out, rel, href) for href in links), rel
-    # The subject set cannot quietly empty: the index links 4 pages, and the
-    # worksite pages link their boxes on another site (#68).
+    # The subject set cannot quietly empty: the index links 4 pages, the
+    # worksite pages link their boxes on another site (#68), and the trace
+    # links across sites (#21): lighthouse its panel's quarry leaf, quarry
+    # its lighthouse:FR-2 row.
     assert counts.pop("index.html") == 4
-    assert counts == {f"sites/{UNESTIMATED}.html": 1, f"sites/{OWN_UNIT}.html": 4, f"sites/{BUSY}.html": 1,
-                      f"sites/{SMALL}.html": 0}
+    assert counts == {f"sites/{UNESTIMATED}.html": 2, f"sites/{OWN_UNIT}.html": 4, f"sites/{BUSY}.html": 1,
+                      f"sites/{SMALL}.html": 1}
 
 
 def test_encoded_key_anchor_and_href_land(tmp_path):

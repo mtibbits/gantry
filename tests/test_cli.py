@@ -19,17 +19,17 @@ from gantry.views import worksite
 from gantry.views.worksite import NO_LEAVES
 from helpers_config import (
     add_site_key,
-    add_top_level,
     append_bytes,
     copy_samples,
     demo_build,
+    replace_bytes,
     sample_projects,
     write_config,
     write_site_tree,
     written_bytes,
 )
 from page_safety import assert_page_safe
-from sample_roles import BUSY, NO_WBS, READABLE, SMALL, UNREADABLE
+from sample_roles import BUSY, NO_WBS, NOT_BUILT, READABLE, SMALL, UNREADABLE
 from test_portfolio_file import EVERY_FIXTURE
 from test_samples import ROOT
 
@@ -82,7 +82,7 @@ SAMPLE_CONFIG = "samples/gantry.sample.toml"
 
 
 SAMPLE_TRACE_LINE = ("trace lighthouse: unreadable 0, malformed 0, duplicate 0, misplaced 0, cycle 0, "
-                     "undefined 1, unserved 2, untraced 3")
+                     "undefined 1, unserved 1, untraced 3")  # a full build counts quarry's leaf (#21)
 
 
 def check_written(stdout_bytes, out_dir):
@@ -280,7 +280,8 @@ def test_site_page_reads_estimates_file(tmp_path, capsys):
     assert f"no estimates file: site.{BUSY}.estimates is false" in page
 
 
-# The build does not read fires_list yet, so it changes nothing. The
+# The build does not read fires_list yet (#32 adds the read), so repointing it
+# changes nothing. The
 # requirements key and the portfolio file are the trace's (#20): each changes
 # the pages whose trace it reaches, and no other page, and neither warns.
 def test_unread_keys_leave_pages_and_trace_inputs_change_them(tmp_path, monkeypatch):
@@ -290,7 +291,7 @@ def test_unread_keys_leave_pages_and_trace_inputs_change_them(tmp_path, monkeypa
     assert code == 0
     plain = written_bytes(out)
     assert len(plain) == 6  # four pages, the index and week-plan.json (#61)
-    add_top_level(config, 'fires_list = "fires.md"\n')
+    replace_bytes(config, 'fires_list = "fires.md"', 'fires_list = "nope.md"')
     code, out, _, err = demo_build(tmp_path, monkeypatch, copy=copy)
     assert code == 0 and err == plain_err
     assert written_bytes(out) == plain
@@ -608,9 +609,10 @@ def test_portfolio_config_error_exits_1(tmp_path, capsys):
     assert err.startswith("gantry: error:")
 
 
-def test_portfolio_no_config_exits_2(capsys):
+@pytest.mark.parametrize("command", ["portfolio", "fires"])
+def test_check_command_no_config_exits_2(capsys, command):
     with pytest.raises(SystemExit) as exc:
-        main(["portfolio"])
+        main([command])
     assert exc.value.code == 2
     assert "--config" in capsys.readouterr().err
 
@@ -632,3 +634,133 @@ def test_portfolio_milestone_note(tmp_path, capsys):
     assert code == 1
     assert MILESTONE_NOTE not in out
     assert out.splitlines()[-1] == "2 entries"
+
+
+# --- gantry fires (#30) ----------------------------------------------------------
+
+
+FIRES_FIXTURES = ROOT / "tests" / "fixtures" / "fires_list"
+
+
+def fires_run(capsys, config):
+    code = main(["fires", "--config", str(config)])
+    captured = capsys.readouterr()
+    return code, captured.out, captured.err
+
+
+def fires_config(tmp_path, fixture=None, text=None, as_of="2026-11-01"):
+    """A config whose fires list is a copy of `fixture` (or `text`), with
+    as_of pinned unless `as_of` is None. Its sites are the sample's, none built."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    if fixture is not None:
+        shutil.copyfile(FIRES_FIXTURES / fixture, tmp_path / "fires.md")
+    if text is not None:
+        (tmp_path / "fires.md").write_bytes(text.encode("utf-8"))
+    return write_config(tmp_path, fires_list='"fires.md"', as_of=as_of)
+
+
+def test_fires_bad_entry_exits_1(tmp_path, capsys):
+    code, out, err = fires_run(capsys, fires_config(tmp_path, "bad_entries.md"))
+    assert code == 1 and err == ""
+    lines = out.splitlines()
+    assert "line 1: @harbor, 2026-10-24, 8d, still a fire?, unreadable" in lines
+    assert "line 1: fires_bad_entry: no state box" in lines
+    assert "line 6: @harbor, no date, age unknown, unreadable" in lines
+    assert "fires: 12, ended: 0" in lines
+    assert lines[-1] == "status: read_with_problems"
+
+
+def test_fires_stray_fence_exits_0(tmp_path, capsys):
+    code, out, err = fires_run(capsys, fires_config(tmp_path, "stray_fence.md"))
+    assert code == 0 and err == ""
+    assert out.splitlines() == [
+        "line 3: @harbor, 2026-10-24, 8d, still a fire?",
+        "fires: 1, ended: 0",
+        "skipped_empty: 0, skipped_in_fences: 1",
+        "status: read",
+    ]
+
+
+def test_fires_unset_exits_1(tmp_path, capsys):
+    code, out, err = fires_run(capsys, write_config(tmp_path))
+    assert code == 1
+    assert out.splitlines() == ["status: not_configured"]
+    assert err.startswith("gantry: error: ") and "fires_list is not set" in err
+    assert 'add fires_list = "<path>"' in err and "docs/fires-list.md" in err
+
+
+def test_fires_unreadable_names_no_path(tmp_path, capsys):
+    config = write_config(tmp_path, fires_list='"missing.md"')
+    code, out, err = fires_run(capsys, config)
+    assert code == 1 and err == ""
+    # Nothing was read, so no count line says "0 fires".
+    assert out.splitlines() == ["fires_list_unreadable: fires_list: the fires list does not exist",
+                                "status: not_read"]
+    assert str(tmp_path) not in out and str(tmp_path) not in err
+
+
+def test_fires_config_error_exits_1(tmp_path, capsys):
+    code, _, err = fires_run(capsys, write_config(tmp_path / "version", config_version="2"))
+    assert code == 1 and err.startswith("gantry: error:")
+    code, _, err = fires_run(capsys, write_config(tmp_path / "devagent", devagent_config='"nope.toml"'))
+    assert code == 1 and err.startswith("gantry: error:") and "devagent" in err
+
+
+def test_fires_unpinned_uses_now(tmp_path, capsys, monkeypatch):
+    import datetime as dt
+
+    from gantry import cli
+
+    class MidDay(dt.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 10, 24, 12, 0)
+
+    monkeypatch.setattr(cli, "datetime", MidDay)
+    text = "- [ ] 2026-10-24 09:00 @harbor a same-day timed entry\n"
+    # No as_of: the reference is now, mid-day, so the entry is 3 hours old.
+    code, out, _ = fires_run(capsys, fires_config(tmp_path / "unpinned", text=text, as_of=None))
+    assert code == 0
+    assert out.splitlines()[0] == "line 1: @harbor, 2026-10-24 09:00, 0d 3h"
+    # as_of set to that day: the reference is 00:00, so the entry is in the future.
+    code, out, _ = fires_run(capsys, fires_config(tmp_path / "pinned", text=text, as_of="2026-10-24"))
+    assert code == 1
+    lines = out.splitlines()
+    assert lines[0] == "line 1: @harbor, 2026-10-24 09:00, 0d 0h"
+    assert "line 1: fires_future_date: the entry is dated after the reference time; its age is 0" in lines
+
+
+def test_fires_sites_not_built_are_sites(tmp_path, capsys):
+    names = sorted(NOT_BUILT)
+    assert len(names) == 2
+    text = "".join(f"- [ ] 2026-10-24 @{name} a fire at a site that is not built\n" for name in names)
+    code, out, _ = fires_run(capsys, fires_config(tmp_path, text=text))
+    assert code == 0
+    assert "(not a site)" not in out and "fires_unknown_site" not in out
+    assert out.splitlines()[:2] == [f"line {i}: @{name}, 2026-10-24, 8d, still a fire?"
+                                    for i, name in enumerate(names, 1)]
+
+
+def test_fires_unknown_site_is_marked(tmp_path, capsys):
+    code, out, _ = fires_run(capsys, fires_config(tmp_path, text="- [ ] 2026-10-31 @nowhere x\n"))
+    assert code == 1
+    lines = out.splitlines()
+    assert lines[0] == "line 1: @nowhere (not a site), 2026-10-31, 1d"
+    assert "line 1: fires_unknown_site: @nowhere names no site in this installation" in lines
+
+
+def test_fires_sample_exits_0():
+    result = run_module("fires", "--config", SAMPLE_CONFIG)
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == b""
+    assert b"\r" not in result.stdout
+    assert result.stdout.decode("utf-8").split("\n") == [
+        "line 6: @harbor, 2026-01-19, 1d",
+        "line 8: no site, 2026-01-18, 2d",
+        "line 9: @quarry, 2026-01-12, 8d, still a fire?",
+        "line 10: no site, 2026-01-19 16:30, 0d 7h",
+        "fires: 4, ended: 2",
+        "skipped_empty: 0, skipped_in_fences: 0",
+        "status: read",
+        "",
+    ]

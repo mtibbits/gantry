@@ -113,6 +113,8 @@ What a run does (`gantry` here is `python3 -m gantry` when you run in place):
   site's page.
 - `gantry portfolio --config <file>` checks the installation's portfolio
   file without building ([docs/portfolio-file.md](docs/portfolio-file.md)).
+- `gantry fires --config <file>` checks the installation's fires list
+  without building ([docs/fires-list.md](docs/fires-list.md)).
 - Every key of the installation config is in [docs/config.md](docs/config.md).
 
 ## Your data stays private
@@ -198,15 +200,16 @@ on fail. An installation depends on:
 - its installation config: a change that bumps `config_version` is a break
   ([the version rule](docs/config.md#the-version-rule));
 - the private files that config names, in formats Gantry defines: today the
-  [requirements file](docs/requirements-format.md) and the
-  [portfolio file](docs/portfolio-file.md). Files in devagent's formats,
+  [requirements file](docs/requirements-format.md), the
+  [portfolio file](docs/portfolio-file.md) and the
+  [fires list](docs/fires-list.md). Files in devagent's formats,
   such as `WBS.md` and the estimates file, follow devagent's
   compatibility, not this rule;
 - the output folder: its page paths (`index.html`, `sites/<name>.html`), and
   `week-plan.json`, where a change that bumps `plan_version` is a break
   ([its version rule](docs/week-plan.md#the-version-rule));
-- a command's contract: `gantry build`, `gantry portfolio` and
-  `/gantry:build`;
+- a command's contract: `gantry build`, `gantry portfolio`, `gantry fires`
+  and `/gantry:build`;
 - the tools it runs on: raising a stated oldest supported version of a tool
   under [Supported versions](#supported-versions) is a break.
 

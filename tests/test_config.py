@@ -89,6 +89,11 @@ ERROR_CASES = {
     "br-int": (_raw(tail=REQ + "br_namespace = 3\n"), ["'requirements.br_namespace'"]),
     "requirements-not-table": (_raw(requirements='"x"'), ["'requirements'"]),
     "unknown-requirements-key": (_raw(tail=REQ + "foo = 1\n"), ["'requirements.foo'"]),
+    "fires-days-zero": (_raw(fires_check_days="0"), ["'fires_check_days'", "an integer, 1 or more"]),
+    "fires-days-negative": (_raw(fires_check_days="-1"), ["'fires_check_days'", "an integer, 1 or more"]),
+    "fires-days-float": (_raw(fires_check_days="3.0"), ["'fires_check_days'", "an integer, 1 or more"]),
+    "fires-days-bool": (_raw(fires_check_days="true"), ["'fires_check_days'", "an integer, 1 or more"]),
+    "fires-days-string": (_raw(fires_check_days='"3"'), ["'fires_check_days'", "an integer, 1 or more"]),
 }
 
 
@@ -229,7 +234,7 @@ def test_rooted_output_dir_is_error_on_windows(tmp_path, capsys):
     assert "'output_dir'" in err and str(p) in err
 
 
-# fires_list is not read yet; portfolio_file (#22, gantry portfolio only),
+# fires_list (#30, gantry fires only), portfolio_file (#22, gantry portfolio only),
 # requirements (#15) and estimates (#10) are live. Every path key resolves alike.
 def test_path_keys_load_and_resolve(tmp_path):
     folder = tmp_path / "cfg"
@@ -451,3 +456,40 @@ def test_config_doc_requirements_rows():
     sites = " ".join(doc.split("## Sites", 1)[1].split("\n## ", 1)[0].split())
     assert "cannot be in the trace" in sites
     assert "[site.lighthouse]" in doc
+
+
+# --- fires_check_days and whether as_of was written (#30) ---------------------------
+
+
+def test_fires_check_days_default_and_set(tmp_path):
+    c = cfg.load_config(write_config(tmp_path / "absent"))
+    assert c.fires_check_days == 3 and type(c.fires_check_days) is int
+    c = cfg.load_config(write_config(tmp_path / "five", fires_check_days="5"))
+    assert c.fires_check_days == 5
+    # Any integer of at least 1 loads; still_a_fire cannot overflow on it (#30).
+    c = cfg.load_config(write_config(tmp_path / "huge", fires_check_days=str(10**30)))
+    assert c.fires_check_days == 10**30
+
+
+def test_as_of_pinned(tmp_path):
+    c = cfg.load_config(write_config(tmp_path / "pinned", as_of="2026-01-20"))
+    assert c.as_of_pinned is True and c.as_of == date(2026, 1, 20)
+    c = cfg.load_config(write_config(tmp_path / "unpinned"))
+    assert c.as_of_pinned is False  # test_as_of_absent_is_today owns the date
+
+
+def _doc_row(name):
+    from helpers_docs import markdown_text
+
+    lines = markdown_text(ROOT / "docs" / "config.md").split("\n")
+    rows = [line for line in lines if line.startswith(f"| `{name}` |")]
+    assert len(rows) == 1, name
+    return rows[0]
+
+
+def test_config_doc_fires_rows():
+    # docs/config.md's editor note names this test beside the two rows (#30).
+    row = _doc_row("fires_list")
+    assert "`gantry fires`" in row and "(fires-list.md)" in row
+    row = _doc_row("fires_check_days")
+    assert "`3`" in row and "portfolio" in row

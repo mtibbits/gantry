@@ -247,6 +247,9 @@ figcaption { color: var(--muted); font-size: 14px; max-width: 72ch; }
 #gantt.selecting .seg:not(.req-direct):not(.req-indirect):not(.req-upstream), #gantt.selecting .pmark { opacity: .3; }
 .seg.req-direct { stroke: var(--cross); stroke-width: 2.5; stroke-dasharray: none; }
 .seg.req-indirect { stroke: var(--cross); stroke-width: 2.5; stroke-dasharray: 4 2; }
+/* A lit leaf on another site (#21): its outline, solid or dashed, never colour alone. */
+.xleaf.req-direct { outline: 2px solid var(--cross); outline-offset: 2px; }
+.xleaf.req-indirect { outline: 2px dashed var(--cross); outline-offset: 2px; }
 /* The path (#77): an upstream leaf is dotted; the heaviest chain is heavier, its width
    only, after every how-rule, so it composes with direct, indirect and upstream. */
 .net:not(.tracing) .node.req-upstream .outline, .net:not(.tracing) .node.req-upstream .dot { stroke: var(--cross); stroke-width: 3; stroke-dasharray: 1 4; }
@@ -377,7 +380,7 @@ figcaption { color: var(--muted); font-size: 14px; max-width: 72ch; }
       <div><span class="k">Hover, select or tab to a bar to see the leaf.</span></div>
     </div>
   </section>
-  </div>{{REQUIREMENTS}}
+  </div>{{REQUIREMENTS}}{{FOREIGN}}
 
   <section class="prose">
     <h2>{{HELD_ANCHORS}}Missing or unreadable</h2>

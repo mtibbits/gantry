@@ -28,8 +28,10 @@ class ReqPath:
     `reasons` say why the path is not whole, as records the view words, in
     this order: ("held", key, None) per held-out serving leaf; ("foreign",
     keys, text) per distinct foreign-wait text of the path's leaves, with the
-    leaves that hold it; ("other_site", site, issue or None) per serving leaf
-    on another site. `notes` are the sites the build did not read.
+    leaves that hold it; ("other_site", site, issue or None) per open serving
+    leaf on another site; ("not_read", sites, None), last, when the build did
+    not read every site (#21). The last two come only on a row the
+    installation trace covers.
     """
     state: str
     order: tuple[tuple[str, str], ...]
@@ -39,7 +41,6 @@ class ReqPath:
     hours: float
     unestimated: int
     reasons: tuple[tuple[str, object, object], ...]
-    notes: tuple[str, ...]
 
 
 def path_set(targets, held, links, scheduled) -> set[str]:
@@ -166,18 +167,19 @@ def build_paths(serving, items, *, unestimated, links, foreign, sites_not_read=N
     `unestimated` is the set of unestimated keys; `links` the site's links;
     `foreign` is {key: [worded foreign-wait text, ...]}.
 
-    Provisional (#21, not yet passed by any caller): `sites_not_read` is None
-    when the build does not know which sites it read, else a tuple of the
-    sites it did not read, which becomes every row's `notes`; `other_serving`
-    is {row id: [(site, issue or None), ...]}, the row's open serving leaves
-    on other sites, each a reason, and any makes the row's state "path".
+    The installation trace (#21): `other_serving` is {row id: [(site, issue
+    or None), ...]}, the row's open serving leaves on other sites, keyed by
+    every row the installation trace covers (an empty list included). Each
+    entry is a reason, and any makes the row's state "path". `sites_not_read`
+    is None when the build does not know which sites it read, else the sites
+    it did not read; when it names any, each covered row's last reason says so.
     """
     scheduled = {item["key"] for item in items}
     before = _before(links)
-    notes = tuple(sites_not_read or ())
+    covered = other_serving or {}
     out = {}
     for rid, (lit, held, finished_count) in serving.items():
-        elsewhere = (other_serving or {}).get(rid, ())
+        elsewhere = covered.get(rid, ())
         reasons = []
         if lit or held or elsewhere:
             state = "path"
@@ -201,7 +203,9 @@ def build_paths(serving, items, *, unestimated, links, foreign, sites_not_read=N
                     keys.append(key)
         reasons.extend(("foreign", tuple(keys), text) for text, keys in holders.items())
         reasons.extend(("other_site", site, issue) for site, issue in elsewhere)
+        if rid in covered and sites_not_read:
+            reasons.append(("not_read", tuple(sites_not_read), None))
         out[rid] = ReqPath(state=state, order=order, targets=targets, chain=chain, chain_hours=chain_total,
                            hours=hours, unestimated=sum(item["key"] in unestimated for item in subset),
-                           reasons=tuple(reasons), notes=notes)
+                           reasons=tuple(reasons))
     return out

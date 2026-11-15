@@ -55,6 +55,7 @@ EXPECTED = (
     Entry("sites", "sites/*.html", None, 11, "required"),
     Entry("overlay", f"sites/{SMALL}.html", "trace", 20, "required"),
     Entry("overlay", f"sites/{SMALL}.html", "req-path", 77, "required"),
+    Entry("overlay", f"sites/{SMALL}.html", "served-elsewhere", 21, "required"),
     Entry("view", "strategic.html", None, 23, "pending"),
     Entry("view", "daily.html", None, 34, "pending"),
     Entry("view", "week.html", None, 38, "pending"),

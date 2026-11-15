@@ -797,7 +797,8 @@ def test_schedule_unchanged_without_foreign(tmp_path):
     assert extras > 0
 
 
-HREF_RE = re.compile(r"[A-Za-z0-9_.~%-]+\.html#leaf-[A-Za-z0-9_.~%-]+")
+# A leaf's href, or a page's alone: a requirements row's ID on another built site links its page (#21).
+HREF_RE = re.compile(r"[A-Za-z0-9_.~%-]+\.html(#leaf-[A-Za-z0-9_.~%-]+)?")
 
 
 def test_sample_hrefs_form_and_land(tmp_path, monkeypatch):
@@ -810,7 +811,7 @@ def test_sample_hrefs_form_and_land(tmp_path, monkeypatch):
             assert HREF_RE.fullmatch(href), (rel, href)
             assert lands(out, rel, href), (rel, href)
             hrefs += 1
-    assert hrefs == 6
+    assert hrefs == 8  # #68's six, quarry's leaf on lighthouse's panel and lighthouse's FR-2 row on quarry's (#21)
 
 
 # --- the docs (Task 7) ----------------------------------------------------------------

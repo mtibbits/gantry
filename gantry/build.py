@@ -1,9 +1,11 @@
 """The full build: read every site, then render every read site (#11).
 
-build_all reads each site in devagent's config order, then renders each site
-it read, each in its own `try`, and returns one BuildResult that every view
-reads, with the week plan (#61) made from the built sites and the portfolio
-file the trace's catalog read. It writes nothing; write_all writes the pages
+build_all reads each site in devagent's config order, traces each site it
+read and widens the traces to the installation (#21), then renders each
+traced site, each step per site in its own `try`, and returns one
+BuildResult that every view reads, with the week plan (#61) made from the
+built sites and the portfolio file the trace's catalog read. It writes
+nothing; write_all writes the pages
 and the index, and the command line writes the plan file. A site that cannot
 be built gets a reason that names its config key or file kind, never an
 absolute path. docs/worksite-page.md states the build.
@@ -24,7 +26,7 @@ from gantry.requirements import in_trace_sites
 from gantry.roots import OutsideRoots, Roots, mkdir_confined, stat_confined, write_confined
 from gantry.sites import SiteEntry, SiteWarning, config_roots, load_sites
 from gantry.stamp import public_text, stamp_text
-from gantry.trace import build_site_trace, counts_line, load_catalog, page_trace
+from gantry.trace import build_installation_trace, build_site_trace, counts_line, load_catalog, page_trace
 from gantry.views import worksite
 from gantry.views.index import render_index
 from gantry.wbs_stopgap import read_wbs
@@ -131,13 +133,29 @@ def read_site(site, config, earlier, *, roots):
         return None, render_reason(e, roots)
 
 
-def render_site(name, inputs, config, stamp, *, catalog):
-    """(html, page model) of one read site, its trace built from the run's
-    `catalog` (#20); it may raise, and the caller's `try` makes a fault in
-    the trace this site's render error."""
-    trace = page_trace(build_site_trace(name, inputs.data.leaves, catalog), catalog, inputs.data)
+def site_traces(inputs, catalog, roots):
+    """({name: SiteTrace}, {name: reason}) over the read sites, each trace in
+    its own `try`: a fault in one site's trace stops only that site (#21)."""
+    traces, failed = {}, {}
+    for name, site_inputs in inputs.items():
+        try:
+            traces[name] = build_site_trace(name, site_inputs.data.leaves, catalog)
+        except Exception as e:
+            failed[name] = render_reason(e, roots)
+    return traces, failed
+
+
+def render_site(name, inputs, config, stamp, *, catalog, trace=None, built=frozenset()):
+    """(html, page model) of one read site. `trace` is its installation
+    trace in a full build (#21); without one (a --site build) its trace is
+    built here from the run's `catalog` (#20), and a fault in it raises, which
+    the caller's `try` makes this site's render error. `built` is the set of
+    sites with a page in this build, which the page may link to."""
+    if trace is None:
+        trace = build_site_trace(name, inputs.data.leaves, catalog)
+    trace = page_trace(trace, catalog, inputs.data, built=built)
     m = worksite.page_model(name, inputs.data, default_unit_hours=config.default_unit_hours, inputs=inputs,
-                            trace=trace)
+                            trace=trace, built=built, br_namespace=catalog.br_namespace)
     return worksite.render_model(m, stamp=stamp), m
 
 
@@ -154,12 +172,14 @@ def read_sites(config, sites, *, roots):
     return inputs, reasons
 
 
-def render_sites(config, inputs, stamp, *, roots, catalog):
-    """({name: html}, {name: page model}, {name: reason}) over the read sites, each in its own try."""
+def render_sites(config, inputs, stamp, *, roots, catalog, traces=None, built=frozenset()):
+    """({name: html}, {name: page model}, {name: reason}) over the read sites, each in its own try.
+    `traces` is the full build's {name: installation trace} (#21)."""
     pages, models, reasons = {}, {}, {}
     for name, site_inputs in inputs.items():
         try:
-            pages[name], models[name] = render_site(name, site_inputs, config, stamp, catalog=catalog)
+            pages[name], models[name] = render_site(name, site_inputs, config, stamp, catalog=catalog,
+                                                    trace=(traces or {}).get(name), built=built)
         except Exception as e:
             reasons[name] = render_reason(e, roots)
     return pages, models, reasons
@@ -193,16 +213,30 @@ def not_built(name, reason) -> SiteSummary:
     return SiteSummary(name, "not_built", reason)
 
 
+def _trace_sites(trace) -> set[str]:
+    """The sites a SiteTrace's page names (#21): each foreign leaf's site and
+    the namespace of every ID its leaves or foreign leaves name. A page naming
+    a site that failed is re-rendered, so it never links to a page that was
+    not written."""
+    found = {rid.namespace for ids in trace.leaf_ids.values() for rid in ids}
+    for f in trace.foreign:
+        found.add(f.site)
+        found.update(rid.namespace for rid in f.ids)
+    return found
+
+
 def rerender_failed(config, raw, sites, reasons, resolved, foreign, pages, models, failed, stamp, *, roots,
-                    catalog):
+                    catalog, traces=None):
     """Re-resolve and re-render after render failures, until no new page fails (#68).
 
     `resolved` and `foreign` are resolve_foreign's result for the last
     render, and `failed` its {site: reason}. Each pass adds the newly failed
     sites to `reasons`, re-resolves from the raw read `raw`, and re-renders
-    only the built pages that hold an entry naming one of them. A page that
-    fails here is dropped from `pages` and `models`. Changes `reasons`,
-    `pages` and `models` in place; returns the final (resolved, foreign).
+    only the built pages that hold an entry naming one of them, or whose
+    trace names one (#21). Each pass's `built` is the read sites with no
+    reason. A page that fails here is dropped from `pages` and `models`.
+    Changes `reasons`, `pages` and `models` in place; returns the final
+    (resolved, foreign).
     """
     passes = 0
     new = {name: why for name, why in failed.items() if name not in reasons}
@@ -214,21 +248,27 @@ def rerender_failed(config, raw, sites, reasons, resolved, foreign, pages, model
             pages.pop(name, None)
             models.pop(name, None)
         resolved, foreign = resolve_foreign(sites, raw, reasons)
+        built = frozenset(name for name in raw if name not in reasons)
         waiting = {name: resolved[name] for name in pages
-                   if any(o.target_site in new for o in foreign[name])}
-        again, remodels, new = render_sites(config, waiting, stamp, roots=roots, catalog=catalog)
+                   if any(o.target_site in new for o in foreign[name])
+                   or (traces is not None and not _trace_sites(traces[name]).isdisjoint(new))}
+        again, remodels, new = render_sites(config, waiting, stamp, roots=roots, catalog=catalog, traces=traces,
+                                            built=built)
         pages.update(again)
         models.update(remodels)
     return resolved, foreign
 
 
 def build_all(config, *, now=None, samples=None) -> BuildResult:
-    """Read every site, resolve foreign entries across them, render every
-    read site, then plan the week; write nothing.
+    """Read every site, resolve foreign entries across them, trace every
+    read site and widen the traces to the installation (#21), render every
+    traced site, then plan the week; write nothing.
 
-    After a render failure, the pages that wait on the failed site are
-    re-resolved and re-rendered (rerender_failed). A write failure is not
-    re-resolved: write_all runs after the pages are fixed.
+    A trace fault stops only its site, which counts as not read. After a
+    trace or render failure, the pages that wait on or link to the failed
+    site are re-resolved and re-rendered (rerender_failed). A write failure
+    is not re-resolved: write_all runs after the pages are fixed, so a page
+    can still link to a page that failed to write.
     """
     roots = config_roots(config)
     sites, warnings = site_list(config, roots)
@@ -238,9 +278,14 @@ def build_all(config, *, now=None, samples=None) -> BuildResult:
     stamp = stamp_text(config, now=now, samples=samples, roots=roots)
     raw, reasons = read_sites(config, sites, roots=roots)
     resolved, foreign = resolve_foreign(sites, raw, reasons)
-    pages, models, failed = render_sites(config, resolved, stamp, roots=roots, catalog=catalog)
-    resolved, foreign = rerender_failed(config, raw, sites, reasons, resolved, foreign, pages, models, failed,
-                                        stamp, roots=roots, catalog=catalog)
+    traces, trace_failed = site_traces(resolved, catalog, roots)
+    traces = build_installation_trace(sites, resolved, traces, {**reasons, **trace_failed}, catalog)
+    built = frozenset(name for name in raw if name not in reasons and name not in trace_failed)
+    pages, models, failed = render_sites(config, {name: resolved[name] for name in traces}, stamp, roots=roots,
+                                         catalog=catalog, traces=traces, built=built)
+    resolved, foreign = rerender_failed(config, raw, sites, reasons, resolved, foreign, pages, models,
+                                        {**trace_failed, **failed}, stamp, roots=roots, catalog=catalog,
+                                        traces=traces)
     summaries = tuple(_summary(s.name, resolved[s.name], models[s.name], config.as_of) if s.name in pages
                       else not_built(s.name, reasons[s.name]) for s in sites)
     result = BuildResult(config, tuple(sites), tuple(warnings), resolved, pages, summaries, stamp, roots, foreign,

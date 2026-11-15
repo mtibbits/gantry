@@ -1,5 +1,5 @@
-"""The gantry command line: `gantry build --config FILE [--site NAME]` and
-`gantry portfolio --config FILE`.
+"""The gantry command line: `gantry build --config FILE [--site NAME]`,
+`gantry portfolio --config FILE` and `gantry fires --config FILE`.
 
 `gantry build` builds every configured site's page and the index, plans the
 week and writes the plan to <output_dir>/week-plan.json (#61); with
@@ -7,7 +7,8 @@ week and writes the plan to <output_dir>/week-plan.json (#61); with
 WBS.md and inputs, every requirements file and the portfolio file. Both
 print each written file's path, then a `trace <site>:` line for each written
 page whose site is in the trace or whose trace report has an entry (#20). `gantry portfolio` checks the
-portfolio file the config names, without building (#22). There is no default
+portfolio file the config names, without building (#22); `gantry fires`
+checks the fires list, without building (#30). There is no default
 config location: `--config` is required, and nothing here reads the
 environment or the home folder to find one. Exit codes:
 
@@ -18,12 +19,15 @@ environment or the home folder to find one. Exit codes:
   cannot be written; `--site` names no
   site, a case clash, a site that cannot be built, a render error or a page
   that cannot be written; `portfolio` found an entry (an advisory one
-  included), or the config sets no portfolio_file;
+  included), or the config sets no portfolio_file; `fires` read the fires
+  list with a report entry, could not read it, or the config sets no
+  fires_list (`fires` exits 0 only for status `read`);
 - 2: a usage error (argparse's own).
 """
 
 import argparse
 import sys
+from datetime import datetime
 
 from gantry.build import (
     build_all,
@@ -37,6 +41,7 @@ from gantry.build import (
     why_not_written,
 )
 from gantry.config import ConfigError, error_reason, load_config
+from gantry.fires_list import entry_age, fires_reference, read_fires_list, still_a_fire
 from gantry.planner import PLAN_FILE, plan_to_json, write_plan
 from gantry.portfolio_file import PORTFOLIO_LABEL, SECTIONS, format_entry, read_portfolio_file, report_entries
 from gantry.roots import OutsideRoots
@@ -59,12 +64,7 @@ def _parser():
         "<output_dir>/week-plan.json. A site that cannot be built is listed on the index with "
         "its reason. With --site, build only that site's page: no index and no plan.",
     )
-    build.add_argument(
-        "--config",
-        required=True,
-        metavar="FILE",
-        help="the installation config (a TOML file); there is no default",
-    )
+    _add_config(build)
     build.add_argument(
         "--site",
         metavar="NAME",
@@ -76,13 +76,25 @@ def _parser():
         description="Read the portfolio file an installation config names and print one line per "
         "report entry, grouped by section, then a count. Exit 0 with no entries, 1 otherwise.",
     )
-    portfolio.add_argument(
+    fires = commands.add_parser(
+        "fires",
+        help="check the fires list the config names, without building",
+        description="Read the fires list an installation config names and print one line per "
+        "fire, the counts, one line per report entry and the status. Exit 0 when the status "
+        "is read, 1 otherwise.",
+    )
+    _add_config(portfolio)
+    _add_config(fires)
+    return parser
+
+
+def _add_config(command):
+    command.add_argument(
         "--config",
         required=True,
         metavar="FILE",
         help="the installation config (a TOML file); there is no default",
     )
-    return parser
 
 
 def _utf8_streams():
@@ -206,7 +218,9 @@ def _build(args):
 MILESTONE_NOTE = "note: the milestone leaf is not checked here (this command reads no WBS.md), nor yet by the build"
 
 
-def _portfolio(args):
+def _load_for_check(args):
+    """(config, roots, site names) for a command that checks one file; None
+    after printing the config error."""
     _utf8_streams()
     try:
         config = load_config(args.config)
@@ -214,14 +228,22 @@ def _portfolio(args):
         sites, _ = site_list(config, roots)  # the site list's own warnings belong to the build
     except ConfigError as e:
         print(f"gantry: error: {e}", file=sys.stderr)
+        return None
+    return config, roots, [s.name for s in sites]
+
+
+def _portfolio(args):
+    loaded = _load_for_check(args)
+    if loaded is None:
         return 1
+    config, roots, site_names = loaded
     if config.portfolio_file is None:
         print(f"gantry: error: {config.path}: portfolio_file is not set; add portfolio_file = \"<path>\" "
               "to check a portfolio file (docs/portfolio-file.md)", file=sys.stderr)
         return 1
     portfolio = read_portfolio_file(roots, config.portfolio_file, br_namespace=config.requirements.br_namespace)
     # It reads no WBS.md, so no issues_by_site: the milestone leaf is not checked.
-    entries = report_entries(portfolio, [s.name for s in sites])
+    entries = report_entries(portfolio, site_names)
     for section in (None, *SECTIONS):
         group = [e for e in entries if e.section == section]
         if group:
@@ -234,8 +256,56 @@ def _portfolio(args):
     return 0 if not entries else 1
 
 
+def _fire_line(entry, reference, check_days):
+    """`line N: SITE, WHEN, AGE[, still a fire?][, unreadable]`; the reason is never printed."""
+    if entry.site is None:
+        site = "no site"
+    else:
+        site = "@" + shown(entry.site) + ("" if entry.site_known else " (not a site)")
+    age = entry_age(entry, reference)
+    if entry.date is None:
+        when, shown_age = "no date", "age unknown"
+    elif entry.time is None:
+        when, shown_age = entry.date.isoformat(), f"{age.days}d"
+    else:
+        when = f"{entry.date.isoformat()} {entry.time.strftime('%H:%M')}"
+        shown_age = f"{age.days}d {age.seconds // 3600}h"
+    parts = [f"line {entry.line}: {site}", when, shown_age]
+    if still_a_fire(entry, reference, check_days):
+        parts.append("still a fire?")
+    if entry.state == "unreadable":
+        parts.append("unreadable")
+    return ", ".join(parts)
+
+
+def _fires(args):
+    loaded = _load_for_check(args)
+    if loaded is None:
+        return 1
+    config, roots, site_names = loaded
+    # fires_reference is the rule #32's build will use too: as_of at 00:00
+    # when the config sets it, else now.
+    reference = fires_reference(config, datetime.now())
+    result = read_fires_list(roots, config.fires_list, site_names, reference)
+    if result.status == "not_configured":
+        print(f"gantry: error: {config.path}: fires_list is not set; add fires_list = \"<path>\" "
+              "to check a fires list (docs/fires-list.md)", file=sys.stderr)
+    if result.status in ("read", "read_with_problems"):
+        fires = [e for e in result.entries if not e.ended]
+        for entry in fires:
+            print(_fire_line(entry, reference, config.fires_check_days))
+        print(f"fires: {len(fires)}, ended: {len(result.entries) - len(fires)}")
+        print(f"skipped_empty: {result.skipped_empty}, skipped_in_fences: {result.skipped_in_fences}")
+    for e in result.report:
+        print(("" if e.line is None else f"line {e.line}: ") + f"{e.kind}: {e.message}")
+    print(f"status: {result.status}")
+    return 0 if result.status == "read" else 1
+
+
 def main(argv=None):
     args = _parser().parse_args(argv)
     if args.command == "portfolio":
         return _portfolio(args)
+    if args.command == "fires":
+        return _fires(args)
     return _build(args)

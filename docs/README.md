@@ -15,6 +15,9 @@ and how to try the demo.
   format.
 - [portfolio-file.md](portfolio-file.md): the portfolio file, the operator's
   private priorities and capacity, and how `gantry portfolio` checks it.
+- [fires-list.md](fires-list.md): the fires list, the operator's private
+  list of fires that are not leaves yet, its entries and how they end, and
+  how `gantry fires` checks it.
 - [week-plan.md](week-plan.md): how Gantry estimates each leaf's attention
   need, how the build plans the week, and what `week-plan.json` holds.
 - [wbs-history.md](wbs-history.md): how Gantry reads a site's `WBS.md` history
