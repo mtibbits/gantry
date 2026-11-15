@@ -96,8 +96,9 @@ editor nests a line under an entry:
 ```
 
 Any other line ends a run of notes: a heading, a paragraph, a thematic
-break, an item that holds nothing, a fence, or an entry-like line that
-holds nothing. The same bullet with no entry or note above it (first in the
+break, an item that holds nothing, a fence, an entry-like line that
+holds nothing, or a bullet indented four or more spaces that starts with
+no box or date (a sub-note: the next two-space note is then an entry). The same bullet with no entry or note above it (first in the
 file, or after a heading or a paragraph) is an unreadable entry. A two- or
 three-space bullet that starts with a box or a date is always an entry, and
 a bullet at column 0 or indented one space is always an entry, so

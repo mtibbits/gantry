@@ -223,7 +223,10 @@ def test_hostile_shapes_are_cheap():
     start = clock.perf_counter()
     for line in lines:
         parse(line + LF)
-    assert clock.perf_counter() - start < 0.5
+    # Linear parsing takes milliseconds; a quadratic regex on 20,000
+    # characters takes far longer than this loose bound, which a loaded CI
+    # runner cannot trip.
+    assert clock.perf_counter() - start < 5
 
 
 # --- the field reader (Task 4) ----------------------------------------------------

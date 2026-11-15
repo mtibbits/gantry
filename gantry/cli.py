@@ -75,7 +75,7 @@ def _parser():
         description="Read the portfolio file an installation config names and print one line per "
         "report entry, grouped by section, then a count. Exit 0 with no entries, 1 otherwise.",
     )
-    fires =commands.add_parser(
+    fires = commands.add_parser(
         "fires",
         help="check the fires list the config names, without building",
         description="Read the fires list an installation config names and print one line per "
