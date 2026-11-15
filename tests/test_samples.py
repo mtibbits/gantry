@@ -396,6 +396,19 @@ def test_lighthouse_shapes():
     assert any(n.is_epic for n in nodes)
     assert any(n.depth == 0 and n.is_leaf for n in nodes)
     assert any(n.is_leaf and n.is_open and n.title == HOSTILE_TITLE for n in nodes)
+    # #79: one open leaf serves a requirement at objective only, naming only IDs of its satisfies:.
+    from gantry.requirements import PROJECT_LAYERS, read_requirements
+    from helpers_config import roots_around
+
+    def ids(value):  # this module's parser keeps a list as a list
+        return set(value if isinstance(value, list) else [value])
+
+    (tail,) = [n for n in nodes if n.is_leaf and n.is_open and "objective" in n.meta]
+    assert ids(tail.meta["objective"]) and ids(tail.meta["objective"]) <= ids(tail.meta["satisfies"])
+    path = SAMPLES / HOSTILE_SITE / "requirements.md"
+    fr3 = read_requirements(roots_around(path), path, HOSTILE_SITE, layers=PROJECT_LAYERS,
+                            br_namespace="life").requirements[f"{HOSTILE_SITE}:FR-3"]
+    assert fr3.threshold and fr3.objective
 
 
 @pytest.mark.parametrize("site", sorted(READABLE))
@@ -950,3 +963,10 @@ def test_readme_states_rules():
     wanted += [BUSY, OWN_UNIT, UNESTIMATED, SMALL, NO_WBS, UNREADABLE]
     wanted += [f"`{name}`" for name in sorted(RESERVED_FOLDERS)]
     assert [w for w in wanted if w not in text] == []
+
+
+def test_readme_names_the_objective_shape():
+    # #79: the lighthouse row of "Sites and roles" names the objective-only leaf and the statements.
+    (row,) = [line for line in README.read_text(encoding="utf-8").splitlines()
+              if line.startswith("| lighthouse |") and "`SMALL`" in line]
+    assert "objective:" in row and "Threshold:" in row

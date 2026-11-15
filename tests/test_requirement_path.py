@@ -61,7 +61,9 @@ def test_sample_has_a_path():
         into = {(a, b) for a, b in data.links if b in lit and a in work and a not in lit}
         if into:
             found[r["label"]] = into
-    assert found == {label: {("Issue-12", "Issue-10")} for label in ("UC-3", "SR-1", "FR-1")}
+    # FR-3's gating leaf Issue-8 waits on Issue-7, which does not serve it (#79's sample edit).
+    assert found == {**{label: {("Issue-12", "Issue-10")} for label in ("UC-3", "SR-1", "FR-1")},
+                     "FR-3": {("Issue-7", "Issue-8")}}
 
 
 # --- Task 2: the set, the order, the chain -------------------------------------------

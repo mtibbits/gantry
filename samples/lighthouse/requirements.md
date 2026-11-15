@@ -18,6 +18,9 @@ Every name and fact here is made up.
 - FR-1: A keeper records a check with its time and the lamp's state. {refines: SR-1}
 - FR-2: The log lists the checks of the last thirty nights,
   newest first.
+- FR-3: The log survives a power cut.
+  - Threshold: every check recorded before the cut is kept.
+  - Objective: a check being recorded when the power fails is kept too.
 
 ## Quality attributes
 

@@ -525,3 +525,21 @@ def test_hostile_threshold_under_harness(node, tmp_path):
         assert marked(page, "rect.seg", "req-objective") == {HOSTILE[1]}
         used = {c for e in page.query("[class]") for c in e.classes}
         assert used - CLASS_TOKENS - STRUCTURAL == set()
+
+
+# --- the sample ------------------------------------------------------------------------------
+
+
+def test_sample_split_box(node, sample_page):
+    path, trace, _ = sample_page
+    r = row(trace, "lighthouse:FR-3")
+    t = r["threshold_path"]
+    assert r["objective_only"] == ["Issue-11"] and t is not None
+    with open_page(path) as page:
+        page.drive("requirement", "lighthouse:FR-3")
+        assert [e.text for e in page.query("#req-path .path-section")] == ["Threshold", "Objective"]
+        assert [e.text for e in page.query("#req-path .path-statement")] == [r["threshold"], r["objective"]]
+        assert marked(page, "rect.seg", "req-objective") == {"Issue-11"}
+        assert [e.text for e in page.query("#req-path .path-end-t")] == [
+            w.PATH_T_END.format(lanes="4 lanes", day=t["end_day"])]
+        assert [e.text for e in page.query("#req-path .path-end")] == [w.path_end_text(r["path"]["end_day"], 4)]

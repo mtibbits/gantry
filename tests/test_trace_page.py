@@ -172,7 +172,7 @@ def test_sample_rows_by_layer():
     page = traced(GANTRY_SAMPLE, SMALL)[0]
     assert [r["id"] for r in page["requirements"]] == [
         "life:BR-1", "lighthouse:UC-1", "lighthouse:UC-2", "lighthouse:UC-3", "lighthouse:SR-1",
-        "lighthouse:FR-1", "lighthouse:FR-2", "lighthouse:QA-1", "lighthouse:CON-1"]
+        "lighthouse:FR-1", "lighthouse:FR-2", "lighthouse:FR-3", "lighthouse:QA-1", "lighthouse:CON-1"]
 
 
 def test_light_sets_partition_serving(tmp_path):
@@ -414,7 +414,7 @@ def test_sample_box_chips(tmp_path):
     assert chips(t, seven) == [("FR-1", "lighthouse:FR-1"), ("life:BR-1", "life:BR-1"), ("QA-1", "lighthouse:QA-1")]
     assert more_of(t, seven) == ["+1"]
     eight = node_of(t, "Issue-8")
-    assert chips(t, eight) == [("SR-1", "lighthouse:SR-1"), ("UC-3", "lighthouse:UC-3")]
+    assert chips(t, eight) == [("SR-1", "lighthouse:SR-1"), ("UC-3", "lighthouse:UC-3"), ("FR-3", "lighthouse:FR-3")]
     assert more_of(t, eight) == []
 
 
