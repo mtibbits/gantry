@@ -266,13 +266,14 @@ V1_FIELDS = {
     "plan.sites[].shares[].date": "date", "plan.sites[].shares[].share": "null|number",
     "plan.sites[].shareless_days[]": "date", "plan.sites[].share_note": "null|string",
     "plan.sites[].p0[].key": "string", "plan.sites[].p0[].held_by[]": "string",
+    "plan.sites[].attention_hours_target": "number", "plan.sites[].lane_hours_target": "number",
 }
 
 
 def test_shape_file_keeps_every_v1_field():
     paths = field_paths(SHAPE["shape"])
     assert {path: paths.get(path) for path in V1_FIELDS} == V1_FIELDS
-    assert len(V1_FIELDS) == 75
+    assert len(V1_FIELDS) == 77
 
 
 # --- the write ----------------------------------------------------------------------------

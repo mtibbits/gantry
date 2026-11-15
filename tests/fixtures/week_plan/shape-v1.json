@@ -80,6 +80,8 @@
       "ratio_source": "string",
       "attention_hours_charged": "number",
       "lane_hours_charged": "number",
+      "attention_hours_target": "number",
+      "lane_hours_target": "number",
       "unestimated_planned": "integer",
       "unplanned": {"array": {"object": {
         "key": "string",

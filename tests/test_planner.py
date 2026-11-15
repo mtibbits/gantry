@@ -222,6 +222,7 @@ EXTREMES = [
     ("reserved 1e308 hours", portfolio_md(tail=reserved("mon", "1e308"))),
     ("400-digit agent_lanes", portfolio_md(lanes="9" * 400)),
     ("1e-7 rate", portfolio_md(more="attention_mapping = [0, 1e-7, 0.25, 0.5, 1.0]\n")),
+    ("block_default 1e308", portfolio_md(more="block_default_hours = 1e308\n")),
 ]
 
 
@@ -798,16 +799,7 @@ def test_block_leaf_with_no_lane_records_lanes(tmp_path):
     assert block_keys(plan.days[1]) == ["Issue-2"]
 
 
-def test_first_block_goes_to_more_urgent_site(tmp_path):
-    plan = plan_of(tmp_path, "states", wbs={
-        "a": wbs_md(leaf(1, priority="P2", est="1h", h=1)),
-        "b": wbs_md(leaf(1, priority="P1", est="1h", h=1)),
-    })
-    assert [block["site"] for block in plan.days[0]["blocks"]] == ["b", "a"]
-    assert [block["number"] for block in plan.days[0]["blocks"]] == [1, 2]
-
-
-def test_equal_urgency_goes_to_config_order(tmp_path):
+def test_equal_deficit_goes_to_config_order(tmp_path):
     plan = plan_of(tmp_path, "states", wbs={
         "a": wbs_md(leaf(1, priority="P2", est="1h", h=1)),
         "b": wbs_md(leaf(1, priority="P2", est="1h", h=1)),
@@ -815,7 +807,7 @@ def test_equal_urgency_goes_to_config_order(tmp_path):
     assert [block["site"] for block in plan.days[0]["blocks"]] == ["a", "b"]
 
 
-def test_one_block_per_site_per_day(tmp_path):
+def test_block_holds_its_sites_fitting_leaves(tmp_path):
     # b's leaf is more urgent than a's second leaf, yet a's block holds both of a's leaves.
     plan = plan_of(tmp_path, "states", wbs={
         "a": wbs_md(leaf(1, priority="P1", est="1h", h=1), leaf(2, priority="P3", est="1h", h=1)),
@@ -824,20 +816,18 @@ def test_one_block_per_site_per_day(tmp_path):
     first = plan.days[0]
     assert [(block["site"], [e["key"] for e in block["leaves"]]) for block in first["blocks"]] == [
         ("a", ["Issue-1", "Issue-2"]), ("b", ["Issue-1"])]
-    for day in plan_of(tmp_path, "states").days:
-        sites = [block["site"] for block in day["blocks"]]
-        assert len(sites) == len(set(sites))
 
 
-def test_lanes_row_site_by_site(tmp_path):
-    # b holds the most urgent rate-0 leaf, so all of b's come before any of a's.
+def test_lanes_row_by_lane_deficit(tmp_path):
+    # Each placement goes to the site with the largest lane deficit, ties to config order:
+    # a's first leaf, then b (deficit 30), then a and b again at 0 apiece.
     plan = plan_of(tmp_path, "states", wbs={
         "a": wbs_md(leaf(1, priority="P2", est="1h", h=0), leaf(2, priority="P4", est="1h", h=0)),
         "b": wbs_md(leaf(1, priority="P3", est="1h", h=0), leaf(2, priority="P1", est="1h", h=0)),
     })
-    assert row_keys(plan.days[0]) == [("b", "Issue-2"), ("b", "Issue-1"), ("a", "Issue-1"), ("a", "Issue-2")]
+    assert row_keys(plan.days[0]) == [("a", "Issue-1"), ("b", "Issue-2"), ("a", "Issue-2"), ("b", "Issue-1")]
     assert plan.days[0]["blocks"] == []
-    # On equal urgency the sites go in config order.
+    # On equal deficits the sites go in config order.
     plan = plan_of(tmp_path, "states", wbs={
         "a": wbs_md(leaf(1, priority="P2", est="1h", h=0)),
         "b": wbs_md(leaf(1, priority="P2", est="1h", h=0)),
@@ -847,7 +837,7 @@ def test_lanes_row_site_by_site(tmp_path):
 
 def test_allocation_rule_text(tmp_path):
     plan = plan_of(tmp_path, "states")
-    assert plan.allocation_rule == "most urgent site first; intended shares not applied"
+    assert plan.allocation_rule == "fair share by intended shares"
     assert plan.allocation_rule == planner.ALLOCATION_RULE
 
 
@@ -1325,6 +1315,403 @@ def test_binding_pool_cells_with_tiers(tmp_path, case, base, hours, lanes, wbs, 
         assert [placed(plan, "alpha", e["key"])["tier"] for e in first["blocks"][0]["leaves"]] == ["p0", "fair_share"]
     if case == "one minute left":
         assert round(first["left"]["attention_hours"] * 60) == 1 and block_keys(first) == ["Issue-1"]
+
+
+# --- fair share between sites (#37) ---------------------------------------------------------------
+
+from fractions import Fraction  # noqa: E402
+
+DEFAULT_MINUTES = 120  # block_default_hours' default, 2 h
+
+
+@pytest.fixture
+def trace(monkeypatch):
+    """The planner's private charge trace: one entry per charge, plus lift and flag entries.
+    Plan through traced(), so the build's own plan_week does not add to it."""
+    found = []
+    monkeypatch.setattr(planner, "_trace", found)
+    return found
+
+
+def traced(trace, copy):
+    """plan_week of an installation, the trace holding only its charges."""
+    args = built(copy)
+    trace.clear()
+    return plan_week(*args)
+
+
+def mins(hours):
+    return round(hours * 60)
+
+
+def day_charges(day):
+    """[(site, pool, minutes)] of a day in record order: each block's length, then its
+    leaves' agent minutes, then the lanes row."""
+    out = []
+    for block in day["blocks"]:
+        out.append((block["site"], ATTENTION, mins(block["length_hours"])))
+        out += [(entry["site"], LANES, mins(entry["agent_hours"])) for entry in block["leaves"]]
+    return out + [(entry["site"], LANES, mins(entry["agent_hours"])) for entry in day["lanes_row"]]
+
+
+def replay(plan, users=None):
+    """Each day's end {pool: {site: (charged, target)}}, from the plan's day records
+    and each site's recorded shares, with the test's own exact accrual: a charge to a
+    share site adds share x minutes / the shares of the sites users(day index) names
+    (default every share site that day) to each of their targets. Charges to
+    share-less sites move no share site's target."""
+    names = [site["name"] for site in plan.sites]
+    share = {site["name"]: [None if e["share"] is None else Fraction(e["share"]) / 100 for e in site["shares"]]
+             for site in plan.sites}
+    state = {pool: {name: [0, Fraction(0)] for name in names} for pool in planner.POOLS}
+    out = []
+    for i, day in enumerate(plan.days):
+        can = users(i) if users else [name for name in names if share[name][i] is not None]
+        for site, pool, minutes in day_charges(day):
+            state[pool][site][0] += minutes
+            if share[site][i] is None or not can:
+                continue
+            total = sum(share[user][i] for user in can)
+            for user in can:
+                state[pool][user][1] += minutes * share[user][i] / total
+        out.append({pool: {name: tuple(state[pool][name]) for name in names} for pool in planner.POOLS})
+    return out
+
+
+def flags(found):
+    return [entry for entry in found if entry.get("flag")]
+
+
+def charges(found, **match):
+    return [entry for entry in found if "pool" in entry and all(entry[k] == v for k, v in match.items())]
+
+
+def three_sites(tmp_path, shares, y_leaves, mapping=None, z_leaf=None, x_leaves=None, trace=None, hours=6):
+    """two_sites/ with sites x, y and z in that config order, `hours` of attention a
+    weekday: `shares` maps a site to its share from 2026-01-05."""
+    copy = install(tmp_path, "two_sites", portfolio=two_sites_portfolio(
+        allocation("2026-01-05", **shares), hours=hours), config=None)
+    shutil.move(copy / "a", copy / "x")
+    shutil.move(copy / "b", copy / "y")
+    (copy / "z").mkdir()
+    (copy / "devagent.toml").write_bytes(
+        b"".join(f'[project.{n}]\ndevdoc_dir = "{n}"\n\n'.encode() for n in ("x", "y", "z")))
+    (copy / "x" / "WBS.md").write_bytes(
+        (x_leaves or wbs_md(*(leaf(n, est="3w", h=4) for n in (1, 2, 3)))).encode())
+    (copy / "y" / "WBS.md").write_bytes(y_leaves.encode())
+    (copy / "z" / "WBS.md").write_bytes((z_leaf or wbs_md(leaf(1, est="3w", h=1))).encode())
+    if mapping is not None:
+        text = (copy / "portfolio.md").read_bytes().decode().replace("[capacity]\n", f"[capacity]\n{mapping}")
+        (copy / "portfolio.md").write_bytes(text.encode())
+    return traced(trace, copy) if trace is not None else plan_week(*built(copy))
+
+
+P0_CHAIN = wbs_md(leaf(1, priority="P0", est="1h", h=4),
+                  *(leaf(n, priority="P0", est="1h", h=4, depends_on=f"[Issue-{n - 1}]") for n in range(2, 11)))
+# y's 2 h P0 chain and two fair_share leaves: y's P0 work leaves its deficit far below x's,
+# while z (60, rate 0.1) holds a deficit it cannot use once at its 6 agent hours. When x's
+# block reaches its cap, x still has the largest deficit of the sites that fit.
+LIFT_Y = wbs_md(leaf(1, priority="P0", est="2h", h=4),
+                *(leaf(n, priority="P0", est="2h", h=4, depends_on=f"[Issue-{n - 1}]") for n in range(2, 11)),
+                leaf(11, est="3w", h=4), leaf(12, est="3w", h=4))
+SEVENTY_FIVE = two_sites_portfolio(allocation("2026-01-05", a=75, b=25))
+
+
+def dated_portfolio(days):
+    return two_sites_portfolio(allocation("2026-01-05", a=50, b=50), allocation(days[2], a=75, b=25))
+
+
+def test_two_sites_within_one_block_of_shares(tmp_path):
+    days = plan_of(tmp_path, "two_sites").horizon_days
+    for portfolio in (None, SEVENTY_FIVE, dated_portfolio(days)):
+        plan = plan_of(tmp_path, "two_sites", portfolio=portfolio)
+        ends = replay(plan)
+        for end in ends:
+            for name in ("a", "b"):
+                charged, target = end[ATTENTION][name]
+                assert abs(charged - target) <= DEFAULT_MINUTES, (portfolio, end)
+                charged, target = end[LANES][name]
+                assert abs(charged - target) <= 360, (portfolio, end)
+        for site in plan.sites:
+            assert site["attention_hours_target"] == float(ends[-1][ATTENTION][site["name"]][1] / 60)
+            assert site["lane_hours_target"] == float(ends[-1][LANES][site["name"]][1] / 60)
+            assert mins(site["attention_hours_charged"]) == ends[-1][ATTENTION][site["name"]][0]
+
+
+def test_shares_move_both_splits(tmp_path):
+    even = {site["name"]: site for site in plan_of(tmp_path, "two_sites").sites}
+    more = {site["name"]: site for site in plan_of(tmp_path, "two_sites", portfolio=SEVENTY_FIVE).sites}
+    for key in ("attention_hours_charged", "lane_hours_charged"):
+        assert more["a"][key] > even["a"][key] and more["b"][key] < even["b"][key], key
+
+
+def test_block_extends_minute_by_minute(tmp_path, trace):
+    plan = traced(trace, install(tmp_path, "two_sites", portfolio=SEVENTY_FIVE))
+    share = {"a": Fraction(3, 4), "b": Fraction(1, 4)}
+    state = {"a": [0, Fraction(0)], "b": [0, Fraction(0)]}
+    seen, checked = {}, 0
+    later = [(i, k, entry["key"]) for i, day in enumerate(plan.days) for k, block in enumerate(day["blocks"])
+             for entry in block["leaves"]]
+    for i, day in enumerate(plan.days):
+        for k, block in enumerate(day["blocks"]):
+            length = mins(block["length_hours"])
+            for name in state:
+                state[name][1] += length * share[name]
+            state[block["site"]][0] += length
+            for entry in block["leaves"]:
+                seen[block["site"], entry["key"]] = seen.get((block["site"], entry["key"]), 0) + mins(entry["agent_hours"])
+            if k + 1 == len(day["blocks"]) or day["blocks"][k + 1]["site"] == block["site"]:
+                continue
+            charged, target = state[block["site"]]
+            share_of = share[block["site"]]
+            assert charged - target <= DEFAULT_MINUTES
+            assert charged + 1 - (target + share_of) > DEFAULT_MINUTES, (day["date"], block)
+            last = block["leaves"][-1]
+            done = seen[block["site"], last["key"]] == mins(placed(plan, block["site"], last["key"])["agent_hours"])
+            again = any((j, n) > (i, k) and key == last["key"] for j, n, key in later
+                        if plan.days[j]["blocks"][n]["site"] == block["site"])
+            beyond = placed(plan, block["site"], last["key"])["hours_after_horizon"] > 0
+            assert done or again or beyond, (day["date"], block)
+            checked += 1
+    assert checked >= 1
+    assert [(b["site"], mins(b["length_hours"])) for b in plan.days[1]["blocks"]] == [("b", 280), ("a", 80)]
+    assert flags(trace) == []
+
+
+def test_two_sites_few_long_blocks(tmp_path):
+    plan = plan_of(tmp_path, "two_sites")
+    for day in plan.days:
+        assert len(set(block_sites(day))) == len(block_sites(day)), day["date"]
+    blocks = [block for day in plan.days for block in day["blocks"]]
+    assert len(blocks) <= 11
+    assert max(block["length_hours"] for block in blocks) > 2.0
+
+
+def test_unequal_rates_attention_bound_and_lanes_row(tmp_path, trace):
+    plan = traced(trace, install(tmp_path, "unequal_rates"))
+    ends = replay(plan)
+    for end in ends:
+        for name in ("a", "b"):
+            charged, target = end[ATTENTION][name]
+            assert abs(charged - target) <= DEFAULT_MINUTES, end
+    assert all(day["lanes_row"] for day in plan.days)
+    rows = charges(trace, pool=LANES, phase=6)
+    assert rows
+    for entry in rows:
+        deficit = {name: target - charged for name, (charged, target) in entry["before"].items()}
+        best = max(deficit[name] for name in entry["users"])
+        assert entry["site"] == next(name for name in entry["users"] if deficit[name] == best), entry
+    for site in plan.sites:
+        for pool, key in ((ATTENTION, "attention_hours"), (LANES, "lane_hours")):
+            charged, target = ends[-1][pool][site["name"]]
+            assert (mins(site[f"{key}_charged"]), site[f"{key}_target"]) == (charged, float(target / 60))
+
+
+def test_late_ready_no_burst(tmp_path, trace):
+    plan = traced(trace, install(tmp_path, "late_ready"))
+    days = plan.horizon_days
+    for day in plan.days[:3]:
+        assert block_sites(day) == ["a"]
+        assert row_keys(day) == [("c", "Issue-1")] and day["lanes_row"][0]["agent_hours"] == 6.0
+    assert placed(plan, "c", "Issue-1")["days"] == days[:3]
+    early = [entry for entry in charges(trace) if entry["date"] in days[:3]]
+    assert early and all("b" not in entry["users"] for entry in early)
+    ends = replay(plan, users=lambda i: ["a"] if i < 3 else ["a", "b"])
+    for site in plan.sites[:2]:
+        assert site["attention_hours_target"] == float(ends[-1][ATTENTION][site["name"]][1] / 60)
+        assert site["lane_hours_target"] == float(ends[-1][LANES][site["name"]][1] / 60)
+    base = ends[2][ATTENTION]
+    for end in ends[3:]:
+        since = {name: end[ATTENTION][name][0] - base[name][0] for name in ("a", "b")}
+        assert abs(since["b"] - (since["a"] + since["b"]) / 2) <= DEFAULT_MINUTES, end
+    assert any(block_sites(day) != ["b"] for day in plan.days[3:6])
+
+
+def test_shareless_sites_take_only_the_remainder(tmp_path, trace):
+    plan = traced(trace, install(tmp_path, "no_share"))
+    for day in plan.days[:2]:
+        assert day["left"] == {"attention_hours": 0.0, "lane_hours": 0.0}
+        assert {entry["site"] for entry in day["lanes_row"]} | set(block_sites(day)) == {"a"}
+    third = plan.days[2]
+    assert third["blocks"][0]["site"] == "a" and mins(third["blocks"][0]["length_hours"]) == 60
+    assert sum(mins(e["operator_hours"]) for e in third["blocks"][0]["leaves"]) + 15 == 45
+    assert third["blocks"][1]["site"] == "c"
+    on_day = [entry for entry in trace if entry.get("date") == third["date"] and "pool" in entry]
+    padding = next(n for n, entry in enumerate(on_day) if entry["what"] == "padding")
+    assert (on_day[padding]["site"], on_day[padding]["minutes"]) == ("a", 15)
+    assert on_day[padding + 1]["site"] == "c" and on_day[padding + 1]["what"] == "start"
+    assert {"c", "d"} <= {entry["site"] for day in plan.days[2:] for entry in day["lanes_row"]} | {
+        site for day in plan.days[2:] for site in block_sites(day)}
+    attention = {"c": 0, "d": 0}
+    worst = 0
+    for day in plan.days:
+        for site, pool, minutes in day_charges(day):
+            if pool == ATTENTION and site in attention:
+                attention[site] += minutes
+        worst = max(worst, abs(attention["c"] - (attention["c"] + attention["d"]) / 2))
+    assert worst <= DEFAULT_MINUTES, worst
+
+
+def test_phase_6_lanes_before_shareless_blocks(tmp_path):
+    plan = plan_of(tmp_path, "no_share", wbs={"a": wbs_md(leaf(1, est="2h", h=4), leaf(2, est="3w", h=0))})
+    first = plan.days[0]
+    assert row_keys(first) == [("a", "Issue-2")] and first["lanes_row"][0]["agent_hours"] == 4.0
+    for name in ("c", "d"):
+        assert placed_keys(plan, name) == []
+
+
+def test_shareless_started_leaf_accrues_to_both_classes(tmp_path, trace):
+    plan = traced(trace, install(tmp_path, "no_share", wbs={"c": wbs_md(leaf(1, "~", est="3h", h=4))}))
+    found = charges(trace, date=plan.horizon_days[0], site="c", pool=ATTENTION, phase=3)
+    assert sum(entry["minutes"] for entry in found) == 195
+    gained = {name: sum(entry["after"][name][1] - entry["before"][name][1] for entry in found)
+              for name in ("a", "c", "d")}
+    assert gained == {"a": 195, "c": Fraction(195, 2), "d": Fraction(195, 2)}
+
+
+def test_p0_planned_first_though_share_used_up(tmp_path):
+    plan = plan_of(tmp_path, "p0")
+    charged, target = replay(plan)[0][ATTENTION]["b"]
+    assert target - charged < 0
+    second = plan.days[1]
+    held = next(n for n, block in enumerate(second["blocks"]) if "Issue-4" in [e["key"] for e in block["leaves"]]
+                and block["site"] == "b")
+    fair = [n for n, block in enumerate(second["blocks"]) for e in block["leaves"]
+            if placed(plan, block["site"], e["key"])["tier"] == "fair_share"]
+    assert fair and held < min(fair)
+
+
+def test_short_p0_block_charged_block_min_alone(tmp_path):
+    plan = plan_of(tmp_path, "p0")
+    first = plan.days[0]
+    assert block_sites(first) == ["a", "b", "a"]
+    b = first["blocks"][1]
+    assert [e["key"] for e in b["leaves"]] == ["Issue-1"] and b["length_hours"] == 1.0
+    assert all(block["start_cost_hours"] == 0.25 for block in first["blocks"])
+
+
+def test_short_p0_block_merges_with_its_sites_next_block(tmp_path):
+    text = (FIXTURES / "p0" / "portfolio.md").read_bytes().decode().replace("a = 90, b = 10", "a = 10, b = 90")
+    plan = plan_of(tmp_path, "p0", portfolio=text)
+    b = [block for block in plan.days[0]["blocks"] if block["site"] == "b"]
+    assert len(b) == 1
+    keys = [e["key"] for e in b[0]["leaves"]]
+    assert keys[0] == "Issue-1" and placed(plan, "b", keys[1])["tier"] == "fair_share"
+
+
+def test_leaf_split_and_resumed_same_day_counts_once(tmp_path, trace):
+    plan = traced(trace, install(tmp_path, "two_sites", wbs={"b": wbs_md(leaf(1, est="0.5h", h=4))}))
+    first = plan.days[0]
+    assert block_sites(first) == ["a", "b", "a"]
+    entry = placed(plan, "a", "Issue-1")
+    assert entry["days"].count(first["date"]) == 1
+    on_day = [e["agent_hours"] for block in first["blocks"] for e in block["leaves"] if e["key"] == "Issue-1"
+              and block["site"] == "a"]
+    assert len(on_day) == 2 and sum(on_day) <= 6
+    assert first["unestimated"] == 0
+    day = [e for e in charges(trace, date=first["date"])]
+    finished = max(n for n, e in enumerate(day) if e["site"] == "b" and e["what"] == "work")
+    assert all("b" in e["users"] for e in day[:finished])
+    assert all("b" not in e["users"] for e in day[finished + 1:])
+
+
+def test_three_z_day_five(tmp_path):
+    # Hand-derived from the model lead: y's P0 block, z's, then x's long block, not y z x y.
+    plan = three_sites(tmp_path, {"z": 40, "x": 30, "y": 30}, P0_CHAIN)
+    assert block_sites(plan.days[4]) == ["y", "z", "x"]
+    assert plan.days[4]["blocks"][2]["length_hours"] > 2.0
+
+
+@pytest.mark.parametrize("mapping", [None, MAPPING_2], ids=["default mapping", "mapping 2.0"])
+def test_three_sites_continue_rule(tmp_path, trace, mapping):
+    plan = three_sites(tmp_path, {"z": 60, "x": 20, "y": 20}, LIFT_Y, mapping=mapping, trace=trace, hours=10)
+    lifts = [entry for entry in trace if entry.get("lift")]
+    assert lifts  # the case cannot pass vacuously
+    for lift in lifts:
+        day = next(d for d in plan.days if d["date"] == lift["date"])
+        ran = []
+        for e in trace[trace.index(lift) + 1:]:
+            if "pool" not in e or e["site"] != lift["site"] or e["what"] != "work":
+                break
+            ran.append(e)
+        operator = sum(e["minutes"] for e in ran if e["pool"] == ATTENTION)
+        agent = sum(e["minutes"] for e in ran if e["pool"] == LANES)
+        # The lifted block runs on, never ended by banning its site: at least one agent
+        # minute and block_default more operator minutes, unless a pool of the day ends first.
+        assert agent >= 1, (lift, ran)
+        assert operator >= DEFAULT_MINUTES or (day["blocks"][-1]["site"] == lift["site"] and (
+            day["left"]["lane_hours"] == 0 or day["left"]["attention_hours"] * 60 < 2)), (lift, ran)
+    for day in plan.days:
+        assert all(a != b for a, b in zip(block_sites(day), block_sites(day)[1:]))
+
+
+MAPPING_2_CAP = portfolio_md(hours=10, lanes=4, more=MAPPING_2)
+
+
+def test_binding_pool_cells_under_fair_share(tmp_path, trace):
+    # A block closed by the cap whose site cannot open another that day, a lane free: attention.
+    plan = plan_of(tmp_path, "two_sites", portfolio=two_sites_portfolio(
+        allocation("2026-01-05", a=50, b=50), lanes=4).replace("[capacity]\n", "[capacity]\n" + MAPPING_2))
+    first = plan.days[0]
+    assert block_sites(first) == ["a", "b"] and first["left"]["lane_hours"] > 0
+    assert first["ran_out"] == [ATTENTION]
+    # A leaf cut by the cap and finished in its site's later block that day: nothing ran out.
+    plan = plan_of(tmp_path, "two_sites", portfolio=MAPPING_2_CAP,
+                   wbs={"a": wbs_md(leaf(1, est="3h", h=4)), "b": wbs_md(leaf(1, est="1h", h=4))})
+    first = plan.days[0]
+    assert block_sites(first) == ["a", "b", "a"]
+    assert placed(plan, "a", "Issue-1")["days"] == [first["date"]]
+    assert first["ran_out"] == []
+    # The lifted pick of three sites: the lifted site's leaf left waiting in its open block
+    # with a lane and an agent minute of attention free is not short.
+    plan = three_sites(tmp_path, {"z": 60, "x": 20, "y": 20}, LIFT_Y, mapping=MAPPING_2, trace=trace, hours=10)
+    lift = next(entry for entry in trace if entry.get("lift"))
+    day = next(d for d in plan.days if d["date"] == lift["date"])
+    if day["blocks"][-1]["site"] == lift["site"] and day["left"]["attention_hours"] > 0 and day["left"]["lane_hours"]:
+        assert ATTENTION not in day["ran_out"]
+
+
+def test_unusable_share_is_not_accrued(tmp_path):
+    plain = wbs_md(*(leaf(n, est="3w", h=4) for n in (1, 2, 3)))
+    plan = three_sites(tmp_path, {"z": 60, "x": 20, "y": 20}, plain)
+    assert sum(len(day["blocks"]) for day in plan.days) < 30
+    total = sum(site["attention_hours_charged"] for site in plan.sites)
+    z = site_record(plan, "z")
+    assert z["attention_hours_target"] < 0.6 * total
+
+
+def test_rate_zero_work_does_not_cap_a_block(tmp_path, trace):
+    # 285 minutes a day. a's block reaches its cap at 240 (block_default, then the bound);
+    # the 45 left are under block_min, so b's rated leaf cannot open a block, while b's
+    # rate-0 leaf has a lane: only rated work counts as another site that fits, so a's
+    # block runs to the day's end on the "no other site fits" clause.
+    plan = traced(trace, install(tmp_path, "two_sites", portfolio=two_sites_portfolio(
+        allocation("2026-01-05", a=50, b=50), hours=4.75),
+        wbs={"a": wbs_md(leaf(1, est="4.5h", h=4)), "b": wbs_md(leaf(1, est="3w", h=4), leaf(2, est="1h", h=0))}))
+    first = plan.days[0]
+    # The premise: b's rated leaf never fits on day 1 and its rate-0 leaf does.
+    assert 285 - 240 < 60
+    assert block_sites(first) == ["a"] and row_keys(first) == [("b", "Issue-2")]
+    assert mins(first["blocks"][0]["length_hours"]) == 285 and first["left"]["attention_hours"] == 0
+    assert {entry["date"] for entry in flags(trace)} == {first["date"]}
+    assert not [entry for entry in trace if entry.get("lift")]
+
+
+def test_equal_shares_byte_identical_under_hash_seeds(tmp_path):
+    import os
+    import subprocess
+    import sys
+
+    for base in ("share_unbuilt", "two_sites"):
+        texts = set()
+        for seed in ("1", "777", "31337"):
+            folder = install(tmp_path, base)
+            result = subprocess.run([sys.executable, "-m", "gantry", "build", "--config", str(folder / "gantry.toml")],
+                                    cwd=ROOT, capture_output=True,
+                                    env={**os.environ, "PYTHONPATH": str(ROOT), "PYTHONHASHSEED": seed})
+            assert result.returncode == 0, result.stderr
+            texts.add((folder / "out" / planner.PLAN_FILE).read_bytes())
+        assert len(texts) == 1, base
 
 
 # --- through the build ------------------------------------------------------------------------

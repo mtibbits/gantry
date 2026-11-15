@@ -462,8 +462,10 @@ A site holds its `name`, its `ratio_source` (the
 [site ratio source](#the-site-ratio-source): `estimated` until #39 or #40
 passes a ratio), its `attention_hours_charged` (its block lengths over the
 10 days, start costs and minimum-length padding included), its
-`lane_hours_charged` (the agent hours placed), its `unestimated_planned`
-count, its `unplanned` list (`key`, `reason`, `state`,
+`lane_hours_charged` (the agent hours placed), its `attention_hours_target`
+and `lane_hours_target` (each pool's fair-share target at the horizon's
+end: [Fair share between sites](#fair-share-between-sites)), its
+`unestimated_planned` count, its `unplanned` list (`key`, `reason`, `state`,
 `unresolved_local`), its `shares` (one per horizon day: the `date` and its
 `share` in percent, null on a day the site is share-less), its
 `shareless_days`, its `share_note` (null, or the text "no intended share
@@ -484,12 +486,15 @@ sites: "shares dropped on <date> for projects that are not built sites:
 date `shares_dropped` before `no_allocation`.
 
 The fields added by #37 (`notes`, a leaf's `tier`, and a site's `shares`,
-`shareless_days`, `share_note` and `p0`) are provisional until the first
+`shareless_days`, `share_note`, `p0`, `attention_hours_target` and
+`lane_hours_target`) are provisional until the first
 view reads them (#38). A site may hold more than one block a day, and a
 leaf may sit in two blocks of one day; #38, #33 and #24 must not assume
 either away. A `p0` entry's `held_by` keeps absent and unresolved
 outcomes as well as open ones, since each holds the leaf (#62), and
-`share_note` is set for the whole site once any day is share-less.
+`share_note` is set for the whole site once any day is share-less. The
+targets are the values at the horizon's end; the file holds no per-day
+target.
 
 A report entry holds its `kind`, `cross_site_cycle`, and its `leaves`,
 each a `site` and `key`, in devagent's config order of site, then `WBS.md`
@@ -504,7 +509,7 @@ item:
 
 ```json
 {
-  "allocation_rule": "most urgent site first; intended shares not applied",
+  "allocation_rule": "fair share by intended shares",
   "as_of": "2026-01-19",
   "binding": {
     "first_day": "2026-01-19",
@@ -630,7 +635,9 @@ item:
   "sites": [
     {
       "attention_hours_charged": 1.0,
+      "attention_hours_target": 0.45,
       "lane_hours_charged": 14.0,
+      "lane_hours_target": 14.0,
       "name": "alpha",
       "p0": [],
       "ratio_source": "estimated",
@@ -655,7 +662,7 @@ The `no_plan` form keeps every key:
 
 ```json
 {
-  "allocation_rule": "most urgent site first; intended shares not applied",
+  "allocation_rule": "fair share by intended shares",
   "as_of": "2026-01-19",
   "binding": {
     "first_day": null,
@@ -792,7 +799,8 @@ so does removing or renaming a field or changing its type or meaning.
 A file written before a field was added lacks it: a reader takes a missing
 `report` as empty and a missing `unresolved_local` as 0, and a missing
 `notes`, `shares`, `shareless_days` or `p0` as empty and a missing
-`share_note` or `tier` as not given.
+`share_note`, `tier`, `attention_hours_target` or `lane_hours_target` as
+not given.
 
 ### The pinned shape
 
