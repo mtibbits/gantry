@@ -7,7 +7,7 @@ The model tests need no Node; the page-script tests take the `node` fixture.
 import copy
 import re
 from pathlib import PurePath
-from urllib.parse import unquote
+from urllib.parse import quote, unquote
 
 from gantry import build, links, sites
 from gantry.config import load_config
@@ -18,15 +18,18 @@ from gantry.trace import (FOREIGN_SOURCE, INSTALLATION_SCOPE, MESSAGES, ForeignL
                           build_site_trace, load_catalog, page_trace, sites_not_read)
 from gantry.views import worksite
 from helpers_config import demo_build, write_site_tree
-from page_safety import assert_page_safe
+from gantry.model import SiteData
+from gantry.render import CLASS_TOKENS
+from page_safety import HOSTILE, assert_no_external_resources, assert_page_safe
 from sample_roles import BUSY, NO_WBS, READABLE, SMALL, UNESTIMATED, UNREADABLE
 from test_samples import GANTRY_SAMPLE
 from test_trace import catalog, leaf, rid, tree
 from gantry.views.worksite import page_model
 from test_crosssite import force_render
-from page_script.harness import open_page, run_function
-from test_trace_page import (EMPTY_MARKS, NO_VIEW, by_id, installation, marks_after, report_items, req_li, row, sample,
-                             select, trace_of)
+from page_script.harness import Planted, open_page, run_function
+from test_requirement_path import box_items
+from test_trace_page import (EMPTY_MARKS, NO_VIEW, by_id, hostile_leaf, installation, marks_after, report_items, req_li,
+                             row, sample, select, trace_of)
 from test_worksite_page import STRUCTURAL, find, text_of
 from test_worksite_page import tree as page_tree
 
@@ -585,3 +588,50 @@ def test_foreign_index_proto_safe(node, tmp_path):
     trace["requirements"] = [{**r, "foreign": None} for r in trace["requirements"]]
     assert run_function(path, "gantryTrace.marks",
                         [trace, {"selected": "lighthouse:FR-2", "hover": None}, NO_VIEW])["foreign"] == []
+
+
+# --- Task 9: the hostile leg -----------------------------------------------------------
+
+
+def hostile_foreign_site(tmp_path):
+    """(page, page trace, planted): alpha in the trace with FR-1, served on
+    beta by a leaf keyed and numbered HOSTILE[0] and titled HOSTILE[2], and
+    by a leaf keyed __proto__. Leaves are built in memory."""
+    cat = catalog(tree(tmp_path, {"alpha": "- FR-1: One.\n", "beta": None}))
+    own = hostile_leaf("Issue-1", "Issue-1", 1)
+    beta = (hostile_leaf(HOSTILE[0], HOSTILE[0], 1, title=HOSTILE[2], satisfies="alpha:FR-1"),
+            hostile_leaf("__proto__", "__proto__", 2, title=HOSTILE[4], satisfies="alpha:FR-1"))
+    found, _ = installation_trace(cat, {"alpha": [own], "beta": list(beta)})
+    data = SiteData((own,), (), (), (), ())
+    trace = page_trace(found["alpha"], cat, data, built=frozenset({"alpha", "beta"}))
+    page = worksite.render_page("alpha", data, default_unit_hours=6, trace=trace)
+    return page, trace, [HOSTILE[0], HOSTILE[2], HOSTILE[4], "__proto__"]
+
+
+def test_hostile_foreign_page_is_safe(tmp_path):
+    page, trace, planted = hostile_foreign_site(tmp_path)
+    data = assert_page_safe(page, planted)
+    assert_no_external_resources(page)
+    assert [f[1] for f in data["trace"]["foreign"]] == [HOSTILE[0], "__proto__"]
+    assert trace["foreign"][0][7] == "beta.html#leaf-" + quote(HOSTILE[0], safe="")
+    assert row(trace, "alpha:FR-1")["foreign"] == [[0, "direct"], [1, "direct"]]
+    t = page_tree(page)
+    used = {c for el in t.elements for c in el["classes"]}
+    assert used - CLASS_TOKENS - STRUCTURAL == set()
+    assert len(find(t, "li", ["xleaf"])) == 2
+
+
+def test_hostile_foreign_under_harness(node, tmp_path):
+    page_text, _, planted = hostile_foreign_site(tmp_path)
+    path = tmp_path / "hostile.html"
+    path.write_bytes(page_text.encode("utf-8"))
+    with open_page(path) as page:
+        assert page.planted_nodes(planted) == Planted([], [], [])
+        page.drive("requirement", "alpha:FR-1")
+        assert page.planted_nodes(planted) == Planted([], [], [])
+        assert lit_items(page) == [("0", ["req-direct"]), ("1", ["req-direct"])]
+        assert box_items(page, "path-why") == [
+            "also served on beta by " + HOSTILE[0] + ", which this page does not plan",
+            "also served on beta by __proto__, which this page does not plan"]
+        used = {c for e in page.query("[class]") for c in e.classes}
+        assert used - CLASS_TOKENS - STRUCTURAL == set()
