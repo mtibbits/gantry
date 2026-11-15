@@ -104,8 +104,11 @@ def test_sample_trace_shapes(tmp_path):
 
 # --- Task 2: page_trace and the counts line ----------------------------------------
 
-SAMPLE_LINE = ("trace lighthouse: unreadable 0, malformed 0, duplicate 0, misplaced 0, cycle 0, undefined 1, "
-               "unserved 2, untraced 3")
+# A --site build and build_site_trace count only lighthouse's leaves; a full
+# build counts quarry's leaf naming FR-2 too (#21).
+SAMPLE_LINE_SITE = ("trace lighthouse: unreadable 0, malformed 0, duplicate 0, misplaced 0, cycle 0, undefined 1, "
+                    "unserved 2, untraced 3")
+SAMPLE_LINE_FULL = SAMPLE_LINE_SITE.replace("unserved 2", "unserved 1")
 
 
 def traced(config_path, site):
@@ -222,7 +225,7 @@ def test_counts_text(tmp_path):
 
 
 def test_counts_line(tmp_path):
-    assert counts_line(SMALL, traced(GANTRY_SAMPLE, SMALL)[0]) == SAMPLE_LINE
+    assert counts_line(SMALL, traced(GANTRY_SAMPLE, SMALL)[0]) == SAMPLE_LINE_SITE
     wbs = {"alpha": ONE_LEAF, "beta": "# B\n\n- [ ] One {issue: Issue-1, satisfies: beta:FR-9}\n"}
     config_path = installation(tmp_path, wbs)
     assert counts_line("alpha", traced(config_path, "alpha")[0]) is None
@@ -312,8 +315,8 @@ def test_full_build_prints_trace_line(tmp_path, monkeypatch):
     code, out, stdout, err = demo_build(tmp_path, monkeypatch)
     assert code == 0, err
     lines = stdout.splitlines()
-    assert lines[-1] == SAMPLE_LINE
-    assert [line for line in lines if line.startswith("trace ")] == [SAMPLE_LINE]
+    assert lines[-1] == SAMPLE_LINE_FULL
+    assert [line for line in lines if line.startswith("trace ")] == [SAMPLE_LINE_FULL]
     assert os.path.samefile(lines[-3], out / "index.html")
     assert os.path.samefile(lines[-2], out / "week-plan.json")
 
@@ -323,7 +326,7 @@ def test_site_build_prints_trace_line(tmp_path, monkeypatch):
     code, out, stdout, err = demo_build(tmp_path, monkeypatch, "--site", SMALL, copy=copy)
     assert code == 0, err
     path, line = stdout.splitlines()
-    assert os.path.samefile(path, out / "sites" / f"{SMALL}.html") and line == SAMPLE_LINE
+    assert os.path.samefile(path, out / "sites" / f"{SMALL}.html") and line == SAMPLE_LINE_SITE
     code, out, stdout, err = demo_build(tmp_path, monkeypatch, "--site", BUSY, copy=copy)
     assert code == 0, err
     (path,) = stdout.splitlines()
@@ -346,7 +349,7 @@ def test_trace_line_bytes(tmp_path):
     result = run_module("build", "--config", str(copy / "gantry.sample.toml"))
     assert result.returncode == 0, result.stderr
     assert b"\r" not in result.stdout
-    assert result.stdout.decode("utf-8").splitlines()[-1] == SAMPLE_LINE
+    assert result.stdout.decode("utf-8").splitlines()[-1] == SAMPLE_LINE_FULL
 
 
 # --- Task 5: chips and the two panels ----------------------------------------------
@@ -449,17 +452,19 @@ def test_sample_report_panel(tmp_path):
     page = sample(tmp_path).pages[SMALL]
     t = tree(page)
     items = report_items(t)
-    unserved = "Unserved requirements (served only within this site)"
+    # A full build (#21): marsh is not read, so its leaves are not counted.
+    unserved = "Unserved requirements (not counted: marsh)"
     assert list(items) == [worksite.TRACE_LABELS[k] for k in ("unreadable", "malformed", "duplicate", "misplaced", "cycle",
-                                                     "undefined")] + [unserved, "Untraced open leaves"]
+                                                     "undefined", "undefined_foreign")] + [unserved,
+                                                                                           "Untraced open leaves"]
     assert items["Undefined IDs"][0] == "Undefined IDs: 1"
     (undefined,) = items["Undefined IDs"][1]
     assert undefined.startswith("WBS.md line 13: satisfies entry lighthouse:FR-90 names no requirement")
-    assert items[unserved] == (f"{unserved}: 2", ["UC-2", "FR-2"])
+    assert items[unserved] == (f"{unserved}: 1", ["UC-2"])
     assert items["Untraced open leaves"] == ("Untraced open leaves: 3", [
         'Issue-4 · Render <b>this</b> & "that" as text', "Issue-5 · Repaint the keeper's door",
         "Issue-9 · Train the relief keeper"])
-    for name in ("unreadable", "malformed", "duplicate", "misplaced", "cycle"):
+    for name in ("unreadable", "malformed", "duplicate", "misplaced", "cycle", "undefined_foreign"):
         assert items[worksite.TRACE_LABELS[name]] == (f"{worksite.TRACE_LABELS[name]}: 0", [])
         (li,) = [i for i in find(t, "li", ["trace-cat"]) if text_of(t, i).startswith(worksite.TRACE_LABELS[name] + ":")]
         assert text_of(t, li) == f"{worksite.TRACE_LABELS[name]}: 0 none"
@@ -535,10 +540,16 @@ def test_empty_report_draws_no_trace_element(tmp_path):
     assert "requirements" in page_ids(page) and "trace" not in page_ids(page)
 
 
-def test_unknown_scope_label_fallback():
+def test_unserved_labels():
     assert worksite.unserved_label("site") == "Unserved requirements (served only within this site)"
-    assert worksite.unserved_label("installation") == "Unserved requirements (scope: installation)"
+    # A full build (#21): bare when every site was read, else naming those not counted.
+    assert worksite.unserved_label("installation") == "Unserved requirements"
+    assert worksite.unserved_label("installation", []) == "Unserved requirements"
+    assert worksite.unserved_label("installation", ["marsh"]) == "Unserved requirements (not counted: marsh)"
+    assert worksite.unserved_label("installation", ["a", "b"]) == "Unserved requirements (not counted: a, b)"
+    assert worksite.unserved_label("future") == "Unserved requirements (scope: future)"
     assert worksite.UNSERVED_SCOPES == {"site": "served only within this site"}
+    assert worksite.UNSERVED_NOT_COUNTED == "not counted: {sites}"
 
 
 def chip_boxes(t, node):

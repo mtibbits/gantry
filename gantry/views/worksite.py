@@ -106,7 +106,8 @@ TRACE_LABELS = {"unreadable": "Unreadable files", "malformed": "Malformed entrie
                 "unserved": "Unserved requirements", "untraced": "Untraced open leaves",
                 "undefined_foreign": "Undefined IDs on other sites"}
 UNSERVED_SCOPES = {"site": "served only within this site"}
-UNSERVED_SCOPE_OTHER = "scope: {scope}"  # a scope this Gantry does not know yet (#21)
+UNSERVED_SCOPE_OTHER = "scope: {scope}"  # a scope this Gantry does not know
+UNSERVED_NOT_COUNTED = "not counted: {sites}"  # a full build's sites not read (#21)
 TRACE_COUNT = "{label}: {n}"
 TRACE_NONE = "none"
 ENTRY_LINE, ENTRY_WHOLE = "{source} line {line}: {message}", "{source}: {message}"
@@ -964,9 +965,14 @@ def _finished(m):
 # --- the trace (#20) ---------------------------------------------------------------
 
 
-def unserved_label(scope):
-    """The unserved category's label, from the report's scope; an unknown scope is named, never a KeyError."""
-    return f"{TRACE_LABELS['unserved']} ({UNSERVED_SCOPES.get(scope, UNSERVED_SCOPE_OTHER.format(scope=scope))})"
+def unserved_label(scope, not_read=None):
+    """The unserved category's label, from the report's scope and, in a full
+    build, the sites not read (#21); an unknown scope is named, never a
+    KeyError, and an empty list never leaves a dangling "not counted: "."""
+    label = TRACE_LABELS["unserved"]
+    if scope == "installation":
+        return f"{label} ({UNSERVED_NOT_COUNTED.format(sites=', '.join(not_read))})" if not_read else label
+    return f"{label} ({UNSERVED_SCOPES.get(scope, UNSERVED_SCOPE_OTHER.format(scope=scope))})"
 
 
 def _chip_label(label):
@@ -1054,7 +1060,7 @@ def _trace_panel(trace):
         return Markup("")
     cats = []
     for name, items in trace["report"]:
-        label = unserved_label(trace["scope"]) if name == "unserved" else TRACE_LABELS[name]
+        label = unserved_label(trace["scope"], trace.get("not_read")) if name == "unserved" else TRACE_LABELS[name]
         head = f'<span class="k">{esc(TRACE_COUNT.format(label=label, n=len(items)))}</span>'
         body = ("<ul>" + "".join(f"<li>{_trace_item(name, item)}</li>" for item in items) + "</ul>"
                 if items else f" {esc(TRACE_NONE)}")

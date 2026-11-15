@@ -5,7 +5,9 @@ The model tests need no Node; the page-script tests take the `node` fixture.
 """
 
 import copy
+import re
 from pathlib import PurePath
+from urllib.parse import unquote
 
 from gantry import build, links, sites
 from gantry.config import load_config
@@ -15,10 +17,13 @@ from gantry.sites import SiteEntry, config_roots, load_sites
 from gantry.trace import (FOREIGN_SOURCE, INSTALLATION_SCOPE, MESSAGES, ForeignLeaf, build_installation_trace,
                           build_site_trace, load_catalog, page_trace, sites_not_read)
 from gantry.views import worksite
-from sample_roles import NO_WBS, READABLE, SMALL, UNESTIMATED, UNREADABLE
+from helpers_config import demo_build, write_site_tree
+from page_safety import assert_page_safe
+from sample_roles import BUSY, NO_WBS, READABLE, SMALL, UNESTIMATED, UNREADABLE
 from test_samples import GANTRY_SAMPLE
 from test_trace import catalog, leaf, rid, tree
 from gantry.views.worksite import page_model
+from test_crosssite import force_render
 from test_trace_page import installation, report_items, row, sample, trace_of
 from test_worksite_page import tree as page_tree
 
@@ -355,3 +360,85 @@ def test_whole_installation_uses_unscoped_texts(tmp_path):
     wbs["beta"] = "# Beta\n\n- [x] Two {issue: Issue-2, satisfies: alpha:FR-1}\n"
     fr1 = path_of(installation_models(installation(tmp_path / "b", wbs, {"alpha": TWO_REQS}))["alpha"], "alpha:FR-1")
     assert fr1["state"] == "finished" and fr1["lines"] == [worksite.PATH_FINISHED] and fr1["incomplete"] == []
+
+
+# --- Task 6: the full build ----------------------------------------------------------
+
+
+def test_samples_installation_trace(tmp_path):
+    trace = trace_of(sample(tmp_path).pages[SMALL])
+    assert trace["foreign"][0][:5] == ["quarry", "Issue-3", "Issue-3", "Grade the road", "pending"]
+    assert row(trace, "lighthouse:FR-2")["foreign"] == [[0, "direct"]]
+    assert dict(trace["report"])["unserved"] == [["lighthouse:UC-2", "UC-2"]]
+    assert trace["scope"] == "installation" and trace["not_read"] == [UNREADABLE]
+
+
+def test_not_read_names_unparseable_not_absent(tmp_path):
+    result = sample(tmp_path)
+    for name in READABLE:
+        not_read = trace_of(result.pages[name])["not_read"]
+        assert not_read == [UNREADABLE] and NO_WBS not in not_read, name
+
+
+def test_site_build_keeps_site_scope(tmp_path, monkeypatch):
+    code, out, stdout, err = demo_build(tmp_path, monkeypatch, "--site", SMALL)
+    assert code == 0, err
+    page = (out / "sites" / f"{SMALL}.html").read_text(encoding="utf-8")
+    trace = trace_of(page)
+    assert trace["scope"] == "site" and trace["not_read"] is None and trace["foreign"] == []
+    assert "Unserved requirements (served only within this site)" in report_items(page_tree(page))
+    assert stdout.splitlines()[-1].endswith(", unserved 2, untraced 3")
+
+
+HREF_RE = re.compile(r'^([^/#?:]+)\.html(?:#(.+))?$')
+
+
+def test_foreign_hrefs_land(tmp_path, monkeypatch):
+    code, out, _, err = demo_build(tmp_path, monkeypatch)
+    assert code == 0, err
+    checked = 0
+    for page_path in sorted((out / "sites").glob("*.html")):
+        trace = trace_of(page_path.read_text(encoding="utf-8"))
+        hrefs = [f[7] for f in trace["foreign"] if f[7] is not None]
+        hrefs += [i[2] for f in trace["foreign"] for i in f[6] if i[2] is not None]
+        for href in hrefs:
+            m = HREF_RE.match(href)
+            assert m, href
+            target = out / "sites" / f"{unquote(m.group(1))}.html"
+            assert target.is_file(), href
+            if m.group(2) is not None:
+                assert f'id="{m.group(2)}"' in target.read_text(encoding="utf-8"), href
+            checked += 1
+    assert checked >= 1
+
+
+def test_render_failed_site_unlinked(tmp_path, monkeypatch):
+    calls = force_render(monkeypatch, lambda site, n: site == "beta")
+    config = write_site_tree(tmp_path, {
+        "alpha": b"- [ ] One {issue: Issue-1}\n",
+        "beta": b"- [ ] Two {issue: Issue-2, satisfies: alpha:FR-1}\n",
+    }, tail='[site.alpha]\nrequirements = "req-alpha.md"\n')
+    (tmp_path / "req-alpha.md").write_bytes(TWO_REQS.encode("utf-8"))
+    result = build.build_all(load_config(config))
+    assert list(result.pages) == ["alpha"] and calls == {"alpha": 2, "beta": 1}
+    page = result.pages["alpha"]
+    trace = trace_of(page)
+    assert [f[:2] + f[7:] for f in trace["foreign"]] == [["beta", "Issue-2", None]]
+    assert "beta.html" not in page
+    assert dict(trace["report"])["unserved"] == []
+    # A render failure is not a read failure: beta's leaves were read and counted.
+    assert trace["not_read"] == []
+
+
+def test_trace_fault_site_not_read(tmp_path, monkeypatch):
+    real = build.build_site_trace
+
+    def failing(site, leaves, catalog):
+        if site == BUSY:
+            raise RuntimeError("trace fault")
+        return real(site, leaves, catalog)
+
+    monkeypatch.setattr(build, "build_site_trace", failing)
+    result = sample(tmp_path)
+    assert trace_of(result.pages[SMALL])["not_read"] == [BUSY, UNREADABLE]
+    assert BUSY not in result.pages

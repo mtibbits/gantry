@@ -647,7 +647,10 @@ def test_empty_case_box(node, sample_page):
         page.drive("requirement", "lighthouse:UC-2")
         assert "gone" not in box(page).classes
         assert worksite.PATH_UNSERVED_SITE in box(page).text
-        assert page.query("#req-path .path-list li, #req-path .path-end, #req-path .label") == []
+        assert page.query("#req-path .path-list li, #req-path .path-end") == []
+        # A full build (#21): marsh is not read, so the empty box is incomplete.
+        assert [el.text for el in page.query("#req-path .label")] == [worksite.PATH_INCOMPLETE]
+        assert box_items(page, "path-why") == [worksite.PATH_NOT_READ.format(sites="marsh")]
 
 
 def test_constraint_row_has_no_box_on_the_page(node, sample_page):
