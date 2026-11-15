@@ -30,10 +30,9 @@ report. A description of the path (which input, which command, what it
 reaches) is enough, and a reproduction built from made-up data, like the
 samples under `samples/`, is ideal.
 
-There is no security email address. If the Security tab's report button is
-not available to you, open an issue that says only "security report, please
-enable private reporting", and the maintainer will make contact through
-GitHub.
+There is no security email address. For now, only collaborators can open
+issues on this repository, so the Security tab is the one route for a
+report.
 
 ## What is in scope
 
