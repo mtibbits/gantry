@@ -234,11 +234,12 @@ def test_empty_states():
     finished = one_row([], [], finished=2)
     assert (unserved.state, finished.state) == ("unserved", "finished")
     for p in (unserved, finished):
-        assert p.order == () and p.targets == () and p.reasons == () and p.notes == ()
+        assert p.order == () and p.targets == () and p.reasons == ()
+        assert not hasattr(p, "notes")
 
 
 def test_not_read_and_other_site_reasons():
-    # Provisional (#21): nothing in the repository passes either argument yet.
+    # #21: the sites not read are the last reason, and only on a row the installation trace covers.
     items = [it("T", 1)]
     serving = {"R": ([["T", "direct"]], [], 0)}
 
@@ -246,16 +247,22 @@ def test_not_read_and_other_site_reasons():
         return build_paths(serving, items, unestimated=set(), links=[], foreign={},
                            **kw)["R"]
     p = built(sites_not_read=("marsh", "bakery"), other_serving={"R": [("harbor", "Issue-4"), ("bay", None)]})
-    assert p.notes == ("marsh", "bakery")
-    assert p.reasons == (("other_site", "harbor", "Issue-4"), ("other_site", "bay", None))
-    assert built(sites_not_read=()).notes == () and built().notes == ()
+    assert p.reasons == (("other_site", "harbor", "Issue-4"), ("other_site", "bay", None),
+                         ("not_read", ("marsh", "bakery"), None))
+    assert built(sites_not_read=(), other_serving={"R": []}).reasons == ()
+    assert built(sites_not_read=("marsh",)).reasons == ()
+    assert built(sites_not_read=("marsh",), other_serving={"Q": []}).reasons == ()
     assert built().reasons == ()
+    assert worksite._reason_text(("not_read", ("marsh", "bakery"), None)) == "sites not read: marsh, bakery"
 
 
-def test_not_read_in_empty_state_is_a_note():
-    p = build_paths({"R": ([], [], 0)}, [], unestimated=set(), links=[], foreign={},
-                    sites_not_read=("marsh",))["R"]
-    assert p.state == "unserved" and p.notes == ("marsh",) and p.reasons == ()
+def test_not_read_in_empty_state_is_a_reason():
+    def built(**kw):
+        return build_paths({"R": ([], [], 0)}, [], unestimated=set(), links=[], foreign={},
+                           sites_not_read=("marsh",), **kw)["R"]
+    p = built(other_serving={"R": []})
+    assert p.state == "unserved" and p.reasons == (("not_read", ("marsh",), None),)
+    assert built().reasons == ()
 
 
 def test_other_site_only_is_path():

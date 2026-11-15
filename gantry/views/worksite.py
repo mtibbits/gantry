@@ -250,10 +250,12 @@ def _reason_text(reason):
         if len(a) > 1:
             return PATH_FOREIGN_MANY.format(keys=", ".join(a), text=b)
         return FBOX_TIP.format(key=a[0], text=b)
+    if kind == "not_read":
+        return PATH_NOT_READ.format(sites=", ".join(a))
     return PATH_OTHER_SITE.format(site=a, issue=NO_ISSUE_ID if b is None else b)
 
 
-def _path_record(p, layer, scope, items, planned, sites_not_read=None):
+def _path_record(p, layer, scope, items, planned):
     """A trace row's `path` (#77): exactly the seven keys docs/worksite-page.md names."""
     if layer == "CON":
         return {"state": "constraint", "lines": [], "order": [], "chain": [], "targets": [], "end_day": None,
@@ -268,9 +270,10 @@ def _path_record(p, layer, scope, items, planned, sites_not_read=None):
         lines.append(PATH_CHAIN.format(hours=_num1(p.chain_hours),
                                        days=_count_line(days, PATH_DAYS, PATH_DAYS_ONE)))
     elif p.state != "path":
-        lines.append(path_status(p.state, scope, sites_not_read))
-    if p.notes:
-        lines.append(PATH_NOT_READ.format(sites=", ".join(p.notes)))
+        # The sites not read come from the row's reason, the one source (#21); an
+        # installation-scoped row without one was built from every site.
+        not_read = next((r[1] for r in p.reasons if r[0] == "not_read"), () if scope == "installation" else None)
+        lines.append(path_status(p.state, scope, not_read))
     targets = set(p.targets)
     return {
         "state": p.state, "lines": lines, "order": [[k, mark] for k, mark in p.order], "chain": list(p.chain),
@@ -480,11 +483,20 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None) -> di
         for leaf, shown in zip(work, leaves):
             suffix = " " + NOT_CHECKED if leaf.foreign_targets is None else ""
             foreign[leaf.key] = [text + suffix for text in shown["foreign"]]
-        serving = {r["id"]: ([(x[0], x[1]) for x in r["light"]], [x[0] for x in r["held"]], len(r["finished"]))
+        # A full build (#21) covers the site's own rows: their foreign leaves serve them
+        # too, open ones as reasons and finished ones in the finished count (D2).
+        wide = trace["scope"] == "installation"
+        own = {r["id"] for r in trace["requirements"] if wide and r["id"].startswith(site + ":")}
+        other_serving = {r["id"]: [(trace["foreign"][i][0], trace["foreign"][i][2]) for i, _ in r["foreign"]
+                                   if trace["foreign"][i][5]] for r in trace["requirements"] if r["id"] in own}
+        serving = {r["id"]: ([(x[0], x[1]) for x in r["light"]], [x[0] for x in r["held"]],
+                             len(r["finished"]) + sum(not trace["foreign"][i][5] for i, _ in r.get("foreign", ())))
                    for r in trace["requirements"]}
-        req_paths = build_paths(serving, items, unestimated=unest, links=data.links, foreign=foreign)
+        req_paths = build_paths(serving, items, unestimated=unest, links=data.links, foreign=foreign,
+                                sites_not_read=trace.get("not_read"), other_serving=other_serving)
         traced = {**trace, "requirements": [
-            {**r, "path": _path_record(req_paths[r["id"]], r["layer"], trace["scope"], items, planned)}
+            {**r, "path": _path_record(req_paths[r["id"]], r["layer"], trace["scope"] if r["id"] in own else "site",
+                                       items, planned)}
             for r in trace["requirements"]]}
     if source is None:
         estimates_line = None

@@ -18,7 +18,8 @@ from gantry.views import worksite
 from sample_roles import NO_WBS, READABLE, SMALL, UNESTIMATED, UNREADABLE
 from test_samples import GANTRY_SAMPLE
 from test_trace import catalog, leaf, rid, tree
-from test_trace_page import report_items, row, sample, trace_of
+from gantry.views.worksite import page_model
+from test_trace_page import installation, report_items, row, sample, trace_of
 from test_worksite_page import tree as page_tree
 
 HERE = PurePath("/planning")
@@ -215,10 +216,11 @@ def test_undefined_foreign_message():
 TRACE_KEYS = ["in_trace", "scope", "requirements", "leaves", "report", "not_read", "foreign"]
 
 
-def sample_installation():
-    """(page traces, SiteTraces, catalog, inputs) of the sample installation,
-    widened as a full build widens them, every read site built."""
-    config = load_config(GANTRY_SAMPLE)
+def sample_installation(config_path=GANTRY_SAMPLE):
+    """(page traces, SiteTraces, catalog, inputs) of an installation (the
+    sample's by default), widened as a full build widens them, every read
+    site built."""
+    config = load_config(config_path)
     roots = config_roots(config)
     entries = load_sites(config, roots)[0]
     cat = load_catalog(roots, config, entries)
@@ -308,3 +310,48 @@ def test_undefined_foreign_rendered_source(tmp_path):
     count, (item,) = report_items(page_tree(page))[label]
     assert count == f"{label}: 1"
     assert item.startswith("beta WBS.md line 5: leaf 'B1': satisfies entry alpha:FR-99 names no requirement")
+
+
+# --- Task 5: the path box ------------------------------------------------------------
+
+
+def installation_models(config_path=GANTRY_SAMPLE):
+    """{site: page model} with the widened trace, as a full build renders it."""
+    pages, _, _, inputs = sample_installation(config_path)
+    config = load_config(config_path)
+    return {name: page_model(name, inputs[name].data, default_unit_hours=config.default_unit_hours,
+                             inputs=inputs[name], trace=pages[name]) for name in pages}
+
+
+def path_of(m, rid_):
+    return row(m["trace"], rid_)["path"]
+
+
+NOT_READ_MARSH = worksite.PATH_NOT_READ.format(sites=UNREADABLE)
+
+
+def test_sample_own_rows_installation_scope():
+    models = installation_models()
+    fr2 = path_of(models[SMALL], "lighthouse:FR-2")
+    assert fr2["state"] == "path" and fr2["order"] == [] and fr2["lines"] == []
+    assert fr2["incomplete"] == ["also served on quarry by Issue-3, which this page does not plan", NOT_READ_MARSH]
+    uc2 = path_of(models[SMALL], "lighthouse:UC-2")
+    assert uc2["lines"] == [worksite.PATH_UNSERVED_SITE] and uc2["incomplete"] == [NOT_READ_MARSH]
+    # A fully served row still says a site was not read (D1): its leaves may serve it too.
+    assert NOT_READ_MARSH in path_of(models[SMALL], "lighthouse:FR-1")["incomplete"]
+    # Another namespace's row keeps the site forms and no not-read reason (D2).
+    assert path_of(models[SMALL], "life:BR-1")["incomplete"] == []
+    quarry = path_of(models[UNESTIMATED], "lighthouse:FR-2")
+    assert NOT_READ_MARSH not in quarry["incomplete"] and quarry["state"] == "path"
+
+
+TWO_REQS = "# R\n\n## Functional requirements\n\n- FR-1: One.\n"
+
+
+def test_whole_installation_uses_unscoped_texts(tmp_path):
+    wbs = {"alpha": "# Alpha\n\n- [ ] One {issue: Issue-1}\n", "beta": "# Beta\n\n- [ ] Two {issue: Issue-2}\n"}
+    fr1 = path_of(installation_models(installation(tmp_path / "a", wbs, {"alpha": TWO_REQS}))["alpha"], "alpha:FR-1")
+    assert fr1["lines"] == [worksite.PATH_UNSERVED] and fr1["incomplete"] == []
+    wbs["beta"] = "# Beta\n\n- [x] Two {issue: Issue-2, satisfies: alpha:FR-1}\n"
+    fr1 = path_of(installation_models(installation(tmp_path / "b", wbs, {"alpha": TWO_REQS}))["alpha"], "alpha:FR-1")
+    assert fr1["state"] == "finished" and fr1["lines"] == [worksite.PATH_FINISHED] and fr1["incomplete"] == []
