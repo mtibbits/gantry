@@ -11,6 +11,9 @@ line under `## [Unreleased]`.
 
 ### Added
 
+- The fires list: a private Markdown file of fires that are not leaves yet,
+  the `fires_check_days` config key and `gantry fires --config <file>`,
+  which checks it; the build does not read it yet (docs/fires-list.md).
 - Threshold and objective paths (#79): a requirement may state a
   `Threshold:` and an `Objective:`, a leaf's `objective:` names the
   requirements it serves at objective only, and selecting a requirement
@@ -47,6 +50,11 @@ line under `## [Unreleased]`.
   label names any site not read ("not counted: …") instead of "served only
   within this site". A `--site` build is unchanged
   (docs/worksite-page.md).
+- The week plan divides each day between sites by priority tier, P0 work
+  and work in progress first, then by the portfolio file's intended shares;
+  `week-plan.json` gains `notes`, each leaf's `tier`, and each site's
+  shares, share-less days, share note, fair-share targets and P0 list
+  (docs/week-plan.md).
 - A break now includes raising the oldest supported version of a tool, and
   a release with a break says in its CHANGELOG section what to change
   (README.md).

@@ -131,6 +131,15 @@ def test_shape_holds_with_reserved_blocks_and_unplanned_leaves(tmp_path):
     document = document_of(plan_of(tmp_path, "cross_site_cycle"))
     assert document["report"][0]["leaves"]
     assert shape_errors(document) == []
+    document = document_of(plan_of(tmp_path, "share_unbuilt"))
+    assert document["notes"][0]["projects"]
+    assert shape_errors(document) == []
+    document = document_of(plan_of(tmp_path, "no_share"))
+    assert any(site["shareless_days"] for site in document["sites"])
+    assert shape_errors(document) == []
+    document = document_of(plan_of(tmp_path, "p0"))
+    assert any(entry["held_by"] for site in document["sites"] for entry in site["p0"])
+    assert shape_errors(document) == []
 
 
 def _states(tmp_path):
@@ -250,13 +259,21 @@ V1_FIELDS = {
     "plan.report[].kind": "string", "plan.report[].leaves[].site": "string",
     "plan.report[].leaves[].key": "string", "plan.leaves[].unresolved_local": "integer",
     "plan.sites[].unplanned[].unresolved_local": "integer",
+    # Added by #37: always written, provisional until #38 reads them; a reader takes a
+    # missing list as empty and a missing share_note or tier as not given.
+    "plan.notes[].kind": "string", "plan.notes[].date": "date", "plan.notes[].projects[]": "string",
+    "plan.notes[].text": "string", "plan.leaves[].tier": "string",
+    "plan.sites[].shares[].date": "date", "plan.sites[].shares[].share": "null|number",
+    "plan.sites[].shareless_days[]": "date", "plan.sites[].share_note": "null|string",
+    "plan.sites[].p0[].key": "string", "plan.sites[].p0[].held_by[]": "string",
+    "plan.sites[].attention_hours_target": "number", "plan.sites[].lane_hours_target": "number",
 }
 
 
 def test_shape_file_keeps_every_v1_field():
     paths = field_paths(SHAPE["shape"])
     assert {path: paths.get(path) for path in V1_FIELDS} == V1_FIELDS
-    assert len(V1_FIELDS) == 64
+    assert len(V1_FIELDS) == 77
 
 
 # --- the write ----------------------------------------------------------------------------

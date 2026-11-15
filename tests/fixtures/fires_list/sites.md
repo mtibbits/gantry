@@ -1,0 +1,6 @@
+- [ ] 2026-10-24 @nowhere an open fire at no site
+- [?] 2026-10-24 @nowhere an unreadable fire at no site
+- [ ] 2026-10-24 @Harbor a name that differs in case
+- [ ] 2026-10-24 @marsh a site that is listed but not built
+- [x] 2026-10-20 @nowhere resolved, so not checked
+- [x] 2026-12-01 @harbor resolved, dated after the reference

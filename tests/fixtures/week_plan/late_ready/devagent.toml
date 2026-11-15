@@ -1,0 +1,10 @@
+# A fictional devagent config for the week planner's tests (#37).
+
+[project.a]
+devdoc_dir = "a"
+
+[project.b]
+devdoc_dir = "b"
+
+[project.c]
+devdoc_dir = "c"

@@ -1,0 +1,12 @@
+- 2026-10-24 @harbor no state box
+- [?] 2026-10-24 @harbor a question box
+- [-] 2026-10-24 @harbor a dash box
+- [/] 2026-10-24 @harbor a slash box
+- [ ]2026-10-24 @harbor no space after the box
+- [ ] @harbor no date
+- [ ] 2026-02-30 @harbor not a real day
+- [ ] 2026-10-24 25:00 @harbor an hour past 23
+- [ ] 2026-10-24 12:60 @harbor a minute past 59
+- [ ] 2026-10-24 @ a bare at
+- [ ] 2026-10-24
+- [ ] 2026-10-24 @harbor

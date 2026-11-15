@@ -1024,7 +1024,7 @@ def test_portfolio_doc_states_rules():
         "or an HTML comment is never a heading", "outside the business-requirements section with no",
         "gantry portfolio --config", "python -m gantry portfolio --config", "## Default changes", "None yet.",
         "as-of date", "allocation[2].shares.beta", "capacity.attention_mapping", MILESTONE_NOTE_TEXT,
-        "a finite number", "advisory", "DEFAULTS", "its capacity settings, for the week plan",
+        "a finite number", "advisory", "DEFAULTS", "its capacity settings and allocations, for the week plan",
         "`block_min_hours` when that is larger",
     ]
     assert [w for w in wanted if w not in doc] == []
@@ -1050,6 +1050,6 @@ def test_config_doc_portfolio_row():
     doc = doc_text(CONFIG_DOC)
     row = next(line for line in doc.splitlines() if line.startswith("| `portfolio_file` |"))
     assert "portfolio-file.md" in row and "gantry portfolio" in row
-    assert "its capacity settings, for the week plan" in row and "#23 adds the rest" in row
+    assert "its capacity settings and allocations, for the week plan" in row and "#23 adds the rest" in row
     assert "#23 or " + "#61" not in doc and "only its business " + "requirements" not in doc
     assert "gantry portfolio --config <file>" in doc
