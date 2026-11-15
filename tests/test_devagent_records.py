@@ -679,3 +679,33 @@ def test_doc_names_every_problem_and_reason():
 def test_module_docstring_names_its_callers():
     for issue in ("#32", "#33", "#29"):
         assert issue in dr.__doc__
+
+
+# --- final review fixes ----------------------------------------------------------------------
+
+
+def test_listing_race_is_retried_once(tmp_path, monkeypatch):
+    """devagent renames temp files inside an issue folder on every mark; an
+    entry that vanishes between scandir and lstat must not read as a missing
+    folder."""
+    plan_dir = tmp_path / "plan"
+    folder = issue_folder(plan_dir)
+    real = dr.list_confined
+    failed = set()
+
+    def flaky(roots, path, **kwargs):
+        if str(path) not in failed:
+            failed.add(str(path))
+            raise FileNotFoundError(2, "No such file or directory")
+        return real(roots, path, **kwargs)
+
+    monkeypatch.setattr(dr, "list_confined", flaky)
+    roots = directory_roots([plan_dir])
+    site = dr.read_site_records(roots, plan_dir)
+    assert site.status == "read" and list(site.issues) == ["Issue-13"]
+    assert site.issues["Issue-13"].stuck.status == "present"
+    failed.clear()
+    lone = dr.read_issue_records(roots, folder)
+    assert [r.status for r in records_of(lone)] == ["present"] * 3
+    # A folder that is really gone still reads as missing.
+    assert dr.read_site_records(roots, plan_dir / "nowhere").reason == "planning directory does not exist"

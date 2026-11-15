@@ -322,7 +322,8 @@ def provenance(recipe, tag, commit, version):
 
 def regenerate(devagent_dir, out, commit=None):
     """Run every recipe against `devagent_dir`; write the fixtures under `out`."""
-    devagent = Path(devagent_dir)
+    # Resolved here: every writer runs with the temp folder as its cwd.
+    devagent = Path(devagent_dir).resolve()
     version = checkout_version(devagent)
     if version is None:
         raise Preflight("--devagent is not a devagent checkout (no .claude-plugin/plugin.json version)")
@@ -457,6 +458,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if not args.devagent:
         parser.error("--devagent is required when GANTRY_DEVAGENT_DIR is not set")
+    args.devagent = Path(args.devagent).resolve()
     try:
         if args.check:
             diffs = check(args.devagent, args.out)

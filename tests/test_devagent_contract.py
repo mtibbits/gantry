@@ -349,3 +349,44 @@ def test_doc_cites_equal_cites_table():
     assert found == table, (sorted(found - table), sorted(table - found))
     # The parser sees a cite in prose and ignores a gantry path that holds templates/.
     assert doc_cites("see `scripts/park.sh:63` and gantry/templates/page.html:4") == {("scripts/park.sh", 63, 63)}
+
+
+# --- final review fixes ----------------------------------------------------------------------
+
+
+class _Seen(Exception):
+    pass
+
+
+def test_regenerate_resolves_a_relative_checkout(tmp_path, monkeypatch):
+    """A relative --devagent or GANTRY_DEVAGENT_DIR names the checkout from the
+    caller's folder, not from the temp folder the writers run in."""
+    _, version = hd.read_pin()
+    fake_checkout(tmp_path / "da", version)
+    monkeypatch.chdir(tmp_path)
+    seen = []
+
+    def stop(devagent, work):
+        seen.append(devagent)
+        raise _Seen()
+
+    monkeypatch.setattr(fx, "preflight", stop)
+    with pytest.raises(_Seen):
+        fx.regenerate("da", tmp_path / "out", commit="0" * 40)
+    assert seen == [(tmp_path / "da").resolve()]
+    assert seen[0].is_absolute()
+
+
+def test_main_resolves_a_relative_checkout(tmp_path, monkeypatch):
+    _, version = hd.read_pin()
+    fake_checkout(tmp_path / "da", version)
+    monkeypatch.chdir(tmp_path)
+    seen = []
+
+    def check(devagent, out):
+        seen.append(devagent)
+        return fx.Differences()
+
+    monkeypatch.setattr(fx, "check", check)
+    assert fx.main(["--devagent", "da", "--check"]) == 0
+    assert [str(p) for p in seen] == [str((tmp_path / "da").resolve())]

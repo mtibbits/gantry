@@ -356,6 +356,16 @@ def _why(e: Exception) -> str:
     return error_reason(e) or UNKNOWN_ERROR
 
 
+def _list(roots, path, site):
+    """list_confined, tried twice on FileNotFoundError: an entry devagent
+    renames away between the listing and its lstat must not read as a
+    missing folder."""
+    try:
+        return list_confined(roots, path, key=KEY, site=site)
+    except FileNotFoundError:
+        return list_confined(roots, path, key=KEY, site=site)
+
+
 def _all_unreadable(issue: str, reason: str) -> IssueRecords:
     record = Record(UNREADABLE, None, reason)
     return IssueRecords(issue, record, record, record)
@@ -383,7 +393,7 @@ def _record(roots, folder, entries, name, reader, site) -> Record:
 def _read_folder(roots, folder: str, issue: str, site) -> IssueRecords:
     """The three records of a folder already known not to be a link."""
     try:
-        listed = list_confined(roots, folder, key=KEY, site=site)
+        listed = _list(roots, folder, site)
     except FileNotFoundError:
         return _all_unreadable(issue, FOLDER_MISSING)
     except NotADirectoryError:
@@ -416,7 +426,7 @@ def read_issue_records(roots, issue_dir, *, site=None) -> IssueRecords:
     issue = os.path.basename(folder)
     parent = os.path.dirname(folder) or "."
     try:
-        siblings = list_confined(roots, parent, key=KEY, site=site)
+        siblings = _list(roots, parent, site)
     except OutsideRoots:
         siblings = None  # the issue folder may be a root itself; it is listed below
     except FileNotFoundError:
@@ -440,7 +450,7 @@ def read_site_records(roots, planning_dir, *, site=None) -> SiteRecords:
     linked subfolder is not read and is listed in `skipped`; nothing deeper
     is listed."""
     try:
-        listed = list_confined(roots, planning_dir, key=KEY, site=site)
+        listed = _list(roots, planning_dir, site)
     except FileNotFoundError:
         return SiteRecords(NOT_READ, PLANNING_MISSING, {}, {})
     except NotADirectoryError:
