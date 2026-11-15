@@ -2,8 +2,12 @@
 
 The one Gantry module that reads devagent's STUCK markers, checklists and
 plans. The three text readers (read_stuck, read_checklist, read_plan) take
-text and never raise on any str. Record text comes back verbatim: escaping
-happens once, where a page renders it.
+text and never raise on any str; read_checklist also reads a committed
+version passed in as text. The two file-level readers (read_issue_records,
+read_site_records) read through gantry.roots and follow no link. Callers:
+the fire collector (#32) reads each site once per build and hands the same
+SiteRecords to the warm-up list (#33) and the time thieves (#29). Record
+text comes back verbatim: escaping happens once, where a page renders it.
 """
 
 import os
@@ -455,3 +459,7 @@ def read_site_records(roots, planning_dir, *, site=None) -> SiteRecords:
         if any(record.status != ABSENT for record in (records.stuck, records.checklist, records.plan)):
             issues[entry.name] = records
     return SiteRecords(READ, None, issues, skipped)
+
+
+PROBLEM_KINDS = (STUCK_NO_STEP, STUCK_NO_REASON, STUCK_NO_CREATED, STUCK_CREATED_UNPARSEABLE, CHECKLIST_NO_STEPS,
+                 CHECKLIST_ACTIVE_BLOCK_EMPTY, CHECKLIST_BAD_GLYPH, PLAN_TASKS_UNRECOGNISED)

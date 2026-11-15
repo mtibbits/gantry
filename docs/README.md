@@ -22,6 +22,9 @@ and how to try the demo.
   need, how the build plans the week, and what `week-plan.json` holds.
 - [wbs-history.md](wbs-history.md): how Gantry reads a site's `WBS.md` history
   from its planning repository, and the sample history it is tested on.
+- [devagent-formats.md](devagent-formats.md): devagent's per-issue records
+  (STUCK markers, checklists, plans) that Gantry reads, the devagent source
+  lines and pinned release each mirrors, and the contract test that pins them.
 - [demo.md](demo.md): the public demo built from the fictional samples, how it
   is checked, and how its Pages deploy is guarded.
 - [commit-check.md](commit-check.md): the commit check that checks what is

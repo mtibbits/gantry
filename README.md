@@ -377,7 +377,7 @@ will be read when the maintainer can. Security reports go through
 | git | 2.45 | Latest: on every change, the git on the CI runners, Ubuntu and Windows, which may trail git's latest release; each release records the git it ran on. Oldest: stated from git's release notes, not yet tested: 2.45 is the oldest git that honours `GIT_NO_LAZY_FETCH` (see [Your data stays private](#your-data-stays-private)). |
 | Claude Code | Not yet stated | At every release: the plugin check under [Checks every release runs](#checks-every-release-runs), on the latest release. |
 | bash | Not yet stated | `/gantry:build` runs its launcher with bash. On every change: the launcher's tests, with the bash on the Ubuntu CI runner. At every release: the plugin check, with the bash Claude Code uses there. |
-| devagent | 3.0.0 | Gantry reads the `WBS.md` files, config and records devagent writes. Latest: the maintainer's own installation runs the latest devagent release. Oldest: stated, not yet tested. |
+| devagent | 3.0.0 | Gantry reads the `WBS.md` files, config and records devagent writes. Latest: the maintainer's own installation runs the latest devagent release. Oldest: on every change, on the Ubuntu CI runners, the contract test runs devagent's own record writers at the release `tests/devagent.pin` names (3.0.0) and compares their output with Gantry's fixtures ([devagent-formats.md](docs/devagent-formats.md#fixtures-and-the-contract-test)); the `WBS.md` and config formats are not yet tested against it. |
 
 Until a tool's oldest version is stated, only its latest release is
 supported. That moves with each upstream release and is not a break.

@@ -656,3 +656,26 @@ def test_sample_stuck_folders_name_open_leaves():
     stuck = {p.parent.name for p in HARBOR.glob("*/STUCK")}
     assert stuck == {"Issue-13", "Issue-14"}
     assert stuck <= open_issues
+
+
+# --- the doc names every problem and reason (Task 10) --------------------------------------
+
+DOC = ROOT / "docs" / "devagent-formats.md"
+
+
+def test_doc_names_every_problem_and_reason():
+    text = DOC.read_bytes().decode("utf-8")
+    assert len(dr.PROBLEM_KINDS) == 8
+    assert [kind for kind in dr.PROBLEM_KINDS if f"`{kind}`" not in text] == []
+    shown = [r.format(name="<name>", error="<error>", offset="<offset>") for r in dr.REASONS]
+    assert len(shown) == 12
+    assert [reason for reason in shown if f"`{reason}`" not in text] == []
+    for word in (dr.PRESENT, dr.ABSENT, dr.UNREADABLE, dr.READ, dr.NOT_READ, dr.UNKNOWN_ERROR,
+                 dr.LOCAL_MINUTES, dr.ISO_OFFSET, dr.UNPARSEABLE, dr.CHECKBOX, dr.HEADINGS, dr.NUMBERED,
+                 dr.UNRECOGNISED, dr.NONE):
+        assert f"`{word}`" in text, word
+
+
+def test_module_docstring_names_its_callers():
+    for issue in ("#32", "#33", "#29"):
+        assert issue in dr.__doc__

@@ -320,3 +320,32 @@ def test_every_fixture_names_the_same_devagent_commit():
     commits = {json.loads((WRITTEN / r.issue / "provenance.json").read_bytes().decode("utf-8"))["devagent_commit"]
                for r in fx.RECIPES}
     assert len(commits) == 1
+
+
+# --- the doc's cites (Task 10) -------------------------------------------------------------
+
+DOC = ROOT / "docs" / "devagent-formats.md"
+DEVAGENT_CITE_RE = re.compile(r"(?<![\w/.-])((?:scripts|templates)/[\w./-]+?):([0-9]+)(?:-([0-9]+))?(?![\w-])")
+
+
+def doc_cites(text):
+    """{(path, first, last)} for every devagent `path:line` or `path:first-last` cite."""
+    return {(m.group(1), int(m.group(2)), int(m.group(3) or m.group(2))) for m in DEVAGENT_CITE_RE.finditer(text)}
+
+
+def test_doc_names_the_pin_and_every_cite():
+    text = DOC.read_bytes().decode("utf-8")
+    tag, _ = hd.read_pin()
+    assert tag in text
+    for path, first, last, _ in CITES:
+        cite = f"{path}:{first}" if first == last else f"{path}:{first}-{last}"
+        assert cite in text, cite
+
+
+def test_doc_cites_equal_cites_table():
+    found = doc_cites(DOC.read_bytes().decode("utf-8"))
+    table = {(path, first, last) for path, first, last, _ in CITES}
+    assert len(found) >= 20
+    assert found == table, (sorted(found - table), sorted(table - found))
+    # The parser sees a cite in prose and ignores a gantry path that holds templates/.
+    assert doc_cites("see `scripts/park.sh:63` and gantry/templates/page.html:4") == {("scripts/park.sh", 63, 63)}
