@@ -17,7 +17,9 @@ from helpers_config import run_main, sample_build
 from test_samples import ROOT
 
 FIXTURES = ROOT / "tests" / "fixtures" / "week_plan"
-FIXTURE_NAMES = ("binds_attention", "binds_lanes", "continues", "cross_site", "cross_site_cycle", "states")
+FIXTURE_NAMES = ("binds_attention", "binds_lanes", "continues", "cross_site", "cross_site_cycle", "states",
+                 # #37: fair share and priority tiers.
+                 "late_ready", "no_allocation", "no_share", "p0", "share_unbuilt", "two_sites", "unequal_rates")
 DELETE = object()  # plan_of: remove the file instead of writing it
 _copies = itertools.count()
 
@@ -78,6 +80,12 @@ def portfolio_md(hours=8, lanes=1, block_min=1, start_cost=0.25, attention=None,
     capacity = "".join(f"{key} = {value}\n" for key, value in keys.items() if value not in (None, ""))
     return ("# Portfolio\n\n## Business requirements\n\n- BR-1: Keep it small.\n\n## Settings\n\n"
             f"```toml\nportfolio_version = 1\n\n[capacity]\n{capacity}{more}{tail}```\n")
+
+
+def allocation(day, **shares):
+    """One [[allocation]] table for portfolio_md(tail=...): `shares` from `day` (YYYY-MM-DD text)."""
+    pairs = ", ".join(f"{name} = {value}" for name, value in shares.items())
+    return f"\n[[allocation]]\nfrom = {day}\nshares = {{ {pairs} }}\n"
 
 
 def reserved(day, hours, label=None, start="09:00"):
@@ -512,6 +520,63 @@ def test_cross_site_fixtures_have_spare_capacity(tmp_path, base):
 def open_keys(copy, site):
     result, _, _ = built(copy)
     return {found.key for found in result.inputs[site].data.leaves if found.open}
+
+
+def test_fixture_names_cover_every_installation():
+    found = {path.parent.name for path in FIXTURES.glob("*/gantry.toml")}
+    assert set(FIXTURE_NAMES) == found
+    assert len(found) == len(FIXTURE_NAMES) == 13
+
+
+def fixture_facts(tmp_path, base):
+    """(config order of sites, {site: [(leaf, rate, agent minutes)] of open leaves},
+    the as-of day's intended shares or None) from the built inputs, not the plan."""
+    from gantry.attention import leaf_attention, mapping_in_use
+
+    result, portfolio, config = built(install(tmp_path, base))
+    mapping = mapping_in_use(portfolio)
+    sites = {}
+    for site in result.sites:
+        data = result.inputs[site.name].data
+        sites[site.name] = [
+            (found, leaf_attention(found, data, mapping).rate,
+             planner._leaf_minutes((found.estimate.lo_h + found.estimate.hi_h) / 2))
+            for found in data.leaves if found.open]
+    shares = intended_shares(portfolio, config.as_of)
+    return [site.name for site in result.sites], sites, None if shares is None else shares.shares
+
+
+def test_new_fixtures_state_their_premises(tmp_path):
+    from gantry.priority import rank
+
+    order, sites, shares = fixture_facts(tmp_path, "two_sites")
+    assert shares == {"a": 50, "b": 50}
+    for name in ("a", "b"):
+        assert all(rate == 1.0 for _, rate, _ in sites[name])
+        assert all(rank(found.priority) != 0 and found.state == "pending" and not found.deps
+                   for found, _, _ in sites[name])
+        assert sum(minutes for _, _, minutes in sites[name]) == 60 * 60
+
+    order, sites, shares = fixture_facts(tmp_path, "unequal_rates")
+    assert sorted(rate for _, rate, _ in sites["a"] if rate) == [1.0, 1.0]
+    assert sorted({rate for _, rate, _ in sites["b"] if rate}) == [0.1]
+    assert [sum(rate == 0 for _, rate, _ in sites[name]) for name in ("a", "b")] == [9, 9]
+
+    order, sites, shares = fixture_facts(tmp_path, "late_ready")
+    (c_leaf, _, _), = sites["c"]
+    for found, _, _ in sites["b"]:
+        assert [(o.status, o.target_site, o.target_key) for o in found.foreign_targets] == [
+            ("open", "c", c_leaf.key)]
+    assert "c" not in shares
+
+    order, sites, shares = fixture_facts(tmp_path, "no_share")
+    assert order[0] == "c"
+    assert [(rate, minutes) for _, rate, minutes in sites["a"]] == [(1.0, 720), (0.0, 30)]
+    assert all(shares.get(name, 0) == 0 for name in ("c", "d"))
+
+    order, sites, shares = fixture_facts(tmp_path, "p0")
+    found, rate, minutes = next(entry for entry in sites["b"] if entry[0].key == "Issue-1")
+    assert rank(found.priority) == 0 and planner._operator(minutes, planner._ppm(rate)) == 30
 
 
 @pytest.mark.parametrize("base", FIXTURE_NAMES)
