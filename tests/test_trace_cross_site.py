@@ -24,7 +24,8 @@ from test_samples import GANTRY_SAMPLE
 from test_trace import catalog, leaf, rid, tree
 from gantry.views.worksite import page_model
 from test_crosssite import force_render
-from test_trace_page import installation, report_items, row, sample, trace_of
+from test_trace_page import by_id, installation, report_items, req_li, row, sample, trace_of
+from test_worksite_page import STRUCTURAL, find, text_of
 from test_worksite_page import tree as page_tree
 
 HERE = PurePath("/planning")
@@ -442,3 +443,76 @@ def test_trace_fault_site_not_read(tmp_path, monkeypatch):
     result = sample(tmp_path)
     assert trace_of(result.pages[SMALL])["not_read"] == [BUSY, UNREADABLE]
     assert BUSY not in result.pages
+
+
+# --- Task 7: the page: panel, labels, ID links --------------------------------------
+
+
+def panel_items(page):
+    t = page_tree(page)
+    return t, [i for i in find(t, "li", ["xleaf"])]
+
+
+def test_sample_panel_rendered(tmp_path):
+    page = sample(tmp_path).pages[SMALL]
+    t, items = panel_items(page)
+    section = by_id(t, "served-elsewhere")
+    (h2,) = find(t, "h2", within=section)
+    assert text_of(t, h2) == worksite.XSITE_HEADING == "Served from other sites"
+    (li,) = items
+    assert t.elements[li]["attrs"]["data-item"] == "0"
+    assert text_of(t, li) == "quarry \u00b7 Issue-3 \u00b7 Grade the road \u00b7 open \u00b7 FR-2"
+    (a,) = find(t, "a", within=li)
+    assert t.elements[a]["attrs"]["href"] == "quarry.html#leaf-Issue-3"
+    assert text_of(t, a) == "quarry \u00b7 Issue-3 \u00b7 Grade the road"
+    (ul,) = find(t, "ul", ["xsite"], within=section)
+    assert {"xsite", "xleaf"} <= STRUCTURAL
+
+
+def test_panel_item_forms(tmp_path):
+    cat = catalog(tree(tmp_path, {"alpha": ALPHA, "beta": None, "gamma": "- FR-1: g\n"}))
+    found, _ = installation_trace(cat, {"alpha": [], "beta": [
+        leaf("B1", 2, "x", satisfies="[alpha:FR-1, gamma:FR-1]"), leaf("B2", 3, "~", satisfies="alpha:FR-2")],
+        "gamma": []})
+    data = inputs_of([]).data
+    page = worksite.render_page("alpha", data, default_unit_hours=6,
+                                trace=page_trace(found["alpha"], cat, data, built=frozenset({"alpha", "gamma"})))
+    t, items = panel_items(page)
+    assert [text_of(t, i) for i in items] == [
+        "beta \u00b7 B1 \u00b7 B1 \u00b7 finished \u00b7 FR-1, gamma:FR-1",
+        "beta \u00b7 B2 \u00b7 B2 \u00b7 in progress \u00b7 FR-2"]
+    # beta has no page: its leaf is plain text; gamma does, so gamma's ID links.
+    assert [(t.elements[a]["attrs"]["href"], text_of(t, a)) for a in find(t, "a", within=items[0])] == [
+        ("gamma.html", "gamma:FR-1")]
+    assert [text_of(t, x) for x in find(t, "span", ["mono"], within=items[0])] == ["FR-1"]
+
+
+def test_no_panel_without_foreign(tmp_path, monkeypatch):
+    wbs = {"alpha": "# Alpha\n\n- [ ] One {issue: Issue-1, satisfies: alpha:FR-1}\n",
+           "beta": "# Beta\n\n- [ ] Two {issue: Issue-2}\n"}
+    result = build.build_all(load_config(installation(tmp_path, wbs, {"alpha": TWO_REQS})))
+    assert "served-elsewhere" not in result.pages["alpha"] and find(page_tree(result.pages["alpha"]), "li", ["xleaf"]) == []
+    code, out, _, err = demo_build(tmp_path / "site", monkeypatch, "--site", SMALL)
+    assert code == 0, err
+    assert "served-elsewhere" not in (out / "sites" / f"{SMALL}.html").read_text(encoding="utf-8")
+
+
+def row_links(t, rid_):
+    li = req_li(t, rid_)
+    return [(t.elements[a]["attrs"]["href"], text_of(t, a)) for a in find(t, "a", within=li)]
+
+
+def test_row_links_built_site(tmp_path):
+    result = sample(tmp_path)
+    quarry = result.pages[UNESTIMATED]
+    assert '</button> <a href="lighthouse.html">lighthouse</a>' in quarry
+    assert row_links(page_tree(quarry), "lighthouse:FR-2") == [("lighthouse.html", "lighthouse")]
+    t = page_tree(result.pages[SMALL])
+    assert row_links(t, "life:BR-1") == [] and row_links(t, "lighthouse:FR-2") == []
+
+
+def test_no_row_links_in_site_build(tmp_path, monkeypatch):
+    code, out, _, err = demo_build(tmp_path, monkeypatch, "--site", UNESTIMATED)
+    assert code == 0, err
+    page = (out / "sites" / f"{UNESTIMATED}.html").read_text(encoding="utf-8")
+    assert row_links(page_tree(page), "lighthouse:FR-2") == [] and "lighthouse.html" not in page

@@ -154,7 +154,7 @@ def render_site(name, inputs, config, stamp, *, catalog, trace=None, built=froze
         trace = build_site_trace(name, inputs.data.leaves, catalog)
     trace = page_trace(trace, catalog, inputs.data, built=built)
     m = worksite.page_model(name, inputs.data, default_unit_hours=config.default_unit_hours, inputs=inputs,
-                            trace=trace)
+                            trace=trace, built=built, br_namespace=catalog.br_namespace)
     return worksite.render_model(m, stamp=stamp), m
 
 

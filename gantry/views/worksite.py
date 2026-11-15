@@ -14,9 +14,10 @@ from gantry import network, priority, render, schedule
 from gantry.deps import open_sources, refs
 from gantry.est_rules import classify_est
 from gantry.inputs import NO_TIERS, UNEST_WHAT, has_tiers, scheduled, site_totals
-from gantry.links import leaf_anchor
+from gantry.links import id_href, leaf_anchor
 from gantry.model import HOURS_PER_DAY, Estimate, Models
 from gantry.path import build_paths
+from gantry.requirements import parse_id
 from gantry.render import MODEL_CLASSES, Markup, embed_json, esc, fill, model_class, slack_class, state_class
 
 LANES_DEFAULT = 4
@@ -101,6 +102,9 @@ LAYER_HEADINGS = {"BR": "Business requirements", "BRule": "Business rules", "UC"
 ROW_DETAIL = "serving leaves not drawn"
 ROW_HELD, ROW_FINISHED = "waiting on a cycle", "finished"
 TRACE_HEADING = "Trace report"
+# Leaves on other sites serving this site's requirements (#21).
+XSITE_HEADING = "Served from other sites"
+XSITE_OPEN = "open"  # an open foreign leaf with no STATE_MARKS word; a finished one reads ROW_FINISHED
 TRACE_LABELS = {"unreadable": "Unreadable files", "malformed": "Malformed entries", "duplicate": "Duplicate IDs",
                 "misplaced": "Misplaced requirements", "cycle": "Refinement cycles", "undefined": "Undefined IDs",
                 "unserved": "Unserved requirements", "untraced": "Untraced open leaves",
@@ -386,13 +390,16 @@ def _tier_counts(tiers):
     return [[t, counts[t]] for t in _known_first(counts)]
 
 
-def page_model(site, data, *, default_unit_hours, inputs=None, trace=None) -> dict:
+def page_model(site, data, *, default_unit_hours, inputs=None, trace=None, built=frozenset(),
+               br_namespace=None) -> dict:
     """The page's data for one site's parsed WBS.md.
 
     `inputs` is apply_inputs's result for the site; without it every leaf is
     on the default unit and no estimates file is named. `trace` is
     gantry.trace.page_trace's result (#20); None, as in a direct test
-    render, draws no trace.
+    render, draws no trace. `built` is the set of sites with a page in this
+    build and `br_namespace` the installation's: with them a requirements
+    row whose ID is another built site's links to its page (#21, links.id_href).
     """
     if inputs is not None:
         data = inputs.data
@@ -575,6 +582,10 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None) -> di
                   "path_upstream": PATH_MARKS["upstream"], "mark_chain": PATH_MARK_CHAIN,
                   "no_issue_id": NO_ISSUE_ID},
         "trace": traced,
+        # [[row id, href], ...]: the requirements rows that link to another built site's page (#21).
+        "req_links": [[r["id"], href] for r in (trace or {}).get("requirements", ())
+                      if (rid := parse_id(r["id"])) is not None
+                      and (href := id_href(rid, site, built, br_namespace)) is not None],
     }
 
 
@@ -1012,12 +1023,15 @@ def _chips(ids, x, y):
     return out
 
 
-def _req_row(r):
+def _req_row(r, href=None):
     rid = esc(r["id"])
     text = f" {esc(r['text'])}" if r["text"] is not None else ""
     out = (f'<li class="req" data-req="{rid}"><button type="button" class="req-row" data-control="requirement" '
            f'data-value="{rid}" aria-pressed="false"><span class="mono">{esc(r["label"])}</span>{text} '
            f'<span class="req-count">{esc(r["counts"])}</span></button>')
+    if href is not None:
+        # The ID is another built site's (#21): a link to its page, after the control, never inside it.
+        out += f' <a href="{esc(href)}">{esc(parse_id(r["id"]).namespace)}</a>'
     rows = [(row, ROW_HELD) for row in r["held"]] + [(row, ROW_FINISHED) for row in r["finished"]]
     if rows:
         lines = "".join(f"<li>{_leaf_line(key, issue, title)}{DOT}{esc(what)}</li>"
@@ -1027,21 +1041,40 @@ def _req_row(r):
     return out + "</li>"
 
 
-def _requirements(trace):
-    """The requirements panel: on a site in the trace, or one whose leaves name an ID that resolves."""
+def _requirements(trace, links=()):
+    """The requirements panel: on a site in the trace, or one whose leaves name an
+    ID that resolves. `links` is the model's req_links."""
     if trace is None or not (trace["in_trace"] or trace["requirements"]):
         return Markup("")
-    groups = {}
+    groups, hrefs = {}, dict(map(tuple, links))
     for r in trace["requirements"]:
         groups.setdefault(r["layer"], []).append(r)
     parts = [f'<section class="prose" id="requirements"><h2>{esc(REQUIREMENTS_HEADING)}</h2>'
              f'<p class="label">{esc(SELECT_NOTE)}</p><p class="label">{esc(PATH_NOTE)}</p>']
     for layer, rows in groups.items():
         parts.append(f'<h3>{esc(LAYER_HEADINGS[layer])}</h3><ul class="panel reqs">'
-                     + "".join(_req_row(r) for r in rows) + "</ul>")
+                     + "".join(_req_row(r, hrefs.get(r["id"])) for r in rows) + "</ul>")
     # The path box (#77): after the lists, so selecting never moves a row; the script fills it.
     parts.append('<div class="req-path gone" id="req-path"></div>')
     return Markup("".join(parts) + "</section>")
+
+
+def _served_elsewhere(trace):
+    """The "Served from other sites" panel (#21): each foreign leaf, in the
+    trace's order (config, then WBS.md), when the trace has any."""
+    if trace is None or not trace.get("foreign"):
+        return Markup("")
+    items = []
+    for i, (site, _key, issue, title, state, is_open, ids, href) in enumerate(trace["foreign"]):
+        head = f"{esc(site)}{DOT}{esc(issue if issue is not None else NO_ISSUE_ID)}{DOT}{esc(title)}"
+        if href is not None:
+            head = f'<a href="{esc(href)}">{head}</a>'
+        word = STATE_MARKS.get(state) or (XSITE_OPEN if is_open else ROW_FINISHED)
+        names = ", ".join(f'<a href="{esc(link)}">{esc(label)}</a>' if link is not None
+                          else f'<span class="mono">{esc(label)}</span>' for _rid, label, link in ids)
+        items.append(f'<li class="xleaf" data-item="{i}">{head}{DOT}{esc(word)}{DOT}{names}</li>')
+    return Markup(f'<section class="prose" id="served-elsewhere"><h2>{esc(XSITE_HEADING)}</h2>'
+                  f'<ul class="panel xsite">{"".join(items)}</ul></section>')
 
 
 def _trace_item(name, item):
@@ -1135,7 +1168,8 @@ def render_model(m, *, stamp="") -> str:
         HELD_ANCHORS=_anchors(m["anchors"]["held"]),
         FINISHED_HEADING=FINISHED_HEADING,
         FINISHED=_finished(m),
-        REQUIREMENTS=_requirements(m["trace"]),
+        REQUIREMENTS=_requirements(m["trace"], m.get("req_links", ())),
+        FOREIGN=_served_elsewhere(m["trace"]),
         TRACE=_trace_panel(m["trace"]),
         DATA=embed_json(m),
         SCHEDULE_JS=_script("static/schedule.js"),
