@@ -286,20 +286,22 @@ Each day runs in eight phases:
 7. `fair_share` blocks of the [share-less sites](#share-less-sites);
 8. their lanes row.
 
-In phases 1 to 4, the sites with a ready leaf of the tier go in order of
-their most urgent such leaf's effective priority, ties to devagent's config
-order, fixed when the phase starts; in phase 1 every such leaf is P0, so
-config order decides. Each site gets one block holding its ready leaves of
-the tier with a rate above 0, in the order within a site, limited only by
-the day's attention, the lanes and each leaf's 6 agent hours; then, in the
-same site order, its rate-0 leaves of the tier join the lanes row. P0 work
-and work already in progress go first whatever a site's share, and their
-charges count against it. A P0 leaf held by another site's open leaf is
+In phases 1 to 4, each site with a ready leaf of the tier of rate above 0
+gets one block holding those leaves, in the order within a site, limited
+only by the day's attention, the lanes and each leaf's 6 agent hours. The
+sites go in order of their most urgent such leaf's effective priority, ties
+to devagent's config order, fixed when the phase starts; in phase 1 every
+such leaf is P0, so config order decides. Then the sites with a ready rate-0
+leaf of the tier put those leaves in the lanes row, the sites in the same
+kind of order taken over their rate-0 leaves alone. A leaf's priority
+orders only the pass that places it, so raising a rate-0 leaf never moves
+its site's block ahead of another's. P0 work and work already in progress
+go first whatever a site's share, and their charges count against it. A P0 leaf held by another site's open leaf is
 not ready until that leaf finishes; a site's `p0` list names, for each
 of its P0 leaves, the other sites' leaves it waits on through `depends_on`
-entries on its own line or on an open row above it. A hold that reaches it only through a local blocker is listed on that
-blocker's entry, not on the leaf's. Phases 5 to 8 divide what is left by intended
-shares.
+entries on its own line or on an open row above it. A hold that reaches
+it only through a local blocker is listed on that blocker's entry, not on
+the leaf's. Phases 5 to 8 divide what is left by intended shares.
 
 ### Merged blocks
 

@@ -644,22 +644,30 @@ class _Day:
         self.row.append({"site": item["site"], "key": item["key"], "agent_hours": _hours(agent)})
 
     def tier_phase(self, tier):
-        """Phases 1 to 4: the sites with a ready leaf of the tier, by its most
-        urgent one's effective priority then config order, fixed now; each
-        gets one block for its leaves of the tier, then in the same order its
-        rate-0 leaves of the tier join the lanes row."""
-        sites = [name for _, _, name in sorted(
-            (schedule.pick_ready(self.order[name][tier])["eff_priority"], self.position[name], name)
-            for name in self.names if self.order[name][tier])]
-        for name in sites:
+        """Phases 1 to 4: the sites with a ready leaf of the tier of rate above
+        0, by the most urgent such leaf's effective priority then config
+        order, fixed now, each get one block for those leaves; then the sites
+        with a ready rate-0 leaf of the tier, ordered the same way by their
+        rate-0 leaves, put those leaves in the lanes row. A leaf's priority
+        orders only the pass that places it."""
+        for name in self.tier_sites(tier, rated=True):
             self.block_pass(name, self.order[name][tier])
         self.block_pools_run_out(self.names, tier)
         self.phase += 1
-        for name in sites:
+        for name in self.tier_sites(tier, rated=False):
             for item in self.order[name][tier]:
                 if not item["ppm"] and self.room(item) > 0:
                     self.row_place(item)
         self.phase += 1
+
+    def tier_sites(self, tier, rated):
+        """The sites with a ready leaf of `tier` of rate above 0 (`rated`) or of
+        rate 0, by the most urgent such leaf's effective priority, then config order."""
+        leaves = {name: [item for item in self.order[name][tier] if bool(item["ppm"]) == rated]
+                  for name in self.names}
+        return [name for _, _, name in sorted(
+            (schedule.pick_ready(leaves[name])["eff_priority"], self.position[name], name)
+            for name in self.names if leaves[name])]
 
     # --- fair share --------------------------------------------------------------------
 

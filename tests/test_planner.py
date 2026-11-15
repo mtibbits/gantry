@@ -1916,6 +1916,22 @@ def test_raising_priority_moves_a_tied_leaf_earlier(tmp_path):
     assert moved >= 2
 
 
+def test_raising_a_rate_zero_leaf_does_not_reorder_its_tiers_blocks(tmp_path):
+    # Review counter-example (#37): a tier's blocks go by each site's most urgent leaf of rate
+    # above 0 and its lanes row by its most urgent rate-0 leaf. Ordering both by any leaf of the
+    # tier let raising a's rate-0 leaf put a's block first, whose leaf took the only lane.
+    portfolio = portfolio_md(hours=6, lanes=1)
+    b = wbs_md(leaf(1, "!", priority="P2", est="6h", h=3), leaf(2, "~", priority="P2", est="3w", h=4))
+    found = {}
+    for raise_it in (False, True):
+        meta = {"priority": "P2"} if raise_it else {}
+        a = wbs_md(leaf(1, "!", est="1h", h=0, **meta), leaf(2, "~", est="6h", h=2))
+        plan = plan_of(tmp_path, "states", wbs={"a": a, "b": b}, portfolio=portfolio)
+        found[raise_it] = first_placement(plan, "a", "Issue-1")
+    assert found[False] != NEVER
+    assert found[True] <= found[False], found
+
+
 # --- through the build ------------------------------------------------------------------------
 
 
