@@ -12,7 +12,7 @@ in this repository (`samples/portfolio.md`) is fictional.
 
 Today `gantry portfolio` checks the file, and the build reads its business
 requirements, which the trace resolves a leaf's `satisfies:` against (#20),
-and its capacity settings, for the week plan (#61,
+and its capacity settings and allocations, for the week plan (#61, #37,
 [week-plan.md](week-plan.md#the-planner)). The build reads the file once
 and every view reuses that read. It runs neither these checks nor the
 milestone check: #23 adds both, reusing the build's read.

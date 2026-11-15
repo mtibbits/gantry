@@ -1175,7 +1175,6 @@ def test_shareless_days_only_while_an_allocation_applies(tmp_path):
 
 
 def test_unbuilt_share_dropped_and_rest_scaled(tmp_path):
-
     plan = plan_of(tmp_path, "share_unbuilt")
     days = plan.horizon_days
     early = [note for note in plan.notes if note["date"] in days[:5]]
@@ -1453,7 +1452,8 @@ def test_block_extends_minute_by_minute(tmp_path, trace):
                 state[name][1] += length * share[name]
             state[block["site"]][0] += length
             for entry in block["leaves"]:
-                seen[block["site"], entry["key"]] = seen.get((block["site"], entry["key"]), 0) + mins(entry["agent_hours"])
+                key = block["site"], entry["key"]
+                seen[key] = seen.get(key, 0) + mins(entry["agent_hours"])
             if k + 1 == len(day["blocks"]) or day["blocks"][k + 1]["site"] == block["site"]:
                 continue
             charged, target = state[block["site"]]
@@ -1692,6 +1692,13 @@ def test_binding_pool_cells_under_fair_share(tmp_path):
     assert block_sites(first) == ["a", "b", "a"]
     assert placed(plan, "a", "Issue-1")["days"] == [first["date"]]
     assert first["ran_out"] == []
+    # A leaf cut by the cap, not by the day's attention, then the only lane runs out: lanes alone.
+    plan = plan_of(tmp_path, "two_sites",
+                   portfolio=portfolio_md(hours=6, lanes=1, tail=allocation("2026-01-05", a=50, b=50)),
+                   wbs={"a": wbs_md(leaf(1, est="6h", h=4)), "b": wbs_md(leaf(1, est="2.25h", h=1))})
+    first = plan.days[0]
+    assert first["left"] == {"attention_hours": 1.0, "lane_hours": 0.0}
+    assert first["ran_out"] == [LANES]
 
 
 def test_unusable_share_is_not_accrued(tmp_path):

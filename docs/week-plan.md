@@ -295,8 +295,10 @@ the day's attention, the lanes and each leaf's 6 agent hours; then, in the
 same site order, its rate-0 leaves of the tier join the lanes row. P0 work
 and work already in progress go first whatever a site's share, and their
 charges count against it. A P0 leaf held by another site's open leaf is
-not ready until that leaf finishes; a site's `p0` list names what holds
-each of its P0 leaves. Phases 5 to 8 divide what is left by intended
+not ready until that leaf finishes; a site's `p0` list names, for each
+of its P0 leaves, the other sites' leaves it waits on through `depends_on`
+entries on its own line or on an open row above it. A hold that reaches it only through a local blocker is listed on that
+blocker's entry, not on the leaf's. Phases 5 to 8 divide what is left by intended
 shares.
 
 ### Merged blocks
@@ -509,7 +511,8 @@ them, attention first:
   longer fits.
 
 Both are judged against the day's attention, never against a block's
-fair-share cap. A waiting leaf of rate above 0 is judged when its tier's
+fair-share cap: a block the cap cut short has not stopped at the day's
+attention, even when less attention was left than its leaf wanted. A waiting leaf of rate above 0 is judged when its tier's
 blocks have been planned and before that tier's lanes row: `p0` leaves
 after phase 1, `started` leaves after phase 3, the share sites' `fair_share`
 leaves after phase 5 and the share-less sites' after phase 7, each against

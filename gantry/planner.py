@@ -10,10 +10,10 @@ date give the same plan on any machine. docs/week-plan.md states the rules.
 import json
 import math
 from dataclasses import asdict, dataclass
-from typing import NamedTuple
-from fractions import Fraction
 from datetime import timedelta
+from fractions import Fraction
 from graphlib import TopologicalSorter
+from typing import NamedTuple
 
 from gantry import priority, schedule
 from gantry.attention import MAX_RATE, leaf_attention, mapping_in_use, site_ratio_source
@@ -75,6 +75,7 @@ LANE_MINUTES = HOURS_PER_DAY * 60
 MAX_LANES = 1_000_000
 MAX_LEAF_MINUTES = 60 * 1_000_000_000
 PPM = 1_000_000
+
 
 @dataclass(frozen=True)
 class WeekPlan:
@@ -437,7 +438,7 @@ class _Day:
     at most one open block: a block stays open until a block of another site
     opens or the day ends, and a phase that gives the next block to the open
     block's site continues it, with no second start cost. Every charge to a
-    site moves the targets of the sites that can use the pool (_Ledger)."""
+    site moves the targets of the sites that can use the pool (charge)."""
 
     def __init__(self, index, day, capacity, names, work, placed_order, ledger, day_shares, trace=None):
         self.index, self.text, self.capacity, self.names = index, day.isoformat(), capacity, names
@@ -526,8 +527,8 @@ class _Day:
         charged[name] += minutes
         if self.trace is not None:
             self.trace.append({"date": self.text, "site": name, "pool": pool, "phase": phase, "minutes": minutes,
-                           "what": what, "before": before, "users": users,
-                           "after": {site: (charged[site], target[site]) for site in self.names}})
+                               "what": what, "before": before, "users": users,
+                               "after": {site: (charged[site], target[site]) for site in self.names}})
 
     def deficit(self, name, pool):
         return self.ledger[pool]["target"][name] - self.ledger[pool]["charged"][name]
@@ -708,12 +709,13 @@ class _Day:
             if want <= 0:
                 continue
             fit = _agent_fit(self.attention, item["ppm"])
-            self.stopped = self.stopped or fit < want  # the day's attention only, never the cap
             if lifted:
                 cap = max(budget, _operator(1, item["ppm"]) if not placed else 0)
             else:
                 cap, bound = self.cap(name, members)
             agent = min(want, _agent_fit(min(self.attention, cap), item["ppm"]))
+            # Stopped at the day's attention only when it, not the cap, cut the leaf.
+            self.stopped = self.stopped or (fit < want and agent == fit)
             if agent <= 0:
                 continue
             operator = self.put(item, agent, fit)
