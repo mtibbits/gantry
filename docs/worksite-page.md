@@ -587,8 +587,11 @@ requirements panel and no trace report.
   items, or `none`: `Unreadable files`, `Malformed entries`,
   `Duplicate IDs`, `Misplaced requirements`, `Refinement cycles` and
   `Undefined IDs`, each item `{source} line {line}: {message}`, or
-  `{source}: {message}` for a whole file; then, for a site in the trace,
-  `Unserved requirements`, each item an ID, and `Untraced open leaves`,
+  `{source}: {message}` for a whole file; then, for a site in the trace
+  in a full build, `Undefined IDs on other sites`, each item
+  `{site} WBS.md line {line}: {message}` for another site's leaf naming an
+  ID of this site that names no requirement (#21); then, for a site in
+  the trace, `Unserved requirements`, each item an ID, and `Untraced open leaves`,
   each item a key and its title. The unserved label carries the report's
   scope: `served only within this site` while it is `site`, and
   `scope: {scope}` for a scope this Gantry does not know. A requirements

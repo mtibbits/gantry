@@ -103,7 +103,8 @@ ROW_HELD, ROW_FINISHED = "waiting on a cycle", "finished"
 TRACE_HEADING = "Trace report"
 TRACE_LABELS = {"unreadable": "Unreadable files", "malformed": "Malformed entries", "duplicate": "Duplicate IDs",
                 "misplaced": "Misplaced requirements", "cycle": "Refinement cycles", "undefined": "Undefined IDs",
-                "unserved": "Unserved requirements", "untraced": "Untraced open leaves"}
+                "unserved": "Unserved requirements", "untraced": "Untraced open leaves",
+                "undefined_foreign": "Undefined IDs on other sites"}
 UNSERVED_SCOPES = {"site": "served only within this site"}
 UNSERVED_SCOPE_OTHER = "scope: {scope}"  # a scope this Gantry does not know yet (#21)
 TRACE_COUNT = "{label}: {n}"

@@ -7,16 +7,19 @@ The model tests need no Node; the page-script tests take the `node` fixture.
 import copy
 from pathlib import PurePath
 
-from gantry import build, sites
+from gantry import build, links, sites
 from gantry.config import load_config
 from gantry.inputs import Inputs
 from gantry.model import SiteData
 from gantry.sites import SiteEntry, config_roots, load_sites
 from gantry.trace import (FOREIGN_SOURCE, INSTALLATION_SCOPE, MESSAGES, ForeignLeaf, build_installation_trace,
-                          build_site_trace, sites_not_read)
-from sample_roles import NO_WBS, UNREADABLE
+                          build_site_trace, load_catalog, page_trace, sites_not_read)
+from gantry.views import worksite
+from sample_roles import NO_WBS, READABLE, SMALL, UNESTIMATED, UNREADABLE
 from test_samples import GANTRY_SAMPLE
 from test_trace import catalog, leaf, rid, tree
+from test_trace_page import report_items, row, sample, trace_of
+from test_worksite_page import tree as page_tree
 
 HERE = PurePath("/planning")
 
@@ -205,3 +208,103 @@ def test_inputs_not_mutated(tmp_path):
 def test_undefined_foreign_message():
     assert MESSAGES["undefined_foreign"] == "leaf {key!r}: satisfies entry {rid} names no requirement: {why}"
     assert FOREIGN_SOURCE == "{site} WBS.md"
+
+
+# --- Task 4: the page's `trace` data ------------------------------------------------
+
+TRACE_KEYS = ["in_trace", "scope", "requirements", "leaves", "report", "not_read", "foreign"]
+
+
+def sample_installation():
+    """(page traces, SiteTraces, catalog, inputs) of the sample installation,
+    widened as a full build widens them, every read site built."""
+    config = load_config(GANTRY_SAMPLE)
+    roots = config_roots(config)
+    entries = load_sites(config, roots)[0]
+    cat = load_catalog(roots, config, entries)
+    inputs, reasons = build.read_sites(config, entries, roots=roots)
+    traces = {name: build_site_trace(name, i.data.leaves, cat) for name, i in inputs.items()}
+    wide = build_installation_trace(entries, inputs, traces, reasons, cat)
+    pages = {name: page_trace(t, cat, inputs[name].data, built=frozenset(inputs)) for name, t in wide.items()}
+    return pages, wide, cat, inputs
+
+
+def test_trace_data_keys(tmp_path):
+    result = sample(tmp_path)
+    for name in sorted(READABLE):
+        trace = trace_of(result.pages[name])
+        assert list(trace) == TRACE_KEYS, name
+    pages, *_ = sample_installation()
+    for name, trace in pages.items():
+        assert list(trace) == TRACE_KEYS, name
+        for r in trace["requirements"]:
+            assert list(r)[-3:] == ["finished", "foreign", "counts"], (name, r["id"])
+    assert [r["id"] for r in pages[UNESTIMATED]["requirements"]] == ["lighthouse:FR-2"]
+
+
+def test_foreign_index_not_key():
+    pages, *_ = sample_installation()
+    trace = pages[SMALL]
+    fr2 = row(trace, "lighthouse:FR-2")
+    assert fr2["foreign"] == [[0, "direct"]]
+    assert trace["foreign"][0][:2] == ["quarry", "Issue-3"]
+    # Lighthouse's own Issue-3 is finished and serves SR-1, never FR-2.
+    assert all(k != "Issue-3" for k, _ in fr2["light"]) and fr2["finished"] == []
+    assert all(r["foreign"] == [] for r in pages[UNESTIMATED]["requirements"])
+
+
+def test_foreign_record_and_not_read():
+    pages, *_ = sample_installation()
+    trace = pages[SMALL]
+    assert trace["scope"] == "installation" and trace["not_read"] == [UNREADABLE]
+    assert trace["foreign"] == [["quarry", "Issue-3", "Issue-3", "Grade the road", "pending", True,
+                                 [["lighthouse:FR-2", "FR-2", None]], "quarry.html#leaf-Issue-3"]]
+    assert pages[UNESTIMATED]["foreign"] == [] and pages[UNESTIMATED]["not_read"] == [UNREADABLE]
+
+
+def test_foreign_href_needs_a_built_page():
+    config = load_config(GANTRY_SAMPLE)
+    _, wide, cat, inputs = sample_installation()
+    page = page_trace(wide[SMALL], cat, inputs[SMALL].data, built=frozenset({SMALL}))
+    assert page["foreign"][0][-1] is None
+
+
+def test_site_scope_page_trace_has_no_foreign():
+    _, _, cat, inputs = sample_installation()
+    page = page_trace(build_site_trace(SMALL, inputs[SMALL].data.leaves, cat), cat, inputs[SMALL].data)
+    assert page["scope"] == "site" and page["not_read"] is None and page["foreign"] == []
+    assert "undefined_foreign" not in [name for name, _ in page["report"]]
+    assert all(r["foreign"] == [] for r in page["requirements"])
+
+
+def test_id_href_rules():
+    built = frozenset({"alpha", "beta", "life"})
+    assert links.id_href(rid("beta:FR-1"), "alpha", built, "life") == "beta.html"
+    assert links.id_href(rid("alpha:FR-1"), "alpha", built, "life") is None
+    assert links.id_href(rid("life:BR-1"), "alpha", built, "life") is None
+    assert links.id_href(rid("zeta:FR-1"), "alpha", built, "life") is None
+    assert links.id_href(rid("beta:FR-1"), "alpha", frozenset({"alpha"}), "life") is None
+
+
+def test_undefined_foreign_in_report(tmp_path):
+    cat = catalog(tree(tmp_path, {"alpha": ALPHA, "beta": None}))
+    found, _ = installation_trace(cat, {"alpha": [], "beta": [leaf("B1", 5, satisfies="alpha:FR-99")]})
+    page = page_trace(found["alpha"], cat, inputs_of([]).data, built=frozenset({"alpha", "beta"}))
+    names = [name for name, _ in page["report"]]
+    assert names[names.index("undefined") + 1] == "undefined_foreign" and names[-2:] == ["unserved", "untraced"]
+    (item,) = dict(page["report"])["undefined_foreign"]
+    assert item[:2] == ["beta WBS.md", 5]
+    assert "undefined_foreign" not in [name for name, _ in page_trace(found["beta"], cat, inputs_of([]).data)["report"]]
+
+
+def test_undefined_foreign_rendered_source(tmp_path):
+    cat = catalog(tree(tmp_path, {"alpha": ALPHA, "beta": None}))
+    found, _ = installation_trace(cat, {"alpha": [], "beta": [leaf("B1", 5, satisfies="alpha:FR-99")]})
+    data = inputs_of([]).data
+    page = worksite.render_page("alpha", data, default_unit_hours=6,
+                                trace=page_trace(found["alpha"], cat, data, built=frozenset({"alpha", "beta"})))
+    label = worksite.TRACE_LABELS["undefined_foreign"]
+    assert label == "Undefined IDs on other sites"
+    count, (item,) = report_items(page_tree(page))[label]
+    assert count == f"{label}: 1"
+    assert item.startswith("beta WBS.md line 5: leaf 'B1': satisfies entry alpha:FR-99 names no requirement")

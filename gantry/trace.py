@@ -45,11 +45,12 @@ from dataclasses import dataclass, replace
 
 from gantry import requirements
 from gantry.inputs import scheduled
+from gantry.links import id_href, leaf_href
 from gantry.model import meta_values
 from gantry.portfolio_file import PORTFOLIO_LABEL, Portfolio, PortfolioEntry, read_portfolio_file
 from gantry.requirements import (PROJECT_LAYERS, ReportEntry, ReqId, Requirement, RequirementSet, in_trace_sites,
                                  parse_id, read_requirements)
-from gantry.sites import NO_LEAVES
+from gantry.sites import NO_LEAVES, shown
 
 UNSERVED_SCOPE = "site"  # a --site build, and build_site_trace alone: only this site's leaves are counted
 INSTALLATION_SCOPE = "installation"  # a full build (#21): every read site's leaves are counted
@@ -440,11 +441,17 @@ def _source(entry):
     return entry.source if entry.source in (LEAF_SOURCE, PORTFOLIO_LABEL) else REQUIREMENTS_LABEL
 
 
-def page_trace(trace: SiteTrace, catalog: Catalog, data) -> dict:
+def page_trace(trace: SiteTrace, catalog: Catalog, data, *, built=frozenset()) -> dict:
     """The worksite page's `trace` data for one site, from its SiteTrace and
-    its SiteData (`data`, the leaves the page draws). Records are arrays,
-    never objects keyed by a record value. docs/worksite-page.md states it."""
+    its SiteData (`data`, the leaves the page draws). `built` is the set of
+    sites with a page in this build, which links may target (#21). Records
+    are arrays, never objects keyed by a record value. docs/worksite-page.md
+    states it."""
     site, reqs = trace.site, catalog.requirements
+    lit = {}  # str(ReqId) -> [[foreign index, how], ...]: an index, never a key, so keys of two sites never meet
+    for i, f in enumerate(trace.foreign):
+        for key, how in f.serves:
+            lit.setdefault(key, []).append([i, how])
     wanted = dict.fromkeys(catalog.sets[site].requirements if trace.in_trace else ())
     for ids in trace.leaf_ids.values():
         wanted.update(dict.fromkeys(str(rid) for rid in ids))
@@ -474,9 +481,14 @@ def page_trace(trace: SiteTrace, catalog: Catalog, data) -> dict:
             # A business requirement's text is never on a worksite page (#23).
             "text": None if r.id.namespace == catalog.br_namespace else r.text,
             "needs": [str(n) for n in r.needs if str(n) in wanted and str(n) != key] if r.layer == "UC" else [],
-            "light": light, "held": held, "finished": finished, "counts": ", ".join(counts),
+            "light": light, "held": held, "finished": finished, "foreign": lit.get(key, []),
+            "counts": ", ".join(counts),
         })
     report = [[name, [[_source(e), e.line, e.message] for e in getattr(trace.report, name)]] for name in FIELDS]
+    not_read = trace.report.sites_not_read
+    if trace.in_trace and not_read is not None:
+        # Another site's WBS.md: its source as written (FOREIGN_SOURCE), by category.
+        report.append(["undefined_foreign", [[e.source, e.line, e.message] for e in trace.report.undefined_foreign]])
     if trace.in_trace:
         report.append(["unserved", [[key, _label(reqs[key].id, site)] for key in trace.report.unserved]])
         report.append(["untraced", [[key, by_key[key].title] for key in trace.report.untraced]])
@@ -487,6 +499,11 @@ def page_trace(trace: SiteTrace, catalog: Catalog, data) -> dict:
         "leaves": [[leaf.key, [[str(rid), _label(rid, site)] for rid in trace.leaf_ids[leaf.key]]]
                    for leaf in work if leaf.key in trace.leaf_ids],
         "report": report,
+        "not_read": None if not_read is None else [shown(name) for name in not_read],
+        "foreign": [[f.site, f.key, f.issue, f.title, f.state, f.open,
+                     [[str(rid), _label(rid, site), id_href(rid, site, built, catalog.br_namespace)] for rid in f.ids],
+                     leaf_href(f.site, f.key, from_top=False) if f.site in built else None]
+                    for f in trace.foreign],
     }
 
 

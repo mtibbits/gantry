@@ -160,7 +160,8 @@ def test_sample_leaf_chips_data():
     br = row(page, "life:BR-1")
     assert (br["label"], br["text"]) == ("life:BR-1", None)
     assert page["in_trace"] is True and page["scope"] == "site"
-    assert list(page) == ["in_trace", "scope", "requirements", "leaves", "report"]
+    assert list(page) == ["in_trace", "scope", "requirements", "leaves", "report", "not_read", "foreign"]
+    assert page["not_read"] is None and page["foreign"] == []
 
 
 def test_sample_rows_by_layer():
@@ -250,8 +251,8 @@ def test_every_built_page_carries_trace(tmp_path):
     assert set(result.pages) == READABLE
     for name in sorted(READABLE):
         trace = trace_of(result.pages[name])
-        # Exactly these five keys: #77 adds `path` to each row, not here; #21 adds its keys beside them.
-        assert list(trace) == ["in_trace", "scope", "requirements", "leaves", "report"], name
+        # Exactly these seven keys: #77 adds `path` to each row, not here; #21 adds `not_read` and `foreign`.
+        assert list(trace) == ["in_trace", "scope", "requirements", "leaves", "report", "not_read", "foreign"], name
         if name == SMALL:
             assert trace["in_trace"] is True
             continue
