@@ -28,6 +28,12 @@ line under `## [Unreleased]`.
 - devagent as a supported tool: 3.0.0 or later. Full function needs
   devagent's latest release, and on an older one what needs a newer
   devagent contract is shown as missing (README.md).
+- A reader of devagent's per-issue records (#31): STUCK markers, checklists
+  and plans, read from every issue folder of a planning directory with no
+  link followed, pinned by fixtures that devagent's own scripts write and a
+  contract test against devagent 3.0.0 (`tests/devagent.pin`) on the Ubuntu
+  CI legs; the harbor sample gains seven issue folders. No build reads the
+  records yet (#32) (docs/devagent-formats.md).
 
 - The "Served from other sites" panel on a worksite page (#21): in a full
   build, each leaf on another site whose `satisfies:` names one of this

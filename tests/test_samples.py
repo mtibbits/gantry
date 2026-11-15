@@ -673,10 +673,12 @@ GITATTRIBUTES = ROOT / ".gitattributes"
 GITIGNORE = ROOT / ".gitignore"
 MARSH_PATH = "samples/marsh/WBS.md"
 MARSH_OVERRIDE = MARSH_PATH + " -text"
+STUCK_LINE = "samples/**/STUCK text eol=lf"
 LF_LINES = [
     "samples/**/*.md text eol=lf",
     "samples/**/*.toml text eol=lf",
     "samples/**/*.json text eol=lf",
+    STUCK_LINE,
 ]
 ISSUE_FILES = [
     "samples/README.md",
@@ -690,6 +692,18 @@ ISSUE_FILES = [
     "samples/harbor/estimates-2026-01-15-effort-and-model-tiers.md",
     "samples/portfolio.md",
     "samples/fires.md",
+    "samples/harbor/Issue-6/checklist.md",
+    "samples/harbor/Issue-6/imPlan.md",
+    "samples/harbor/Issue-7/checklist.md",
+    "samples/harbor/Issue-7/imPlan.md",
+    "samples/harbor/Issue-8/checklist.md",
+    "samples/harbor/Issue-8/imPlan.md",
+    "samples/harbor/Issue-12/checklist.md",
+    "samples/harbor/Issue-13/checklist.md",
+    "samples/harbor/Issue-13/STUCK",
+    "samples/harbor/Issue-14/checklist.md",
+    "samples/harbor/Issue-14/STUCK",
+    "samples/harbor/Issue-15/checklist.md",
 ]
 
 HAVE_GIT = shutil.which("git") is not None
@@ -926,23 +940,29 @@ def test_out_folder_excluded(tmp_path, mode):
 
 @needs_git
 def test_attr_check_names_unpinned_stuck(tmp_path):
+    """The STUCK line (#31) pins every sample STUCK file; without it the
+    check names each one, a planted one included."""
     tree = _temp_tree(tmp_path, with_git=True)
     (tree / "samples/harbor/STUCK").write_bytes(b"x\n")
     files = sample_files(tree, hermetic=True)
-    assert unpinned(tree, files, hermetic=True) == ["samples/harbor/STUCK"]
+    assert unpinned(tree, files, hermetic=True) == []
 
     attrs = tree / ".gitattributes"
     before = attrs.read_bytes().decode("utf-8")
-    # Line-wise, keeping the line's own ending: an autocrlf checkout makes
-    # .gitattributes CRLF, since no attribute line covers it.
+    # Line-wise, keeping the other lines' own endings.
     lines = before.splitlines(keepends=True)
-    at = next(i for i, line in enumerate(lines) if line.rstrip("\r\n") == MARSH_OVERRIDE)
-    ending = lines[at][len(MARSH_OVERRIDE):] or "\n"
-    lines.insert(at, "samples/**/STUCK text eol=lf" + ending)
-    after = "".join(lines)
-    assert after != before, "the STUCK line was not inserted"
-    attrs.write_bytes(after.encode("utf-8"))
-    assert unpinned(tree, sample_files(tree, hermetic=True), hermetic=True) == []
+    kept = [line for line in lines if line.rstrip("\r\n") != STUCK_LINE]
+    assert len(kept) == len(lines) - 1, "the STUCK line was not found"
+    stripped = "".join(kept)
+    assert stripped != before
+    attrs.write_bytes(stripped.encode("utf-8"))
+    got = unpinned(tree, files, hermetic=True)
+    assert "samples/harbor/STUCK" in got
+    assert sorted(got) == sorted(f for f in files if f.endswith("/STUCK"))
+    assert len(got) == 3
+
+    attrs.write_bytes(before.encode("utf-8"))
+    assert unpinned(tree, files, hermetic=True) == []
     marsh = git(tree, "check-attr", "text", "--", MARSH_PATH, hermetic=True)
     assert decode_bytes(marsh.stdout).strip().endswith("text: unset")
 

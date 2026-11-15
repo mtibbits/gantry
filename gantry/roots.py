@@ -61,8 +61,8 @@ class Entry:
 
     For a link, `is_dir` and `is_file` describe its target only when the
     target lies inside the roots; for a link out of them both are false and
-    `leaves_roots` is true (provisional for #31: no gantry/ caller reads it
-    yet but estimates discovery).
+    `leaves_roots` is true (no gantry/ caller reads it yet but estimates
+    discovery).
     """
 
     name: str
@@ -82,7 +82,7 @@ class OutsideRoots(Exception):
 
 
 class LinkRefused(OutsideRoots):
-    """A link refused by `follow_links=False` (provisional for #31)."""
+    """A link refused by `follow_links=False` (gantry/devagent_records.py)."""
 
     def __init__(self, key, kind="read", site=None):
         super().__init__(key, kind, site)
@@ -311,7 +311,7 @@ def open_confined(roots, path, mode="r", *, key, site=None, follow_links=True, e
     """open() on the resolved path, under a root (for w, a, x or +, a writable one).
 
     `follow_links=False` refuses a path with a link component below its root
-    with LinkRefused, without opening the target (provisional for #31). A
+    with LinkRefused, without opening the target (gantry/devagent_records.py). A
     write mode is provisional for #35's lock file.
     """
     write = any(c in mode for c in "wax+")

@@ -229,7 +229,8 @@ installation. For the demo it is caught by sample mode (below), by the test
 that lists every root of the sample config, and by the Pages stamp check
 (docs/demo.md). A
 link *below* a root that leads out of every root is what the open-time check
-refuses.
+refuses. One reader follows no link at all, inside the roots or out:
+devagent's per-issue records ([devagent-formats.md](devagent-formats.md#links)).
 
 **Sample mode** means every root lies in the sample directory, `samples/`
 under the gantry root (the folder holding the running `gantry` package),

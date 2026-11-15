@@ -1,0 +1,37 @@
+{
+  "pin": "devagent--v3.0.0",
+  "devagent_commit": "3ac02b852fd7c9be71d9ac4aa51f2646cfd270b5",
+  "devagent_version": "3.0.0",
+  "writer": "revise.sh",
+  "expected_exit": 0,
+  "steps": [
+    [
+      "checklist-init.sh",
+      "--project",
+      "harbor",
+      "<dir>"
+    ],
+    [
+      "checklist-mark.sh",
+      "<dir>",
+      "0",
+      "x",
+      "pull"
+    ],
+    [
+      "park.sh",
+      "harbor",
+      "Issue-24"
+    ],
+    [
+      "create",
+      "<dir>/revisions/r1/comments.md"
+    ],
+    [
+      "revise.sh",
+      "harbor",
+      "Issue-24",
+      "--no-chain"
+    ]
+  ]
+}
