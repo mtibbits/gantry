@@ -10,7 +10,6 @@ fails. Windows always skips: the writers need devagent's own toolchain.
 os.environ.
 """
 
-import json
 import os
 import re
 import warnings
@@ -18,9 +17,9 @@ from pathlib import Path
 
 import pytest
 
-from test_samples import ROOT
+from devagent_record_fixtures import checkout_version
+from devagent_record_fixtures import read_pin as _pin_line
 
-PIN = ROOT / "tests" / "devagent.pin"
 TAG_RE = re.compile(r"^devagent--v([0-9]+\.[0-9]+\.[0-9]+)$")
 VARIABLE = "GANTRY_DEVAGENT_DIR"
 TOOLCHAIN = "needs devagent's own toolchain (bash and GNU coreutils)"
@@ -30,7 +29,7 @@ CI_SUFFIX = " (CI is set, so the devagent contract test fails instead of skippin
 
 def read_pin():
     """(tag, version) from tests/devagent.pin; raises on a malformed pin."""
-    line = PIN.read_bytes().decode("ascii").rstrip("\n")
+    line = _pin_line()
     match = TAG_RE.match(line)
     if not match:
         raise ValueError(f"tests/devagent.pin is not a devagent release tag: {line!r}")
@@ -39,16 +38,6 @@ def read_pin():
 
 def reason_unset(tag):
     return f"{VARIABLE} is not set; the devagent contract test needs a devagent checkout at {tag}"
-
-
-def checkout_version(path):
-    """The string `version` in <path>/.claude-plugin/plugin.json, or None."""
-    try:
-        data = json.loads((Path(path) / ".claude-plugin" / "plugin.json").read_bytes().decode("utf-8"))
-    except (OSError, ValueError):
-        return None
-    version = data.get("version") if isinstance(data, dict) else None
-    return version if isinstance(version, str) else None
 
 
 def devagent_status(env, os_name):

@@ -14,8 +14,6 @@ import pytest
 import helpers_devagent as hd
 from test_samples import ROOT
 
-TAG_RE = re.compile(r"^devagent--v([0-9]+\.[0-9]+\.[0-9]+)$")
-
 
 def fake_checkout(path, version):
     (path / ".claude-plugin").mkdir(parents=True)
@@ -31,9 +29,9 @@ def test_pin_is_one_release_tag():
     data = (ROOT / "tests" / "devagent.pin").read_bytes()
     assert data.endswith(b"\n") and data.count(b"\n") == 1 and b"\r" not in data
     line = data.decode("ascii").rstrip("\n")
-    assert TAG_RE.match(line), line
+    assert hd.TAG_RE.match(line), line
     tag, version = hd.read_pin()
-    assert tag == line and version == TAG_RE.match(line).group(1)
+    assert tag == line and version == hd.TAG_RE.match(line).group(1)
 
 
 def test_gate_skips_unset_locally_and_fails_under_ci():
@@ -62,8 +60,7 @@ def test_gate_invalid_checkout(tmp_path):
     assert str(info.value.msg) == want + hd.CI_SUFFIX
     assert str(tmp_path) not in want
     # A plugin.json whose version is not a string is no checkout either.
-    (tmp_path / ".claude-plugin").mkdir()
-    (tmp_path / ".claude-plugin" / "plugin.json").write_bytes(b'{"version": 3}')
+    fake_checkout(tmp_path, 3)
     with pytest.raises(pytest.skip.Exception) as info:
         hd.require_devagent(env=env, os_name="posix")
     assert str(info.value.msg) == want
@@ -108,7 +105,7 @@ def test_gate_accepts_matching_checkout(tmp_path, recwarn):
 import commit_check  # noqa: E402
 import devagent_record_fixtures as fx  # noqa: E402
 
-WRITTEN = ROOT / "tests" / "fixtures" / "devagent_records" / "written"
+WRITTEN = fx.DEFAULT_OUT
 
 
 def recipe_files(recipe):
@@ -123,7 +120,6 @@ def test_written_fixtures_match_recipes():
     assert len(fx.RECIPES) == 13
     folders = sorted(p.name for p in WRITTEN.iterdir())
     assert folders == sorted(r.issue for r in fx.RECIPES)
-    assert len(folders) == len(fx.RECIPES)
     for recipe in fx.RECIPES:
         got = {p.name for p in (WRITTEN / recipe.issue).iterdir()}
         assert got == recipe_files(recipe), recipe.issue

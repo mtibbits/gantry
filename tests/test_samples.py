@@ -665,7 +665,7 @@ LF_LINES = [
     "samples/**/*.md text eol=lf",
     "samples/**/*.toml text eol=lf",
     "samples/**/*.json text eol=lf",
-    "samples/**/STUCK text eol=lf",
+    STUCK_LINE,
 ]
 ISSUE_FILES = [
     "samples/README.md",
@@ -943,13 +943,13 @@ def test_attr_check_names_unpinned_stuck(tmp_path):
     stripped = "".join(kept)
     assert stripped != before
     attrs.write_bytes(stripped.encode("utf-8"))
-    got = unpinned(tree, sample_files(tree, hermetic=True), hermetic=True)
+    got = unpinned(tree, files, hermetic=True)
     assert "samples/harbor/STUCK" in got
     assert sorted(got) == sorted(f for f in files if f.endswith("/STUCK"))
     assert len(got) == 3
 
     attrs.write_bytes(before.encode("utf-8"))
-    assert unpinned(tree, sample_files(tree, hermetic=True), hermetic=True) == []
+    assert unpinned(tree, files, hermetic=True) == []
     marsh = git(tree, "check-attr", "text", "--", MARSH_PATH, hermetic=True)
     assert decode_bytes(marsh.stdout).strip().endswith("text: unset")
 

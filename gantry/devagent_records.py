@@ -100,17 +100,19 @@ def read_stuck(text: str) -> StuckMarker:
 
     created, created_format = None, UNPARSEABLE
     has_created = False
-    if lines and _key(lines[-1], "Created") is not None:
+    if lines and (value := _key(lines[-1], "Created")) is not None:
+        lines.pop()
         has_created = True
-        created, created_format = parse_created(_key(lines.pop(), "Created"))
+        created, created_format = parse_created(value)
     last_good = None
-    if lines and _key(lines[-1], "Last good") is not None:
-        value = _key(lines.pop(), "Last good")
+    if lines and (value := _key(lines[-1], "Last good")) is not None:
+        lines.pop()
         last_good = None if value == NO_LAST_GOOD else value
 
     step = step_name = None
-    if lines and _key(lines[0], "Step") is not None:
-        match = STUCK_STEP_RE.fullmatch(_key(lines.pop(0), "Step"))
+    if lines and (value := _key(lines[0], "Step")) is not None:
+        lines.pop(0)
+        match = STUCK_STEP_RE.fullmatch(value)
         if match:
             step, step_name = int(match.group(1)), match.group(2)
     if step is None:
@@ -250,14 +252,6 @@ class PlanState:
     problems: tuple[str, ...]
 
 
-def _shape_of(line: str):
-    for shape, pattern in SHAPE_RES:
-        match = pattern.fullmatch(line)
-        if match:
-            return shape, match
-    return None, None
-
-
 def _headings(lines) -> PlanState:
     for line in lines:
         match = TASK_HEADING_RE.fullmatch(line)
@@ -279,16 +273,13 @@ def read_plan(text: str) -> PlanState:
         return _headings(lines)
     end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
     section = lines[start + 1:end]
-    shape = None
-    for line in section:
-        shape, _ = _shape_of(line)
-        if shape is not None:
-            break
-    if shape is None:
+    found = next(((shape, pattern) for line in section for shape, pattern in SHAPE_RES if pattern.fullmatch(line)),
+                 None)
+    if found is None:
         if end < len(lines) and TASK_HEADING_RE.fullmatch(lines[end]):
             return _headings(lines)
         return PlanState(UNRECOGNISED, None, False, (PLAN_TASKS_UNRECOGNISED,))
-    pattern = dict(SHAPE_RES)[shape]
+    shape, pattern = found
     matches = [m for m in (pattern.fullmatch(line) for line in section) if m]
     if shape == CHECKBOX:
         open_task = next((m.group(2) for m in matches if m.group(1) not in TICKED), None)

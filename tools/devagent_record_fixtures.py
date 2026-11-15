@@ -122,6 +122,7 @@ def fix_timestamps(name, data, token=None):
     line under `## Log`, and a STUCK file's last line when it is a `Created:`
     line of either form. A site of another shape is left as written.
     """
+    iso, minutes = (FIXED_ISO, FIXED_MINUTES) if token is None else (token, token)
     if name == "STUCK":
         lines = data.split(b"\n")
         last = len(lines) - 1
@@ -130,10 +131,9 @@ def fix_timestamps(name, data, token=None):
         if last >= 0:
             match = STUCK_CREATED_RE.match(lines[last])
             if match:
-                value = token if token is not None else (FIXED_ISO if match.group(2) else FIXED_MINUTES)
-                lines[last] = match.group(1) + value
+                lines[last] = match.group(1) + (iso if match.group(2) else minutes)
         return b"\n".join(lines)
-    data = HEADER_RE.sub(lambda m: m.group(1) + (token if token is not None else FIXED_ISO), data, count=1)
+    data = HEADER_RE.sub(lambda m: m.group(1) + iso, data, count=1)
     lines = data.split(b"\n")
     in_log = False
     for i, line in enumerate(lines):
@@ -141,8 +141,7 @@ def fix_timestamps(name, data, token=None):
             in_log = line.rstrip() == b"## Log"
             continue
         if in_log:
-            value = token if token is not None else FIXED_MINUTES
-            lines[i] = LOG_LINE_RE.sub(lambda m: m.group(1) + value + m.group(2), line, count=1)
+            lines[i] = LOG_LINE_RE.sub(lambda m: m.group(1) + minutes + m.group(2), line, count=1)
     return b"\n".join(lines)
 
 
@@ -289,11 +288,12 @@ def run_recipe(recipe, devagent, bash, work):
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(b"")
             continue
-        before_bytes = checklist.read_bytes() if checklist.exists() else None
-        before_log = log_lines(checklist)
+        want = recipe.expected_exit if last else 0
+        if want != 0:
+            before_bytes = checklist.read_bytes() if checklist.exists() else None
+            before_log = log_lines(checklist)
         env = writer_env(tmp, recipe.issue if argv[0] == "stuck.sh" else None)
         proc = run_bash(bash, tmp, env, Path(devagent) / "scripts" / argv[0], argv[1:])
-        want = recipe.expected_exit if last else 0
         stderr = proc.stderr.decode("utf-8", "replace").strip()
         if proc.returncode != want:
             raise Refused(f"{recipe.issue}: {argv[0]} exited {proc.returncode}, expected {want}: {stderr}")
@@ -320,14 +320,13 @@ def provenance(recipe, tag, commit, version):
     return (json.dumps(data, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
 
 
-def regenerate(devagent_dir, out, commit=None):
+def regenerate(devagent_dir, out, commit):
     """Run every recipe against `devagent_dir`; write the fixtures under `out`."""
     # Resolved here: every writer runs with the temp folder as its cwd.
     devagent = Path(devagent_dir).resolve()
     version = checkout_version(devagent)
     if version is None:
         raise Preflight("--devagent is not a devagent checkout (no .claude-plugin/plugin.json version)")
-    commit = commit or checkout_commit(devagent)
     tag = read_pin()
     out = Path(out)
     with tempfile.TemporaryDirectory(prefix="devagent-fixtures-") as scratch:
@@ -381,8 +380,11 @@ def compare(fixtures_dir, generated_dir):
     committed = _record_set(fixtures_dir)
     generated = _record_set(generated_dir)
     diffs.compared = len(committed)
+    issues = sorted({i for i, _ in committed | generated}, key=_issue_key)
+    kept_by = {issue: _provenance(fixtures_dir, issue) for issue in issues}
+    made_by = {issue: _provenance(generated_dir, issue) for issue in issues}
     for issue, name in sorted(committed | generated, key=lambda k: (_issue_key(k[0]), k[1])):
-        made = _provenance(generated_dir, issue)
+        made = made_by[issue]
         writer = made.get("writer")
         version = made.get("devagent_version")
         if (issue, name) not in generated:
@@ -400,8 +402,8 @@ def compare(fixtures_dir, generated_dir):
             n = next(i for i in range(max(len(a), len(b))) if _line(a, i) != _line(b, i))
             diffs.append(f"{issue}/{name}: written by {writer} at devagent {version}: first differing line {n + 1}: "
                          f"fixture {_line(a, n)!r}, devagent {_line(b, n)!r}")
-    for issue in sorted({i for i, _ in committed | generated}, key=_issue_key):
-        kept, made = _provenance(fixtures_dir, issue), _provenance(generated_dir, issue)
+    for issue in issues:
+        kept, made = kept_by[issue], made_by[issue]
         if not made:
             continue
         for key in ("writer", "expected_exit"):
