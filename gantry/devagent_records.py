@@ -122,3 +122,95 @@ def read_stuck(text: str) -> StuckMarker:
     elif created is None:
         problems.append(STUCK_CREATED_UNPARSEABLE)
     return StuckMarker(step, step_name, reason, last_good, created, created_format, tuple(problems))
+
+
+# --- checklists ------------------------------------------------------------------------------
+
+# devagent's step line (scripts/lib/checklist.sh:68 at the pin), with
+# [[:space:]] as space, tab, form feed and vertical tab, and the step number
+# bounded. The name is the token only, as devagent reads it.
+STEP_RE = re.compile(r"- \[(.)\][ \t\f\v]+([0-9]{1,9})\.[ \t\f\v]+([A-Za-z][A-Za-z0-9_-]*)")  # match
+REVISION_PREFIX = "## Revision "
+REVISION_RE = re.compile(r"## Revision ([0-9]{1,9})(?![0-9])")  # match
+GLYPHS = " x-!~?P"
+DONE_GLYPHS = "x-"
+PROGRESS_GLYPHS = "x~"
+PARKED_GLYPH = "P"
+STUCK_GLYPH = "!"
+
+CHECKLIST_NO_STEPS = "checklist_no_steps"
+CHECKLIST_ACTIVE_BLOCK_EMPTY = "checklist_active_block_empty"
+CHECKLIST_BAD_GLYPH = "checklist_bad_glyph"
+
+
+@dataclass(frozen=True)
+class Step:
+    number: int
+    name: str
+    glyph: str
+
+
+@dataclass(frozen=True)
+class ChecklistState:
+    next_step: Step | None
+    parked_step: Step | None
+    stuck_step: Step | None
+    all_done: bool
+    shows_progress: bool
+    revision: int | None
+    problems: tuple[str, ...]
+
+    @property
+    def parked(self) -> bool:
+        return self.parked_step is not None
+
+
+def _steps(lines) -> list[Step]:
+    steps = []
+    for line in lines:
+        match = STEP_RE.match(line)
+        if match:
+            steps.append(Step(int(match.group(2)), match.group(3), match.group(1)))
+    return steps
+
+
+def _first_glyph(active, everything, glyph) -> Step | None:
+    """The first row carrying `glyph` in the active block, else in the whole
+    file: devagent's checklist_find_glyph_line."""
+    for steps in (active, everything):
+        for step in steps:
+            if step.glyph == glyph:
+                return step
+    return None
+
+
+def read_checklist(text: str) -> ChecklistState:
+    """A checklist's state, read as devagent reads it: the active block is
+    every line after the last `## Revision ` heading (the whole file with
+    none); the next step is its first row not `x` or `-`."""
+    lines = text_lines(text)
+    start, revision = 0, None
+    for i, line in enumerate(lines):
+        if line.startswith(REVISION_PREFIX):
+            start = i + 1
+            match = REVISION_RE.match(line)
+            revision = int(match.group(1)) if match else None
+    everything = _steps(lines)
+    active = _steps(lines[start:])
+    problems = []
+    if not everything:
+        problems.append(CHECKLIST_NO_STEPS)
+    elif not active:
+        problems.append(CHECKLIST_ACTIVE_BLOCK_EMPTY)
+    if any(step.glyph not in GLYPHS for step in everything):
+        problems.append(CHECKLIST_BAD_GLYPH)
+    next_step = next((step for step in active if step.glyph not in DONE_GLYPHS), None)
+    return ChecklistState(
+        next_step=next_step,
+        parked_step=_first_glyph(active, everything, PARKED_GLYPH),
+        stuck_step=_first_glyph(active, everything, STUCK_GLYPH),
+        all_done=bool(active) and next_step is None,
+        shows_progress=any(step.glyph in PROGRESS_GLYPHS for step in everything),
+        revision=revision,
+        problems=tuple(problems),
+    )

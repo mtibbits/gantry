@@ -125,3 +125,94 @@ def test_stuck_line_separators_are_not_line_ends():
     text = written("Issue-13", "STUCK").replace("spare part.", "spare part .")
     got = dr.read_stuck(text)
     assert got.reason == "The harbour crane is waiting for a spare part ."
+
+
+# --- read_checklist (Task 4) ---------------------------------------------------------------
+
+
+def test_next_step_is_first_not_done_or_skipped():
+    got = dr.read_checklist(written("Issue-6", "checklist.md"))
+    assert got.next_step == dr.Step(2, "draft", "~") and got.revision == 1
+    assert not got.all_done and got.problems == ()
+    assert dr.read_checklist(written("Issue-15", "checklist.md")).next_step == dr.Step(0, "pull", " ")
+
+
+def test_two_revision_blocks_read_the_last():
+    text = written("Issue-24", "checklist.md")
+    assert text.count("## Revision ") == 2
+    got = dr.read_checklist(text)
+    assert got.next_step == dr.Step(2, "draft", " ") and got.revision == 2
+
+
+def test_done_checklist_gives_all_done():
+    text = written("Issue-15", "checklist.md")
+    assert text.count("- [ ]") > 0
+    done = text.replace("- [ ]", "- [x]")
+    got = dr.read_checklist(done)
+    assert got.next_step is None and got.all_done and got.problems == ()
+
+
+def test_parked_and_resumed():
+    parked = dr.read_checklist(written("Issue-12", "checklist.md"))
+    assert parked.parked and parked.parked_step == dr.Step(2, "draft", "P")
+    resumed = dr.read_checklist(written("Issue-23", "checklist.md"))
+    assert not resumed.parked and resumed.parked_step is None
+    assert resumed.next_step.glyph == "~"
+
+
+def test_parked_only_in_earlier_block():
+    got = dr.read_checklist(written("Issue-24", "checklist.md"))
+    assert got.parked and got.parked_step == dr.Step(2, "draft", "P")
+    assert got.next_step == dr.Step(2, "draft", " ")
+
+
+def test_stuck_step_follows_the_same_rule():
+    assert dr.read_checklist(written("Issue-14", "checklist.md")).stuck_step == dr.Step(2, "draft", "!")
+    text = written("Issue-24", "checklist.md")
+    assert text.count("- [P]") == 1
+    got = dr.read_checklist(text.replace("- [P]", "- [!]"))
+    assert got.stuck_step == dr.Step(2, "draft", "!") and not got.parked
+    assert dr.read_checklist(written("Issue-15", "checklist.md")).stuck_step is None
+
+
+def test_shows_progress():
+    text = written("Issue-24", "checklist.md")
+    later = text[text.rindex("## Revision "):]
+    assert "- [x]" in text and "- [x]" not in later and "- [~]" not in later
+    assert dr.read_checklist(text).shows_progress
+    tilde = text.replace("- [x]", "- [~]")
+    assert tilde != text and "- [x]" not in tilde
+    assert dr.read_checklist(tilde).shows_progress
+    assert not dr.read_checklist(written("Issue-15", "checklist.md")).shows_progress
+
+
+def test_no_step_lines():
+    header = written("Issue-15", "checklist.md").split("## Revision 1")[0]
+    got = dr.read_checklist(header)
+    assert got.problems == ("checklist_no_steps",) and not got.all_done and got.next_step is None
+    empty_block = dr.read_checklist(written("Issue-15", "checklist.md") + "\n## Revision 2\n")
+    assert empty_block.problems == ("checklist_active_block_empty",)
+    assert empty_block.next_step is None and not empty_block.all_done and empty_block.revision == 2
+
+
+def test_bad_glyph_reported():
+    text = written("Issue-15", "checklist.md")
+    changed = text.replace("- [ ]  4. scope", "- [z]  4. scope").replace("- [ ]  5. improve", "- [y]  5. improve")
+    assert changed != text
+    got = dr.read_checklist(changed)
+    assert got.problems == ("checklist_bad_glyph",)
+
+
+def test_checklist_overlong_numbers():
+    text = written("Issue-15", "checklist.md")
+    long_step = text.replace("- [ ]  0. pull", "- [ ]  " + "1" * 5000 + ". pull")
+    assert dr.read_checklist(long_step).next_step == dr.Step(2, "draft", " ")
+    long_rev = text.replace("## Revision 1", "## Revision " + "7" * 5000)
+    got = dr.read_checklist(long_rev)
+    assert got.revision is None and got.next_step == dr.Step(0, "pull", " ")
+
+
+def test_checklist_bom_and_crlf_read_like_plain():
+    for issue in ("Issue-6", "Issue-12", "Issue-24"):
+        text = written(issue, "checklist.md")
+        assert dr.read_checklist(bom_crlf(text)) == dr.read_checklist(text)
