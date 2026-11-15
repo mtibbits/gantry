@@ -730,7 +730,7 @@ def test_hostile_trace_page_is_safe(tmp_path):
 START = {"selected": None, "hover": None}
 NO_VIEW = {"lane_of": [], "collapsed": []}
 EMPTY_MARKS = {"selected": None, "selecting": False, "leaves": [], "needs": [], "lanes": [], "tracing": None,
-               "upstream": [], "chain": [], "foreign": []}
+               "upstream": [], "chain": [], "foreign": [], "objective": []}
 SR1_LIGHT = [["Issue-7", "indirect"], ["Issue-8", "direct"], ["Issue-10", "indirect"], ["Issue-11", "direct"]]
 
 

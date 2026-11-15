@@ -44,7 +44,7 @@
   function marks(trace, state, view) {
     const hover = isObj(state) && isText(state.hover) ? state.hover : null;
     const out = { selected: null, selecting: false, leaves: new Map(), needs: [], lanes: [], tracing: hover,
-      upstream: [], chain: [], foreign: new Map() };
+      upstream: [], chain: [], foreign: new Map(), objective: [] };
     if (!isObj(trace) || !Array.isArray(trace.requirements)) return out;
     const rows = new Map(trace.requirements.map((r) => [r.id, r]));
     const id = isObj(state) && isText(state.selected) ? state.selected : null;
@@ -52,6 +52,9 @@
     if (row === undefined) return out;
     out.selected = id;
     out.leaves = new Map(row.light);
+    // The objective mark (#79): the drawn serving leaves that serve the row at objective only, in row order.
+    const tail = Array.isArray(row.objective_only) ? row.objective_only : [];
+    out.objective = tail.filter((k) => isText(k) && out.leaves.has(k));
     // Leaves on other sites (#21): index into trace.foreign -> how. They light
     // their panel item and never dim the network, so `selecting` ignores them.
     const lit = Array.isArray(row.foreign) ? row.foreign : [];

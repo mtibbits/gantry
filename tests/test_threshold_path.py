@@ -18,7 +18,9 @@ from test_requirement_path import PATH_KEYS, site_model, path_of, site_read
 from test_samples import GANTRY_SAMPLE
 from test_schedule_agreement import random_dags
 from test_trace_cross_site import installation_models
-from test_trace_page import installation, render_traced, row, trace_of
+from page_safety import assert_page_safe
+from test_trace_page import (EMPTY_MARKS, hand_trace, installation, marks_after, render_traced, row,  # noqa: F401
+                             sample_page, select, trace_of)
 
 w = worksite
 
@@ -270,3 +272,45 @@ def test_render_traced_still_renders(tmp_path):
     page, m = render_traced(installation(tmp_path, {"alpha": PATHS}, {"alpha": FR1}), "alpha")
     assert row(m["trace"], "alpha:FR-1")["threshold_path"] is not None
     assert "threshold_path" in page
+
+
+# --- the selection function: the objective mark ---------------------------------------------
+
+
+def page_file(tmp_path, wbs, reqs=FR1):
+    """(path, trace) of site alpha's page, written to tmp_path as a --site build renders it."""
+    html, _ = render_traced(installation(tmp_path / "site", {"alpha": wbs}, {"alpha": reqs}), "alpha")
+    path = tmp_path / "alpha.html"
+    path.write_bytes(html.encode("utf-8"))
+    return path, assert_page_safe(html, [])["trace"]
+
+
+def test_objective_mark_set_and_cleared(node, tmp_path):
+    path, trace = page_file(tmp_path, PATHS)
+    assert marks_after(path, trace, [select("alpha:FR-1")])["objective"] == ["Issue-2"]
+    assert marks_after(path, trace, [select("alpha:FR-1"), select("alpha:FR-1")]) == EMPTY_MARKS
+    escape = {"type": "key", "key": "Escape", "id": None}
+    assert marks_after(path, trace, [select("alpha:FR-1"), escape]) == EMPTY_MARKS
+
+
+def test_objective_mark_survives_hover_and_leave(node, tmp_path):
+    path, trace = page_file(tmp_path, PATHS)
+    marks = marks_after(path, trace, [select("alpha:FR-1"), {"type": "hover", "leaf": "Issue-1"}])
+    assert marks["objective"] == ["Issue-2"] and marks["tracing"] == "Issue-1"
+    marks = marks_after(path, trace, [select("alpha:FR-1"), {"type": "hover", "leaf": "Issue-1"}, {"type": "leave"}])
+    assert marks["objective"] == ["Issue-2"] and marks["tracing"] is None
+
+
+def test_proto_objective_marks_exactly_it(node, sample_page):
+    path, _, _ = sample_page
+    trace = hand_trace([["__proto__", "direct"], ["constructor", "direct"]])
+    trace["requirements"][0]["objective_only"] = ["__proto__"]
+    assert marks_after(path, trace, [select("alpha:FR-1")])["objective"] == ["__proto__"]
+
+
+def test_objective_only_undrawn_leaf_not_marked(node, sample_page):
+    path, _, _ = sample_page
+    trace = hand_trace([["A", "direct"], ["C", "indirect"]])
+    trace["requirements"][0]["objective_only"] = ["B", "C", 7, None, ["A"], "A"]
+    assert marks_after(path, trace, [select("alpha:FR-1")])["objective"] == ["C", "A"]
+    assert marks_after(path, hand_trace([["A", "direct"]]), [select("alpha:FR-1")])["objective"] == []
