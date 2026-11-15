@@ -13,6 +13,7 @@ from datetime import date as Date
 from datetime import time as Time
 
 from gantry.requirements import FENCE_RE, fence_spans, split_lines
+from gantry.sites import shown
 
 # Whitespace here is space and tab only: never split(), strip() or
 # splitlines() with no argument, \s or \d, which also match U+2028, U+0085,
@@ -125,10 +126,101 @@ def _shaped_in_fence(line):
 # --- the file ----------------------------------------------------------------------
 
 
+_BOX_STATES = {" ": "open", "x": "resolved", "X": "resolved", ">": "promoted"}
+DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")  # fullmatch
+TIME_RE = re.compile(r"(?P<hour>[0-9]{1,2}):(?P<minute>[0-9]{2})")  # fullmatch
+
+
+class _Cursor:
+    """The text after an item's marker, read a token at a time. A token is a
+    maximal run of characters that are not a space or a tab."""
+
+    def __init__(self, text):
+        self.text, self.pos = text, 0
+
+    def skip_blanks(self):
+        while self.pos < len(self.text) and self.text[self.pos] in _BLANKS:
+            self.pos += 1
+
+    def token(self):
+        end = self.pos
+        while end < len(self.text) and self.text[end] not in _BLANKS:
+            end += 1
+        return self.text[self.pos:end]
+
+    def consume(self, token):
+        self.pos += len(token)
+        self.skip_blanks()
+
+
+def _read_date(token):
+    if DATE_RE.fullmatch(token):
+        try:
+            # Never date.fromisoformat, which takes other shapes.
+            return Date(int(token[0:4]), int(token[5:7]), int(token[8:10]))
+        except ValueError:
+            pass
+    return None
+
+
 def _read_entry(number, raw, text, entry_like):
+    """(FireEntry, failure phrases). A token with a field's shape is consumed
+    even when its value is invalid; a missing required field consumes nothing."""
     failures = [NOT_TOP_LEVEL] if entry_like else []
-    state = "unreadable" if failures else "open"
-    return FireEntry(number, state, False, None, None, None, False, None, raw), failures
+    cur = _Cursor(text)
+    state = ended = None
+    box = BOX_RE.match(text)
+    if box is None:
+        failures.append("no state box")
+    else:
+        glyph = box["glyph"]
+        state = _BOX_STATES.get(glyph)
+        if state is None:
+            failures.append(f"state box [{shown(glyph)}] is not [ ], [x] or [>]")
+        ended = state in ("resolved", "promoted")
+        cur.pos = 3
+        if cur.pos < len(text) and text[cur.pos] not in _BLANKS:
+            failures.append("no space after the state box")
+        cur.skip_blanks()
+
+    day = None
+    token = cur.token()
+    if DATE_TRY_RE.match(token):
+        day = _read_date(token)
+        if day is None:
+            failures.append(f"date {shown(token)} is not a real YYYY-MM-DD date")
+        cur.consume(token)
+    else:
+        failures.append("no date")
+
+    at = None
+    token = cur.token()
+    m = TIME_RE.fullmatch(token)
+    if m is not None:
+        hour, minute = int(m["hour"]), int(m["minute"])
+        if hour <= 23 and minute <= 59:
+            at = Time(hour, minute)
+        else:
+            failures.append(f"time {shown(token)} is not a time from 0:00 to 23:59")
+        cur.consume(token)
+
+    site = None
+    token = cur.token()
+    if token.startswith("@"):
+        if token == "@":
+            failures.append("an empty @ names no site")
+        else:
+            site = token[1:]
+        cur.consume(token)
+
+    reason = text[cur.pos:]
+    if _blank(reason):
+        reason = None
+        failures.append("no reason")
+
+    if failures:
+        state = "unreadable"
+    return FireEntry(number, state, bool(ended), day, at, site, False, reason, raw), failures
 
 
 def parse_fires_list(text, site_names, reference) -> FiresList:

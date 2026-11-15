@@ -7,7 +7,7 @@ at run time, never typed as escapes in source or held in a fixture file.
 import random
 import time as clock
 from dataclasses import replace
-from datetime import datetime
+from datetime import date, datetime, time
 from pathlib import Path
 
 from gantry import fires_list as fl
@@ -28,6 +28,7 @@ EXPECTED = {
     "empty_items.md": [3],
     "notes.md": [1, 4, 6, 10, 12],
     "entry_like.md": [3, 4, 5, 6, 7],
+    "bad_entries.md": list(range(1, 13)),
 }
 
 
@@ -212,3 +213,114 @@ def test_hostile_shapes_are_cheap():
     for line in lines:
         parse(line + LF)
     assert clock.perf_counter() - start < 0.5
+
+
+# --- the field reader (Task 4) ----------------------------------------------------
+
+
+def one(text, **kw):
+    result = parse(text + LF, **kw)
+    assert len(result.entries) == 1
+    return result.entries[0], result
+
+
+def test_reads_every_field():
+    e, result = one("- [ ] 2026-10-24 09:40 @harbor the release build is red")
+    assert (e.state, e.ended, e.date, e.time, e.site) == ("open", False, date(2026, 10, 24), time(9, 40), "harbor")
+    assert e.reason == "the release build is red"
+    assert result.report == ()
+    e, _ = one("- [ ] 2026-10-24 09:40 the release build is red")
+    assert e.site is None and e.reason == "the release build is red"
+
+
+def test_ended_states():
+    for box, state in (("[x]", "resolved"), ("[X]", "resolved"), ("[>]", "promoted")):
+        e, result = one(f"- {box} 2026-10-20 @quarry done")
+        assert (e.state, e.ended, result.status) == (state, True, "read")
+
+
+# Each row of bad_entries.md, in order, with a phrase its message holds.
+BAD_ROWS = [
+    "no state box",
+    "state box [?] is not [ ], [x] or [>]",
+    "state box [-] is not",
+    "state box [/] is not",
+    "no space after the state box",
+    "no date",
+    "date 2026-02-30 is not a real YYYY-MM-DD date",
+    "time 25:00 is not a time from 0:00 to 23:59",
+    "time 12:60 is not a time from 0:00 to 23:59",
+    "an empty @ names no site",
+    "no reason",
+    "no reason",
+]
+
+
+def test_bad_entries():
+    text = fixture_text("bad_entries.md")
+    result = parse(text)
+    assert len(BAD_ROWS) == 12
+    assert lines_of(result) == EXPECTED["bad_entries.md"] == list(range(1, 13))
+    assert result.status == "read_with_problems"
+    raws = text.split(LF)
+    for e, phrase in zip(result.entries, BAD_ROWS, strict=True):
+        assert (e.state, e.ended, e.raw) == ("unreadable", False, raws[e.line - 1]), e.line
+        bad = [r for r in result.report if r.line == e.line]
+        assert [r.kind for r in bad] == ["fires_bad_entry"], e.line
+        assert phrase in bad[0].message, (e.line, bad[0].message)
+
+
+def test_fields_kept_past_a_failure():
+    for text in ("- [?] 2026-10-24 @harbor x", "- [ ]2026-10-24 @harbor x"):
+        e, _ = one(text)
+        assert (e.date, e.site, e.reason) == (date(2026, 10, 24), "harbor", "x")
+    e, result = one("- 2026-10-24 call back")
+    assert (e.state, e.date, e.reason) == ("unreadable", date(2026, 10, 24), "call back")
+    assert result.report[0].message == "no state box"
+    e, _ = one("- [ ] 2026-02-30 x")
+    assert (e.date, e.reason) == (None, "x")
+    e, result = one("- [ ] 2026-10-24 09:40 @harbor" + chr(9) + " ")
+    assert (e.date, e.time, e.site, e.reason) == (date(2026, 10, 24), time(9, 40), "harbor", None)
+    assert result.report[0].message == "no reason"
+
+
+def test_failures_joined_in_field_order():
+    e, result = one("1. [?] 2026-02-30 99:99 @")
+    assert result.report[0].message == "; ".join([
+        "not a top-level `- ` item", "state box [?] is not [ ], [x] or [>]",
+        "date 2026-02-30 is not a real YYYY-MM-DD date", "time 99:99 is not a time from 0:00 to 23:59",
+        "an empty @ names no site", "no reason",
+    ])
+
+
+def test_ended_bad_line_is_ended_and_reported():
+    for text in ("- [x] 2026-02-30 done", "1. [x] 2026-10-20 @quarry done"):
+        e, result = one(text)
+        assert (e.state, e.ended) == ("unreadable", True), text
+        assert kinds_of(result) == [(1, "fires_bad_entry")]
+    e, result = one("1. [ ] 2026-10-20 @quarry still open")
+    assert (e.state, e.ended, e.date) == ("unreadable", False, date(2026, 10, 20))
+
+
+def test_time_shapes():
+    e, _ = one("- [ ] 2026-10-24 9:40 x")
+    assert e.time == time(9, 40)
+    for token in ("24/7", "9am"):
+        e, result = one(f"- [ ] 2026-10-24 {token} watch it")
+        assert e.time is None and e.reason == f"{token} watch it"
+        assert result.status == "read"
+
+
+def test_site_token_ends_at_space():
+    e, _ = one("- [ ] 2026-10-24 @harbor: the crane", names=("harbor:",))
+    assert (e.site, e.reason) == ("harbor:", "the crane")
+
+
+def test_notes_unreadable_legs():
+    result = parse_fixture("notes.md")
+    by_line = {e.line: e for e in result.entries}
+    for n in (1, 4, 12):  # a bullet first in the file, after a heading, and at column 0
+        assert (by_line[n].state, by_line[n].ended) == ("unreadable", False), n
+    assert by_line[12].reason == "call the supplier back"
+    assert by_line[10].state == "open"
+    assert [line for line, kind in kinds_of(result) if kind == "fires_bad_entry"] == [1, 4, 12]
