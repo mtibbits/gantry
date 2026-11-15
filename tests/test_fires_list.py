@@ -38,6 +38,7 @@ EXPECTED = {
     "empty.md": [],
     "ended_only.md": [3, 4],
     "not_utf8.md": [],
+    "stray_fence.md": [3],
 }
 
 
@@ -576,3 +577,9 @@ def test_no_clock_read_from_the_file(monkeypatch):
     raise_on_clock(monkeypatch)
     result = read(directory_roots([FIXTURES]), FIXTURES / "well_formed.md")
     assert lines_of(result) == EXPECTED["well_formed.md"]
+
+
+def test_stray_fence_counts():
+    result = parse_fixture("stray_fence.md")
+    assert lines_of(result) == EXPECTED["stray_fence.md"]
+    assert (result.skipped_in_fences, result.status) == (1, "read")
