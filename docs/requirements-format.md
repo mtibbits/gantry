@@ -351,7 +351,8 @@ leaf gates is the operator's statement, not Gantry's judgment.
   is reported as in any text, once per requirement ([Links](#links)).
 - The worksite page's Requirements panel shows a requirement's text, so it
   no longer shows a statement's text: the statements appear in the path
-  box when the requirement is selected. A business requirement's
+  box when the requirement is selected. A constraint has no path box, so
+  its statements are read but not shown. A business requirement's
   statements are read like any other, in the portfolio file, and never
   embedded in a worksite page, as no business requirement's text is.
 - These statements are unrelated to the portfolio file's `[thresholds]`
@@ -389,7 +390,8 @@ Each entry must also be in the leaf's `satisfies:`.
   first comma as `satisfies:` does (this report names it, not
   `unbracketed_list`); `miscased_objective`, a key such as `Objective:`;
   and `objective_not_on_leaf`, `objective:` on a row with children, which
-  serves nothing. An ID repeated in `objective:` counts once.
+  serves nothing. `satisfies:` on a row with children is ignored without a
+  report, as before. An ID repeated in `objective:` counts once.
 
 ### Deciding what gates
 

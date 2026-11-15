@@ -1322,5 +1322,8 @@ def test_format_doc_states_threshold_rules():
     wanted = [req._WHY["stray_statement"], "a second `Threshold:` statement", "`malformed_objective`",
               "`unmatched_objective`", "`[thresholds]`", "holds without it", "needs brackets", "objective:",
               "a list item the reader cannot place", "the own text before the first nested item",
-              "no longer shows a statement's text"]
+              "no longer shows a statement's text",
+              # Final review: a constraint has no path box; satisfies: on a parent row stays silent.
+              "A constraint has no path box, so its statements are read but not shown",
+              "`satisfies:` on a row with children is ignored without a report"]
     assert [w for w in wanted if w not in doc] == []
