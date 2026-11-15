@@ -14,8 +14,9 @@ from gantry.config import load_config
 from gantry.model import FINISHED_GLYPHS, STATE_GLYPHS, Leaf
 from gantry.requirements import ReportEntry, ReqId
 from gantry.sites import config_roots, load_sites
-from gantry.trace import (FIELDS, LEAF_SOURCE, MESSAGES, TRACE_KINDS, UNSERVED_SCOPE, WHY, Catalog, Serving,
-                          SiteTrace, TraceReport, UseCase, build_site_trace, load_catalog, satisfies_ids)
+from gantry.trace import (FIELDS, INSTALLATION_SCOPE, LEAF_SOURCE, MESSAGES, TRACE_KINDS, UNSERVED_SCOPE, WHY, Catalog,
+                          ForeignLeaf, Serving, SiteTrace, TraceReport, UseCase, build_site_trace, load_catalog,
+                          satisfies_ids)
 from gantry.wbs_stopgap import parse_wbs
 from helpers_config import write_site_tree
 from sample_roles import BUSY, SMALL
@@ -70,10 +71,14 @@ def rid(text):
 def test_model_field_lists():
     assert [f.name for f in fields(TraceReport)] == [
         "unreadable", "malformed", "duplicate", "misplaced", "cycle", "undefined", "unserved", "unserved_scope",
-        "untraced"]
-    assert [f.name for f in fields(SiteTrace)] == ["site", "in_trace", "leaf_ids", "serving", "use_cases", "report"]
+        "untraced", "sites_not_read", "undefined_foreign"]
+    assert [f.name for f in fields(SiteTrace)] == ["site", "in_trace", "leaf_ids", "serving", "use_cases", "report",
+                                                   "unresolved", "foreign"]
+    assert [f.name for f in fields(ForeignLeaf)] == ["site", "key", "line", "issue", "title", "state", "open", "ids",
+                                                     "serves"]
     assert [f.name for f in fields(Serving)] == ["leaf", "how"]
     assert UNSERVED_SCOPE == "site"
+    assert INSTALLATION_SCOPE == "installation"
     assert LEAF_SOURCE == "WBS.md"
 
 
@@ -421,7 +426,9 @@ def test_unserved_scope_is_site(tmp_path):
     cat = catalog(tree(tmp_path, {"alpha": "- FR-1: a\n", "gamma": None}))
     assert build_site_trace("alpha", [], cat).report.unserved_scope == "site"
     assert build_site_trace("gamma", [], cat).report.unserved_scope == "site"
+    assert build_site_trace("alpha", [], cat).report.sites_not_read is None
     assert UNSERVED_SCOPE == "site"
+    assert INSTALLATION_SCOPE == "installation"
 
 
 HOSTILE = ['"', "'", "[", "]", "[,]", ":", "a:", ":FR-1", "life:BR-1" * 50, "alpha:FR-" + "9" * 5000, "\x00"]

@@ -399,6 +399,8 @@ another resolve against the catalog. Each site's report has these fields:
 | `undefined` | the reader's `undefined_link`, `undefined_cross_link` (a link into another namespace naming no requirement) and `undefined_id` (a leaf entry naming no requirement) |
 | `unserved` | the site's own requirements that no leaf serves, constraints aside |
 | `untraced` | the site's open leaves that name no ID that resolves |
+| `sites_not_read` | a full build's sites whose leaves could not be counted, in config order; none in a `--site` build |
+| `undefined_foreign` | `undefined_foreign`: another site's leaf naming an ID of this in-trace site that names no requirement, under that site's `WBS.md` |
 
 An undefined ID or link names one of these reasons: the namespace is not a
 site of the installation, nor `br_namespace`; the namespace has no

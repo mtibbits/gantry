@@ -51,8 +51,10 @@ from gantry.requirements import (PROJECT_LAYERS, ReportEntry, ReqId, Requirement
                                  parse_id, read_requirements)
 from gantry.sites import NO_LEAVES
 
-UNSERVED_SCOPE = "site"  # only this site's leaves are counted; #21 widens it
+UNSERVED_SCOPE = "site"  # a --site build, and build_site_trace alone: only this site's leaves are counted
+INSTALLATION_SCOPE = "installation"  # a full build (#21): every read site's leaves are counted
 LEAF_SOURCE = "WBS.md"
+FOREIGN_SOURCE = "{site} WBS.md"  # an entry about another site's leaf (#21)
 TRACE_KINDS = ("malformed_satisfies", "unbracketed_list", "undefined_cross_link", "undefined_id")
 FIELDS = {  # TraceReport entry field -> the kinds it holds
     "unreadable": ("unreadable",),
@@ -71,6 +73,8 @@ MESSAGES = {
     "undefined_id": "satisfies entry {rid} names no requirement: {why}",
     "undefined_cross_link": "{key}: {rid} names no requirement: {why}",
     "refines_cycle": "cross-file refines cycle: {chain}",
+    # Another site's leaf naming an ID of this site that names no requirement (#21).
+    "undefined_foreign": "leaf {key!r}: satisfies entry {rid} names no requirement: {why}",
 }
 
 WHY = {  # why an ID names no requirement: the {why} of undefined_id and undefined_cross_link
@@ -157,6 +161,25 @@ class TraceReport:
     unserved: tuple[str, ...] | None  # None: the site is not in the trace
     unserved_scope: str
     untraced: tuple[str, ...] | None  # leaf keys; None: the site is not in the trace
+    # A full build's (#21): the sites whose leaves could not be counted, in
+    # config order; None in a --site build.
+    sites_not_read: tuple[str, ...] | None = None
+    # Other sites' leaves naming an ID of this in-trace site that names no requirement (#21).
+    undefined_foreign: tuple[ReportEntry, ...] = ()
+
+
+@dataclass(frozen=True)
+class ForeignLeaf:
+    """A leaf on another read site serving one of this site's requirements (#21)."""
+    site: str
+    key: str
+    line: int
+    issue: str | None
+    title: str
+    state: str  # the raw Leaf.state
+    open: bool  # Leaf.open: the one open predicate
+    ids: tuple[ReqId, ...]  # the IDs it names that resolve, as written
+    serves: tuple[tuple[str, str], ...]  # (str(ReqId), how) of this site's requirements, in catalog order
 
 
 @dataclass(frozen=True)
@@ -167,6 +190,9 @@ class SiteTrace:
     serving: dict[str, tuple[Serving, ...]]  # str(ReqId) -> serving leaves, in WBS order
     use_cases: dict[str, UseCase]  # str(ReqId) of each own use case
     report: TraceReport
+    # (leaf key, line, ReqId, why) of each satisfies entry that names no requirement, in WBS order.
+    unresolved: tuple[tuple[str, int, ReqId, str], ...] = ()
+    foreign: tuple[ForeignLeaf, ...] = ()  # a full build's (#21): config order, then WBS order
 
 
 def satisfies_ids(leaf, namespaces) -> tuple[list[ReqId], list[ReportEntry]]:
@@ -279,7 +305,7 @@ def build_site_trace(site, leaves, catalog) -> SiteTrace:
     parsed leaves in WBS order. No entry stops the build."""
     leaves = tuple(leaves)
     in_trace = catalog.in_trace(site)
-    leaf_ids, leaf_entries = {}, []
+    leaf_ids, leaf_entries, unresolved = {}, [], []
     for leaf in leaves:
         ids, problems = satisfies_ids(leaf, catalog.namespaces)
         leaf_entries.extend(problems)
@@ -289,6 +315,7 @@ def build_site_trace(site, leaves, catalog) -> SiteTrace:
             if why is None:
                 resolved.append(rid)
             else:
+                unresolved.append((leaf.key, leaf.line, rid, why))
                 leaf_entries.append(ReportEntry(LEAF_SOURCE, leaf.line, "undefined_id",
                                                 MESSAGES["undefined_id"].format(rid=rid, why=why)))
         if resolved:
@@ -308,7 +335,50 @@ def build_site_trace(site, leaves, catalog) -> SiteTrace:
                             for e in group if e.kind in kinds)
                 for name, kinds in FIELDS.items()}
     report = TraceReport(**by_field, unserved=unserved, unserved_scope=UNSERVED_SCOPE, untraced=untraced)
-    return SiteTrace(site, in_trace, leaf_ids, serving, use_cases, report)
+    return SiteTrace(site, in_trace, leaf_ids, serving, use_cases, report, tuple(unresolved))
+
+
+def build_installation_trace(sites, inputs, traces, unbuilt, catalog) -> dict[str, SiteTrace]:
+    """Every SiteTrace widened to the installation (#21), in config order.
+
+    `sites` is the config-order site list; `inputs` is {name: Inputs} and
+    `traces` {name: SiteTrace} for every site with a trace; `unbuilt` is
+    {name: reason} for the read and trace failures. Every returned report has
+    scope INSTALLATION_SCOPE and the build's sites_not_read. An in-trace site
+    also gets its foreign leaves, `unserved` counting them, and the other
+    sites' entries naming its IDs that name no requirement. Pure: the
+    arguments are never changed."""
+    not_read = sites_not_read(sites, unbuilt)
+    order = [site.name for site in sites if site.name in traces]
+    widened = {}
+    for name in order:
+        trace = traces[name]
+        report = replace(trace.report, unserved_scope=INSTALLATION_SCOPE, sites_not_read=not_read)
+        if not trace.in_trace:
+            widened[name] = replace(trace, report=report)
+            continue
+        own = catalog.sets[name].requirements
+        foreign, undefined = [], []
+        for other in order:
+            if other == name:
+                continue
+            t = traces[other]
+            for leaf in inputs[other].data.leaves:
+                serves = tuple((key, s.how) for key, found in t.serving.items() if key in own
+                               for s in found if s.leaf == leaf.key)
+                if serves:
+                    foreign.append(ForeignLeaf(other, leaf.key, leaf.line, leaf.issue, leaf.title, leaf.state,
+                                               leaf.open, t.leaf_ids[leaf.key], serves))
+            undefined.extend(sorted(
+                (ReportEntry(FOREIGN_SOURCE.format(site=other), line, "undefined_foreign",
+                             MESSAGES["undefined_foreign"].format(key=key, rid=rid, why=why))
+                 for key, line, rid, why in t.unresolved if rid.namespace == name),
+                key=lambda e: e.line))
+        served = {key for f in foreign for key, _ in f.serves}
+        unserved = tuple(key for key in trace.report.unserved if key not in served)
+        report = replace(report, unserved=unserved, undefined_foreign=tuple(undefined))
+        widened[name] = replace(trace, report=report, foreign=tuple(foreign))
+    return widened
 
 
 def _flows(reqs):
