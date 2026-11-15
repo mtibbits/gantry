@@ -240,13 +240,27 @@ figcaption { color: var(--muted); font-size: 14px; max-width: 72ch; }
 /* A selection: fixed classes set by the page's script. Direct and indirect
    differ by a solid or dashed outline, not by colour alone; while a leaf's
    dependency trace shows (.tracing), its rules win. */
-.net.selecting:not(.tracing) .node:not(.req-direct):not(.req-indirect) { opacity: .25; }
+.net.selecting:not(.tracing) .node:not(.req-direct):not(.req-indirect):not(.req-upstream) { opacity: .25; }
 .net.selecting:not(.tracing) .edge { opacity: .2; }
 .net:not(.tracing) .node.req-direct .outline, .net:not(.tracing) .node.req-direct .dot { stroke: var(--cross); stroke-width: 3; stroke-dasharray: none; }
 .net:not(.tracing) .node.req-indirect .outline, .net:not(.tracing) .node.req-indirect .dot { stroke: var(--cross); stroke-width: 3; stroke-dasharray: 5 3; }
-#gantt.selecting .seg:not(.req-direct):not(.req-indirect), #gantt.selecting .pmark { opacity: .3; }
+#gantt.selecting .seg:not(.req-direct):not(.req-indirect):not(.req-upstream), #gantt.selecting .pmark { opacity: .3; }
 .seg.req-direct { stroke: var(--cross); stroke-width: 2.5; stroke-dasharray: none; }
 .seg.req-indirect { stroke: var(--cross); stroke-width: 2.5; stroke-dasharray: 4 2; }
+/* The path (#77): an upstream leaf is dotted; the heaviest chain is heavier, its width
+   only, after every how-rule, so it composes with direct, indirect and upstream. */
+.net:not(.tracing) .node.req-upstream .outline, .net:not(.tracing) .node.req-upstream .dot { stroke: var(--cross); stroke-width: 3; stroke-dasharray: 1 4; }
+.seg.req-upstream { stroke: var(--cross); stroke-width: 2.5; stroke-dasharray: 1 3; }
+.net:not(.tracing) .node.req-chain .outline { stroke-width: 5; }
+/* A 1-hour dot has r = 3 and a bar can be 1 px wide: the stroke paints first and the
+   fill over it, so only the outer half shows and the model colour stays whole. The outer
+   half of a bar's stroke still lies over the bar drawn before it in its row (docs). */
+.net:not(.tracing) .node.req-chain .dot { stroke-width: 8; paint-order: stroke; }
+.seg.req-chain { stroke-width: 6; paint-order: stroke; }
+/* No display here: .gone alone hides the box. */
+.req-path { margin: 12px 0 0; padding: 8px 12px; border: 1px solid var(--rule); border-radius: 3px; }
+.req-path p { margin: 0 0 4px; }
+.req-path ul { margin: 4px 0 8px; padding-left: 20px; font-size: 14px; }
 .chip.req-on .chip-box { fill: var(--ink); stroke: var(--ink); }
 .chip.req-on text.chip-t { fill: var(--bg); }
 .chip.req-need .chip-box { stroke: var(--cross); stroke-width: 1.5; stroke-dasharray: 2 2; }

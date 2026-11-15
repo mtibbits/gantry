@@ -41,7 +41,8 @@
   // view: {lane_of: [[leafKey, laneIndex], ...], collapsed: [laneIndex, ...]}
   function marks(trace, state, view) {
     const hover = isObj(state) && isText(state.hover) ? state.hover : null;
-    const out = { selected: null, selecting: false, leaves: new Map(), needs: [], lanes: [], tracing: hover };
+    const out = { selected: null, selecting: false, leaves: new Map(), needs: [], lanes: [], tracing: hover,
+      upstream: [], chain: [] };
     if (!isObj(trace) || !Array.isArray(trace.requirements)) return out;
     const rows = new Map(trace.requirements.map((r) => [r.id, r]));
     const id = isObj(state) && isText(state.selected) ? state.selected : null;
@@ -49,13 +50,18 @@
     if (row === undefined) return out;
     out.selected = id;
     out.leaves = new Map(row.light);
-    out.selecting = out.leaves.size > 0;
+    // The path (#77): the open leaves the serving leaves wait on, in work order, and the heaviest chain.
+    const path = isObj(row.path) ? row.path : {};
+    const order = Array.isArray(path.order) ? path.order : [];
+    out.upstream = order.filter((o) => Array.isArray(o) && o[1] === "upstream").map((o) => o[0]);
+    out.chain = Array.isArray(path.chain) ? path.chain.slice() : [];
+    out.selecting = out.leaves.size > 0 || out.upstream.length > 0;
     out.needs = row.needs.filter((n) => rows.has(n));
     const v = isObj(view) ? view : {};
     const laneOf = new Map(Array.isArray(v.lane_of) ? v.lane_of : []);
     const collapsed = new Set(Array.isArray(v.collapsed) ? v.collapsed : []);
     const counts = new Map();
-    for (const k of out.leaves.keys()) {
+    for (const k of [...out.leaves.keys(), ...out.upstream]) {
       const lane = laneOf.get(k);
       if (lane !== undefined && collapsed.has(lane)) counts.set(lane, (counts.get(lane) || 0) + 1);
     }
@@ -63,7 +69,23 @@
     return out;
   }
 
-  globalThis.gantryTrace = Object.freeze({ step, marks });
+  // The working day a plan ends the targets' work in (#77): views/worksite.py's
+  // plan_finish_day, with toFixed(9) for its round(end, 9). `plan` is a Map or
+  // its [key, [start, end, lane]] pairs; null when no target is in it.
+  function endDay(plan, targets, hoursPerDay) {
+    const p = plan instanceof Map ? plan : new Map(plan);
+    let end = null;
+    for (const k of targets) {
+      const v = p.get(k);
+      if (v !== undefined) end = Math.max(end === null ? 0 : end, v[1] / hoursPerDay);
+    }
+    return end === null ? null : Math.max(1, Math.ceil(Number(end.toFixed(9))));
+  }
+
+  // Hours as text: half up to one decimal, a whole number bare (views/worksite.py's _num1).
+  const num = (x) => (Math.round(x * 10) / 10).toString();
+
+  globalThis.gantryTrace = Object.freeze({ step, marks, endDay, num });
 
   const block = document.getElementById("gantry-data");
   if (block === null) return;
@@ -77,7 +99,6 @@
   const HPD = DATA.hours_per_day;
   const ELLIPSIS = "\u2026";
   const cut = (s, n) => (s.length > n ? s.slice(0, n - 1).trimEnd() + ELLIPSIS : s);
-  const num = (x) => (Math.round(x * 10) / 10).toString();
   const laneText = (i) => [lanes[i].tag, lanes[i].name].filter((s) => s !== "").join(" ");
   const lanesText = (k) => (k === 1 ? "1 lane" : k + " lanes");
   // The page's count texts (#10): numbers only are filled in.
@@ -221,6 +242,7 @@
   let critEnd = 0;
   let span = 20;
   let hot = null;
+  let planNow = new Map();
   const W = LABW + TW + PADR;
   const px = (d) => LABW + (d / span) * TW;
 
@@ -231,6 +253,7 @@
 
   function compute() {
     const p = gantrySchedule.plan(items, k);
+    planNow = p;
     rows = items.map((item) => {
       const [a, b, wl] = p.get(item.key);
       return { leaf: leaves.get(item.key), a: a / HPD, b: b / HPD, wl };
@@ -451,7 +474,7 @@
   // One state; every change goes through gantryTrace.step, then applyMarks,
   // which sets fixed classes on elements matched with getAttribute.
 
-  const HOW_CLASS = new Map([["direct", "req-direct"], ["indirect", "req-indirect"]]);
+  const HOW_CLASS = new Map([["direct", "req-direct"], ["indirect", "req-indirect"], ["upstream", "req-upstream"]]);
   let sel = { selected: null, hover: null };
   const LANE_OF = DATA.leaves.map((leaf) => [leaf.key, leaf.lane]);
 
@@ -462,22 +485,104 @@
     };
   }
 
-  function mark(el, how) {
+  // One mark per leaf: how it serves the selection, else "upstream"; the chain mark composes with it.
+  function mark(el, m, upstream, chain) {
+    const key = el.getAttribute("data-item");
+    const how = m.leaves.has(key) ? m.leaves.get(key) : upstream.has(key) ? "upstream" : undefined;
     for (const c of HOW_CLASS.values()) el.classList.remove(c);
     if (how !== undefined) el.classList.add(HOW_CLASS.get(how));
+    el.classList.toggle("req-chain", chain.has(key));
+  }
+
+  // --- the path box (#77), built as text -------------------------------------
+
+  const pathBox = document.getElementById("req-path");
+  const MARK_WORDS = new Map([["direct", DATA.texts.path_direct], ["indirect", DATA.texts.path_indirect],
+    ["upstream", DATA.texts.path_upstream]]);
+  let boxFor = null;
+
+  function para(parent, text, cls) {
+    const p = document.createElement("p");
+    if (cls !== undefined) p.setAttribute("class", cls);
+    p.textContent = text;
+    parent.append(p);
+    return p;
+  }
+
+  function list(cls, entries, fill) {
+    if (!entries.length) return;
+    const ul = document.createElement("ul");
+    ul.setAttribute("class", cls);
+    for (const entry of entries) {
+      const li = document.createElement("li");
+      fill(li, entry);
+      ul.append(li);
+    }
+    pathBox.append(ul);
+  }
+
+  function endText(path) {
+    const day = gantryTrace.endDay(planNow, path.targets, HPD);
+    return day === null ? null : fillIn(DATA.texts.path_end, [["lanes", lanesText(k)], ["day", day]]);
+  }
+
+  function fillBox(path) {
+    pathBox.replaceChildren();
+    if (path.order.length) para(pathBox, DATA.texts.label, "label");
+    for (const text of path.lines) para(pathBox, text);
+    const end = endText(path);
+    if (end !== null) para(pathBox, end, "path-end").setAttribute("aria-live", "polite");
+    const chain = new Set(path.chain);
+    list("path-list", path.order, (li, [key, how]) => {
+      const leaf = leaves.get(key);
+      const id = document.createElement("span");
+      id.setAttribute("class", "mono");
+      id.textContent = key;
+      const parts = leaf === undefined ? [] : [leaf.issue === null ? DATA.texts.no_issue_id : leaf.issue, leaf.title,
+        num(leaf.hours) + " h"];
+      parts.push(MARK_WORDS.get(how) || how);
+      if (chain.has(key)) parts.push(DATA.texts.mark_chain);
+      li.append(id, document.createTextNode(" \u00b7 " + parts.join(" \u00b7 ")));
+    });
+    if (path.incomplete.length) para(pathBox, DATA.texts.path_incomplete, "label");
+    list("path-why", path.incomplete, (li, text) => { li.textContent = text; });
+  }
+
+  // Rebuilt only when the selection changes; a lane change rewrites the end-day line alone,
+  // so its aria-live region announces the new day and every other redraw leaves the box be.
+  function applyBox(id) {
+    if (pathBox === null) return;
+    const row = id === null || TRACE === null ? undefined : TRACE.requirements.find((r) => r.id === id);
+    const path = row === undefined || !isObj(row.path) || row.path.state === "constraint" ? null : row.path;
+    const key = path === null ? null : id;
+    if (key !== (boxFor === null ? null : boxFor.id)) {
+      boxFor = key === null ? null : { id: key, lanes: k };
+      if (path === null) pathBox.replaceChildren();
+      else fillBox(path);
+      pathBox.classList.toggle("gone", path === null);
+      return;
+    }
+    if (boxFor !== null && boxFor.lanes !== k) {
+      boxFor.lanes = k;
+      const end = pathBox.querySelector(".path-end");
+      if (end !== null) end.textContent = endText(path) || "";
+    }
   }
 
   function applyMarks() {
     const m = gantryTrace.marks(TRACE, sel, view());
     const needs = new Set(m.needs);
+    const upstream = new Set(m.upstream);
+    const chain = new Set(m.chain);
+    applyBox(m.selected);
     if (svg !== null) {
       svg.classList.toggle("tracing", m.tracing !== null);
       svg.classList.toggle("selecting", m.selecting);
-      for (const g of svg.querySelectorAll(".node")) mark(g, m.leaves.get(g.getAttribute("data-item")));
+      for (const g of svg.querySelectorAll(".node")) mark(g, m, upstream, chain);
     }
     if (host !== null) {
       host.classList.toggle("selecting", m.selecting);
-      for (const s of host.querySelectorAll(".seg")) mark(s, m.leaves.get(s.getAttribute("data-item")));
+      for (const s of host.querySelectorAll(".seg")) mark(s, m, upstream, chain);
       const lit = new Map(m.lanes);
       for (const g of host.querySelectorAll(".g-toggle")) {
         for (const old of g.querySelectorAll(".g-lit")) old.remove();

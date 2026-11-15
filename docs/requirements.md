@@ -106,8 +106,8 @@ acknowledging a security report within seven days (BRule-6).
 - UC-4: An operator reads the tactical week view to see which day and which
   block each planned issue falls on. {needs: [FR-17, FR-18, FR-19, QA-4]}
 - UC-5: An operator follows the trace from a leaf to the requirements it
-  serves, and from a requirement or a use case to its leaves.
-  {needs: [FR-20, SR-5]}
+  serves, and from a requirement or a use case to its leaves and the work
+  they wait on. {needs: [FR-20, FR-25, SR-5]}
 - UC-6: An operator plans Gantry's own work in Gantry, as its first site.
   {needs: [FR-23]}
 - UC-7: A visitor views the public demo, which is built only from made-up
@@ -215,6 +215,12 @@ acknowledging a security report within seven days (BRule-6).
 - FR-24: Where devagent's portfolio JSON is available for a site, that
   site's plan is read from it; otherwise it is read from the site's
   `WBS.md`. {refines: SR-7}
+- FR-25: For a selected requirement or use case other than a
+  constraint, the worksite page shows the path to its serving work: every
+  open leaf its serving leaves wait on, an order to work them in, the
+  chain with the most hours and the working day the current schedule ends
+  that work, labelled as agent capacity only. A path it cannot show whole
+  says why. {refines: SR-4}
 
 ## Quality attributes
 

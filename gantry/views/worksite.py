@@ -16,6 +16,7 @@ from gantry.est_rules import classify_est
 from gantry.inputs import NO_TIERS, UNEST_WHAT, has_tiers, scheduled, site_totals
 from gantry.links import leaf_anchor
 from gantry.model import HOURS_PER_DAY, Estimate, Models
+from gantry.path import build_paths
 from gantry.render import MODEL_CLASSES, Markup, embed_json, esc, fill, model_class, slack_class, state_class
 
 LANES_DEFAULT = 4
@@ -111,6 +112,31 @@ ENTRY_LINE, ENTRY_WHOLE = "{source} line {line}: {message}", "{source}: {message
 # The page script's selection texts (#20), through the page's texts.
 SATISFIES = "Satisfies:"
 LIT = "{n} lit"
+# The path to a selected requirement's work (#77): each trace row's `path`.
+PATH_HEADING = "{n} leaves, {hours} agent-hours to finish its serving work"
+PATH_HEADING_ONE = "1 leaf, {hours} agent-hours to finish its serving work"
+# Every serving leaf is held out: the path is only the work they wait on.
+PATH_HEAD_HELD = "{n} upstream leaves, {hours} agent-hours feed its held-out serving work"
+PATH_HEAD_HELD_ONE = "1 upstream leaf, {hours} agent-hours feed its held-out serving work"
+PATH_UNEST = " ({n} unestimated)"
+PATH_CHAIN = "Longest chain: {hours} agent-hours, about {days}"
+PATH_DAYS = "{n} working days"
+PATH_DAYS_ONE = "1 working day"
+PATH_END = "In the current schedule on {lanes}, its serving work ends in working day {day}"
+PATH_INCOMPLETE = "incomplete"
+PATH_HELD = "{key} waits on a cycle"
+PATH_FOREIGN_MANY = "{keys} wait on {text}"  # one foreign entry held by several leaves
+NOT_CHECKED = "not checked in this build"
+PATH_OTHER_SITE = "also served on {site} by {issue}, which this page does not plan"
+PATH_NOT_READ = "sites not read: {sites}"
+PATH_UNSERVED = "No leaf serves it"
+PATH_UNSERVED_SITE = "No leaf on this site serves it"
+PATH_FINISHED = "Its serving work is finished"
+PATH_FINISHED_SITE = "Its serving work on this site is finished"
+PATH_MARKS = {"direct": "direct", "indirect": "indirect", "upstream": "upstream"}
+PATH_MARK_CHAIN = "chain"
+PATH_NOTE = ("A selection also marks the open leaves its serving leaves wait on, with a dotted outline, and the "
+             "chain with the most hours with a heavier one.")
 
 
 # --- the optional inputs (gantry/inputs.py fills them, #10) -----------------------
@@ -193,6 +219,64 @@ def plan_finish_day(items, p):
         end = max(end, p[item["key"]][1] / HOURS_PER_DAY)
     # round() first, so a float a hair over a whole day is not a day later.
     return max(1, math.ceil(round(end, 9)))
+
+
+def _num1(x):
+    """Hours as the page script's num: half up to one decimal, a whole number bare."""
+    v = _round(x * 10) / 10
+    return str(int(v)) if v == int(v) else repr(v)
+
+
+def path_end_text(day, lanes):
+    """The path box's end-day line (#77)."""
+    return PATH_END.format(lanes=_lanes_text(lanes), day=day)
+
+
+def path_status(state, scope, sites_not_read):
+    """An empty path's status: the unscoped text only when the build read every
+    site of an installation-wide trace; `sites_not_read` None is unknown, never empty."""
+    whole = scope == "installation" and sites_not_read == ()
+    if state == "finished":
+        return PATH_FINISHED if whole else PATH_FINISHED_SITE
+    return PATH_UNSERVED if whole else PATH_UNSERVED_SITE
+
+
+def _reason_text(reason):
+    kind, a, b = reason
+    if kind == "held":
+        return PATH_HELD.format(key=a)
+    if kind == "foreign":
+        if len(a) > 1:
+            return PATH_FOREIGN_MANY.format(keys=", ".join(a), text=b)
+        return FBOX_TIP.format(key=a[0], text=b)
+    return PATH_OTHER_SITE.format(site=a, issue=NO_ISSUE_ID if b is None else b)
+
+
+def _path_record(p, layer, scope, items, planned, sites_not_read=None):
+    """A trace row's `path` (#77): exactly the seven keys docs/worksite-page.md names."""
+    if layer == "CON":
+        return {"state": "constraint", "lines": [], "order": [], "chain": [], "targets": [], "end_day": None,
+                "incomplete": []}
+    lines = []
+    if p.order:
+        n, hours = len(p.order), _num1(p.hours)
+        many, one = (PATH_HEADING, PATH_HEADING_ONE) if p.targets else (PATH_HEAD_HELD, PATH_HEAD_HELD_ONE)
+        head = (one if n == 1 else many).format(n=n, hours=hours)
+        lines.append(head + (PATH_UNEST.format(n=p.unestimated) if p.unestimated else ""))
+        days = _round(p.chain_hours / HOURS_PER_DAY)
+        lines.append(PATH_CHAIN.format(hours=_num1(p.chain_hours),
+                                       days=_count_line(days, PATH_DAYS, PATH_DAYS_ONE)))
+    elif p.state != "path":
+        lines.append(path_status(p.state, scope, sites_not_read))
+    if p.notes:
+        lines.append(PATH_NOT_READ.format(sites=", ".join(p.notes)))
+    targets = set(p.targets)
+    return {
+        "state": p.state, "lines": lines, "order": [[k, mark] for k, mark in p.order], "chain": list(p.chain),
+        "targets": list(p.targets),
+        "end_day": plan_finish_day([item for item in items if item["key"] in targets], planned) if targets else None,
+        "incomplete": [_reason_text(r) for r in p.reasons],
+    }
 
 
 def summary_text(items, p, path, lanes, unest_site, unest_path, no_chain=SUMMARY_NO_CHAIN):
@@ -389,6 +473,18 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None) -> di
     held = sum(leaf.state in HELD_STATES for leaf in work)
     unest = {k for k in keys if hours[k][1]}
     unest_path = sum(k in unest for k in path)
+    traced = trace
+    if trace is not None:
+        foreign = {}
+        for leaf, shown in zip(work, leaves):
+            suffix = " " + NOT_CHECKED if leaf.foreign_targets is None else ""
+            foreign[leaf.key] = [text + suffix for text in shown["foreign"]]
+        serving = {r["id"]: ([(x[0], x[1]) for x in r["light"]], [x[0] for x in r["held"]], len(r["finished"]))
+                   for r in trace["requirements"]}
+        req_paths = build_paths(serving, items, unestimated=unest, links=data.links, foreign=foreign)
+        traced = {**trace, "requirements": [
+            {**r, "path": _path_record(req_paths[r["id"]], r["layer"], trace["scope"], items, planned)}
+            for r in trace["requirements"]]}
     if source is None:
         estimates_line = None
     elif source.date is None:
@@ -460,8 +556,11 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None) -> di
                   "includes": INCLUDES, "includes_one": INCLUDES_ONE, "dates": DATES, "dates_one": DATES_ONE,
                   "summary": SUMMARY, "summary_no_chain": no_chain, "summary_unest": SUMMARY_UNEST,
                   "summary_unest_one": SUMMARY_UNEST_ONE, "satisfies": SATISFIES, "lit": LIT,
-                  "slack_none": SLACK_NONE},
-        "trace": trace,
+                  "slack_none": SLACK_NONE, "path_end": PATH_END, "path_incomplete": PATH_INCOMPLETE,
+                  "path_direct": PATH_MARKS["direct"], "path_indirect": PATH_MARKS["indirect"],
+                  "path_upstream": PATH_MARKS["upstream"], "mark_chain": PATH_MARK_CHAIN,
+                  "no_issue_id": NO_ISSUE_ID},
+        "trace": traced,
     }
 
 
@@ -917,10 +1016,12 @@ def _requirements(trace):
     for r in trace["requirements"]:
         groups.setdefault(r["layer"], []).append(r)
     parts = [f'<section class="prose" id="requirements"><h2>{esc(REQUIREMENTS_HEADING)}</h2>'
-             f'<p class="label">{esc(SELECT_NOTE)}</p>']
+             f'<p class="label">{esc(SELECT_NOTE)}</p><p class="label">{esc(PATH_NOTE)}</p>']
     for layer, rows in groups.items():
         parts.append(f'<h3>{esc(LAYER_HEADINGS[layer])}</h3><ul class="panel reqs">'
                      + "".join(_req_row(r) for r in rows) + "</ul>")
+    # The path box (#77): after the lists, so selecting never moves a row; the script fills it.
+    parts.append('<div class="req-path gone" id="req-path"></div>')
     return Markup("".join(parts) + "</section>")
 
 

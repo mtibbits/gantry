@@ -156,7 +156,7 @@ def test_sample_leaf_chips_data():
     assert leaf_ids_of(page, "Issue-7") == [["lighthouse:FR-1", "FR-1"], ["life:BR-1", "life:BR-1"],
                                             ["lighthouse:QA-1", "QA-1"], ["lighthouse:UC-1", "UC-1"]]
     # Finished and untraced leaves have no element to carry chips.
-    assert [k for k, _ in page["leaves"]] == ["Issue-7", "Issue-8", "Issue-10", "Issue-11"]
+    assert [k for k, _ in page["leaves"]] == ["Issue-7", "Issue-8", "Issue-10", "Issue-11", "Issue-12"]
     br = row(page, "life:BR-1")
     assert (br["label"], br["text"]) == ("life:BR-1", None)
     assert page["in_trace"] is True and page["scope"] == "site"
@@ -250,7 +250,7 @@ def test_every_built_page_carries_trace(tmp_path):
     assert set(result.pages) == READABLE
     for name in sorted(READABLE):
         trace = trace_of(result.pages[name])
-        # Exactly these five keys: #77 and #21 add theirs beside them.
+        # Exactly these five keys: #77 adds `path` to each row, not here; #21 adds its keys beside them.
         assert list(trace) == ["in_trace", "scope", "requirements", "leaves", "report"], name
         if name == SMALL:
             assert trace["in_trace"] is True
@@ -697,7 +697,8 @@ def test_hostile_trace_page_is_safe(tmp_path):
 
 START = {"selected": None, "hover": None}
 NO_VIEW = {"lane_of": [], "collapsed": []}
-EMPTY_MARKS = {"selected": None, "selecting": False, "leaves": [], "needs": [], "lanes": [], "tracing": None}
+EMPTY_MARKS = {"selected": None, "selecting": False, "leaves": [], "needs": [], "lanes": [], "tracing": None,
+               "upstream": [], "chain": []}
 SR1_LIGHT = [["Issue-7", "indirect"], ["Issue-8", "direct"], ["Issue-10", "indirect"], ["Issue-11", "direct"]]
 
 
@@ -776,7 +777,7 @@ def test_collapsed_lane_count(node, sample_page):
     lane_of = [[leaf["key"], leaf["lane"]] for leaf in data["leaves"]]
     lanes = list(range(len(data["lanes"])))
     view = {"lane_of": lane_of, "collapsed": lanes}
-    assert marks_after(path, trace, [select("lighthouse:SR-1")], view)["lanes"] == [[1, 4]]
+    assert marks_after(path, trace, [select("lighthouse:SR-1")], view)["lanes"] == [[1, 5]]
     view = {"lane_of": lane_of, "collapsed": [i for i in lanes if i != 1]}
     assert marks_after(path, trace, [select("lighthouse:SR-1")], view)["lanes"] == []
 
@@ -833,7 +834,7 @@ def test_empty_light_set_not_selecting(node, sample_page):
 
 # --- Task 8: the thin layer, under the harness ---------------------------------------
 
-MARK_SELECTOR = ".req-direct, .req-indirect, .req-on, .req-need"
+MARK_SELECTOR = ".req-direct, .req-indirect, .req-on, .req-need, .req-upstream, .req-chain"
 
 
 def marked(page, selector, cls):
@@ -876,11 +877,11 @@ def test_collapsed_lane_shows_lit_count(node, sample_page):
     path, _, _ = sample_page
     with open_page(path) as page:
         page.drive("requirement", "lighthouse:SR-1")
-        assert lit_counts(page) == {1: "4 lit"}
+        assert lit_counts(page) == {1: "5 lit"}
         page.drive("expand", "all")
         assert page.query(".g-lit") == []
         page.drive("expand", "none")
-        assert lit_counts(page) == {1: "4 lit"}
+        assert lit_counts(page) == {1: "5 lit"}
 
 
 def test_marks_survive_schedule_redraw(node, sample_page):
@@ -1002,7 +1003,8 @@ def test_hostile_trace_under_harness(node, tmp_path):
 def test_requirements_panel_states_the_marks(tmp_path):
     t = tree(sample(tmp_path).pages[SMALL])
     panel = by_id(t, "requirements")
-    assert [text_of(t, i) for i in find(t, "p", ["label"], within=panel)] == [worksite.SELECT_NOTE]
+    assert [text_of(t, i) for i in find(t, "p", ["label"], within=panel)] == [worksite.SELECT_NOTE,
+                                                                           worksite.PATH_NOTE]
 
 
 # --- Task 9: the docs ----------------------------------------------------------------
