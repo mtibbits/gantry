@@ -1714,6 +1714,126 @@ def test_equal_shares_byte_identical_under_hash_seeds(tmp_path):
         assert len(texts) == 1, base
 
 
+# --- the priority property (#37) ----------------------------------------------------------------
+
+NEVER = (float("inf"),)
+PRIORITY_RE = re.compile(r"priority:\s*[^,}]*")
+
+
+def first_placement(plan, site, key):
+    """(day index, block number or blocks + 1 for the lanes row, position) of the leaf's
+    first placement; NEVER, after every placement, when it is not placed."""
+    for i, day in enumerate(plan.days):
+        for block in day["blocks"]:
+            for position, entry in enumerate(block["leaves"]):
+                if (entry["site"], entry["key"]) == (site, key):
+                    return i, block["number"], position
+        for position, entry in enumerate(day["lanes_row"]):
+            if (entry["site"], entry["key"]) == (site, key):
+                return i, len(day["blocks"]) + 1, position
+    return NEVER
+
+
+def raised(text, line):
+    """`text` with the leaf on 1-based `line` one priority step up; absent or invalid: P2."""
+    from gantry.priority import is_valid, rank
+
+    lines = text.split("\n")
+    found = PRIORITY_RE.search(lines[line - 1])
+    value = found.group(0).split(":", 1)[1].strip() if found else None
+    step = f"P{rank(value) - 1}" if is_valid(value) else "P2"
+    if found is None:
+        lines[line - 1] = lines[line - 1].replace("{", f"{{priority: {step}, ", 1)
+    else:
+        lines[line - 1] = lines[line - 1][:found.start()] + f"priority: {step}" + lines[line - 1][found.end():]
+    return "\n".join(lines)
+
+
+def priority_subjects(result):
+    """(site, key, line) of each open leaf of a built site with no open predecessor, local
+    or across sites, whose own rank is not 0."""
+    from gantry.crosssite import WAITING
+    from gantry.priority import rank
+
+    subjects = []
+    for name in planner._built_sites(result):
+        data = result.inputs[name].data
+        open_keys = {found.key for found in data.leaves if found.open}
+        waits = {after for before, after in data.links if before in open_keys}
+        subjects += [(name, found.key, found.line) for found in data.leaves
+                     if found.open and found.key not in waits and rank(found.priority) != 0
+                     and not any(o.status in WAITING for o in found.foreign_targets or ())]
+    return subjects
+
+
+def priority_property(copy, build):
+    """(subjects with a baseline placement, [(subject, before, after) moved later]) over every
+    subject of the installation at `copy`; build() gives (build result, plan)."""
+    result, before = build()
+    placed_n, later = 0, []
+    for site, key, line in priority_subjects(result):
+        path = copy / site / "WBS.md"
+        text = path.read_bytes().decode("utf-8")
+        old = first_placement(before, site, key)
+        placed_n += old != NEVER
+        path.write_bytes(raised(text, line).encode("utf-8"))
+        try:
+            new = first_placement(build()[1], site, key)
+        finally:
+            path.write_bytes(text.encode("utf-8"))
+        if new > old:
+            later.append(((site, key), old, new))
+    return placed_n, later
+
+
+def fixture_build(copy):
+    args = built(copy)
+    return args[0], plan_week(*args)
+
+
+def test_raising_priority_never_delays_first_placement(tmp_path):
+    from helpers_config import copy_samples
+
+    copy = copy_samples(tmp_path)
+
+    def sample_build_and_plan():
+        result = build_all(load_config(copy / "gantry.sample.toml"), samples=copy)
+        portfolio = read_portfolio_file(result.roots, result.config.portfolio_file,
+                                        br_namespace=result.config.requirements.br_namespace)
+        return result, plan_week(result, portfolio, result.config)
+
+    placed_n, later = priority_property(copy, sample_build_and_plan)
+    assert later == []
+    assert placed_n >= 4, placed_n
+    total = 0
+    for base in FIXTURE_NAMES:
+        copy = install(tmp_path, base)
+        placed_n, later = priority_property(copy, lambda copy=copy: fixture_build(copy))
+        assert later == [], base
+        total += placed_n
+    # The spike's per-installation counts over 12 fixtures sum to 71 (its "75" was a slip);
+    # cross_site_cycle adds 2.
+    assert total >= 73, total
+
+
+def test_raising_priority_moves_a_tied_leaf_earlier(tmp_path):
+    copy = install(tmp_path, "two_sites")
+    result, before = fixture_build(copy)
+    moved = 0
+    for name in ("a", "b"):
+        for found in [leaf for leaf in result.inputs[name].data.leaves if leaf.open][1:]:
+            path = copy / name / "WBS.md"
+            text = path.read_bytes().decode("utf-8")
+            path.write_bytes(raised(text, found.line).encode("utf-8"))
+            try:
+                after = fixture_build(copy)[1]
+            finally:
+                path.write_bytes(text.encode("utf-8"))
+            assert first_placement(after, name, found.key) < first_placement(before, name, found.key), found.key
+            moved += 1
+    assert moved >= 2
+
+
 # --- through the build ------------------------------------------------------------------------
 
 
