@@ -654,7 +654,8 @@ def test_doc_names_every_kind_status_and_key():
     assert [lines.index(h) for h in headings] == sorted(lines.index(h) for h in headings)
     joined = text.replace(LF, " ")
     for phrase in ("U+2028", "lone carriage return", "same day", "public repository",
-                   "Gantry's own repository", "paid work", "not freshness"):
+                   "Gantry's own repository", "paid work", "not freshness",
+                   "with or without a list marker", "no-break space"):
         assert phrase in joined, phrase
 
 
@@ -666,3 +667,22 @@ def test_doc_examples_read_as_documented():
     notes = first_fence_under("## Notes under an entry")
     result = parse(LF.join(notes) + LF, names=("harbor", "quarry"))
     assert (result.status, lines_of(result), len(notes)) == ("read", [1], 2)
+
+
+
+def test_fenced_lines_count_with_or_without_a_marker():
+    # docs/fires-list.md: skipped_in_fences counts entry-shaped lines with or without a list marker.
+    block = ["```", "- [ ] 2026-10-24 @harbor x", "[ ] 2026-10-24 @harbor x", "2026-10-24 bare", "- prose", "```"]
+    result = parse(LF.join(block) + LF)
+    assert (result.entries, result.skipped_in_fences, result.status) == ((), 3, "read")
+
+
+def test_documented_limits_are_prose():
+    # docs/fires-list.md's "Entry-like lines" names these as prose: only the
+    # ASCII markers, spaces and tabs make an entry-like line.
+    nbsp, bullet, dash = chr(0xA0), chr(0x2022), chr(0x2013)
+    lines = ["-" + nbsp + "[ ] 2026-10-24 @harbor x", bullet + " [ ] 2026-10-24 @harbor x",
+             dash + " [ ] 2026-10-24 @harbor x", "> - [ ] 2026-10-24 @harbor x", "# [ ] 2026-10-24 @harbor x"]
+    for line in lines:
+        result = parse(line + LF)
+        assert (result.entries, result.report, result.status) == ((), (), "read"), line

@@ -128,6 +128,13 @@ by the same rules, and it is kept as an unreadable entry and reported
 and indented lines that start with neither a box nor a date are prose and
 are not read.
 
+Only the markers above, spaces and tabs count. A line that starts with
+anything else is prose, even when an entry follows it, so it is neither
+read nor reported: a no-break space, a `•` or `–` bullet (which some notes
+apps and autocorrect write), a `>` quote, a `#` heading, or a table row.
+Write each entry as `- ` at the start of its line, and run `gantry fires`
+after an edit to see that the count of fires is what you typed.
+
 In short: a bullet at column 0 or 1 is always an entry; at two or three
 spaces it is an entry when it starts with a box or a date or has no entry
 above it, and otherwise a note; deeper, numbered, or with no space after the
@@ -141,8 +148,8 @@ file: lines inside a closed fence are not read. A fence opens on three or
 more backticks or tildes at any indent and closes on a run of the same
 character at least as long with no info string; a backtick run whose info
 string holds a backtick is not a fence. `gantry fires` counts the
-entry-shaped lines a closed fence hides (`skipped_in_fences`: lines with a
-list marker that start with a box or a date), so a stray fence that
+entry-shaped lines a closed fence hides (`skipped_in_fences`: lines, with or
+without a list marker, that start with a box or a date), so a stray fence that
 swallows real entries shows. An HTML comment hides nothing.
 
 An opener with no closer is not a fence: every line after it is still
