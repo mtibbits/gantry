@@ -665,3 +665,34 @@ def test_no_stale_cross_site_promises():
         for stale in ("#21 widens", "wait for #21", "Provisional (#21", "every page today uses the site forms",
                       "#21 adds its keys"):
             assert stale not in text, (rel, stale)
+
+
+# --- Final review fixes -----------------------------------------------------------------
+
+
+def test_finished_elsewhere_with_unread_site(tmp_path):
+    # Only another site's finished leaf serves FR-1 and a third site is unreadable:
+    # nothing on alpha serves it, so the status may not say "on this site".
+    config = write_site_tree(tmp_path, {
+        "alpha": b"# Alpha\n\n- [ ] One {issue: Issue-1}\n",
+        "beta": b"# Beta\n\n- [x] Two {issue: Issue-2, satisfies: alpha:FR-1}\n",
+        "gamma": b"# Gamma\n\n- [ ] Bad \xff {issue: Issue-3}\n",
+    }, tail='[site.alpha]\nrequirements = "req-alpha.md"\n')
+    (tmp_path / "req-alpha.md").write_bytes(TWO_REQS.encode("utf-8"))
+    result = build.build_all(load_config(config))
+    fr1 = row(trace_of(result.pages["alpha"]), "alpha:FR-1")["path"]
+    assert fr1["state"] == "finished"
+    assert fr1["lines"] == [worksite.PATH_FINISHED]
+    assert fr1["incomplete"] == [worksite.PATH_NOT_READ.format(sites="gamma")]
+
+
+def test_br_namespace_site_rows_keep_site_forms(tmp_path):
+    # A site named like br_namespace is never in the trace: its rows are not
+    # covered by the installation trace, so they keep the --site forms (D2).
+    wbs = {"life": "# Life\n\n- [x] Done {issue: Issue-1, satisfies: life:BR-1}\n",
+           "alpha": "# Alpha\n\n- [ ] Open {issue: Issue-2, satisfies: life:BR-1}\n"}
+    result = build.build_all(load_config(installation(tmp_path, wbs, {"alpha": TWO_REQS}, portfolio="- BR-1: b\n")))
+    trace = trace_of(result.pages["life"])
+    assert trace["in_trace"] is False and trace["scope"] == "installation"
+    br1 = row(trace, "life:BR-1")["path"]
+    assert br1["lines"] == [worksite.PATH_FINISHED_SITE] and br1["incomplete"] == []

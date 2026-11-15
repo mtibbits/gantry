@@ -394,7 +394,7 @@ def test_path_status_follows_what_the_build_read():
     assert [w.path_status(*case) for case in (
         ("unserved", "site", None), ("unserved", "installation", ()), ("finished", "site", None),
         ("finished", "installation", ("marsh",)), ("finished", "installation", ()))] == [
-        w.PATH_UNSERVED_SITE, w.PATH_UNSERVED, w.PATH_FINISHED_SITE, w.PATH_FINISHED_SITE, w.PATH_FINISHED]
+        w.PATH_UNSERVED_SITE, w.PATH_UNSERVED, w.PATH_FINISHED_SITE, w.PATH_FINISHED, w.PATH_FINISHED]
 
 
 def test_empty_cases_have_no_list_or_figures(tmp_path):

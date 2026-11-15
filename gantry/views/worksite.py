@@ -239,11 +239,15 @@ def path_end_text(day, lanes):
 
 
 def path_status(state, scope, sites_not_read):
-    """An empty path's status: the unscoped text only when the build read every
-    site of an installation-wide trace; `sites_not_read` None is unknown, never empty."""
+    """An empty path's status. Unserved: the unscoped text only when the build
+    read every site of an installation-wide trace; `sites_not_read` None is
+    unknown, never empty. Finished: unscoped in any installation-wide trace,
+    whose finished count holds other sites' leaves (#21)."""
     whole = scope == "installation" and sites_not_read == ()
     if state == "finished":
-        return PATH_FINISHED if whole else PATH_FINISHED_SITE
+        # In a full build the finished count holds every read site's leaves (#21),
+        # so "on this site" could be false; a site not read is the row's reason.
+        return PATH_FINISHED if whole or scope == "installation" else PATH_FINISHED_SITE
     return PATH_UNSERVED if whole else PATH_UNSERVED_SITE
 
 
@@ -493,7 +497,8 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None, built
             foreign[leaf.key] = [text + suffix for text in shown["foreign"]]
         # A full build (#21) covers the site's own rows: their foreign leaves serve them
         # too, open ones as reasons and finished ones in the finished count (D2).
-        wide = trace["scope"] == "installation"
+        # A site not in the trace (one named like br_namespace among them) gets no foreign leaves.
+        wide = trace["scope"] == "installation" and trace["in_trace"]
         own = {r["id"] for r in trace["requirements"] if wide and r["id"].startswith(site + ":")}
         other_serving = {r["id"]: [(trace["foreign"][i][0], trace["foreign"][i][2]) for i, _ in r["foreign"]
                                    if trace["foreign"][i][5]] for r in trace["requirements"] if r["id"] in own}

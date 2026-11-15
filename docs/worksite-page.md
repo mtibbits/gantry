@@ -730,9 +730,11 @@ it in each trace row's `path`; the page's script only draws it.
 - **Empty cases.** With no open serving leaf, the box shows one line and
   no list or figures: `No leaf on this site serves it` or
   `Its serving work on this site is finished`. The unscoped
-  `No leaf serves it` and `Its serving work is finished` are for a site's
-  own row in a full build that read every site (#21), finished leaves on
-  other sites counted. A row with an open serving leaf only on another site
+  `No leaf serves it` is for a site's own row in a full build that read
+  every site (#21). `Its serving work is finished` is for a site's own row
+  in any full build, since its finished count holds every read site's
+  leaves; when a site was not read, the row's `sites not read` reason says
+  so. A row with an open serving leaf only on another site
   has the state `path`, no list, and its reasons.
 - **The `path` record.** Exactly the keys `state` (`path`, `unserved`,
   `finished` or `constraint`), `lines`, `order` (`[key, mark]` pairs in
