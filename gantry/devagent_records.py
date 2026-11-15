@@ -214,3 +214,75 @@ def read_checklist(text: str) -> ChecklistState:
         revision=revision,
         problems=tuple(problems),
     )
+
+
+# --- plans -----------------------------------------------------------------------------------
+
+TASKS_HEADING_RE = re.compile(r"## Tasks[ \t]*")  # fullmatch
+CHECKBOX_RE = re.compile(r"- \[(.)\] (.*)")  # fullmatch; column 0 only
+TASK_HEADING_RE = re.compile(r"#{2,4}[ \t]+(Task[ \t]+[0-9].*)")  # fullmatch; a digit after Task
+NUMBERED_RE = re.compile(r"[0-9]+[.)][ \t]+(.*)")  # fullmatch
+TICKED = "xX"
+
+CHECKBOX = "checkbox"
+HEADINGS = "headings"
+NUMBERED = "numbered"
+UNRECOGNISED = "unrecognised"
+NONE = "none"
+SHAPE_RES = ((CHECKBOX, CHECKBOX_RE), (HEADINGS, TASK_HEADING_RE), (NUMBERED, NUMBERED_RE))
+
+PLAN_TASKS_UNRECOGNISED = "plan_tasks_unrecognised"
+
+
+@dataclass(frozen=True)
+class PlanState:
+    shape: str
+    next_task: str | None
+    marks_done: bool
+    problems: tuple[str, ...]
+
+
+def _shape_of(line: str):
+    for shape, pattern in SHAPE_RES:
+        match = pattern.fullmatch(line)
+        if match:
+            return shape, match
+    return None, None
+
+
+def _headings(lines) -> PlanState:
+    for line in lines:
+        match = TASK_HEADING_RE.fullmatch(line)
+        if match:
+            return PlanState(HEADINGS, match.group(1), False, ())
+    return PlanState(NONE, None, False, ())
+
+
+def read_plan(text: str) -> PlanState:
+    """A plan's task list. In the `## Tasks` section (to the next line
+    starting `## `) the first line of a task shape (check box, `Task N`
+    heading, numbered item; column 0) fixes the shape, and only lines of that
+    shape are tasks. With no section, or one with no task-shaped line that a
+    level-2 `## Task N` heading ends, a `Task N` heading anywhere gives
+    `headings`. Code fences are not interpreted."""
+    lines = text_lines(text)
+    start = next((i for i, line in enumerate(lines) if TASKS_HEADING_RE.fullmatch(line)), None)
+    if start is None:
+        return _headings(lines)
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
+    section = lines[start + 1:end]
+    shape = None
+    for line in section:
+        shape, _ = _shape_of(line)
+        if shape is not None:
+            break
+    if shape is None:
+        if end < len(lines) and TASK_HEADING_RE.fullmatch(lines[end]):
+            return _headings(lines)
+        return PlanState(UNRECOGNISED, None, False, (PLAN_TASKS_UNRECOGNISED,))
+    pattern = dict(SHAPE_RES)[shape]
+    matches = [m for m in (pattern.fullmatch(line) for line in section) if m]
+    if shape == CHECKBOX:
+        open_task = next((m.group(2) for m in matches if m.group(1) not in TICKED), None)
+        return PlanState(CHECKBOX, open_task, any(m.group(1) in TICKED for m in matches), ())
+    return PlanState(shape, matches[0].group(1), False, ())

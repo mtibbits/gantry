@@ -216,3 +216,86 @@ def test_checklist_bom_and_crlf_read_like_plain():
     for issue in ("Issue-6", "Issue-12", "Issue-24"):
         text = written(issue, "checklist.md")
         assert dr.read_checklist(bom_crlf(text)) == dr.read_checklist(text)
+
+
+# --- read_plan (Task 5) --------------------------------------------------------------------
+
+
+def plan(name):
+    return (PLANS / name).read_bytes().decode("utf-8")
+
+
+def test_checkbox_plan_first_unticked():
+    one = dr.read_plan(plan("checkbox_one_ticked.md"))
+    assert one == dr.PlanState("checkbox", "Task 2: Order the crane part", True, ())
+    none = dr.read_plan(plan("checkbox_none_ticked.md"))
+    assert none == dr.PlanState("checkbox", "Task 1: Survey the north quay", False, ())
+
+
+def test_checkbox_all_ticked():
+    got = dr.read_plan(plan("checkbox_all_ticked.md"))
+    assert got.shape == "checkbox" and got.next_task is None and got.marks_done
+
+
+def test_headings_plan_with_and_without_section():
+    inside = dr.read_plan(plan("headings_in_section.md"))
+    assert inside == dr.PlanState("headings", "Task 1: Survey the north quay", False, ())
+    outside = dr.read_plan(plan("headings_no_section.md"))
+    assert outside == dr.PlanState("headings", "Task 1 — Survey the north quay", False, ())
+
+
+def test_numbered_plan():
+    text = plan("numbered.md")
+    assert dr.read_plan(text) == dr.PlanState("numbered", "Survey the north quay", False, ())
+    paren = text.replace("1. Survey", "1) Survey")
+    assert paren != text
+    assert dr.read_plan(paren).next_task == "Survey the north quay"
+
+
+@pytest.mark.parametrize("name, shape, first, marks_done", [
+    ("mixed_heading_first.md", "headings", "Task 1: Survey the north quay", False),
+    ("mixed_checkbox_first.md", "checkbox", "Task 1: Survey the north quay", False),
+    ("mixed_heading_numbered.md", "headings", "Task 1: Survey the north quay", False),
+    ("mixed_numbered_first.md", "numbered", "Survey the north quay", False),
+])
+def test_mixed_section_takes_first_task_shaped_line(name, shape, first, marks_done):
+    got = dr.read_plan(plan(name))
+    assert (got.shape, got.next_task, got.marks_done) == (shape, first, marks_done)
+
+
+def test_mixed_heading_first_ignores_ticked_steps():
+    text = plan("mixed_heading_first.md")
+    assert "- [x] " in text
+    assert not dr.read_plan(text).marks_done
+
+
+def test_prose_section_is_unrecognised():
+    got = dr.read_plan(plan("prose_section.md"))
+    assert got == dr.PlanState("unrecognised", None, False, ("plan_tasks_unrecognised",))
+
+
+def test_heading_needs_a_digit():
+    assert dr.read_plan(plan("task_word_heading.md")) == dr.PlanState("none", None, False, ())
+
+
+def test_tasks_section_ended_by_task_heading():
+    got = dr.read_plan(plan("tasks_then_level2_headings.md"))
+    assert got == dr.PlanState("headings", "Task 1: Survey the north quay", False, ())
+
+
+def test_no_task_list_is_none():
+    assert dr.read_plan(plan("no_tasks.md")) == dr.PlanState("none", None, False, ())
+    assert dr.read_plan("") == dr.PlanState("none", None, False, ())
+
+
+def test_provenance_lines_change_nothing():
+    text = plan("dispatched.md")
+    assert text.startswith("context: subagent\nmodel: fable\n# ")
+    assert dr.read_plan(text) == dr.read_plan(plan("checkbox_one_ticked.md"))
+
+
+def test_plan_bom_and_crlf_read_like_plain():
+    for path in sorted(PLANS.iterdir()):
+        text = path.read_bytes().decode("utf-8")
+        assert dr.read_plan(bom_crlf(text)) == dr.read_plan(text), path.name
+    assert len(list(PLANS.iterdir())) == 15
