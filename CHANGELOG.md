@@ -9,6 +9,18 @@ line under `## [Unreleased]`.
 
 ## [Unreleased]
 
+### Added
+
+- A security policy with private vulnerability reporting (SECURITY.md).
+- The README's Support section: what Gantry promises, what it does not, and
+  the supported versions of Python, git and Claude Code (README.md).
+
+### Changed
+
+- A break now includes raising the oldest supported version of a tool, and
+  a release with a break says in its CHANGELOG section what to change
+  (README.md).
+
 ## [0.1.0] — 2026-11-14
 
 ### Added

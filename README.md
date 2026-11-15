@@ -132,6 +132,8 @@ holds only the tool, its documentation and made-up sample data.
   only the demo and a page that links to it. Pages built from real data are meant to be served only as
   private pages or on a private network, never on a public site; Gantry
   writes them to your output folder and publishes nothing itself.
+- Gantry's commands make no network connection: there is no telemetry and
+  no update check.
 - A commit check, in CI and as an optional local hook, checks what is
   committed here for real pages, configs, local paths and, in the local
   hook, private names; what it can and cannot catch is in
@@ -202,7 +204,12 @@ on fail. An installation depends on:
   `week-plan.json`, where a change that bumps `plan_version` is a break
   ([its version rule](docs/week-plan.md#the-version-rule));
 - a command's contract: `gantry build`, `gantry portfolio` and
-  `/gantry:build`.
+  `/gantry:build`;
+- the tools it runs on: raising the oldest supported version of a tool
+  under [Supported versions](#supported-versions) is a break.
+
+A release with a break says, in its CHANGELOG section, what broke and what
+an operator changes.
 
 Before 1.0.0, a break bumps the minor version and any other change the
 patch. From 1.0.0, a fix bumps the patch; an added view, command or optional
@@ -254,7 +261,9 @@ clone loaded with
 
 ### Checks every release runs
 
-Run these while `main` is still at the tag.
+Run these while `main` is still at the tag. Run the plugin check with the
+latest Claude Code release, and record `claude --version` and
+`git --version` from that machine in what is posted about the release.
 
 - The quickstart job at the tag: its run for the tag push, or this:
 
@@ -314,6 +323,46 @@ Run these while `main` is still at the tag.
   ```
   python3 tools/commit_check.py names --text "<file>"
   ```
+
+## Support
+
+Gantry has one maintainer and is offered as is, under the MIT license.
+
+### What is promised
+
+For the latest release:
+
+- No silent breaks: a break ships only under the version rule above, and
+  its CHANGELOG section says what to change.
+- Every user-visible change is in [CHANGELOG.md](CHANGELOG.md), and every
+  release is a tag and a GitHub release.
+- Gantry sends nothing anywhere (see
+  [Your data stays private](#your-data-stays-private)).
+- Gantry needs no third-party Python package at run time.
+- The tool versions below work.
+- Security reports have a private route and a published policy
+  ([SECURITY.md](SECURITY.md)).
+
+### What is not promised
+
+No deadline for a fix, no release cadence, no backports to older releases,
+no commitment to a requested feature, and no platform but Linux and
+Windows. Gantry may run elsewhere, such as macOS, but nothing checks it.
+Issues and pull requests are welcome; they are read when the maintainer
+can.
+
+### Supported versions
+
+| Tool | Oldest supported | How it is checked |
+|---|---|---|
+| Python | 3.11 | On every change: 3.11 and the latest 3.x release, on Ubuntu and Windows (`.github/workflows/test.yml`). |
+| git | Not yet stated | On every change: the git on the CI runners, Ubuntu and Windows. |
+| Claude Code | Not yet stated | At every release: the plugin check under [Checks every release runs](#checks-every-release-runs), on the latest release. |
+
+Where no oldest version is stated yet, only the latest release is
+supported. Stating one, once a check covers it, widens support; raising one
+later is a break. A failure on a tool's latest release is a defect, fixed
+in a patch release.
 
 ## License
 
