@@ -608,7 +608,7 @@
     }
     for (const li of document.querySelectorAll("li.xleaf")) {
       const how = m.foreign.get(Number(li.getAttribute("data-item")));
-      li.classList.remove("req-direct", "req-indirect");
+      for (const c of HOW_CLASS.values()) li.classList.remove(c);
       if (how !== undefined) li.classList.add(HOW_CLASS.get(how));
     }
     for (const el of document.querySelectorAll("li.req, g.chip")) {

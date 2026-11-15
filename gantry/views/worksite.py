@@ -243,12 +243,11 @@ def path_status(state, scope, sites_not_read):
     read every site of an installation-wide trace; `sites_not_read` None is
     unknown, never empty. Finished: unscoped in any installation-wide trace,
     whose finished count holds other sites' leaves (#21)."""
-    whole = scope == "installation" and sites_not_read == ()
     if state == "finished":
         # In a full build the finished count holds every read site's leaves (#21),
         # so "on this site" could be false; a site not read is the row's reason.
-        return PATH_FINISHED if whole or scope == "installation" else PATH_FINISHED_SITE
-    return PATH_UNSERVED if whole else PATH_UNSERVED_SITE
+        return PATH_FINISHED if scope == "installation" else PATH_FINISHED_SITE
+    return PATH_UNSERVED if scope == "installation" and sites_not_read == () else PATH_UNSERVED_SITE
 
 
 def _reason_text(reason):
@@ -499,12 +498,15 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None, built
         # too, open ones as reasons and finished ones in the finished count (D2).
         # A site not in the trace (one named like br_namespace among them) gets no foreign leaves.
         wide = trace["scope"] == "installation" and trace["in_trace"]
-        own = {r["id"] for r in trace["requirements"] if wide and r["id"].startswith(site + ":")}
-        other_serving = {r["id"]: [(trace["foreign"][i][0], trace["foreign"][i][2]) for i, _ in r["foreign"]
-                                   if trace["foreign"][i][5]] for r in trace["requirements"] if r["id"] in own}
-        serving = {r["id"]: ([(x[0], x[1]) for x in r["light"]], [x[0] for x in r["held"]],
-                             len(r["finished"]) + sum(not trace["foreign"][i][5] for i, _ in r.get("foreign", ())))
-                   for r in trace["requirements"]}
+        own = {r["id"] for r in trace["requirements"]
+               if (rid := parse_id(r["id"])) is not None and rid.namespace == site} if wide else set()
+        other_serving, serving = {}, {}
+        for r in trace["requirements"]:
+            leaves_from = [trace["foreign"][i] for i, _ in r["foreign"]]
+            if r["id"] in own:
+                other_serving[r["id"]] = [(f[0], f[2]) for f in leaves_from if f[5]]
+            serving[r["id"]] = ([(x[0], x[1]) for x in r["light"]], [x[0] for x in r["held"]],
+                                len(r["finished"]) + sum(not f[5] for f in leaves_from))
         req_paths = build_paths(serving, items, unestimated=unest, links=data.links, foreign=foreign,
                                 sites_not_read=trace.get("not_read"), other_serving=other_serving)
         traced = {**trace, "requirements": [
@@ -1076,7 +1078,7 @@ def _served_elsewhere(trace):
             head = f'<a href="{esc(href)}">{head}</a>'
         word = STATE_MARKS.get(state) or (XSITE_OPEN if is_open else ROW_FINISHED)
         names = ", ".join(f'<a href="{esc(link)}">{esc(label)}</a>' if link is not None
-                          else f'<span class="mono">{esc(label)}</span>' for _rid, label, link in ids)
+                          else _mono([label]) for _rid, label, link in ids)
         items.append(f'<li class="xleaf" data-item="{i}">{head}{DOT}{esc(word)}{DOT}{names}</li>')
     return Markup(f'<section class="prose" id="served-elsewhere"><h2>{esc(XSITE_HEADING)}</h2>'
                   f'<ul class="panel xsite">{"".join(items)}</ul></section>')

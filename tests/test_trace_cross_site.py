@@ -18,7 +18,6 @@ from gantry.trace import (FOREIGN_SOURCE, INSTALLATION_SCOPE, MESSAGES, ForeignL
                           build_site_trace, load_catalog, page_trace, sites_not_read)
 from gantry.views import worksite
 from helpers_config import demo_build, write_site_tree
-from gantry.model import SiteData
 from gantry.render import CLASS_TOKENS
 from page_safety import HOSTILE, assert_no_external_resources, assert_page_safe
 from sample_roles import BUSY, NO_WBS, READABLE, SMALL, UNESTIMATED, UNREADABLE
@@ -276,7 +275,6 @@ def test_foreign_record_and_not_read():
 
 
 def test_foreign_href_needs_a_built_page():
-    config = load_config(GANTRY_SAMPLE)
     _, wide, cat, inputs = sample_installation()
     page = page_trace(wide[SMALL], cat, inputs[SMALL].data, built=frozenset({SMALL}))
     assert page["foreign"][0][-1] is None

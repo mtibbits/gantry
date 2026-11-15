@@ -344,15 +344,26 @@ def build_site_trace(site, leaves, catalog) -> SiteTrace:
 def build_installation_trace(sites, inputs, traces, unbuilt, catalog) -> dict[str, SiteTrace]:
     """Every SiteTrace widened to the installation (#21), in config order.
 
-    `sites` is the config-order site list; `inputs` is {name: Inputs} and
-    `traces` {name: SiteTrace} for every site with a trace; `unbuilt` is
-    {name: reason} for the read and trace failures. Every returned report has
+    `sites` is the config-order site list; `inputs` is {name: Inputs}
+    holding every site with a trace, and `traces` {name: SiteTrace} for each;
+    `unbuilt` is {name: reason} for the read and trace failures. Every returned report has
     scope INSTALLATION_SCOPE and the build's sites_not_read. An in-trace site
     also gets its foreign leaves, `unserved` counting them, and the other
     sites' entries naming its IDs that name no requirement. Pure: the
     arguments are never changed."""
     not_read = sites_not_read(sites, unbuilt)
     order = [site.name for site in sites if site.name in traces]
+    # Once per site, not per (site, leaf): each leaf's (key, how) pairs in
+    # catalog order, and the unresolved entries by the namespace they name.
+    by_leaf, by_namespace = {}, {}
+    for name in order:
+        pairs = by_leaf[name] = {}
+        for key, found in traces[name].serving.items():
+            for s in found:
+                pairs.setdefault(s.leaf, []).append((key, s.how))
+        groups = by_namespace[name] = {}
+        for entry in traces[name].unresolved:
+            groups.setdefault(entry[2].namespace, []).append(entry)
     widened = {}
     for name in order:
         trace = traces[name]
@@ -367,15 +378,14 @@ def build_installation_trace(sites, inputs, traces, unbuilt, catalog) -> dict[st
                 continue
             t = traces[other]
             for leaf in inputs[other].data.leaves:
-                serves = tuple((key, s.how) for key, found in t.serving.items() if key in own
-                               for s in found if s.leaf == leaf.key)
+                serves = tuple(pair for pair in by_leaf[other].get(leaf.key, ()) if pair[0] in own)
                 if serves:
                     foreign.append(ForeignLeaf(other, leaf.key, leaf.line, leaf.issue, leaf.title, leaf.state,
                                                leaf.open, t.leaf_ids[leaf.key], serves))
             undefined.extend(sorted(
                 (ReportEntry(FOREIGN_SOURCE.format(site=other), line, "undefined_foreign",
                              MESSAGES["undefined_foreign"].format(key=key, rid=rid, why=why))
-                 for key, line, rid, why in t.unresolved if rid.namespace == name),
+                 for key, line, rid, why in by_namespace[other].get(name, ())),
                 key=lambda e: e.line))
         served = {key for f in foreign for key, _ in f.serves}
         unserved = tuple(key for key in trace.report.unserved if key not in served)
@@ -488,10 +498,11 @@ def page_trace(trace: SiteTrace, catalog: Catalog, data, *, built=frozenset()) -
         })
     report = [[name, [[_source(e), e.line, e.message] for e in getattr(trace.report, name)]] for name in FIELDS]
     not_read = trace.report.sites_not_read
-    if trace.in_trace and not_read is not None:
-        # Another site's WBS.md: its source as written (FOREIGN_SOURCE), by category.
-        report.append(["undefined_foreign", [[e.source, e.line, e.message] for e in trace.report.undefined_foreign]])
     if trace.in_trace:
+        if not_read is not None:
+            # Another site's WBS.md: its source as written (FOREIGN_SOURCE), by category.
+            report.append(["undefined_foreign",
+                           [[e.source, e.line, e.message] for e in trace.report.undefined_foreign]])
         report.append(["unserved", [[key, _label(reqs[key].id, site)] for key in trace.report.unserved]])
         report.append(["untraced", [[key, by_key[key].title] for key in trace.report.untraced]])
     return {

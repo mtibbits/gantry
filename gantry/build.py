@@ -25,7 +25,6 @@ from gantry.requirements import in_trace_sites
 from gantry.roots import OutsideRoots, Roots, mkdir_confined, stat_confined, write_confined
 from gantry.sites import SiteEntry, SiteWarning, config_roots, load_sites
 from gantry.stamp import public_text, stamp_text
-from gantry.requirements import parse_id
 from gantry.trace import build_installation_trace, build_site_trace, counts_line, load_catalog, page_trace
 from gantry.views import worksite
 from gantry.views.index import render_index
@@ -213,19 +212,15 @@ def not_built(name, reason) -> SiteSummary:
     return SiteSummary(name, "not_built", reason)
 
 
-def _trace_sites(model) -> set[str]:
-    """The sites a page's trace data names (#21): each foreign leaf's site and
-    the namespace of every ID it shows. A page naming a site that failed is
-    re-rendered, so it never links to a page that was not written."""
-    trace = model.get("trace") or {}
-    found = set()
-    for f in trace.get("foreign", ()):
-        found.add(f[0])
-        found.update(i[0].partition(":")[0] for i in f[6])
-    for r in trace.get("requirements", ()):
-        rid = parse_id(r["id"])
-        if rid is not None:
-            found.add(rid.namespace)
+def _trace_sites(trace) -> set[str]:
+    """The sites a SiteTrace's page names (#21): each foreign leaf's site and
+    the namespace of every ID its leaves or foreign leaves name. A page naming
+    a site that failed is re-rendered, so it never links to a page that was
+    not written."""
+    found = {rid.namespace for ids in trace.leaf_ids.values() for rid in ids}
+    for f in trace.foreign:
+        found.add(f.site)
+        found.update(rid.namespace for rid in f.ids)
     return found
 
 
@@ -254,7 +249,8 @@ def rerender_failed(config, raw, sites, reasons, resolved, foreign, pages, model
         resolved, foreign = resolve_foreign(sites, raw, reasons)
         built = frozenset(name for name in raw if name not in reasons)
         waiting = {name: resolved[name] for name in pages
-                   if any(o.target_site in new for o in foreign[name]) or _trace_sites(models[name]) & set(new)}
+                   if any(o.target_site in new for o in foreign[name])
+                   or (traces is not None and not _trace_sites(traces[name]).isdisjoint(new))}
         again, remodels, new = render_sites(config, waiting, stamp, roots=roots, catalog=catalog, traces=traces,
                                             built=built)
         pages.update(again)
@@ -282,8 +278,7 @@ def build_all(config, *, now=None, samples=None) -> BuildResult:
     raw, reasons = read_sites(config, sites, roots=roots)
     resolved, foreign = resolve_foreign(sites, raw, reasons)
     traces, trace_failed = site_traces(resolved, catalog, roots)
-    traces = build_installation_trace(sites, {name: resolved[name] for name in traces}, traces,
-                                      {**reasons, **trace_failed}, catalog)
+    traces = build_installation_trace(sites, resolved, traces, {**reasons, **trace_failed}, catalog)
     built = frozenset(name for name in raw if name not in reasons and name not in trace_failed)
     pages, models, failed = render_sites(config, {name: resolved[name] for name in traces}, stamp, roots=roots,
                                          catalog=catalog, traces=traces, built=built)
