@@ -652,6 +652,15 @@ def test_demo_plan_as_of_day_contents(tmp_path):
     assert all(rate[e["site"], e["key"]] == 0 for e in first["lanes_row"])
 
 
+def test_demo_plan_as_of_day_has_blocks_for_two_sites(tmp_path):
+    # Fair share (#37): the demo's as-of day divides its attention between sites.
+    plan = sample_build(tmp_path).plan
+    first = plan.days[0]
+    assert first["date"] == "2026-01-20"
+    assert len({block["site"] for block in first["blocks"]}) >= 2
+    assert plan.allocation_rule == "fair share by intended shares"
+
+
 BUILD_HOMES = ("docs/worksite-page.md", "docs/config.md", "commands/build.md", "README.md", "gantry/cli.py")
 
 
