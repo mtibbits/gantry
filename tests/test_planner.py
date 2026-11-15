@@ -615,6 +615,8 @@ def check_invariants(plan, portfolio_path):
     """The invariants of the first acceptance criterion; returns the number of blocks."""
     hours, lanes, block_min, start_cost = file_capacity(portfolio_path)
     rate = {(entry["site"], entry["key"]): entry["rate"] for entry in plan.leaves}
+    tier = {(entry["site"], entry["key"]): entry["tier"] for entry in plan.leaves}
+    two_tiers = 0
     on_days = {key: 0 for key in rate}
     charged = {site["name"]: [0, 0] for site in plan.sites}
     blocks = 0
@@ -627,7 +629,7 @@ def check_invariants(plan, portfolio_path):
         today = {}
         assert [block["number"] for block in day["blocks"]] == list(range(1, len(day["blocks"]) + 1))
         sites = [block["site"] for block in day["blocks"]]
-        assert len(set(sites)) == len(sites), "a site has at most one block a day"
+        assert all(a != b for a, b in zip(sites, sites[1:])), "no two consecutive blocks of a day are on one site"
         for block in day["blocks"]:
             blocks += 1
             assert block["leaves"], "a block that could hold no leaf is not opened"
@@ -635,7 +637,9 @@ def check_invariants(plan, portfolio_path):
             assert block["start_cost_hours"] == pytest.approx(start_cost)
             assert block["length_hours"] >= block_min - EPS
             operator = sum(entry["operator_hours"] for entry in block["leaves"])
-            assert operator + block["start_cost_hours"] <= block["length_hours"] + EPS
+            # One start cost a block, merged or not: its length is the start cost plus its work, or block_min.
+            assert block["length_hours"] == pytest.approx(max(block_min, operator + block["start_cost_hours"]))
+            two_tiers += len({tier[entry["site"], entry["key"]] for entry in block["leaves"]}) > 1
             charged[block["site"]][0] += block["length_hours"]
             for entry in block["leaves"]:
                 assert rate[entry["site"], entry["key"]] > 0
@@ -663,6 +667,7 @@ def check_invariants(plan, portfolio_path):
     for site in plan.sites:
         assert site["attention_hours_charged"] == pytest.approx(charged[site["name"]][0])
         assert site["lane_hours_charged"] == pytest.approx(charged[site["name"]][1])
+    check_invariants.two_tiers = two_tiers
     return blocks
 
 
@@ -692,8 +697,14 @@ def test_invariants_hold(tmp_path, subject):
 def test_invariant_subjects(tmp_path):
     subjects = invariant_subjects()
     assert set(FIXTURE_NAMES) | {"demo"} <= set(subjects)
-    with_block = [s for s in subjects if check_invariants(*subject_plan(tmp_path, s)) > 0]
+    with_block, two_tiers = [], []
+    for subject in subjects:
+        if check_invariants(*subject_plan(tmp_path, subject)) > 0:
+            with_block.append(subject)
+        if check_invariants.two_tiers:
+            two_tiers.append(subject)
     assert len(with_block) >= 3, with_block
+    assert two_tiers, "some subject has a block holding leaves of two tiers"
 
 
 def block_keys(day, n=0):
@@ -1072,7 +1083,7 @@ def test_leaf_tier_values(tmp_path):
     assert [placed(plan, "a", key)["tier"] for key in ("Issue-1", "Issue-2", "Issue-3")] == ["started"] * 3
     assert placed(plan, "b", "Issue-2")["tier"] == "fair_share"
     plan = plan_of(tmp_path, "p0")
-    assert placed(plan, "a", "Issue-2")["tier"] == "p0"
+    assert [placed(plan, "a", key)["tier"] for key in ("Issue-1", "Issue-2")] == ["p0", "p0"]
     assert planner.TIERS == ("p0", "started", "fair_share")
     for base in FIXTURE_NAMES:
         assert {entry["tier"] for entry in plan_of(tmp_path, base).leaves} <= set(planner.TIERS), base
@@ -1225,6 +1236,95 @@ def test_site_with_no_page_is_not_a_share_site(tmp_path):
     assert [site["name"] for site in plan.sites] == ["a"]
     assert {(note["kind"], tuple(note["projects"])) for note in plan.notes} == {("shares_dropped", ("b",))}
     assert shares_of(plan, "a") == [100.0] * 10
+
+
+# --- priority tiers and merged blocks (#37) ------------------------------------------------------
+
+
+def block_sites(day):
+    return [block["site"] for block in day["blocks"]]
+
+
+def blocks_of(day):
+    return [(block["site"], [entry["key"] for entry in block["leaves"]]) for block in day["blocks"]]
+
+
+def test_states_started_blocks_site_by_site(tmp_path):
+    plan = plan_of(tmp_path, "states")
+    assert blocks_of(plan.days[0]) == [("a", ["Issue-1", "Issue-2", "Issue-3"]), ("b", ["Issue-1"])]
+
+
+def test_started_leaves_go_before_other_leaves_of_their_site(tmp_path):
+    plan = plan_of(tmp_path, "states", wbs={"a": wbs_md(
+        leaf(1, priority="P1", est="1h", h=1), leaf(2, "~", priority="P3", est="1h", h=1),
+        leaf(3, "!", priority="P4", est="1h", h=1))})
+    assert placed_keys(plan, "a") == ["Issue-2", "Issue-3", "Issue-1"]
+    assert [placed(plan, "a", key)["tier"] for key in ("Issue-2", "Issue-3", "Issue-1")] == [
+        "started", "started", "fair_share"]
+
+
+def test_started_blocks_go_to_more_urgent_site_first(tmp_path):
+    plan = plan_of(tmp_path, "states", wbs={"a": wbs_md(leaf(1, "~", priority="P3", est="1h", h=1)),
+                                            "b": wbs_md(leaf(1, "~", priority="P1", est="1h", h=1))})
+    assert block_sites(plan.days[0]) == ["b", "a"]
+
+
+def test_p0_blocks_first_in_config_order(tmp_path):
+    plan = plan_of(tmp_path, "p0")
+    first = plan.days[0]["blocks"]
+    assert [block["site"] for block in first[:2]] == ["a", "b"]
+    assert [placed(plan, block["site"], block["leaves"][0]["key"])["tier"] for block in first[:2]] == ["p0", "p0"]
+    assert [entry["share"] for site in plan.sites for entry in site["shares"][:1]] == [90.0, 10.0]
+
+
+def test_p0_local_blocker_planned_in_tier_one_before_it(tmp_path):
+    plan = plan_of(tmp_path, "p0")
+    first = plan.days[0]["blocks"][0]
+    assert (first["site"], first["leaves"][0]["key"]) == ("a", "Issue-2")
+    assert placed(plan, "a", "Issue-2")["tier"] == "p0"
+    a_blocks = [block for block in plan.days[1]["blocks"] if block["site"] == "a"]
+    assert a_blocks[0]["leaves"][0]["key"] == "Issue-1"
+
+
+def test_same_site_next_block_merges(tmp_path):
+    plan = plan_of(tmp_path, "states")
+    b_blocks = [block for block in plan.days[1]["blocks"] if block["site"] == "b"]
+    assert len(b_blocks) == 1
+    assert [entry["key"] for entry in b_blocks[0]["leaves"]] == ["Issue-1", "Issue-2"]
+    assert [placed(plan, "b", key)["tier"] for key in ("Issue-1", "Issue-2")] == ["started", "fair_share"]
+    assert b_blocks[0]["start_cost_hours"] == 0.25
+
+
+MAPPING_2 = "attention_mapping = [0, 0.1, 0.25, 0.5, 2.0]\n"
+BINDING_TIER_CELLS = [
+    # A tier-1 block cut by the day's attention, a lane free: 105 minutes hold 52 agent minutes at rate 2.
+    ("tier 1 cut", "binds_lanes", 2, 2, {"alpha": wbs_md(leaf(1, priority="P0", est="6h", h=4))}, [ATTENTION], 1),
+    # A p0 leaf then a fair_share leaf in one merged block, cut the same way: attention, once.
+    ("merged cut", "binds_lanes", 2, 2, {"alpha": wbs_md(
+        leaf(1, priority="P0", est="0.25h", h=4), leaf(2, est="6h", h=4))}, [ATTENTION], 1),
+    # b's block is not open and 15 minutes are left, under block_min; a lane is free.
+    ("not open, lane free", "states", 2, 2, {"a": wbs_md(leaf(1, priority="P0", est="0.75h", h=4)),
+                                             "b": wbs_md(leaf(1, est="1h", h=4))}, [ATTENTION], 1),
+    # The same with a's leaf taking the one lane: lanes only.
+    ("not open, no lane", "states", 1.5, 1, {"a": wbs_md(leaf(1, priority="P0", est="6h", h=1)),
+                                             "b": wbs_md(leaf(1, est="1h", h=4))}, [LANES], 1),
+    # One operator minute left in the open block holds no agent minute at rate 2.
+    ("one minute left", "binds_lanes", 2, 2, {"alpha": wbs_md(
+        leaf(1, priority="P0", est="3.4667h", h=3), leaf(2, est="1h", h=4))}, [ATTENTION], 1),
+]
+
+
+@pytest.mark.parametrize(("case", "base", "hours", "lanes", "wbs", "ran", "blocks"), BINDING_TIER_CELLS,
+                         ids=[cell[0] for cell in BINDING_TIER_CELLS])
+def test_binding_pool_cells_with_tiers(tmp_path, case, base, hours, lanes, wbs, ran, blocks):
+    plan = plan_of(tmp_path, base, portfolio=portfolio_md(hours=hours, lanes=lanes, more=MAPPING_2), wbs=wbs)
+    first = plan.days[0]
+    assert first["ran_out"] == ran
+    assert len(first["blocks"]) == blocks
+    if case == "merged cut":
+        assert [placed(plan, "alpha", e["key"])["tier"] for e in first["blocks"][0]["leaves"]] == ["p0", "fair_share"]
+    if case == "one minute left":
+        assert round(first["left"]["attention_hours"] * 60) == 1 and block_keys(first) == ["Issue-1"]
 
 
 # --- through the build ------------------------------------------------------------------------

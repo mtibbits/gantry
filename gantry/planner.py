@@ -423,7 +423,12 @@ def _operator(agent, ppm) -> int:
 
 
 class _Day:
-    """One day's pools and placements while it is planned."""
+    """One day's pools and placements while it is planned.
+
+    The day runs in tier phases (docs/week-plan.md, Priority tiers) around at
+    most one open block: a block stays open until a block of another site
+    opens or the day ends, and a phase that gives the next block to the open
+    block's site continues it, with no second start cost."""
 
     def __init__(self, index, day, capacity, names, work, placed_order, charged):
         self.index, self.text, self.capacity, self.names = index, day.isoformat(), capacity, names
@@ -432,6 +437,11 @@ class _Day:
         self.lanes = capacity.lanes * LANE_MINUTES
         self.placed_order, self.charged = placed_order, charged
         self.today = []
+        self.blocks, self.row = [], []
+        # The open block: {"site", "record", "entries", "work"}, work being the
+        # start cost plus the operator minutes placed; its padding up to
+        # block_min is charged when it closes.
+        self.open = None
         # Whether the placement that took the last lane minute also took the
         # last of the attention its block could give that leaf.
         self.tied = False
@@ -439,51 +449,150 @@ class _Day:
         # still take a lane minute. Recorded then: a later placement that takes
         # the last lane minute does not hide it.
         self.stopped = False
-        # Each site's ready leaves in plan order, fixed for the day: a leaf
-        # is ready when every predecessor finished on an earlier day.
-        # Leaves started on an earlier day go first, then the others.
+        # Each site's ready leaves per tier in plan order, fixed for the day: a
+        # leaf is ready when every predecessor finished on an earlier day.
+        # Within a tier, leaves started on an earlier day go first.
         self.order = {}
         for name in names:
             ready = [item for item in work[name] if item["left"] > 0
                      and all(p["finished"] is not None and p["finished"] < index for p in item["preds"])]
             started = [item for item in ready if item["days"]]
             fresh = [item for item in ready if not item["days"]]
-            self.order[name] = _site_order(started) + _site_order(fresh)
+            ordered = _site_order(started) + _site_order(fresh)
+            self.order[name] = {tier: [item for item in ordered if item["tier"] == tier] for tier in TIERS}
+
+    def ready(self, name):
+        """The site's ready leaves, every tier, in tier order."""
+        return [item for tier in TIERS for item in self.order[name][tier]]
 
     def room(self, item) -> int:
         """The agent minutes the leaf could still take today, lanes allowing."""
         return min(item["left"], LANE_MINUTES - item["today"], self.lanes)
 
-    def block_fits(self, ppm) -> bool:
-        """Whether attention left could open a block holding one agent minute at rate `ppm`."""
-        return (self.attention >= self.capacity.block_min
-                and _agent_fit(self.attention - self.capacity.start_cost, ppm) >= 1)
-
     def waiting(self, item) -> bool:
         """Whether a ready leaf still has minutes to place and is under its 6 agent hours today."""
         return item["left"] > 0 and item["today"] < LANE_MINUTES
 
+    def padding(self) -> int:
+        """The open block's padding up to block_min, charged when it closes."""
+        return max(0, self.capacity.block_min - self.open["work"]) if self.open is not None else 0
+
+    def block_fits(self, ppm) -> bool:
+        """Whether a new block could open now and hold one agent minute at rate
+        `ppm`: the attention left, less the open block's padding, holds
+        block_min and the start cost plus one agent minute."""
+        left = self.attention - self.padding()
+        return (left >= self.capacity.block_min
+                and _agent_fit(left - self.capacity.start_cost, ppm) >= 1)
+
+    def is_open(self, name) -> bool:
+        return self.open is not None and self.open["site"] == name
+
+    def fits(self, item) -> bool:
+        """Whether a ready leaf fits now (docs/week-plan.md, A ready leaf that fits)."""
+        if not (self.lanes > 0 and self.waiting(item)):
+            return False
+        if not item["ppm"]:
+            return True
+        if self.is_open(item["site"]):
+            return _agent_fit(self.attention, item["ppm"]) >= 1
+        return self.block_fits(item["ppm"])
+
     def place(self, item, room):
+        """Place `room` agent minutes of the leaf: once in its days and in the
+        day's count however many blocks of the day hold it."""
         if not item["days"]:
             self.placed_order.append(item)
+        if item["today"] == 0:
+            self.today.append(item)
         item["left"] -= room
         item["today"] += room
-        item["days"].append(self.text)
+        if item["days"][-1:] != [self.text]:
+            item["days"].append(self.text)
         self.lanes -= room
-        self.today.append(item)
 
-    def opens_block(self, item) -> bool:
-        """Whether a block of its site could open now and hold one agent minute of the leaf."""
-        return item["ppm"] > 0 and self.waiting(item) and self.lanes > 0 and self.block_fits(item["ppm"])
+    def close(self):
+        """Close the open block, if any: charge its padding and record its length."""
+        block = self.open
+        if block is None:
+            return
+        length = max(self.capacity.block_min, block["work"])
+        self.attention -= length - block["work"]
+        self.charged[block["site"]] += length
+        block["record"]["length_hours"] = _hours(length)
+        block["record"]["leaves"] = [{"site": block["site"], "key": item["key"], "agent_hours": _hours(agent),
+                                      "operator_hours": _hours(operator)}
+                                     for item, agent, operator in block["entries"]]
+        self.open = None
 
-    def next_block_site(self, closed):
-        """The site with no block yet whose most urgent fitting leaf of rate
-        above 0 is the most urgent; ties to config order. None: no block can open."""
+    def open_block(self, name):
+        self.close()
+        start = self.capacity.start_cost
+        self.attention -= start
+        record = {"number": len(self.blocks) + 1, "site": name, "length_hours": None,
+                  "start_cost_hours": _hours(start), "leaves": []}
+        self.blocks.append(record)
+        self.open = {"site": name, "record": record, "entries": [], "work": start}
+
+    def block_pass(self, name, items):
+        """One pass of `name`'s block over its `items` of rate above 0, in
+        order, continuing the open block when it is the site's or opening one
+        when a leaf fits. Nothing in a pass regains room, so one pass places
+        all it can."""
+        rated = [item for item in items if item["ppm"]]
+        if not self.is_open(name):
+            if not any(self.fits(item) for item in rated):
+                return
+            self.open_block(name)
+        block = self.open
+        for item in rated:
+            fit = _agent_fit(self.attention, item["ppm"])
+            want = self.room(item)
+            self.stopped = self.stopped or fit < want
+            agent = min(want, fit)
+            if agent <= 0:
+                continue
+            self.tied = agent == self.lanes == fit
+            operator = _operator(agent, item["ppm"])
+            self.place(item, agent)
+            self.attention -= operator
+            block["work"] += operator
+            if block["entries"] and block["entries"][-1][0] is item:
+                last = block["entries"][-1]
+                block["entries"][-1] = (item, last[1] + agent, last[2] + operator)
+            else:
+                block["entries"].append((item, agent, operator))
+
+    def row_pass(self, name, items):
+        """The site's rate-0 `items` join the lanes row, each up to its 6 agent hours or the lanes left."""
+        for item in items:
+            agent = self.room(item)
+            if item["ppm"] or agent <= 0:
+                continue
+            self.place(item, agent)
+            self.row.append({"site": name, "key": item["key"], "agent_hours": _hours(agent)})
+
+    def tier_phase(self, tier):
+        """Phases 1 to 4: the sites with a ready leaf of the tier, by its most
+        urgent one's effective priority then config order, fixed now; each
+        gets one block for its leaves of the tier, then in the same order its
+        rate-0 leaves of the tier join the lanes row."""
+        sites = [name for _, _, name in sorted(
+            (min(item["eff_priority"] for item in self.order[name][tier]), position, name)
+            for position, name in enumerate(self.names) if self.order[name][tier])]
+        for name in sites:
+            self.block_pass(name, self.order[name][tier])
+        for name in sites:
+            self.row_pass(name, self.order[name][tier])
+
+    def next_block_site(self, done):
+        """The site not in `done` whose most urgent fitting fair_share leaf of
+        rate above 0 is the most urgent; ties to config order. None: none fits."""
         best = None
         for name in self.names:
-            if name in closed:
+            if name in done:
                 continue
-            fitting = [item for item in self.order[name] if self.opens_block(item)]
+            fitting = [item for item in self.order[name][TIER_FAIR] if item["ppm"] and self.fits(item)]
             if not fitting:
                 continue
             urgency = schedule.pick_ready(fitting)["eff_priority"]
@@ -491,89 +600,61 @@ class _Day:
                 best = (urgency, name)
         return best[1] if best is not None else None
 
-    def blocks(self):
-        """(the day's blocks, {site: the operator minutes its closed block had left})."""
-        capacity = self.capacity
-        blocks, closed = [], {}
-        while (name := self.next_block_site(closed)) is not None:
-            room = self.attention - capacity.start_cost  # operator minutes for the block's work
-            leaves = []
-            # One pass: nothing regains room within a day.
-            for item in self.order[name]:
-                if not item["ppm"]:
-                    continue
-                fit = _agent_fit(room, item["ppm"])
-                want = self.room(item)
-                self.stopped = self.stopped or fit < want
-                agent = min(want, fit)
-                if agent <= 0:
-                    continue
-                self.tied = agent == self.lanes == fit
-                operator = _operator(agent, item["ppm"])
-                self.place(item, agent)
-                room -= operator
-                leaves.append({"site": name, "key": item["key"], "agent_hours": _hours(agent),
-                               "operator_hours": _hours(operator)})
-            length = max(capacity.block_min, self.attention - room)
-            self.attention -= length
-            self.charged[name] += length
-            closed[name] = room
-            blocks.append({"number": len(blocks) + 1, "site": name, "length_hours": _hours(length),
-                           "start_cost_hours": _hours(capacity.start_cost), "leaves": leaves})
-        return blocks, closed
+    def fair_share_blocks(self):
+        """Phase 5: each site's one fair_share pass, the most urgent site first."""
+        done = set()
+        while (name := self.next_block_site(done)) is not None:
+            done.add(name)
+            self.block_pass(name, self.order[name][TIER_FAIR])
 
-    def block_pools_run_out(self, closed) -> set:
+    def fair_share_row(self):
+        """Phase 6: the sites in order of their most urgent fitting fair_share
+        rate-0 leaf, ties to config order, each placing all of its own."""
+        sites = []
+        for position, name in enumerate(self.names):
+            fitting = [item for item in self.order[name][TIER_FAIR] if not item["ppm"] and self.fits(item)]
+            if fitting:
+                sites.append((schedule.pick_ready(fitting)["eff_priority"], position, name))
+        for _, _, name in sorted(sites):  # the site order is fixed here, once
+            self.row_pass(name, self.order[name][TIER_FAIR])
+
+    def block_pools_run_out(self) -> set:
         """The pools that ran out while a ready leaf of rate above 0 still waited.
 
         Lanes: no lane minute is left. Attention: a block stopped at the
         day's attention while its leaf could take a lane minute; or, with a
-        lane minute free, the leaf's site's block closed without room for
-        one more agent minute of it, or no block of its site could open, for
-        want of block_min_hours or of the start cost plus one agent minute
-        (docs/week-plan.md). With no lane minute free, attention ran out
-        too only when one placement took the last of both pools.
+        lane minute free, the leaf's site's block is open without room for
+        one more agent minute of it, or no block of its site could open now,
+        for want of block_min_hours or of the start cost plus one agent minute
+        (docs/week-plan.md). With no lane minute free, attention ran out too
+        only when one placement took the last of both pools.
         """
         ran = {POOL_ATTENTION} if self.stopped else set()
         for name in self.names:
-            for item in self.order[name]:
+            for item in self.ready(name):
                 if not item["ppm"] or not self.waiting(item):
                     continue
                 if self.lanes == 0:
                     ran.add(POOL_LANES)
-                if name in closed:
-                    short = _agent_fit(closed[name], item["ppm"]) < 1
+                if self.is_open(name):
+                    short = _agent_fit(self.attention, item["ppm"]) < 1
                 else:
                     short = not self.block_fits(item["ppm"])
                 if short and (self.lanes > 0 or self.tied):
                     ran.add(POOL_ATTENTION)
         return ran
 
-    def lanes_row(self):
-        """(the day's lanes row, whether a ready rate-0 leaf still waited for a lane)."""
-        sites = []
-        for position, name in enumerate(self.names):
-            fitting = [item for item in self.order[name] if not item["ppm"] and self.waiting(item) and self.lanes > 0]
-            if fitting:
-                sites.append((schedule.pick_ready(fitting)["eff_priority"], position, name))
-        row = []
-        for _, _, name in sorted(sites):  # the site order is fixed here, once
-            for item in self.order[name]:
-                agent = self.room(item)
-                if item["ppm"] or agent <= 0:
-                    continue
-                self.place(item, agent)
-                row.append({"site": name, "key": item["key"], "agent_hours": _hours(agent)})
-        waited = any(not item["ppm"] and self.waiting(item) for name in self.names for item in self.order[name])
-        return row, waited
-
     def plan(self) -> dict:
         """Plan the day and return its record. The items change in place, and
         `charged` gains each site's block minutes."""
         capacity = self.capacity
-        blocks, closed = self.blocks()
-        ran = self.block_pools_run_out(closed)
-        row, waited = self.lanes_row()
-        if waited:
+        self.tier_phase(TIER_P0)
+        self.tier_phase(TIER_STARTED)
+        self.fair_share_blocks()
+        ran = self.block_pools_run_out()
+        self.fair_share_row()
+        self.close()
+        if any(not item["ppm"] and self.waiting(item) for name in self.names for item in self.ready(name)):
             ran.add(POOL_LANES)
         for item in self.today:
             item["today"] = 0
@@ -585,7 +666,7 @@ class _Day:
             "attention_hours": _hours(capacity.attention[self.weekday]),
             "reserved": [dict(block) for block in capacity.reserved[self.weekday]],
             "lane_hours": _hours(capacity.lanes * LANE_MINUTES),
-            "blocks": blocks, "lanes_row": row,
+            "blocks": self.blocks, "lanes_row": self.row,
             "left": {"attention_hours": _hours(self.attention), "lane_hours": _hours(self.lanes)},
             "ran_out": [pool for pool in POOLS if pool in ran],
             "unestimated": sum(item["unestimated"] for item in self.today),
