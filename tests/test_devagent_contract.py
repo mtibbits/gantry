@@ -175,3 +175,148 @@ def test_fixtures_hold_no_local_path():
     assert len(files) >= 2 * len(fx.RECIPES)
     for path in files:
         assert commit_check.path_form_hits(path.read_bytes().decode("utf-8")) == [], path
+
+
+# --- the contract test and the CI fetch (Task 8) -------------------------------------------
+
+import shutil  # noqa: E402
+
+WORKFLOW = ROOT / ".github" / "workflows" / "test.yml"
+
+# Every devagent source line docs/devagent-formats.md cites, at the pin:
+# (path, first line, last line, a text that must still sit in that range).
+CITES = (
+    ("scripts/lib/config.sh", 446, 451, '"${devdoc%/}" "$issue"'),
+    ("scripts/stuck.sh", 41, 41, "local cur cur_name last_good last_good_name"),
+    ("scripts/stuck.sh", 55, 55, 'if [[ -n "$last_good" ]]; then'),
+    ("scripts/stuck.sh", 59, 59, 'checklist_mark "$checklist" "$cur" "!"'),
+    ("scripts/stuck.sh", 61, 69, "date '+%Y-%m-%d %H:%M'"),
+    ("scripts/checklist-stuck.sh", 66, 70, "'!'"),
+    ("scripts/checklist-stuck.sh", 72, 77, "Created:     $(date -Iseconds)"),
+    ("scripts/unstuck.sh", 66, 66, 'rm -f "$issue_dir/STUCK"'),
+    ("scripts/checklist-unstuck.sh", 42, 42, 'rm -f "$issue_dir/STUCK"'),
+    ("scripts/cleanup.sh", 271, 271, "add -A -- ."),
+    ("scripts/lib/checklist.sh", 68, 68,
+     r"'^- \[(.)\][[:space:]]+([0-9]+)\.[[:space:]]+([A-Za-z][A-Za-z0-9_-]*)'"),
+    ("scripts/lib/checklist.sh", 77, 79, "/^## Revision / { last = NR }"),
+    ("scripts/lib/checklist.sh", 133, 155, '"$glyph" != "x" && "$glyph" != "-"'),
+    ("scripts/lib/checklist.sh", 309, 314, "' '|x|-|'!'|'~'|'?'|P) return 0 ;;"),
+    ("scripts/lib/checklist.sh", 365, 382, "if (ln[i] > blk)"),
+    ("scripts/park.sh", 63, 63, 'checklist_mark "$checklist" "$cur" "P"'),
+    ("scripts/park.sh", 68, 68, 'state_add_parked "$project" "$issue"'),
+    ("scripts/resume.sh", 53, 56, 'checklist_find_glyph_line "$checklist" P'),
+    ("scripts/lib/log.sh", 17, 19, "message must be a single line"),
+    ("scripts/lib/log.sh", 56, 56, "chmod --reference="),
+    ("scripts/lib/wbs-tracker.py", 149, 149, 'PROGRESS_GLYPHS = {"x", "~"}'),
+    ("scripts/lib/wbs-tracker.py", 178, 178, "if any(g in PROGRESS_GLYPHS for g in glyphs):"),
+    ("scripts/status.sh", 24, 47, 'state_get "$project" active_issue'),
+    ("templates/imPlan_template.md", 1, 2, "(context:/model:)"),
+    ("templates/imPlan_template.md", 30, 33, "## Tasks"),
+)
+
+
+def committed_record_files():
+    return sorted(p for p in WRITTEN.rglob("*") if p.is_file() and p.name in fx.RECORD_FILES)
+
+
+def test_fixtures_regenerate_byte_for_byte():
+    checkout = hd.require_devagent()
+    diffs = fx.check(checkout, WRITTEN)
+    assert list(diffs) == []
+    assert diffs.compared == len(committed_record_files()) == 18
+
+
+def test_changed_fixture_fails_naming_fixture_script_and_line(tmp_path):
+    kept, made = tmp_path / "kept", tmp_path / "made"
+    shutil.copytree(WRITTEN, kept)
+    shutil.copytree(WRITTEN, made)
+    assert fx.compare(kept, made) == []
+    target = kept / "Issue-12" / "checklist.md"
+    data = target.read_bytes()
+    changed = data.replace(b"- [P]  2. draft", b"- [ ]  2. draft")
+    assert changed != data
+    target.write_bytes(changed)
+    diffs = fx.compare(kept, made)
+    line = data.split(b"\n").index(b"- [P]  2. draft") + 1
+    assert diffs == [f"Issue-12/checklist.md: written by park.sh at devagent 3.0.0: first differing line {line}: "
+                     f"fixture '- [ ]  2. draft', devagent '- [P]  2. draft'"]
+    assert diffs.compared == len(committed_record_files())
+    # A timestamp is masked on both sides: changing only its digits is no difference.
+    target.write_bytes(data)
+    stuck = kept / "Issue-14" / "STUCK"
+    before = stuck.read_bytes()
+    after = before.replace(b"2026-01-12T09:30:00+00:00", b"2026-01-13T19:31:07+00:00")
+    assert after != before
+    stuck.write_bytes(after)
+    assert fx.compare(kept, made) == []
+    # A file only one side holds is named, either way.
+    (made / "Issue-13" / "STUCK").unlink()
+    (kept / "Issue-77").mkdir()
+    (kept / "Issue-77" / "STUCK").write_bytes(b"Step:        2 draft\n")
+    assert fx.compare(kept, made) == [
+        "Issue-13/STUCK: not written by stuck.sh at devagent 3.0.0",
+        "Issue-77/STUCK: committed but written by no recipe",
+    ]
+
+
+def test_plan_template_lists_tasks_under_tasks_heading():
+    checkout = hd.require_devagent()
+    lines = (checkout / "templates" / "imPlan_template.md").read_bytes().decode("utf-8").split("\n")
+    assert "context:/model:" in lines[0] + lines[1]
+    start = lines.index("## Tasks")
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
+    from gantry.devagent_records import CHECKBOX_RE
+
+    assert [line for line in lines[start + 1:end] if CHECKBOX_RE.fullmatch(line)]
+
+
+def test_cited_devagent_lines_hold():
+    checkout = hd.require_devagent()
+    assert len(CITES) >= 20
+    for path, first, last, needle in CITES:
+        lines = (checkout / path).read_bytes().decode("utf-8").split("\n")
+        assert any(needle in line for line in lines[first - 1:last]), (path, first, last, needle)
+
+
+def workflow_steps(text):
+    """The workflow's lines, stripped, YAML comment lines dropped."""
+    return [line.strip() for line in text.split("\n") if line.strip() and not line.strip().startswith("#")]
+
+
+def fetch_order_problems(text):
+    """Why the workflow does not fetch devagent at the pin before pytest, or []."""
+    lines = workflow_steps(text)
+    problems = []
+    try:
+        pytest_at = lines.index("- run: python -m pytest -q -rs")
+    except ValueError:
+        return ["no pytest step"]
+    clone = [i for i, line in enumerate(lines) if line.startswith("git clone ") and "tests/devagent.pin" in line]
+    env = [i for i, line in enumerate(lines) if "GANTRY_DEVAGENT_DIR=" in line and "$GITHUB_ENV" in line]
+    if not clone or clone[0] > pytest_at:
+        problems.append("no git clone of the pinned tag before pytest")
+    if not env or env[0] > pytest_at:
+        problems.append("GANTRY_DEVAGENT_DIR is not written to $GITHUB_ENV before pytest")
+    if any("devagent--v" in line for line in lines):
+        problems.append("a literal devagent tag in the workflow")
+    return problems
+
+
+def test_workflow_fetches_devagent_before_pytest():
+    text = WORKFLOW.read_bytes().decode("utf-8")
+    assert fetch_order_problems(text) == []
+    commit = json.loads((WRITTEN / "Issue-6" / "provenance.json").read_bytes().decode("utf-8"))["devagent_commit"]
+    assert "provenance.json" in text and commit not in text
+    # Planted control: the clone line gone, its comment kept.
+    lines = text.split("\n")
+    kept = [line for line in lines if not line.strip().startswith("git clone ")]
+    assert len(kept) == len(lines) - 1
+    planted = "\n".join(kept)
+    assert "tests/devagent.pin" in planted
+    assert fetch_order_problems(planted) == ["no git clone of the pinned tag before pytest"]
+
+
+def test_every_fixture_names_the_same_devagent_commit():
+    commits = {json.loads((WRITTEN / r.issue / "provenance.json").read_bytes().decode("utf-8"))["devagent_commit"]
+               for r in fx.RECIPES}
+    assert len(commits) == 1

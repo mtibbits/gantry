@@ -30,6 +30,16 @@ jobs:
       - run: python -m pip install -e ".[dev]"
       # The sample WBS.md history the history tests read (#28, docs/wbs-history.md).
       - run: python tools/sample_history.py
+      # devagent at the pinned release (tests/devagent.pin), for the contract
+      # test (#31), checked against the commit the fixtures were written at
+      # (their provenance.json). The test itself runs only on Linux.
+      - shell: bash
+        run: |
+          git clone -q --depth 1 --branch "$(cat tests/devagent.pin)" https://github.com/mtibbits/devagent "$RUNNER_TEMP/devagent"
+          want="$(python -c 'import json, sys; print(json.loads(open(sys.argv[1], "rb").read())["devagent_commit"])' tests/fixtures/devagent_records/written/Issue-6/provenance.json)"
+          got="$(git -C "$RUNNER_TEMP/devagent" rev-parse HEAD)"
+          test "$got" = "$want" || { echo "$(cat tests/devagent.pin) is at $got; the fixtures were written at $want"; exit 1; }
+          echo "GANTRY_DEVAGENT_DIR=$RUNNER_TEMP/devagent" >> "$GITHUB_ENV"
       - run: python -m pytest -q -rs
       # The console script, unconditionally: the matching test skips when
       # gantry is not on PATH, and a skip is never the only evidence.
