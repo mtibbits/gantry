@@ -679,7 +679,11 @@ def test_upstream_and_chain_css():
     for p in upstream:
         assert p["stroke-dasharray"] not in ({"none"} | indirect)
     chain = [(i, props(b)) for i, (s, b) in enumerate(rules) if "req-chain" in s]
-    assert len(chain) == 2 and all(list(p) == ["stroke-width"] for _, p in chain)
+    assert len(chain) == 3 and all(set(p) <= {"stroke-width", "paint-order"} for _, p in chain)
+    # A small dot or a narrow bar keeps its fill: the chain stroke paints under it, outside the edge.
+    filled = [p for s, p in ((rules[i][0], p) for i, p in chain) if ".dot" in s or ".seg" in s]
+    assert len(filled) == 2 and all(p.get("paint-order") == "stroke" for p in filled)
+    assert all(".dot" not in s for s, b in rules if "req-chain" in s and ".outline" in s)
     last_how = max(i for i, (s, b) in enumerate(rules)
                    if any(c in s for c in ("req-direct", "req-indirect", "req-upstream")) and "stroke:" in b)
     assert all(i > last_how for i, _ in chain)

@@ -629,8 +629,9 @@ it in each trace row's `path`; the page's script only draws it.
 - **The marks.** In the network (boxes and circles) and the schedule, an
   upstream leaf has a dotted outline (`req-upstream`) and each chain leaf a
   heavier one (`req-chain`), beside direct (solid) and indirect (dashed);
-  the heavier outline composes with the other three. Upstream leaves are
-  not dimmed. A hover's dependency trace still wins while it lasts, and the
+  the heavier outline composes with the other three. On a circle or a
+  schedule bar it is drawn outside the shape, so a 1-hour dot or a bar a
+  pixel wide keeps its model colour. Upstream leaves are not dimmed. A hover's dependency trace still wins while it lasts, and the
   marks return when it ends.
 - **The box** (element id `req-path`, after the layer lists, so selecting
   never moves a row). Hidden with no selection and for a constraint. In
