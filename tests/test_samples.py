@@ -367,6 +367,29 @@ def test_quarry_h_values():
     assert sorted(n.meta["h"] for n in held) == sorted(["0", "4", '"2"', "high"])
 
 
+def _satisfies(node):
+    value = node.meta.get("satisfies", [])
+    return value if isinstance(value, list) else [value]
+
+
+def test_quarry_holds_the_foreign_leaf():
+    # The sample foreign leaf (#21): one open quarry leaf names lighthouse's FR-2,
+    # which no lighthouse leaf serves, so FR-2 is served only from another site.
+    held = [n for n in wbs(UNESTIMATED) if "satisfies" in n.meta]
+    assert len(held) == 1
+    assert held[0].is_leaf and held[0].is_open
+    assert held[0].meta["satisfies"] == f"{SMALL}:FR-2"
+    named = {rid for n in wbs(SMALL) for rid in _satisfies(n)}
+    assert not named & {"FR-2", f"{SMALL}:FR-2"}
+
+
+def test_quarry_has_no_history_key():
+    # The foreign leaf is an edit to quarry's WBS.md, which needs no history file
+    # only while quarry has no history key (samples/README.md's history rule).
+    cfg = tomllib.loads(GANTRY_SAMPLE.read_text(encoding="utf-8"))
+    assert "history" not in cfg.get("site", {}).get(UNESTIMATED, {})
+
+
 def test_lighthouse_shapes():
     assert HOSTILE_SITE == SMALL
     nodes = wbs(HOSTILE_SITE)

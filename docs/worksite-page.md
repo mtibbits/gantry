@@ -550,12 +550,41 @@ requirements panel and no trace report.
   `External interfaces` and `Constraints`. A row is the ID, the
   requirement's text and its serving leaves counted: `{n} open` always,
   then `{n} waiting on a cycle` and `{n} finished` when above zero, joined
-  by `, `. "Open" counts the serving leaves the page draws. When a row has
+  by `, `. "Open" counts the serving leaves the page draws: the counts stay
+  this site's, and a leaf on another site is shown in the panel below and
+  the path box, never counted here. When a row has
   held-out or finished serving leaves, a `serving leaves not drawn` button
   opens a list of them: key, issue id (or `no issue id`), title, then
   `waiting on a cycle` or `finished`, joined by ` · `. A row with neither
-  has no such button. After the lists comes the path box (element id
+  has no such button. In a full build, a row whose ID is another site's
+  namespace, when that site has a page in this build, is followed by a link
+  to that page, its text the site's name (see the ID links below). After
+  the lists comes the path box (element id
   `req-path`; see [The path to a requirement's work](#the-path-to-a-requirements-work)).
+- **Served from other sites** (element id `served-elsewhere`, headed
+  `Served from other sites`; #21). In a full build, a site in the trace
+  lists every leaf on another read site that serves one of its own
+  requirements, directly or indirectly, a skipped leaf never. The panel
+  follows the requirements panel, and a site with no such leaf has none,
+  as does every page of a `--site` build, which reads no other site. The
+  leaves come in config order, then in `WBS.md` order. Each item is the
+  leaf's site, issue id (or `no issue id`) and title, then its state
+  (`open`, `finished`, or the leaf's mark, such as `in progress`), then the
+  IDs it names, as written and joined by `, `, all joined by ` · `. The
+  site, issue id and title link to the leaf, `<name>.html#leaf-<key>`, when
+  its site has a page in this build; else they are plain text. Selecting a
+  requirement lights each item that serves it, a solid outline for direct
+  and a dashed one for indirect, as the network does; these lights never
+  dim the network.
+- **ID links** (#21). An ID links to `<name>.html`, the page of the site it
+  names, only when that namespace is another site's, is not
+  `br_namespace` (a site may share that name), and that site has a page
+  in this build: on a requirements row, after its button, and on each ID
+  of a panel item. Chips stay unlinked, because a chip is a control and a
+  link inside a control is invalid, and so do the script's `Satisfies:`
+  lines. A page whose target site fails to render is rendered again
+  without the link. A page whose target fails to *write* keeps its link,
+  the same limit the boxes on another site carry.
 - **Selecting a requirement.** A click or tap on a chip or a panel row, or
   Enter or Space on a focused one, selects it. Every serving leaf the page
   draws is marked, in the network (boxes and circles) and in the schedule:
@@ -587,19 +616,36 @@ requirements panel and no trace report.
   items, or `none`: `Unreadable files`, `Malformed entries`,
   `Duplicate IDs`, `Misplaced requirements`, `Refinement cycles` and
   `Undefined IDs`, each item `{source} line {line}: {message}`, or
-  `{source}: {message}` for a whole file; then, for a site in the trace,
-  `Unserved requirements`, each item an ID, and `Untraced open leaves`,
+  `{source}: {message}` for a whole file; then, for a site in the trace
+  in a full build, `Undefined IDs on other sites`, each item
+  `{site} WBS.md line {line}: {message}` for another site's leaf naming an
+  ID of this site that names no requirement (the report's
+  `undefined_foreign`, #21; its source is `{site} WBS.md`); then, for a site in
+  the trace, `Unserved requirements`, each item an ID, and `Untraced open leaves`,
   each item a key and its title. The unserved label carries the report's
-  scope: `served only within this site` while it is `site`, and
-  `scope: {scope}` for a scope this Gantry does not know. A requirements
+  scope. In a `--site` build (`site`) it is
+  `Unserved requirements (served only within this site)`, the scope worded
+  `served only within this site`. In a full build
+  (`installation`) it is the bare `Unserved requirements` when every site
+  was read, and `Unserved requirements (not counted: {sites})` otherwise,
+  the label `not counted: {sites}` naming the sites not read. A scope this
+  Gantry does not know reads `scope: {scope}`. A requirements
   file is named `the requirements file`, never by its path. Nothing in the
   report stops the page rendering.
 - **The `trace` data.** An object with exactly the keys `in_trace`,
   `scope`, `requirements` (one record per row: `id`, `label`, `layer`,
-  `text`, `needs`, `light`, `held`, `finished`, `counts` and `path`,
-  below), `leaves` (each
-  drawn leaf naming an ID that resolves, with its IDs and labels) and
-  `report` (each category with its items). Records are arrays, and the
+  `text`, `needs`, `light`, `held`, `finished`, `foreign`, `counts` and
+  `path`, below), `leaves` (each
+  drawn leaf naming an ID that resolves, with its IDs and labels),
+  `report` (each category with its items), `not_read` and `foreign`
+  (#21). `not_read` is the sites a full build did not read, in config
+  order, and `null` in a `--site` build. `foreign` holds one record per
+  leaf in the "Served from other sites" panel:
+  `[site, key, issue, title, state, open, ids, href]`, `ids` being
+  `[id, label, href]` per ID and each href null when it does not link. A
+  row's `foreign` is its light set there, `[index, how]` pairs, the index
+  a position in `foreign`, never a key, so a key on two sites never
+  meets. Records are arrays, and the
   light sets are computed at build time from the serving sets: the page's
   script maps a selection to marks with `gantryTrace.marks`, a function
   with no DOM access, and looks every key up in a `Map`.
@@ -674,16 +720,22 @@ it in each trace row's `path`; the page's script only draws it.
   ([Foreign entries](#foreign-entries)); in a `--site` build it is followed
   by `not checked in this build`, and in a full build an entry found
   finished is not there to be a reason. A held-out serving leaf's own
-  foreign entries are not named, on purpose: its hold is the reason. Two
-  more forms wait for #21, and no page shows them yet:
-  `also served on {site} by {issue}, which this page does not plan` and
-  `sites not read: {sites}`.
+  foreign entries are not named, on purpose: its hold is the reason. In a
+  full build (#21), each open serving leaf on another site adds
+  `also served on {site} by {issue}, which this page does not plan`, and,
+  last, when the build did not read every site,
+  `sites not read: {sites}`: a site not read may hold leaves that serve the
+  row, so even a fully served row says so. Both come only on the site's own
+  rows; a row of another namespace keeps the `--site` forms.
 - **Empty cases.** With no open serving leaf, the box shows one line and
   no list or figures: `No leaf on this site serves it` or
   `Its serving work on this site is finished`. The unscoped
-  `No leaf serves it` and `Its serving work is finished` are for an
-  installation-wide trace that read every site (#21); every page today uses
-  the site forms.
+  `No leaf serves it` is for a site's own row in a full build that read
+  every site (#21). `Its serving work is finished` is for a site's own row
+  in any full build, since its finished count holds every read site's
+  leaves; when a site was not read, the row's `sites not read` reason says
+  so. A row with an open serving leaf only on another site
+  has the state `path`, no list, and its reasons.
 - **The `path` record.** Exactly the keys `state` (`path`, `unserved`,
   `finished` or `constraint`), `lines`, `order` (`[key, mark]` pairs in
   work order), `chain`, `targets`, `end_day` (E at the default lane count,
@@ -931,7 +983,7 @@ summary and the warnings, as shown.
 its config order. It first reads every site, then resolves the foreign
 entries across them ([Foreign entries](#foreign-entries)), then renders each
 site it read, each in its own `try`; after a render failure it re-resolves
-and re-renders the pages that wait on the failed site, and writes `<output_dir>/sites/<name>.html` for
+and re-renders the pages that wait on or link to the failed site, and writes `<output_dir>/sites/<name>.html` for
 each, then `<output_dir>/index.html` ([The index](#the-index)). It then
 writes the week plan to `<output_dir>/week-plan.json`
 ([week-plan.md](week-plan.md#the-plan-file)). It prints
@@ -941,9 +993,11 @@ trace report has an item, in config order, one line
 `trace <site>: unreadable N, malformed N, duplicate N, misplaced N, cycle N, undefined N, unserved N, untraced N`,
 every category in that order, zeros included; a site not in the trace
 counts `unserved` and `untraced` as 0. The catalog (every requirements
-file and the portfolio file) is read once per run, and each site's trace
-is built inside its own render step, so a fault there is that site's
-`render error:` ([Reading the trace](#reading-the-trace)). Each file is written to a temporary file in its folder, then renamed
+file and the portfolio file) is read once per run. In a full build each
+site's trace is built before any render, in its own `try`: a fault there is
+that site's `render error:`, and the site is listed among the sites not read
+(#21). In a `--site` build the trace is built inside the render step
+([Reading the trace](#reading-the-trace)). Each file is written to a temporary file in its folder, then renamed
 into place, so no partial page is ever left; it gets the mode any new file
 gets. The build deletes nothing in the output folder: a page an earlier run
 wrote for a site that is no longer built stays until the output folder is

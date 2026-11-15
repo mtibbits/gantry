@@ -11,8 +11,11 @@ load_catalog reads every in-trace site's requirements file and, when
 portfolio_file is set, the portfolio file's business requirements, once per
 build. build_site_trace returns one SiteTrace per site: each leaf's IDs, the
 leaves serving each requirement (direct or indirect), the site's use cases
-and its TraceReport. page_trace binds a SiteTrace to the worksite page's
-`trace` data (#20), and counts_line gives the build's `trace <site>:` line
+and its TraceReport. In a full build, build_installation_trace widens every
+SiteTrace with the leaves of other sites that serve its requirements (#21);
+sites_not_read names the sites whose leaves could not be counted.
+page_trace binds a SiteTrace to the worksite page's `trace` data (#20),
+and counts_line gives the build's `trace <site>:` line
 from that data. This module renders and prints nothing.
 
 Identifiers: requirement maps (`serving`, `use_cases`, Catalog.requirements,
@@ -45,13 +48,17 @@ from dataclasses import dataclass, replace
 
 from gantry import requirements
 from gantry.inputs import scheduled
+from gantry.links import id_href, leaf_href
 from gantry.model import meta_values
 from gantry.portfolio_file import PORTFOLIO_LABEL, Portfolio, PortfolioEntry, read_portfolio_file
 from gantry.requirements import (PROJECT_LAYERS, ReportEntry, ReqId, Requirement, RequirementSet, in_trace_sites,
                                  parse_id, read_requirements)
+from gantry.sites import NO_LEAVES, shown
 
-UNSERVED_SCOPE = "site"  # only this site's leaves are counted; #21 widens it
+UNSERVED_SCOPE = "site"  # a --site build, and build_site_trace alone: only this site's leaves are counted
+INSTALLATION_SCOPE = "installation"  # a full build (#21): every read site's leaves are counted
 LEAF_SOURCE = "WBS.md"
+FOREIGN_SOURCE = "{site} WBS.md"  # an entry about another site's leaf (#21)
 TRACE_KINDS = ("malformed_satisfies", "unbracketed_list", "undefined_cross_link", "undefined_id")
 FIELDS = {  # TraceReport entry field -> the kinds it holds
     "unreadable": ("unreadable",),
@@ -70,6 +77,8 @@ MESSAGES = {
     "undefined_id": "satisfies entry {rid} names no requirement: {why}",
     "undefined_cross_link": "{key}: {rid} names no requirement: {why}",
     "refines_cycle": "cross-file refines cycle: {chain}",
+    # Another site's leaf naming an ID of this site that names no requirement (#21).
+    "undefined_foreign": "leaf {key!r}: satisfies entry {rid} names no requirement: {why}",
 }
 
 WHY = {  # why an ID names no requirement: the {why} of undefined_id and undefined_cross_link
@@ -156,6 +165,25 @@ class TraceReport:
     unserved: tuple[str, ...] | None  # None: the site is not in the trace
     unserved_scope: str
     untraced: tuple[str, ...] | None  # leaf keys; None: the site is not in the trace
+    # A full build's (#21): the sites whose leaves could not be counted, in
+    # config order; None in a --site build.
+    sites_not_read: tuple[str, ...] | None = None
+    # Other sites' leaves naming an ID of this in-trace site that names no requirement (#21).
+    undefined_foreign: tuple[ReportEntry, ...] = ()
+
+
+@dataclass(frozen=True)
+class ForeignLeaf:
+    """A leaf on another read site serving one of this site's requirements (#21)."""
+    site: str
+    key: str
+    line: int
+    issue: str | None
+    title: str
+    state: str  # the raw Leaf.state
+    open: bool  # Leaf.open: the one open predicate
+    ids: tuple[ReqId, ...]  # the IDs it names that resolve, as written
+    serves: tuple[tuple[str, str], ...]  # (str(ReqId), how) of this site's requirements, in catalog order
 
 
 @dataclass(frozen=True)
@@ -166,6 +194,9 @@ class SiteTrace:
     serving: dict[str, tuple[Serving, ...]]  # str(ReqId) -> serving leaves, in WBS order
     use_cases: dict[str, UseCase]  # str(ReqId) of each own use case
     report: TraceReport
+    # (leaf key, line, ReqId, why) of each satisfies entry that names no requirement, in WBS order.
+    unresolved: tuple[tuple[str, int, ReqId, str], ...] = ()
+    foreign: tuple[ForeignLeaf, ...] = ()  # a full build's (#21): config order, then WBS order
 
 
 def satisfies_ids(leaf, namespaces) -> tuple[list[ReqId], list[ReportEntry]]:
@@ -278,7 +309,7 @@ def build_site_trace(site, leaves, catalog) -> SiteTrace:
     parsed leaves in WBS order. No entry stops the build."""
     leaves = tuple(leaves)
     in_trace = catalog.in_trace(site)
-    leaf_ids, leaf_entries = {}, []
+    leaf_ids, leaf_entries, unresolved = {}, [], []
     for leaf in leaves:
         ids, problems = satisfies_ids(leaf, catalog.namespaces)
         leaf_entries.extend(problems)
@@ -288,6 +319,7 @@ def build_site_trace(site, leaves, catalog) -> SiteTrace:
             if why is None:
                 resolved.append(rid)
             else:
+                unresolved.append((leaf.key, leaf.line, rid, why))
                 leaf_entries.append(ReportEntry(LEAF_SOURCE, leaf.line, "undefined_id",
                                                 MESSAGES["undefined_id"].format(rid=rid, why=why)))
         if resolved:
@@ -307,7 +339,60 @@ def build_site_trace(site, leaves, catalog) -> SiteTrace:
                             for e in group if e.kind in kinds)
                 for name, kinds in FIELDS.items()}
     report = TraceReport(**by_field, unserved=unserved, unserved_scope=UNSERVED_SCOPE, untraced=untraced)
-    return SiteTrace(site, in_trace, leaf_ids, serving, use_cases, report)
+    return SiteTrace(site, in_trace, leaf_ids, serving, use_cases, report, tuple(unresolved))
+
+
+def build_installation_trace(sites, inputs, traces, unbuilt, catalog) -> dict[str, SiteTrace]:
+    """Every SiteTrace widened to the installation (#21), in config order.
+
+    `sites` is the config-order site list; `inputs` is {name: Inputs}
+    holding every site with a trace, and `traces` {name: SiteTrace} for each;
+    `unbuilt` is {name: reason} for the read and trace failures. Every returned report has
+    scope INSTALLATION_SCOPE and the build's sites_not_read. An in-trace site
+    also gets its foreign leaves, `unserved` counting them, and the other
+    sites' entries naming its IDs that name no requirement. Pure: the
+    arguments are never changed."""
+    not_read = sites_not_read(sites, unbuilt)
+    order = [site.name for site in sites if site.name in traces]
+    # Once per site, not per (site, leaf): each leaf's (key, how) pairs in
+    # catalog order, and the unresolved entries by the namespace they name.
+    by_leaf, by_namespace = {}, {}
+    for name in order:
+        pairs = by_leaf[name] = {}
+        for key, found in traces[name].serving.items():
+            for s in found:
+                pairs.setdefault(s.leaf, []).append((key, s.how))
+        groups = by_namespace[name] = {}
+        for entry in traces[name].unresolved:
+            groups.setdefault(entry[2].namespace, []).append(entry)
+    widened = {}
+    for name in order:
+        trace = traces[name]
+        report = replace(trace.report, unserved_scope=INSTALLATION_SCOPE, sites_not_read=not_read)
+        if not trace.in_trace:
+            widened[name] = replace(trace, report=report)
+            continue
+        own = catalog.sets[name].requirements
+        foreign, undefined = [], []
+        for other in order:
+            if other == name:
+                continue
+            t = traces[other]
+            for leaf in inputs[other].data.leaves:
+                serves = tuple(pair for pair in by_leaf[other].get(leaf.key, ()) if pair[0] in own)
+                if serves:
+                    foreign.append(ForeignLeaf(other, leaf.key, leaf.line, leaf.issue, leaf.title, leaf.state,
+                                               leaf.open, t.leaf_ids[leaf.key], serves))
+            undefined.extend(sorted(
+                (ReportEntry(FOREIGN_SOURCE.format(site=other), line, "undefined_foreign",
+                             MESSAGES["undefined_foreign"].format(key=key, rid=rid, why=why))
+                 for key, line, rid, why in by_namespace[other].get(name, ())),
+                key=lambda e: e.line))
+        served = {key for f in foreign for key, _ in f.serves}
+        unserved = tuple(key for key in trace.report.unserved if key not in served)
+        report = replace(report, unserved=unserved, undefined_foreign=tuple(undefined))
+        widened[name] = replace(trace, report=report, foreign=tuple(foreign))
+    return widened
 
 
 def _flows(reqs):
@@ -347,6 +432,14 @@ def _serving(leaves, leaf_ids, catalog):
     return {key: tuple(found[key]) for key in catalog.requirements if key in found}
 
 
+def sites_not_read(sites, unbuilt) -> tuple[str, ...]:
+    """The sites whose leaves the trace could not count, in config order (#21):
+    each site in `unbuilt` ({name: reason}, the read and trace failures) unless
+    its SiteEntry.problem proves it has no leaves. Every other problem fails
+    closed: the site may hold leaves serving a requirement."""
+    return tuple(site.name for site in sites if site.name in unbuilt and site.problem not in NO_LEAVES)
+
+
 # --- the page's `trace` data (#20) ----------------------------------------------
 
 
@@ -361,11 +454,17 @@ def _source(entry):
     return entry.source if entry.source in (LEAF_SOURCE, PORTFOLIO_LABEL) else REQUIREMENTS_LABEL
 
 
-def page_trace(trace: SiteTrace, catalog: Catalog, data) -> dict:
+def page_trace(trace: SiteTrace, catalog: Catalog, data, *, built=frozenset()) -> dict:
     """The worksite page's `trace` data for one site, from its SiteTrace and
-    its SiteData (`data`, the leaves the page draws). Records are arrays,
-    never objects keyed by a record value. docs/worksite-page.md states it."""
+    its SiteData (`data`, the leaves the page draws). `built` is the set of
+    sites with a page in this build, which links may target (#21). Records
+    are arrays, never objects keyed by a record value. docs/worksite-page.md
+    states it."""
     site, reqs = trace.site, catalog.requirements
+    lit = {}  # str(ReqId) -> [[foreign index, how], ...]: an index, never a key, so keys of two sites never meet
+    for i, f in enumerate(trace.foreign):
+        for key, how in f.serves:
+            lit.setdefault(key, []).append([i, how])
     wanted = dict.fromkeys(catalog.sets[site].requirements if trace.in_trace else ())
     for ids in trace.leaf_ids.values():
         wanted.update(dict.fromkeys(str(rid) for rid in ids))
@@ -395,10 +494,16 @@ def page_trace(trace: SiteTrace, catalog: Catalog, data) -> dict:
             # A business requirement's text is never on a worksite page (#23).
             "text": None if r.id.namespace == catalog.br_namespace else r.text,
             "needs": [str(n) for n in r.needs if str(n) in wanted and str(n) != key] if r.layer == "UC" else [],
-            "light": light, "held": held, "finished": finished, "counts": ", ".join(counts),
+            "light": light, "held": held, "finished": finished, "foreign": lit.get(key, []),
+            "counts": ", ".join(counts),
         })
     report = [[name, [[_source(e), e.line, e.message] for e in getattr(trace.report, name)]] for name in FIELDS]
+    not_read = trace.report.sites_not_read
     if trace.in_trace:
+        if not_read is not None:
+            # Another site's WBS.md: its source as written (FOREIGN_SOURCE), by category.
+            report.append(["undefined_foreign",
+                           [[e.source, e.line, e.message] for e in trace.report.undefined_foreign]])
         report.append(["unserved", [[key, _label(reqs[key].id, site)] for key in trace.report.unserved]])
         report.append(["untraced", [[key, by_key[key].title] for key in trace.report.untraced]])
     return {
@@ -408,6 +513,11 @@ def page_trace(trace: SiteTrace, catalog: Catalog, data) -> dict:
         "leaves": [[leaf.key, [[str(rid), _label(rid, site)] for rid in trace.leaf_ids[leaf.key]]]
                    for leaf in work if leaf.key in trace.leaf_ids],
         "report": report,
+        "not_read": None if not_read is None else [shown(name) for name in not_read],
+        "foreign": [[f.site, f.key, f.issue, f.title, f.state, f.open,
+                     [[str(rid), _label(rid, site), id_href(rid, site, built, catalog.br_namespace)] for rid in f.ids],
+                     leaf_href(f.site, f.key, from_top=False) if f.site in built else None]
+                    for f in trace.foreign],
     }
 
 

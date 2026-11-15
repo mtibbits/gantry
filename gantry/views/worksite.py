@@ -14,9 +14,10 @@ from gantry import network, priority, render, schedule
 from gantry.deps import open_sources, refs
 from gantry.est_rules import classify_est
 from gantry.inputs import NO_TIERS, UNEST_WHAT, has_tiers, scheduled, site_totals
-from gantry.links import leaf_anchor
+from gantry.links import id_href, leaf_anchor
 from gantry.model import HOURS_PER_DAY, Estimate, Models
 from gantry.path import build_paths
+from gantry.requirements import parse_id
 from gantry.render import MODEL_CLASSES, Markup, embed_json, esc, fill, model_class, slack_class, state_class
 
 LANES_DEFAULT = 4
@@ -101,11 +102,16 @@ LAYER_HEADINGS = {"BR": "Business requirements", "BRule": "Business rules", "UC"
 ROW_DETAIL = "serving leaves not drawn"
 ROW_HELD, ROW_FINISHED = "waiting on a cycle", "finished"
 TRACE_HEADING = "Trace report"
+# Leaves on other sites serving this site's requirements (#21).
+XSITE_HEADING = "Served from other sites"
+XSITE_OPEN = "open"  # an open foreign leaf with no STATE_MARKS word; a finished one reads ROW_FINISHED
 TRACE_LABELS = {"unreadable": "Unreadable files", "malformed": "Malformed entries", "duplicate": "Duplicate IDs",
                 "misplaced": "Misplaced requirements", "cycle": "Refinement cycles", "undefined": "Undefined IDs",
-                "unserved": "Unserved requirements", "untraced": "Untraced open leaves"}
+                "unserved": "Unserved requirements", "untraced": "Untraced open leaves",
+                "undefined_foreign": "Undefined IDs on other sites"}
 UNSERVED_SCOPES = {"site": "served only within this site"}
-UNSERVED_SCOPE_OTHER = "scope: {scope}"  # a scope this Gantry does not know yet (#21)
+UNSERVED_SCOPE_OTHER = "scope: {scope}"  # a scope this Gantry does not know
+UNSERVED_NOT_COUNTED = "not counted: {sites}"  # a full build's sites not read (#21)
 TRACE_COUNT = "{label}: {n}"
 TRACE_NONE = "none"
 ENTRY_LINE, ENTRY_WHOLE = "{source} line {line}: {message}", "{source}: {message}"
@@ -233,12 +239,15 @@ def path_end_text(day, lanes):
 
 
 def path_status(state, scope, sites_not_read):
-    """An empty path's status: the unscoped text only when the build read every
-    site of an installation-wide trace; `sites_not_read` None is unknown, never empty."""
-    whole = scope == "installation" and sites_not_read == ()
+    """An empty path's status. Unserved: the unscoped text only when the build
+    read every site of an installation-wide trace; `sites_not_read` None is
+    unknown, never empty. Finished: unscoped in any installation-wide trace,
+    whose finished count holds other sites' leaves (#21)."""
     if state == "finished":
-        return PATH_FINISHED if whole else PATH_FINISHED_SITE
-    return PATH_UNSERVED if whole else PATH_UNSERVED_SITE
+        # In a full build the finished count holds every read site's leaves (#21),
+        # so "on this site" could be false; a site not read is the row's reason.
+        return PATH_FINISHED if scope == "installation" else PATH_FINISHED_SITE
+    return PATH_UNSERVED if scope == "installation" and sites_not_read == () else PATH_UNSERVED_SITE
 
 
 def _reason_text(reason):
@@ -249,10 +258,12 @@ def _reason_text(reason):
         if len(a) > 1:
             return PATH_FOREIGN_MANY.format(keys=", ".join(a), text=b)
         return FBOX_TIP.format(key=a[0], text=b)
+    if kind == "not_read":
+        return PATH_NOT_READ.format(sites=", ".join(a))
     return PATH_OTHER_SITE.format(site=a, issue=NO_ISSUE_ID if b is None else b)
 
 
-def _path_record(p, layer, scope, items, planned, sites_not_read=None):
+def _path_record(p, layer, scope, items, planned):
     """A trace row's `path` (#77): exactly the seven keys docs/worksite-page.md names."""
     if layer == "CON":
         return {"state": "constraint", "lines": [], "order": [], "chain": [], "targets": [], "end_day": None,
@@ -267,9 +278,10 @@ def _path_record(p, layer, scope, items, planned, sites_not_read=None):
         lines.append(PATH_CHAIN.format(hours=_num1(p.chain_hours),
                                        days=_count_line(days, PATH_DAYS, PATH_DAYS_ONE)))
     elif p.state != "path":
-        lines.append(path_status(p.state, scope, sites_not_read))
-    if p.notes:
-        lines.append(PATH_NOT_READ.format(sites=", ".join(p.notes)))
+        # The sites not read come from the row's reason, the one source (#21); an
+        # installation-scoped row without one was built from every site.
+        not_read = next((r[1] for r in p.reasons if r[0] == "not_read"), () if scope == "installation" else None)
+        lines.append(path_status(p.state, scope, not_read))
     targets = set(p.targets)
     return {
         "state": p.state, "lines": lines, "order": [[k, mark] for k, mark in p.order], "chain": list(p.chain),
@@ -381,13 +393,16 @@ def _tier_counts(tiers):
     return [[t, counts[t]] for t in _known_first(counts)]
 
 
-def page_model(site, data, *, default_unit_hours, inputs=None, trace=None) -> dict:
+def page_model(site, data, *, default_unit_hours, inputs=None, trace=None, built=frozenset(),
+               br_namespace=None) -> dict:
     """The page's data for one site's parsed WBS.md.
 
     `inputs` is apply_inputs's result for the site; without it every leaf is
     on the default unit and no estimates file is named. `trace` is
     gantry.trace.page_trace's result (#20); None, as in a direct test
-    render, draws no trace.
+    render, draws no trace. `built` is the set of sites with a page in this
+    build and `br_namespace` the installation's: with them a requirements
+    row whose ID is another built site's links to its page (#21, links.id_href).
     """
     if inputs is not None:
         data = inputs.data
@@ -479,11 +494,24 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None) -> di
         for leaf, shown in zip(work, leaves):
             suffix = " " + NOT_CHECKED if leaf.foreign_targets is None else ""
             foreign[leaf.key] = [text + suffix for text in shown["foreign"]]
-        serving = {r["id"]: ([(x[0], x[1]) for x in r["light"]], [x[0] for x in r["held"]], len(r["finished"]))
-                   for r in trace["requirements"]}
-        req_paths = build_paths(serving, items, unestimated=unest, links=data.links, foreign=foreign)
+        # A full build (#21) covers the site's own rows: their foreign leaves serve them
+        # too, open ones as reasons and finished ones in the finished count (D2).
+        # A site not in the trace (one named like br_namespace among them) gets no foreign leaves.
+        wide = trace["scope"] == "installation" and trace["in_trace"]
+        own = {r["id"] for r in trace["requirements"]
+               if (rid := parse_id(r["id"])) is not None and rid.namespace == site} if wide else set()
+        other_serving, serving = {}, {}
+        for r in trace["requirements"]:
+            leaves_from = [trace["foreign"][i] for i, _ in r["foreign"]]
+            if r["id"] in own:
+                other_serving[r["id"]] = [(f[0], f[2]) for f in leaves_from if f[5]]
+            serving[r["id"]] = ([(x[0], x[1]) for x in r["light"]], [x[0] for x in r["held"]],
+                                len(r["finished"]) + sum(not f[5] for f in leaves_from))
+        req_paths = build_paths(serving, items, unestimated=unest, links=data.links, foreign=foreign,
+                                sites_not_read=trace.get("not_read"), other_serving=other_serving)
         traced = {**trace, "requirements": [
-            {**r, "path": _path_record(req_paths[r["id"]], r["layer"], trace["scope"], items, planned)}
+            {**r, "path": _path_record(req_paths[r["id"]], r["layer"], trace["scope"] if r["id"] in own else "site",
+                                       items, planned)}
             for r in trace["requirements"]]}
     if source is None:
         estimates_line = None
@@ -561,6 +589,10 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None) -> di
                   "path_upstream": PATH_MARKS["upstream"], "mark_chain": PATH_MARK_CHAIN,
                   "no_issue_id": NO_ISSUE_ID},
         "trace": traced,
+        # [[row id, href], ...]: the requirements rows that link to another built site's page (#21).
+        "req_links": [[r["id"], href] for r in (trace or {}).get("requirements", ())
+                      if (rid := parse_id(r["id"])) is not None
+                      and (href := id_href(rid, site, built, br_namespace)) is not None],
     }
 
 
@@ -951,9 +983,14 @@ def _finished(m):
 # --- the trace (#20) ---------------------------------------------------------------
 
 
-def unserved_label(scope):
-    """The unserved category's label, from the report's scope; an unknown scope is named, never a KeyError."""
-    return f"{TRACE_LABELS['unserved']} ({UNSERVED_SCOPES.get(scope, UNSERVED_SCOPE_OTHER.format(scope=scope))})"
+def unserved_label(scope, not_read=None):
+    """The unserved category's label, from the report's scope and, in a full
+    build, the sites not read (#21); an unknown scope is named, never a
+    KeyError, and an empty list never leaves a dangling "not counted: "."""
+    label = TRACE_LABELS["unserved"]
+    if scope == "installation":
+        return f"{label} ({UNSERVED_NOT_COUNTED.format(sites=', '.join(not_read))})" if not_read else label
+    return f"{label} ({UNSERVED_SCOPES.get(scope, UNSERVED_SCOPE_OTHER.format(scope=scope))})"
 
 
 def _chip_label(label):
@@ -993,12 +1030,15 @@ def _chips(ids, x, y):
     return out
 
 
-def _req_row(r):
+def _req_row(r, href=None):
     rid = esc(r["id"])
     text = f" {esc(r['text'])}" if r["text"] is not None else ""
     out = (f'<li class="req" data-req="{rid}"><button type="button" class="req-row" data-control="requirement" '
            f'data-value="{rid}" aria-pressed="false"><span class="mono">{esc(r["label"])}</span>{text} '
            f'<span class="req-count">{esc(r["counts"])}</span></button>')
+    if href is not None:
+        # The ID is another built site's (#21): a link to its page, after the control, never inside it.
+        out += f' <a href="{esc(href)}">{esc(parse_id(r["id"]).namespace)}</a>'
     rows = [(row, ROW_HELD) for row in r["held"]] + [(row, ROW_FINISHED) for row in r["finished"]]
     if rows:
         lines = "".join(f"<li>{_leaf_line(key, issue, title)}{DOT}{esc(what)}</li>"
@@ -1008,21 +1048,40 @@ def _req_row(r):
     return out + "</li>"
 
 
-def _requirements(trace):
-    """The requirements panel: on a site in the trace, or one whose leaves name an ID that resolves."""
+def _requirements(trace, links=()):
+    """The requirements panel: on a site in the trace, or one whose leaves name an
+    ID that resolves. `links` is the model's req_links."""
     if trace is None or not (trace["in_trace"] or trace["requirements"]):
         return Markup("")
-    groups = {}
+    groups, hrefs = {}, dict(map(tuple, links))
     for r in trace["requirements"]:
         groups.setdefault(r["layer"], []).append(r)
     parts = [f'<section class="prose" id="requirements"><h2>{esc(REQUIREMENTS_HEADING)}</h2>'
              f'<p class="label">{esc(SELECT_NOTE)}</p><p class="label">{esc(PATH_NOTE)}</p>']
     for layer, rows in groups.items():
         parts.append(f'<h3>{esc(LAYER_HEADINGS[layer])}</h3><ul class="panel reqs">'
-                     + "".join(_req_row(r) for r in rows) + "</ul>")
+                     + "".join(_req_row(r, hrefs.get(r["id"])) for r in rows) + "</ul>")
     # The path box (#77): after the lists, so selecting never moves a row; the script fills it.
     parts.append('<div class="req-path gone" id="req-path"></div>')
     return Markup("".join(parts) + "</section>")
+
+
+def _served_elsewhere(trace):
+    """The "Served from other sites" panel (#21): each foreign leaf, in the
+    trace's order (config, then WBS.md), when the trace has any."""
+    if trace is None or not trace.get("foreign"):
+        return Markup("")
+    items = []
+    for i, (site, _key, issue, title, state, is_open, ids, href) in enumerate(trace["foreign"]):
+        head = f"{esc(site)}{DOT}{esc(issue if issue is not None else NO_ISSUE_ID)}{DOT}{esc(title)}"
+        if href is not None:
+            head = f'<a href="{esc(href)}">{head}</a>'
+        word = STATE_MARKS.get(state) or (XSITE_OPEN if is_open else ROW_FINISHED)
+        names = ", ".join(f'<a href="{esc(link)}">{esc(label)}</a>' if link is not None
+                          else _mono([label]) for _rid, label, link in ids)
+        items.append(f'<li class="xleaf" data-item="{i}">{head}{DOT}{esc(word)}{DOT}{names}</li>')
+    return Markup(f'<section class="prose" id="served-elsewhere"><h2>{esc(XSITE_HEADING)}</h2>'
+                  f'<ul class="panel xsite">{"".join(items)}</ul></section>')
 
 
 def _trace_item(name, item):
@@ -1041,7 +1100,7 @@ def _trace_panel(trace):
         return Markup("")
     cats = []
     for name, items in trace["report"]:
-        label = unserved_label(trace["scope"]) if name == "unserved" else TRACE_LABELS[name]
+        label = unserved_label(trace["scope"], trace.get("not_read")) if name == "unserved" else TRACE_LABELS[name]
         head = f'<span class="k">{esc(TRACE_COUNT.format(label=label, n=len(items)))}</span>'
         body = ("<ul>" + "".join(f"<li>{_trace_item(name, item)}</li>" for item in items) + "</ul>"
                 if items else f" {esc(TRACE_NONE)}")
@@ -1116,7 +1175,8 @@ def render_model(m, *, stamp="") -> str:
         HELD_ANCHORS=_anchors(m["anchors"]["held"]),
         FINISHED_HEADING=FINISHED_HEADING,
         FINISHED=_finished(m),
-        REQUIREMENTS=_requirements(m["trace"]),
+        REQUIREMENTS=_requirements(m["trace"], m.get("req_links", ())),
+        FOREIGN=_served_elsewhere(m["trace"]),
         TRACE=_trace_panel(m["trace"]),
         DATA=embed_json(m),
         SCHEDULE_JS=_script("static/schedule.js"),

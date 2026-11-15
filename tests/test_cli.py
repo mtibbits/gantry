@@ -82,7 +82,7 @@ SAMPLE_CONFIG = "samples/gantry.sample.toml"
 
 
 SAMPLE_TRACE_LINE = ("trace lighthouse: unreadable 0, malformed 0, duplicate 0, misplaced 0, cycle 0, "
-                     "undefined 1, unserved 2, untraced 3")
+                     "undefined 1, unserved 1, untraced 3")  # a full build counts quarry's leaf (#21)
 
 
 def check_written(stdout_bytes, out_dir):

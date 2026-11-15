@@ -247,6 +247,8 @@ STRUCTURAL = {
     "req-path", "path-end", "path-list", "path-why", "req-upstream", "req-chain",
     # Boxes on another site, their links and the flagged leaf (#68).
     "arrow-foreign", "fbox", "fb", "fid", "ftitle", "fedge", "xsite", "fbox-open", "fbox-none",
+    # The "Served from other sites" panel: its list (xsite, shared with #68) and its items (#21).
+    "xleaf",
 }
 VOID = {"meta", "br", "img", "input", "link", "hr"}
 

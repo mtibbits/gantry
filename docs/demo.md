@@ -114,6 +114,7 @@ should hold, with the issue that owns it:
 | `sites/*.html` | #11 | `required` |
 | `sites/lighthouse.html`, element `trace` | #20 | `required` |
 | `sites/lighthouse.html`, element `req-path` | #77 | `required` |
+| `sites/lighthouse.html`, element `served-elsewhere` | #21 | `required` |
 | `strategic.html` | #23 | `pending` |
 | `daily.html` | #34 | `pending` |
 | `week.html` | #38 | `pending` |
