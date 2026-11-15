@@ -542,7 +542,7 @@ requirements panel and no trace report.
   leaves name an ID that resolves. Under the heading, the line
   `Select a requirement, or a chip under a box, to mark the leaves that serve it: a solid outline serves it directly, a dashed one through refinement or a use case's needs. Select it again, or press Escape, to clear.`
   and then the line
-  `A selection also marks the open leaves its serving leaves wait on, with a dotted outline, and the chain with the most hours with a heavier one.`
+  `A selection also marks the open leaves its serving leaves wait on, with a dotted outline, and the chain with the most hours with a heavier one. A leaf that serves it at objective only is faded.`
   The panel lists the site's own requirements (when it is in the trace)
   and every other requirement one of its leaves names, together, grouped by layer
   under `Business requirements`, `Business rules`, `Use cases`,
@@ -783,10 +783,12 @@ The leaves that are not objective-only are its **gating** leaves.
 - **E_t against E.** E_t is the working day the schedule at the chosen
   lane count ends the gating leaves' work: the end of the last threshold
   target, by `plan_finish_day`'s rule. E is #77's. The schedule is
-  unchanged: an objective-only leaf is not ranked lower, so when the tail
-  takes the lanes first E_t can equal E, and that says the tail is
-  delaying the threshold. A lane change rewrites both lines (`path-end-t`
-  and `path-end`, each an `aria-live="polite"` region). With no scheduled
+  unchanged: an objective-only leaf is not ranked lower. E_t equals E
+  whenever a gating leaf ends the row's work last, whether the tail ended
+  earlier or took the lanes first and delayed the threshold, so E_t equal
+  to E alone does not say the tail is delaying it. A lane change rewrites
+  both lines (`path-end-t` and `path-end`, each an `aria-live="polite"`
+  region). With no scheduled
   gating leaf there is no E_t line.
 - **Row marks.** In the threshold list each row takes #77's marks with the
   threshold targets as the targets, then `objective` for an objective-only

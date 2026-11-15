@@ -159,7 +159,7 @@ PATH_WAITS = "threshold work waits on objective-only {key}"
 PATH_SECTION_T, PATH_SECTION_O = "Threshold", "Objective"
 PATH_MARK_OBJECTIVE = "objective"
 PATH_NOTE = ("A selection also marks the open leaves its serving leaves wait on, with a dotted outline, and the "
-             "chain with the most hours with a heavier one.")
+             "chain with the most hours with a heavier one. A leaf that serves it at objective only is faded.")
 
 
 # --- the optional inputs (gantry/inputs.py fills them, #10) -----------------------

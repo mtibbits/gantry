@@ -1264,7 +1264,9 @@ def test_unclosed_opener_and_comment_in_statement_reported(text, threshold, repo
 
 
 # The reader corpus (U1): the parse of every repo requirements text, captured on the tree before
-# #79 as a literal golden. The files #79 itself changes are excluded by name.
+# #79 as a literal golden. The files #79 itself changes are excluded by name. A later intended
+# change to these parses rewrites the golden from the reader:
+#   json.dumps({p: _corpus_entry(s) for p, s in _corpus().items() if p not in CORPUS_NEW}, indent=1) + "\n"
 CORPUS_GOLDEN = FIXTURES / "corpus_golden.json"
 CORPUS_CHANGED = ("docs/requirements.md", "samples/lighthouse/requirements.md")
 CORPUS_NEW = ("tests/fixtures/requirements/block-before-nested.md",)

@@ -869,7 +869,7 @@ def test_empty_light_set_not_selecting(node, sample_page):
 
 # --- Task 8: the thin layer, under the harness ---------------------------------------
 
-MARK_SELECTOR = ".req-direct, .req-indirect, .req-on, .req-need, .req-upstream, .req-chain"
+MARK_SELECTOR = ".req-direct, .req-indirect, .req-on, .req-need, .req-upstream, .req-chain, .req-objective"
 
 
 def marked(page, selector, cls):

@@ -13,28 +13,27 @@ import pytest
 from gantry import build
 from gantry.config import load_config
 from gantry.inputs import scheduled
-from gantry.path import build_paths, split_paths, work_order
-from gantry.views import worksite
-from gantry.schedule import plan
-from gantry.views.worksite import plan_finish_day
-from helpers_config import write_site_tree
-from sample_roles import SMALL
-from page_script.harness import open_page
-from test_requirement_path import CSS_PATH, PATH_KEYS, box, box_items, css_rules, props, site_model, site_read
-from test_samples import GANTRY_SAMPLE
-from test_schedule_agreement import random_dags
-from test_trace_cross_site import installation_models
 from gantry.model import SiteData
+from gantry.path import build_paths, split_paths, work_order
 from gantry.render import CLASS_TOKENS
+from gantry.schedule import plan
 from gantry.sites import config_roots, load_sites
 from gantry.trace import build_site_trace, load_catalog, page_trace
+from gantry.views import worksite as w
+from gantry.views.worksite import plan_finish_day
+from helpers_config import write_site_tree
 from page_safety import HOSTILE, _strings, assert_no_external_resources, assert_page_safe
-from page_script.harness import Planted
+from page_script.harness import Planted, open_page
+from sample_roles import SMALL
+from test_own_requirements import own_set
+from test_requirement_path import CSS_PATH, PATH_KEYS, box, box_items, css_rules, props, site_model, site_read
+from test_samples import GANTRY_SAMPLE, ROOT
+from test_schedule_agreement import random_dags
+from test_trace_cross_site import installation_models
 from test_trace_page import (EMPTY_MARKS, hand_trace, hostile_leaf, installation, marked, marks_after,  # noqa: F401
                              render_traced, row, sample_page, select, trace_of)
 from test_worksite_page import STRUCTURAL, visible_text
 
-w = worksite
 # A trace row's `threshold_path`: `path`'s seven keys over the threshold path set, then these.
 THRESHOLD_KEYS = [*PATH_KEYS, "waits", "rest", "objective_lines"]
 
@@ -523,7 +522,7 @@ def hostile_threshold_site(tmp_path):
     )
     data = SiteData(leaves, (), ((h[1], "Issue-2"), ("Issue-2", "Issue-1")), (), ())
     trace = page_trace(build_site_trace("alpha", leaves, catalog), catalog, data)
-    page = worksite.render_page("alpha", data, default_unit_hours=6, trace=trace)
+    page = w.render_page("alpha", data, default_unit_hours=6, trace=trace)
     malformed = (f"WBS.md line 4: objective: entry {h[5]!r} is not a full requirement ID "
                  "(<namespace>:<code>-<n>); it is ignored")
     return page, [h[0], h[1], h[2], h[3], h[5]], malformed
@@ -583,8 +582,6 @@ def test_sample_split_box(node, sample_page):
 
 
 def test_own_requirements_state_the_threshold():
-    from test_own_requirements import own_set
-
     reqs = own_set().requirements
     fr26 = reqs["gantry:FR-26"]
     assert fr26.layer == "FR" and str(fr26.refines) == "gantry:SR-4"
@@ -593,9 +590,7 @@ def test_own_requirements_state_the_threshold():
 
 
 def test_doc_states_threshold_record():
-    from test_samples import ROOT
-
-    doc = (ROOT / "docs" / "worksite-page.md").read_bytes().decode("utf-8")
+    doc =(ROOT / "docs" / "worksite-page.md").read_bytes().decode("utf-8")
     flat = " ".join(doc.split())
     assert [key for key in THRESHOLD_KEYS if f"`{key}`" not in doc] == []
     for key in ("threshold", "objective", "objective_only", "objective_only_foreign", "threshold_path"):
