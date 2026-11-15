@@ -983,7 +983,7 @@ summary and the warnings, as shown.
 its config order. It first reads every site, then resolves the foreign
 entries across them ([Foreign entries](#foreign-entries)), then renders each
 site it read, each in its own `try`; after a render failure it re-resolves
-and re-renders the pages that wait on the failed site, and writes `<output_dir>/sites/<name>.html` for
+and re-renders the pages that wait on or link to the failed site, and writes `<output_dir>/sites/<name>.html` for
 each, then `<output_dir>/index.html` ([The index](#the-index)). It then
 writes the week plan to `<output_dir>/week-plan.json`
 ([week-plan.md](week-plan.md#the-plan-file)). It prints
@@ -993,9 +993,11 @@ trace report has an item, in config order, one line
 `trace <site>: unreadable N, malformed N, duplicate N, misplaced N, cycle N, undefined N, unserved N, untraced N`,
 every category in that order, zeros included; a site not in the trace
 counts `unserved` and `untraced` as 0. The catalog (every requirements
-file and the portfolio file) is read once per run, and each site's trace
-is built inside its own render step, so a fault there is that site's
-`render error:` ([Reading the trace](#reading-the-trace)). Each file is written to a temporary file in its folder, then renamed
+file and the portfolio file) is read once per run. In a full build each
+site's trace is built before any render, in its own `try`: a fault there is
+that site's `render error:`, and the site is listed among the sites not read
+(#21). In a `--site` build the trace is built inside the render step
+([Reading the trace](#reading-the-trace)). Each file is written to a temporary file in its folder, then renamed
 into place, so no partial page is ever left; it gets the mode any new file
 gets. The build deletes nothing in the output folder: a page an earlier run
 wrote for a site that is no longer built stays until the output folder is

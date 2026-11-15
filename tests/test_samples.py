@@ -367,7 +367,6 @@ def test_quarry_h_values():
     assert sorted(n.meta["h"] for n in held) == sorted(["0", "4", '"2"', "high"])
 
 
-
 def _satisfies(node):
     value = node.meta.get("satisfies", [])
     return value if isinstance(value, list) else [value]
@@ -389,6 +388,7 @@ def test_quarry_has_no_history_key():
     # only while quarry has no history key (samples/README.md's history rule).
     cfg = tomllib.loads(GANTRY_SAMPLE.read_text(encoding="utf-8"))
     assert "history" not in cfg.get("site", {}).get(UNESTIMATED, {})
+
 
 def test_lighthouse_shapes():
     assert HOSTILE_SITE == SMALL

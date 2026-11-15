@@ -16,16 +16,15 @@ from gantry.model import SiteData
 from gantry.sites import SiteEntry, config_roots, load_sites
 from gantry.trace import (FOREIGN_SOURCE, INSTALLATION_SCOPE, MESSAGES, ForeignLeaf, build_installation_trace,
                           build_site_trace, load_catalog, page_trace, sites_not_read)
+from gantry.render import CLASS_TOKENS
 from gantry.views import worksite
 from helpers_config import demo_build, write_site_tree
-from gantry.render import CLASS_TOKENS
 from page_safety import HOSTILE, assert_no_external_resources, assert_page_safe
+from page_script.harness import Planted, open_page, run_function
 from sample_roles import BUSY, NO_WBS, READABLE, SMALL, UNESTIMATED, UNREADABLE
+from test_crosssite import force_render
 from test_samples import GANTRY_SAMPLE
 from test_trace import catalog, leaf, rid, tree
-from gantry.views.worksite import page_model
-from test_crosssite import force_render
-from page_script.harness import Planted, open_page, run_function
 from test_requirement_path import box_items
 from test_trace_page import (EMPTY_MARKS, NO_VIEW, by_id, hostile_leaf, installation, marks_after, report_items, req_li,
                              row, sample, select, trace_of)
@@ -328,7 +327,7 @@ def installation_models(config_path=GANTRY_SAMPLE):
     """{site: page model} with the widened trace, as a full build renders it."""
     pages, _, _, inputs = sample_installation(config_path)
     config = load_config(config_path)
-    return {name: page_model(name, inputs[name].data, default_unit_hours=config.default_unit_hours,
+    return {name: worksite.page_model(name, inputs[name].data, default_unit_hours=config.default_unit_hours,
                              inputs=inputs[name], trace=pages[name]) for name in pages}
 
 
@@ -434,6 +433,38 @@ def test_render_failed_site_unlinked(tmp_path, monkeypatch):
     assert trace["not_read"] == []
 
 
+def test_row_link_target_failed_rerenders(tmp_path, monkeypatch):
+    # beta's own leaf names alpha:FR-1, so beta's row links to alpha.html. When
+    # alpha fails to render, beta is rendered again without the link (#21).
+    calls = force_render(monkeypatch, lambda site, n: site == "alpha")
+    config = write_site_tree(tmp_path, {
+        "alpha": b"- [ ] One {issue: Issue-1}\n",
+        "beta": b"- [ ] Two {issue: Issue-2, satisfies: alpha:FR-1}\n",
+    }, tail='[site.alpha]\nrequirements = "req-alpha.md"\n')
+    (tmp_path / "req-alpha.md").write_bytes(TWO_REQS.encode("utf-8"))
+    result = build.build_all(load_config(config))
+    assert list(result.pages) == ["beta"] and calls == {"alpha": 1, "beta": 2}
+    assert "alpha.html" not in result.pages["beta"]
+
+
+def test_foreign_id_target_failed_rerenders(tmp_path, monkeypatch):
+    # beta's leaf serves alpha and names gamma:FR-1 too, so alpha's panel links
+    # gamma.html. When gamma fails to render, alpha (through its foreign leaf's
+    # IDs) and beta (through its own leaf's) are rendered again without it.
+    calls = force_render(monkeypatch, lambda site, n: site == "gamma")
+    config = write_site_tree(tmp_path, {
+        "alpha": b"- [ ] One {issue: Issue-1}\n",
+        "beta": b"- [ ] Two {issue: Issue-2, satisfies: [alpha:FR-1, gamma:FR-1]}\n",
+        "gamma": b"- [ ] Three {issue: Issue-3}\n",
+    }, tail='[site.alpha]\nrequirements = "req-alpha.md"\n[site.gamma]\nrequirements = "req-gamma.md"\n')
+    for name in ("alpha", "gamma"):
+        (tmp_path / f"req-{name}.md").write_bytes(TWO_REQS.encode("utf-8"))
+    result = build.build_all(load_config(config))
+    assert list(result.pages) == ["alpha", "beta"] and calls == {"alpha": 2, "beta": 2, "gamma": 1}
+    assert "gamma.html" not in result.pages["alpha"] and "gamma.html" not in result.pages["beta"]
+    assert [i[0] for i in trace_of(result.pages["alpha"])["foreign"][0][6]] == ["alpha:FR-1", "gamma:FR-1"]
+
+
 def test_trace_fault_site_not_read(tmp_path, monkeypatch):
     real = build.build_site_trace
 
@@ -494,7 +525,8 @@ def test_no_panel_without_foreign(tmp_path, monkeypatch):
     wbs = {"alpha": "# Alpha\n\n- [ ] One {issue: Issue-1, satisfies: alpha:FR-1}\n",
            "beta": "# Beta\n\n- [ ] Two {issue: Issue-2}\n"}
     result = build.build_all(load_config(installation(tmp_path, wbs, {"alpha": TWO_REQS})))
-    assert "served-elsewhere" not in result.pages["alpha"] and find(page_tree(result.pages["alpha"]), "li", ["xleaf"]) == []
+    page = result.pages["alpha"]
+    assert "served-elsewhere" not in page and find(page_tree(page), "li", ["xleaf"]) == []
     code, out, _, err = demo_build(tmp_path / "site", monkeypatch, "--site", SMALL)
     assert code == 0, err
     assert "served-elsewhere" not in (out / "sites" / f"{SMALL}.html").read_text(encoding="utf-8")

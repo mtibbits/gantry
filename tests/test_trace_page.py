@@ -1032,8 +1032,9 @@ def test_requirements_panel_states_the_marks(tmp_path):
 TRACE_TEXTS = [getattr(worksite, name) for name in (
     "CHIP_MORE", "REQUIREMENTS_HEADING", "SELECT_NOTE", "ROW_DETAIL", "ROW_HELD", "ROW_FINISHED", "TRACE_HEADING",
     "UNSERVED_SCOPE_OTHER", "TRACE_COUNT", "TRACE_NONE", "ENTRY_LINE", "ENTRY_WHOLE", "SATISFIES", "LIT",
-    "NO_ISSUE_ID", "XSITE_HEADING", "UNSERVED_NOT_COUNTED")] + list(worksite.LAYER_HEADINGS.values()) + list(worksite.TRACE_LABELS.values()) + list(
-    worksite.UNSERVED_SCOPES.values()) + [COUNT_OPEN, COUNT_HELD, COUNT_FINISHED, REQUIREMENTS_LABEL]
+    "NO_ISSUE_ID", "XSITE_HEADING", "UNSERVED_NOT_COUNTED")] + list(worksite.LAYER_HEADINGS.values()) + list(
+    worksite.TRACE_LABELS.values()) + list(worksite.UNSERVED_SCOPES.values()) + [
+    COUNT_OPEN, COUNT_HELD, COUNT_FINISHED, REQUIREMENTS_LABEL]
 STDOUT_FORM = ("trace <site>: unreadable N, malformed N, duplicate N, misplaced N, cycle N, undefined N, "
                "unserved N, untraced N")
 

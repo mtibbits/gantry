@@ -20,8 +20,21 @@ line under `## [Unreleased]`.
   devagent's latest release, and on an older one what needs a newer
   devagent contract is shown as missing (README.md).
 
+- The "Served from other sites" panel on a worksite page (#21): in a full
+  build, each leaf on another site whose `satisfies:` names one of this
+  site's requirements, linked to its leaf on that site's page and lit when
+  its requirement is selected; requirement IDs of another built site link
+  to its page; the trace report gains `sites_not_read` and
+  `undefined_foreign` (docs/worksite-page.md, docs/requirements-format.md).
+
 ### Changed
 
+- In a full build, a requirement served only by another site's leaf is no
+  longer unserved (#21): unserved counts, the unserved label and the
+  `trace <site>:` line's `unserved` count every read site's leaves, and the
+  label names any site not read ("not counted: …") instead of "served only
+  within this site". A `--site` build is unchanged
+  (docs/worksite-page.md).
 - A break now includes raising the oldest supported version of a tool, and
   a release with a break says in its CHANGELOG section what to change
   (README.md).
