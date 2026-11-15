@@ -578,7 +578,7 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None, built
             "no_tiers": None if has_tiers(work) else NO_TIERS,
             "stuck": _count_line(held, STUCK_LINE, STUCK_LINE_ONE) if held else None,
             # Each P0 leaf and each leaf whose effective priority comes from one, in WBS order.
-            "p0": [k for k in keys if eff[k] == 0] or None,
+            "p0": priority.p0_keys(work, eff) or None,
         },
         "texts": {"label": SCHEDULE_LABEL, "chain": CHAIN_LINE, "capacity": CAPACITY_LINE,
                   "includes": INCLUDES, "includes_one": INCLUDES_ONE, "dates": DATES, "dates_one": DATES_ONE,

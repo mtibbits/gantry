@@ -105,7 +105,7 @@ acknowledging a security report within seven days (BRule-6).
   whether anything is on fire and what to start warming up on today.
   {needs: [FR-9, FR-10, FR-11, QA-1, QA-2, QA-3]}
 - UC-4: An operator reads the tactical week view to see which day and which
-  block each planned issue falls on. {needs: [FR-17, FR-18, FR-19, QA-4]}
+  block each planned issue falls on. {needs: [FR-17, FR-18, FR-19, FR-26, QA-4]}
 - UC-5: An operator follows the trace from a leaf to the requirements it
   serves, and from a requirement or a use case to its leaves and the work
   they wait on. {needs: [FR-20, FR-25, SR-5]}
@@ -222,6 +222,9 @@ acknowledging a security report within seven days (BRule-6).
   chain with the most hours and the working day the current schedule ends
   that work, labelled as agent capacity only. A path it cannot show whole
   says why. {refines: SR-4}
+- FR-26: The week plan divides each day between the sites by priority
+  tier (P0 work, then work in progress, then the rest) and then by the
+  portfolio file's intended shares. {refines: SR-4}
 
 ## Quality attributes
 

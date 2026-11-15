@@ -830,8 +830,9 @@ class _Settings:
 
 def intended_shares(portfolio, day: date) -> Allocation | None:
     """The allocation that applies on `day`: the valid one with the latest
-    from on or before it, or None. `day` is the build's as-of date, never the
-    clock."""
+    from on or before it, or None. `day` is the build's as-of date or a
+    planned day derived from it (the week plan asks for each of its days),
+    never the clock."""
     applying = [a for a in portfolio.allocations if a.from_date <= day]
     return max(applying, key=lambda a: a.from_date) if applying else None
 

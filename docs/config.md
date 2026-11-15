@@ -41,7 +41,7 @@ fires_check_days rows; reword them and that test together. -->
 | `output_dir` | path | yes | none | the folder the build writes pages and the plan file (`week-plan.json`) into | #9 |
 | `as_of` | TOML date (a string is refused) | no | the build machine's local date when the run starts | the date a build treats as today | every dated view |
 | `default_unit_hours` | positive number, integer or float (0, a negative, infinity or a boolean is refused) | no | `6` | the agent-hours given to a leaf with no estimate | #9 |
-| `portfolio_file` | path | no | none | the installation's portfolio file ([format](portfolio-file.md)); `gantry portfolio` checks it; the build reads its business requirements, for the trace (#20), and its capacity settings, for the week plan (#61); #23 adds the rest | #22 |
+| `portfolio_file` | path | no | none | the installation's portfolio file ([format](portfolio-file.md)); `gantry portfolio` checks it; the build reads its business requirements, for the trace (#20), and its capacity settings and allocations, for the week plan (#61, #37); #23 adds the rest | #22 |
 | `fires_list` | path | no | none | the installation's fires list, its things that need the operator now ([format](fires-list.md)); `gantry fires` checks it; no build reads the fires list yet (#32) | #30 |
 | `fires_check_days` | integer, 1 or more (a float or a boolean is refused) | no | `3` | an open fire this many whole days old is flagged "still a fire?"; it is here and not in the portfolio file's `[thresholds]` because the fires list is a fail-closed source, whose flag must not depend on a portfolio file being configured or readable | #30 |
 | `[requirements]` | table | no | none | settings for requirements files | #15 |
