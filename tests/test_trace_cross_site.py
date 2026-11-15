@@ -128,6 +128,17 @@ def test_foreign_leaf_found_without_config(tmp_path):
     assert alpha.report.unserved == ("alpha:FR-2",)
 
 
+def test_foreign_objective_only(tmp_path):
+    cat = catalog(tree(tmp_path, {"alpha": "- SR-1: s\n- FR-1: a {refines: SR-1}\n- FR-2: b\n", "beta": None}))
+    found, _ = installation_trace(cat, {"alpha": [], "beta": [
+        leaf("B1", 2, satisfies="[alpha:FR-1, alpha:FR-2]", objective="alpha:FR-1")]})
+    (f,) = found["alpha"].foreign
+    assert f.serves == (("alpha:SR-1", "indirect"), ("alpha:FR-1", "direct"), ("alpha:FR-2", "direct"))
+    assert f.objective_only == ("alpha:SR-1", "alpha:FR-1")
+    plain, _ = installation_trace(cat, {"alpha": [], "beta": [leaf("B1", 2, satisfies="alpha:FR-1")]})
+    assert plain["alpha"].foreign[0].objective_only == ()
+
+
 def test_foreign_order_config_then_wbs(tmp_path):
     cat = catalog(tree(tmp_path, {"zeta": None, "alpha": ALPHA, "beta": None}))
     found, _ = installation_trace(cat, {"zeta": [leaf("L9", 2, satisfies="alpha:FR-1")], "alpha": [],
@@ -468,10 +479,10 @@ def test_foreign_id_target_failed_rerenders(tmp_path, monkeypatch):
 def test_trace_fault_site_not_read(tmp_path, monkeypatch):
     real = build.build_site_trace
 
-    def failing(site, leaves, catalog):
+    def failing(site, leaves, catalog, **kw):
         if site == BUSY:
             raise RuntimeError("trace fault")
-        return real(site, leaves, catalog)
+        return real(site, leaves, catalog, **kw)
 
     monkeypatch.setattr(build, "build_site_trace", failing)
     result = sample(tmp_path)

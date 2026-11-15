@@ -287,10 +287,10 @@ def test_catalog_loaded_once_per_run(tmp_path, monkeypatch):
 def test_trace_failure_stops_only_its_site(tmp_path, monkeypatch):
     real = build.build_site_trace
 
-    def failing(site, leaves, catalog):
+    def failing(site, leaves, catalog, **kw):
         if site == BUSY:
             raise RuntimeError("trace fault")
-        return real(site, leaves, catalog)
+        return real(site, leaves, catalog, **kw)
 
     monkeypatch.setattr(build, "build_site_trace", failing)
     result = sample(tmp_path)
@@ -343,6 +343,19 @@ def test_untraced_site_with_entry_prints_line(tmp_path, capsys):
         "trace alpha: unreadable 0, malformed 0, duplicate 0, misplaced 0, cycle 0, undefined 1, unserved 0, "
         "untraced 0"]
     assert lines[-1].startswith("trace alpha: ") and len(lines) == 5
+
+
+@pytest.mark.parametrize("args", [[], ["--site", "alpha"]])
+def test_parent_row_objective_reaches_the_build(tmp_path, capsys, args):
+    # #79: a full build and a --site build both pass the site's rows to the trace.
+    wbs = {"alpha": "# A\n\n- [ ] Epic {objective: alpha:FR-1}\n"
+                    "  - [ ] One {issue: Issue-1, satisfies: alpha:FR-1}\n"}
+    config_path = installation(tmp_path, wbs, {"alpha": "- FR-1: a\n"})
+    assert main(["build", "--config", str(config_path), *args]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert [line for line in lines if line.startswith("trace ")] == [
+        "trace alpha: unreadable 0, malformed 1, duplicate 0, misplaced 0, cycle 0, undefined 0, unserved 0, "
+        "untraced 0"]
 
 
 def test_trace_line_bytes(tmp_path):

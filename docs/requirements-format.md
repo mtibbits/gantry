@@ -392,7 +392,7 @@ another resolve against the catalog. Each site's report has these fields:
 | Field | Holds |
 |---|---|
 | `unreadable` | `unreadable`: the site's configured requirements file could not be read |
-| `malformed` | the reader's `malformed_item`, `malformed_meta`, `malformed_link` and `malformed_comment`, plus `malformed_satisfies` and `unbracketed_list` |
+| `malformed` | the reader's `malformed_item`, `malformed_meta`, `malformed_link` and `malformed_comment`, plus `malformed_satisfies` and `unbracketed_list`, and a leaf's `objective:` entries: `malformed_objective`, `unmatched_objective`, `unbracketed_objective`, `miscased_objective` and `objective_not_on_leaf` |
 | `duplicate` | the reader's `duplicate_id` |
 | `misplaced` | the reader's `misplaced` |
 | `cycle` | `refines_cycle`: the reader's loops within the file, and `refines:` loops that cross files, each reported once, at the member listed first in the catalog |

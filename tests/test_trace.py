@@ -16,7 +16,7 @@ from gantry.requirements import ReportEntry, ReqId
 from gantry.sites import config_roots, load_sites
 from gantry.trace import (FIELDS, INSTALLATION_SCOPE, LEAF_SOURCE, MESSAGES, TRACE_KINDS, UNSERVED_SCOPE, WHY, Catalog,
                           ForeignLeaf, Serving, SiteTrace, TraceReport, UseCase, build_site_trace, load_catalog,
-                          satisfies_ids)
+                          objective_ids, satisfies_ids)
 from gantry.wbs_stopgap import parse_wbs
 from helpers_config import write_site_tree
 from sample_roles import BUSY, SMALL
@@ -75,8 +75,8 @@ def test_model_field_lists():
     assert [f.name for f in fields(SiteTrace)] == ["site", "in_trace", "leaf_ids", "serving", "use_cases", "report",
                                                    "unresolved", "foreign"]
     assert [f.name for f in fields(ForeignLeaf)] == ["site", "key", "line", "issue", "title", "state", "open", "ids",
-                                                     "serves"]
-    assert [f.name for f in fields(Serving)] == ["leaf", "how"]
+                                                     "serves", "objective_only"]
+    assert [f.name for f in fields(Serving)] == ["leaf", "how", "gating"]
     assert UNSERVED_SCOPE == "site"
     assert INSTALLATION_SCOPE == "installation"
     assert LEAF_SOURCE == "WBS.md"
@@ -620,3 +620,123 @@ def test_catalog_keeps_the_portfolio_it_read(tmp_path):
     assert fields(Catalog)[-1].name == "portfolio"
     none = catalog(install(tmp_path, "binds_lanes", config={"portfolio_file": None}) / "gantry.toml")
     assert none.portfolio is None and none.portfolio_set is False
+
+
+# --- #79: objective: on a leaf, and gating ---------------------------------------------
+
+GATE_REQ = "- UC-1: u {needs: [FR-1]}\n- UC-2: v {needs: [FR-2]}\n- SR-1: s\n- FR-1: a {refines: SR-1}\n- FR-2: b {refines: SR-1}\n"
+
+
+def gating_of(t):
+    """{requirement: [(leaf, how, gating)]} of a trace."""
+    return {key: [(s.leaf, s.how, s.gating) for s in found] for key, found in t.serving.items()}
+
+
+def gate_trace(tmp_path, *leaves, text=GATE_REQ):
+    return build_site_trace("gantry", list(leaves), catalog(tree(tmp_path, {"gantry": text})))
+
+
+def test_objective_gates_by_entry(tmp_path):
+    t = gate_trace(tmp_path, leaf("L1", 2, satisfies="[gantry:FR-1, gantry:FR-2]", objective="[gantry:FR-2]"))
+    g = gating_of(t)
+    assert g["gantry:FR-1"] == [("L1", D, True)]
+    assert g["gantry:SR-1"] == [("L1", I, True)]
+    assert g["gantry:FR-2"] == [("L1", D, False)]
+    assert t.report.malformed == ()
+
+
+def test_objective_no_effect_when_gating_entry_reaches(tmp_path):
+    t = gate_trace(tmp_path, leaf("L1", 2, satisfies="[gantry:FR-2, gantry:SR-1]", objective="[gantry:SR-1]"))
+    g = gating_of(t)
+    assert g["gantry:SR-1"] == [("L1", D, True)]
+    assert g["gantry:FR-2"] == [("L1", D, True)]
+
+
+def test_objective_through_use_case_needs(tmp_path):
+    t = gate_trace(tmp_path, leaf("L1", 2, satisfies="[gantry:FR-1, gantry:FR-2]", objective="gantry:FR-1"))
+    g = gating_of(t)
+    assert g["gantry:UC-1"] == [("L1", I, False)]
+    assert g["gantry:UC-2"] == [("L1", I, True)]
+    assert g["gantry:FR-1"] == [("L1", D, False)]
+
+
+def test_objective_entry_not_in_satisfies_reported(tmp_path):
+    t = gate_trace(tmp_path, leaf("L1", 3, satisfies="gantry:FR-1", objective="gantry:FR-2"))
+    assert entries(t.report.malformed) == [("unmatched_objective", LEAF_SOURCE, 3)]
+    assert t.report.malformed[0].message == (
+        "objective: entry gantry:FR-2 is not in this leaf's satisfies:; it is ignored")
+    assert gating_of(t) == gating_of(gate_trace(tmp_path / "b", leaf("L1", 3, satisfies="gantry:FR-1")))
+
+
+def test_objective_malformed_entry_reported(tmp_path):
+    t = gate_trace(tmp_path, leaf("L1", 4, satisfies="[gantry:FR-1, gantry:FR-2]", objective="[FR-2, open]"))
+    assert entries(t.report.malformed) == [("malformed_objective", LEAF_SOURCE, 4)] * 2
+    assert [e.message for e in t.report.malformed] == [
+        f"objective: entry {e!r} is not a full requirement ID (<namespace>:<code>-<n>); it is ignored"
+        for e in ("FR-2", "open")]
+    assert all(gating for found in gating_of(t).values() for _, _, gating in found)
+
+
+def test_all_objective_leaf_still_serves(tmp_path):
+    ids = "[gantry:FR-1, gantry:FR-2]"
+    t = gate_trace(tmp_path, leaf("L1", 2, satisfies=ids, objective=ids), leaf("L2", 3))
+    plain = gate_trace(tmp_path / "b", leaf("L1", 2, satisfies=ids), leaf("L2", 3))
+    assert t.leaf_ids == plain.leaf_ids
+    assert (t.report.unserved, t.report.untraced) == (plain.report.unserved, plain.report.untraced)
+    assert {k: [(s.leaf, s.how) for s in v] for k, v in t.serving.items()} == {
+        k: [(s.leaf, s.how) for s in v] for k, v in plain.serving.items()}
+    assert t.serving and all(not s.gating for found in t.serving.values() for s in found)
+    assert t.report.malformed == ()
+
+
+def test_objective_without_satisfies(tmp_path):
+    t = gate_trace(tmp_path, leaf("L1", 2, objective="[gantry:FR-1, gantry:FR-2]"))
+    assert entries(t.report.malformed) == [("unmatched_objective", LEAF_SOURCE, 2)] * 2
+    assert t.report.untraced == ("L1",)
+    assert t.serving == {}
+
+
+def test_objective_ids_never_raise_and_count_once():
+    satisfied = [rid("a:FR-1"), rid("a:FR-2")]
+    assert objective_ids(leaf("L1", 2), satisfied) == ([], [])
+    assert objective_ids(leaf("L1", 2, objective="[]"), satisfied) == ([], [])
+    assert objective_ids(leaf("L1", 2, objective="[a:FR-1, a:FR-1, 'a:FR-2']"), satisfied) == (
+        [rid("a:FR-1"), rid("a:FR-2")], [])
+    for raw in ("[", "]", "{", "\x00", "a:FR-1]", "[[a:FR-1]]", "'", '"a:FR-1'):
+        objective_ids(leaf("L1", 2, objective=raw), satisfied)
+
+
+def test_objective_unbracketed_list_reported():
+    data = parse_wbs("- [ ] a {issue: Issue-7, satisfies: [a:FR-1, a:FR-2], objective: a:FR-1, a:FR-2}\n"
+                     "- [ ] b {issue: Issue-8, satisfies: a:FR-1, a:FR-2, objective: [a:FR-1]}\n", "a")
+    first, second = data.leaves
+    ids, problems = satisfies_ids(first, frozenset({"a"}))
+    assert (ids, problems) == ([rid("a:FR-1"), rid("a:FR-2")], [])
+    got, problems = objective_ids(first, ids, frozenset({"a"}))
+    assert got == [rid("a:FR-1")]
+    assert [(p.kind, p.line, p.message) for p in problems] == [
+        ("unbracketed_objective", 1, "key 'a' is a namespace: objective looks like an unbracketed list, which "
+                                     "splits at its first comma; write objective: [a:X, b:Y]")]
+    # Control: the split key follows satisfies:, so satisfies' own report names it, once.
+    ids, problems = satisfies_ids(second, frozenset({"a"}))
+    assert [(p.kind, p.message) for p in problems] == [("unbracketed_list", message("unbracketed_list", key="a"))]
+    assert objective_ids(second, ids, frozenset({"a"})) == ([rid("a:FR-1")], [])
+
+
+def test_objective_on_a_parent_row_reported(tmp_path):
+    data = parse_wbs("- [ ] Epic {objective: gantry:FR-1}\n"
+                     "  - [ ] a {issue: Issue-7, satisfies: gantry:FR-1}\n", "gantry")
+    cat = catalog(tree(tmp_path, {"gantry": GATE_REQ}))
+    t = build_site_trace("gantry", data.leaves, cat, rows=data.rows)
+    assert entries(t.report.malformed) == [("objective_not_on_leaf", LEAF_SOURCE, 1)]
+    assert t.report.malformed[0].message == (
+        "objective: is on a row with children; only a leaf's objective: is read, so it is ignored")
+    assert gating_of(t)["gantry:FR-1"] == [("Issue-7", D, True)]
+    assert build_site_trace("gantry", data.leaves, cat).report.malformed == ()  # rows are optional
+
+
+def test_miscased_objective_key_reported(tmp_path):
+    t = gate_trace(tmp_path, leaf("L1", 5, satisfies="gantry:FR-1", Objective="gantry:FR-1"))
+    assert entries(t.report.malformed) == [("miscased_objective", LEAF_SOURCE, 5)]
+    assert t.report.malformed[0].message == "key 'Objective' is not read; did you mean objective:?"
+    assert gating_of(t)["gantry:FR-1"] == [("L1", D, True)]

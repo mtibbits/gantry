@@ -139,7 +139,7 @@ def site_traces(inputs, catalog, roots):
     traces, failed = {}, {}
     for name, site_inputs in inputs.items():
         try:
-            traces[name] = build_site_trace(name, site_inputs.data.leaves, catalog)
+            traces[name] = build_site_trace(name, site_inputs.data.leaves, catalog, rows=site_inputs.data.rows)
         except Exception as e:
             failed[name] = render_reason(e, roots)
     return traces, failed
@@ -152,7 +152,7 @@ def render_site(name, inputs, config, stamp, *, catalog, trace=None, built=froze
     the caller's `try` makes this site's render error. `built` is the set of
     sites with a page in this build, which the page may link to."""
     if trace is None:
-        trace = build_site_trace(name, inputs.data.leaves, catalog)
+        trace = build_site_trace(name, inputs.data.leaves, catalog, rows=inputs.data.rows)
     trace = page_trace(trace, catalog, inputs.data, built=built)
     m = worksite.page_model(name, inputs.data, default_unit_hours=config.default_unit_hours, inputs=inputs,
                             trace=trace, built=built, br_namespace=catalog.br_namespace)
