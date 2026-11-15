@@ -520,3 +520,78 @@ def test_readers_never_raise_on_bytes(tmp_path):
     again = dr.read_issue_records(directory_roots([plan_dir]), folder)
     assert [r.status for r in records_of(again)] == ["present"] * 3
     assert again.checklist.value.revision is None and again.stuck.value.step is None
+
+
+# --- verbatim text and the single-reader rule (Task 7) -------------------------------------
+
+import ast  # noqa: E402
+import re  # noqa: E402
+import shutil  # noqa: E402
+
+from page_safety import HOSTILE  # noqa: E402
+from test_source_scan import package_modules  # noqa: E402
+
+RECORD_NAME_RE = re.compile(r"(?:^|[\\/])(?:STUCK|checklist\.md|imPlan\.md)$")
+
+
+def test_hostile_text_round_trips(tmp_path):
+    stuck = written("Issue-13", "STUCK")
+    checklist = written("Issue-6", "checklist.md")
+    assert len(HOSTILE) >= 10
+    for value in HOSTILE:
+        reason = stuck.replace("The harbour crane is waiting for a spare part.", value)
+        assert reason != stuck and dr.read_stuck(reason).reason == value
+        step = stuck.replace("Step:        2 draft", "Step:        2 " + value)
+        assert step != stuck and dr.read_stuck(step).step_name == value
+        box = dr.read_plan("## Tasks\n\n- [ ] " + value + "\n- [ ] Task 2\n")
+        assert (box.shape, box.next_task) == ("checkbox", value)
+        heading = dr.read_plan("## Tasks\n\n### Task 1: " + value + "\n\nText.\n")
+        assert (heading.shape, heading.next_task) == ("headings", "Task 1: " + value)
+    plan_dir = tmp_path / "plan"
+    plan_dir.mkdir()
+    planted = []
+    for value in HOSTILE:
+        try:
+            (plan_dir / value).mkdir()
+        except (OSError, ValueError):
+            continue
+        if (plan_dir / value).name != value:
+            continue
+        (plan_dir / value / "checklist.md").write_bytes(checklist.encode("utf-8"))
+        planted.append(value)
+    assert len(planted) >= 4
+    got = dr.read_site_records(directory_roots([plan_dir]), plan_dir)
+    assert sorted(got.issues) == sorted(planted)
+    for value in planted:
+        assert got.issues[value].issue == value
+        assert got.issues[value].checklist.value.next_step == dr.Step(2, "draft", "~")
+    # devagent's grammar takes the name as one token, so markup after it is not part of it.
+    row = checklist.replace("- [~]  2. draft", "- [~]  2. draft<script>")
+    assert row != checklist
+    assert dr.read_checklist(row).next_step == dr.Step(2, "draft", "~")
+
+
+def record_name_hits(pkg_dir):
+    """({module relpath with a record-file-name string constant}, modules scanned)."""
+    modules = package_modules(pkg_dir)
+    hits = set()
+    for rel, tree in modules:
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str) and RECORD_NAME_RE.search(node.value):
+                hits.add(rel)
+    return hits, len(modules)
+
+
+def test_only_the_adapter_names_record_files():
+    hits, scanned = record_name_hits(ROOT / "gantry")
+    assert scanned >= 20
+    assert hits == {"devagent_records.py"}
+
+
+def test_single_reader_scan_planted(tmp_path):
+    copy = tmp_path / "gantry"
+    shutil.copytree(ROOT / "gantry", copy, ignore=shutil.ignore_patterns("__pycache__"))
+    (copy / "named.py").write_bytes(b'WHERE = "plans/" + "x"\nNAME = "checklist.md"\n')
+    (copy / "identifier.py").write_bytes(b"STUCK_LINE = 1\nTEXT = 'a STUCK marker'\n")
+    hits, _ = record_name_hits(copy)
+    assert hits == {"devagent_records.py", "named.py"}
