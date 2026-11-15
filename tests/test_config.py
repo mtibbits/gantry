@@ -475,8 +475,7 @@ def test_as_of_pinned(tmp_path):
     c = cfg.load_config(write_config(tmp_path / "pinned", as_of="2026-01-20"))
     assert c.as_of_pinned is True and c.as_of == date(2026, 1, 20)
     c = cfg.load_config(write_config(tmp_path / "unpinned"))
-    assert c.as_of_pinned is False
-    assert c.as_of == date.today()
+    assert c.as_of_pinned is False  # test_as_of_absent_is_today owns the date
 
 
 def _doc_row(name):

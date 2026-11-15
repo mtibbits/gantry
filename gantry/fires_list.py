@@ -284,10 +284,22 @@ def fires_reference(config, now) -> Datetime:
     return now
 
 
+def _check_reference(reference):
+    """Raise ValueError on a caller's mistake, whatever the file holds; the
+    text never raises."""
+    # By shape, not isinstance(reference, Datetime): a test may swap this
+    # module's Datetime for a clock-guarding subclass. Only a datetime has
+    # both a year and an hour.
+    naive = hasattr(reference, "year") and hasattr(reference, "hour") and reference.tzinfo is None
+    if not naive:
+        raise ValueError(f"reference {reference!r} is not a naive datetime")
+
+
 def parse_fires_list(text, site_names, reference) -> FiresList:
     """Read a fires list's text. `site_names` is every name in the site list,
     built or not; `reference` is a naive local datetime from the caller (this
     module never reads the clock)."""
+    _check_reference(reference)
     names = frozenset(site_names)
     lines = split_lines(text)
     fenced = [False] * len(lines)
@@ -328,6 +340,7 @@ def read_fires_list(roots, path, site_names, reference) -> FiresList:
     when fires_list is not set. It never raises on what the path holds: a file
     that cannot be read gives status not_read and one fires_list_unreadable
     entry naming the key, never a path."""
+    _check_reference(reference)
     if path is None:
         return FiresList((), "not_configured", f"{KEY} is not set", (), 0, 0)
 

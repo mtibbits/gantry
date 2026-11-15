@@ -19,7 +19,10 @@ file.
 
 <!-- Editor note: tests/test_fires_list.py::test_doc_examples_read_as_documented
 reads the first fenced block under this heading and the one under "Notes under
-an entry" as fires lists; edit them and that test together. -->
+an entry" as fires lists; edit them and that test together.
+tests/test_fires_list.py::test_doc_names_every_kind_status_and_key pins this
+doc's `## ` headings and their order, every report kind, status and key, and
+a few phrases (it lists them); reword those with that test. -->
 
 The file is UTF-8 Markdown, so it reads well in a phone editor and can hold
 headings and notes. Each fire is one **entry**, a top-level list item:
@@ -98,8 +101,9 @@ editor nests a line under an entry:
 Any other line ends a run of notes: a heading, a paragraph, a thematic
 break, an item that holds nothing, a fence, an entry-like line that
 holds nothing, or a bullet indented four or more spaces that starts with
-no box or date (a sub-note: the next two-space note is then an entry). The same bullet with no entry or note above it (first in the
-file, or after a heading or a paragraph) is an unreadable entry. A two- or
+no box or date (a sub-note: the next two-space note is then an entry).
+The same bullet with no entry or note above it (first in the file, or
+after a heading or a paragraph) is an unreadable entry. A two- or
 three-space bullet that starts with a box or a date is always an entry, and
 a bullet at column 0 or indented one space is always an entry, so
 `- call the supplier back` with no box is an unreadable fire, not a note.
@@ -132,8 +136,12 @@ are not read.
 Only the markers above, spaces and tabs count. A line that starts with
 anything else is prose, even when an entry follows it, so it is neither
 read nor reported: a no-break space, a `•` or `–` bullet (which some notes
-apps and autocorrect write), a `>` quote, a `#` heading, or a table row.
-Write each entry as `- ` at the start of its line, and run `gantry fires`
+apps and autocorrect write), a `>` quote, a `#` heading, or a table row. A
+box is exactly one character between `[` and `]`, so an empty `[]` or a
+`[xx]` is no box: `- [] …` at column 0 is an unreadable entry, but
+`[] …`, `-[] …`, `1. [] …` and a deeper-indented `- [] …` are prose, and
+`  - [] …` under an entry is a note. Issue #152 tracks reporting these
+lines. Write each entry as `- ` at the start of its line, and run `gantry fires`
 after an edit to see that the count of fires is what you typed.
 
 In short: a bullet at column 0 or 1 is always an entry; at two or three

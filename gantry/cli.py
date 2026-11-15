@@ -64,6 +64,7 @@ def _parser():
         "<output_dir>/week-plan.json. A site that cannot be built is listed on the index with "
         "its reason. With --site, build only that site's page: no index and no plan.",
     )
+    _add_config(build)
     build.add_argument(
         "--site",
         metavar="NAME",
@@ -82,14 +83,18 @@ def _parser():
         "fire, the counts, one line per report entry and the status. Exit 0 when the status "
         "is read, 1 otherwise.",
     )
-    for command in (build, portfolio, fires):
-        command.add_argument(
-            "--config",
-            required=True,
-            metavar="FILE",
-            help="the installation config (a TOML file); there is no default",
-        )
+    _add_config(portfolio)
+    _add_config(fires)
     return parser
+
+
+def _add_config(command):
+    command.add_argument(
+        "--config",
+        required=True,
+        metavar="FILE",
+        help="the installation config (a TOML file); there is no default",
+    )
 
 
 def _utf8_streams():
@@ -278,7 +283,8 @@ def _fires(args):
     if loaded is None:
         return 1
     config, roots, site_names = loaded
-    # The same reference a build uses: as_of at 00:00 when set, else now.
+    # fires_reference is the rule #32's build will use too: as_of at 00:00
+    # when the config sets it, else now.
     reference = fires_reference(config, datetime.now())
     result = read_fires_list(roots, config.fires_list, site_names, reference)
     if result.status == "not_configured":

@@ -11,6 +11,8 @@ import datetime as dt
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
+import pytest
+
 from gantry import fires_list as fl
 from gantry import model
 from gantry.config import load_config
@@ -600,7 +602,7 @@ def test_sample_reads_clean():
     config = load_config(GANTRY_SAMPLE)
     roots = config_roots(config, purpose="check")
     sites, _ = site_list(config, roots)
-    reference = fl.fires_reference(config, None)
+    reference = fl.fires_reference(config, datetime(2030, 6, 1, 12, 0))
     assert config.as_of_pinned and reference == datetime(2026, 1, 20)
     result = fl.read_fires_list(roots, config.fires_list, [s.name for s in sites], reference)
     assert (result.status, result.report, result.skipped_empty) == ("read", (), 0)
@@ -611,6 +613,16 @@ def test_sample_reads_clean():
     flagged = [e.line for e in result.entries if fl.still_a_fire(e, reference, config.fires_check_days)]
     assert flagged == [9]
     assert all(e.site_known for e in result.entries if e.site is not None)
+
+
+def test_bad_reference_raises_whatever_the_file_holds(tmp_path):
+    aware = datetime(2026, 11, 1, tzinfo=dt.timezone.utc)
+    for bad in (None, date(2026, 11, 1), time(9, 0), aware):
+        for text in ("", "- [x] 2026-10-20 ended\n", "- [ ] 2026-10-24 @harbor open\n"):
+            with pytest.raises(ValueError, match="not a naive datetime"):
+                fl.parse_fires_list(text, ["harbor"], bad)
+        with pytest.raises(ValueError, match="not a naive datetime"):
+            fl.read_fires_list(directory_roots([tmp_path]), None, [], bad)
 
 
 
