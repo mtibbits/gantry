@@ -743,6 +743,27 @@ it in each trace row's `path`; the page's script only draws it.
   through `gantryTrace.marks`, whose result gains `upstream` (keys in work
   order) and `chain`.
 
+#### Threshold and objective
+
+- **The texts** (#79). When the box splits, its two sections are headed
+  `Threshold` and `Objective`. The threshold's heading is
+  `{n} leaves, {hours} agent-hours to finish its threshold work` or
+  `1 leaf, {hours} agent-hours to finish its threshold work`; when every
+  gating leaf is held out,
+  `{n} upstream leaves, {hours} agent-hours feed its held-out threshold work`
+  or `1 upstream leaf, {hours} agent-hours feed its held-out threshold work`.
+  Its end-day line is
+  `In the current schedule on {lanes}, its threshold work ends in working day {day}`,
+  and each objective-only leaf the threshold work waits on adds
+  `threshold work waits on objective-only {key}`. The objective's heading
+  is `{n} leaves, {hours} agent-hours to finish all its serving work` or
+  `1 leaf, {hours} agent-hours to finish all its serving work`. With no
+  gating leaf open, the threshold section reads `No leaf on this site gates its threshold`
+  or `Its threshold work on this site is finished`, and `No leaf gates its threshold`
+  or `Its threshold work is finished` under the empty cases' conditions
+  above. A row of the work order serving at objective only adds the mark
+  `objective`.
+
 ### Foreign entries
 
 `--site` never resolves a foreign entry. Its page lists a leaf's foreign
