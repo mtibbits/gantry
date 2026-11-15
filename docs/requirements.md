@@ -31,8 +31,9 @@ ID here is in another namespace.
   section, an annotated tag and a GitHub release.
 - **break:** a change that makes something an existing installation depends
   on fail, as the README's "Versioning & releases" section lists it.
-- **supported tool:** a program Gantry runs on whose supported versions the
-  README states: Python, git, Claude Code and bash.
+- **supported tool:** a program Gantry runs on, or whose files it reads,
+  whose supported versions the README states: Python, git, Claude Code,
+  bash and devagent.
 - **site (worksite):** one project, with its planning page.
 - **leaf:** a line in a project's work breakdown (`WBS.md`) with no
   children, usually one tracker issue.
@@ -243,7 +244,10 @@ acknowledging a security report within seven days (BRule-6).
   the latest release is supported; that moves with each upstream release
   and is not a break. Once stated, raising it is a break. A failure on a
   tool's latest release is a defect, fixed in a release under the version
-  rule.
+  rule. Gantry's full function needs devagent's latest release: on an older
+  supported devagent, every page builds, and what needs a newer devagent
+  contract is shown as missing (SR-6). A new feature that needs a newer
+  devagent contract is not a break.
 
 ## External interfaces
 

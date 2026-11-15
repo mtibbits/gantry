@@ -360,8 +360,11 @@ For the latest release:
 No deadline for a fix, no release cadence, no backports to older releases,
 no commitment to a requested feature, and no platform but Linux and
 Windows. Gantry may run elsewhere, such as macOS, but nothing checks it.
-Issues and pull requests are welcome; they are read when the maintainer
-can.
+
+For now, only collaborators can open issues and pull requests or comment
+on this repository. Outside issues and pull requests will open later, and
+will be read when the maintainer can. Security reports go through
+[SECURITY.md](SECURITY.md) in the meantime.
 
 ### Supported versions
 
@@ -371,12 +374,20 @@ can.
 | git | 2.45 | Latest: on every change, the git on the CI runners, Ubuntu and Windows, which may trail git's latest release; each release records the git it ran on. Oldest: stated from git's release notes, not yet tested: 2.45 is the oldest git that honours `GIT_NO_LAZY_FETCH` (see [Your data stays private](#your-data-stays-private)). |
 | Claude Code | Not yet stated | At every release: the plugin check under [Checks every release runs](#checks-every-release-runs), on the latest release. |
 | bash | Not yet stated | `/gantry:build` runs its launcher with bash. On every change: the launcher's tests, with the bash on the Ubuntu CI runner. At every release: the plugin check, with the bash Claude Code uses there. |
+| devagent | 3.0.0 | Gantry reads the `WBS.md` files, config and records devagent writes. Latest: the maintainer's own installation runs the latest devagent release. Oldest: stated, not yet tested. |
 
 Until a tool's oldest version is stated, only its latest release is
 supported. That moves with each upstream release and is not a break.
 Stating an oldest version widens support; raising a stated one is a break.
 A failure on a tool's latest release is a defect, fixed in a release under
 the version rule.
+
+devagent needs one more rule. Gantry's full function needs devagent's
+latest release. With an older supported devagent, every page still builds,
+and anything that needs a newer devagent contract is shown as missing,
+never filled in by Gantry. For example, without devagent's portfolio JSON
+Gantry reads `WBS.md` instead, and gets none of what only the JSON carries.
+A new Gantry feature that needs a newer devagent contract is not a break.
 
 ## License
 

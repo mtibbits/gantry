@@ -16,6 +16,9 @@ line under `## [Unreleased]`.
   the supported versions of Python, git, Claude Code and bash; git's oldest
   supported version is 2.45, the oldest that keeps history reads off the
   network (README.md).
+- devagent as a supported tool: 3.0.0 or later. Full function needs
+  devagent's latest release, and on an older one what needs a newer
+  devagent contract is shown as missing (README.md).
 
 ### Changed
 
