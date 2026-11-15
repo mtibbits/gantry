@@ -485,7 +485,7 @@ class _Day:
         return (left >= self.capacity.block_min
                 and _agent_fit(left - self.capacity.start_cost, ppm) >= 1)
 
-    def is_open(self, name) -> bool:
+    def open_for(self, name) -> bool:
         return self.open is not None and self.open["site"] == name
 
     def fits(self, item) -> bool:
@@ -494,7 +494,7 @@ class _Day:
             return False
         if not item["ppm"]:
             return True
-        if self.is_open(item["site"]):
+        if self.open_for(item["site"]):
             return _agent_fit(self.attention, item["ppm"]) >= 1
         return self.block_fits(item["ppm"])
 
@@ -540,7 +540,7 @@ class _Day:
         when a leaf fits. Nothing in a pass regains room, so one pass places
         all it can."""
         rated = [item for item in items if item["ppm"]]
-        if not self.is_open(name):
+        if not self.open_for(name):
             if not any(self.fits(item) for item in rated):
                 return
             self.open_block(name)
@@ -636,7 +636,7 @@ class _Day:
                     continue
                 if self.lanes == 0:
                     ran.add(POOL_LANES)
-                if self.is_open(name):
+                if self.open_for(name):
                     short = _agent_fit(self.attention, item["ppm"]) < 1
                 else:
                     short = not self.block_fits(item["ppm"])
