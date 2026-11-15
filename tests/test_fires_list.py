@@ -7,11 +7,14 @@ at run time, never typed as escapes in source or held in a fixture file.
 import random
 import time as clock
 from dataclasses import replace
-from datetime import date, datetime, time
+import datetime as dt
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
 from gantry import fires_list as fl
 from gantry import model
+from gantry.config import load_config
+from helpers_config import write_config
 
 FIXTURES = Path(__file__).parent / "fixtures" / "fires_list"
 NAMES = ("harbor", "quarry", "marsh")
@@ -29,6 +32,7 @@ EXPECTED = {
     "notes.md": [1, 4, 6, 10, 12],
     "entry_like.md": [3, 4, 5, 6, 7],
     "bad_entries.md": list(range(1, 13)),
+    "sites.md": [1, 2, 3, 4, 5, 6],
 }
 
 
@@ -324,3 +328,139 @@ def test_notes_unreadable_legs():
     assert by_line[12].reason == "call the supplier back"
     assert by_line[10].state == "open"
     assert [line for line, kind in kinds_of(result) if kind == "fires_bad_entry"] == [1, 4, 12]
+
+
+# --- sites, future dates, ages and the flag (Task 5) ------------------------------
+
+
+def test_unknown_site():
+    result = parse_fixture("sites.md", names=("harbor", "marsh"))
+    assert lines_of(result) == EXPECTED["sites.md"]
+    e = {e.line: e for e in result.entries}
+    assert (e[1].state, e[1].site, e[1].site_known) == ("open", "nowhere", False)
+    assert (e[2].state, e[2].site, e[2].site_known) == ("unreadable", "nowhere", False)
+    assert (e[3].site, e[3].site_known) == ("Harbor", False)
+    assert (e[4].site, e[4].site_known) == ("marsh", True)  # listed, as #7 lists a site it cannot build
+    assert (e[6].site, e[6].site_known) == ("harbor", True)
+    assert kinds_of(result) == [(1, "fires_unknown_site"), (2, "fires_bad_entry"), (2, "fires_unknown_site"),
+                                (3, "fires_unknown_site")]
+    assert result.report[0].message == "@nowhere names no site in this installation"
+    assert result.status == "read_with_problems"
+
+
+def test_unknown_site_message_is_one_line():
+    name = "a" + chr(0x2028) + "b"
+    _, result = one(f"- [ ] 2026-10-24 @{name} x")
+    assert result.report[0].message == "@a" + chr(92) + "u2028b names no site in this installation"
+
+
+def test_flag_boundary():
+    ref = datetime(2026, 10, 27, 9, 0)
+    young, _ = one("- [ ] 2026-10-24 10:00 @harbor x", reference=ref)
+    old, _ = one("- [ ] 2026-10-24 09:00 @harbor x", reference=ref)
+    assert fl.entry_age(young, ref) == timedelta(days=2, hours=23)
+    assert not fl.still_a_fire(young, ref, 3)
+    assert fl.entry_age(old, ref) == timedelta(days=3)
+    assert fl.still_a_fire(old, ref, 3)
+    ended, _ = one("- [x] 2026-01-01 @harbor x", reference=ref)
+    assert not fl.still_a_fire(ended, ref, 3)
+
+
+def test_entry_since():
+    e, _ = one("- [ ] 2026-10-24 09:40 x")
+    assert fl.entry_since(e) == datetime(2026, 10, 24, 9, 40)
+    e, _ = one("- [ ] 2026-10-24 x")
+    assert fl.entry_since(e) == datetime(2026, 10, 24, 0, 0)
+    e, _ = one("- [ ] x")
+    assert fl.entry_since(e) is None
+
+
+def test_unreadable_fire_flag():
+    dated, _ = one("- [?] 2026-10-01 @harbor x")
+    assert dated.state == "unreadable" and fl.still_a_fire(dated, REFERENCE, 3)
+    undated, _ = one("- [ ] @harbor x")
+    assert fl.entry_age(undated, REFERENCE) is None
+    assert not fl.still_a_fire(undated, REFERENCE, 3)
+
+
+def test_future_date():
+    for text in ("- [ ] 2026-12-01 @harbor x", "- [?] 2026-12-01 @harbor x"):
+        e, result = one(text)
+        assert fl.entry_age(e, REFERENCE) == timedelta(0)
+        assert [k for _, k in kinds_of(result) if k == "fires_future_date"] == ["fires_future_date"]
+        message = [r.message for r in result.report if r.kind == "fires_future_date"][0]
+        assert message == "the entry is dated after the reference time; its age is 0"
+    midnight = datetime(2026, 10, 24)
+    e, result = one("- [ ] 2026-10-24 @harbor x", reference=midnight)
+    assert (result.report, fl.entry_age(e, midnight)) == ((), timedelta(0))
+    e, result = one("- [ ] 2026-10-24 08:00 @harbor x", reference=midnight)
+    assert kinds_of(result) == [(1, "fires_future_date")]
+
+
+def test_large_check_days_does_not_raise():
+    e, _ = one("- [ ] 2026-10-01 @harbor x")
+    assert fl.still_a_fire(e, REFERENCE, 10**30) is False
+
+
+def test_fires_reference(tmp_path):
+    now = datetime(2026, 10, 24, 15, 30)
+    pinned = load_config(write_config(tmp_path / "pinned", as_of="2026-01-20"))
+    assert fl.fires_reference(pinned, now) == datetime(2026, 1, 20, 0, 0)
+    unpinned = load_config(write_config(tmp_path / "unpinned"))
+    assert fl.fires_reference(unpinned, now) is now
+
+
+class ClockRead(AssertionError):
+    pass
+
+
+def raise_on_clock(monkeypatch):
+    """Patch datetime.now and date.today to raise, on the datetime module and
+    on every date or datetime class gantry.fires_list holds (tests/clock.py's
+    technique: plain subclasses, so construction and arithmetic still work)."""
+    real_date, real_datetime = dt.date, dt.datetime
+
+    class NoToday(real_date):
+        __slots__ = ()
+
+        @classmethod
+        def today(cls):
+            raise ClockRead("date.today")
+
+    class NoNow(real_datetime, NoToday):
+        __slots__ = ()
+
+        @classmethod
+        def now(cls, tz=None):
+            raise ClockRead("datetime.now")
+
+        @classmethod
+        def today(cls):
+            raise ClockRead("datetime.today")
+
+    monkeypatch.setattr(dt, "date", NoToday)
+    monkeypatch.setattr(dt, "datetime", NoNow)
+    patched = 0
+    for name, value in list(vars(fl).items()):
+        if value is real_datetime:
+            monkeypatch.setattr(fl, name, NoNow)
+            patched += 1
+        elif value is real_date:
+            monkeypatch.setattr(fl, name, NoToday)
+            patched += 1
+    assert patched >= 2
+    try:
+        dt.datetime.now()
+    except ClockRead:
+        pass
+    else:
+        raise AssertionError("the patch is not live")
+
+
+def test_no_clock_read(monkeypatch, tmp_path):
+    raise_on_clock(monkeypatch)
+    result = parse_fixture("well_formed.md")
+    assert lines_of(result) == EXPECTED["well_formed.md"]
+    e = result.entries[0]
+    assert fl.entry_age(e, REFERENCE) is not None
+    assert fl.still_a_fire(e, REFERENCE, 3) is True

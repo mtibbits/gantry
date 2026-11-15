@@ -9,8 +9,11 @@ gantry.model's: the fire collector (#32) merges the two reports. Every
 
 import re
 from dataclasses import dataclass
+from dataclasses import replace
 from datetime import date as Date
+from datetime import datetime as Datetime
 from datetime import time as Time
+from datetime import timedelta
 
 from gantry.requirements import FENCE_RE, fence_spans, split_lines
 from gantry.sites import shown
@@ -223,10 +226,64 @@ def _read_entry(number, raw, text, entry_like):
     return FireEntry(number, state, bool(ended), day, at, site, False, reason, raw), failures
 
 
+def _fire_checks(entry, reference):
+    """A fire's (an entry not ended, readable or not) unknown-site and
+    future-date reports. An ended entry is not checked further."""
+    if entry.ended:
+        return []
+    found = []
+    if entry.site is not None and not entry.site_known:
+        found.append(FiresReportEntry(None, entry.line, "fires_unknown_site",
+                                      f"@{shown(entry.site)} names no site in this installation"))
+    since = entry_since(entry)
+    if since is not None and since > reference:
+        found.append(FiresReportEntry(None, entry.line, "fires_future_date",
+                                      "the entry is dated after the reference time; its age is 0"))
+    return found
+
+
+# --- ages and the flag ---------------------------------------------------------------
+
+
+def entry_since(entry) -> Datetime | None:
+    """When the entry began, in local time with no zone: its date and time, its
+    date at 00:00 with no time, or None with no date."""
+    if entry.date is None:
+        return None
+    return Datetime.combine(entry.date, entry.time or Time.min)
+
+
+def entry_age(entry, reference) -> timedelta | None:
+    """The entry's age at `reference`, never below 0; None with no date."""
+    since = entry_since(entry)
+    if since is None:
+        return None
+    return max(reference - since, timedelta(0))
+
+
+def still_a_fire(entry, reference, check_days) -> bool:
+    """Whether an entry is flagged "still a fire?": not ended, its start known,
+    and at least `check_days` whole days old. Compared on age.days, never as
+    timedelta(days=check_days), which overflows for a large configured value."""
+    if entry.ended:
+        return False
+    age = entry_age(entry, reference)
+    return age is not None and age.days >= check_days
+
+
+def fires_reference(config, now) -> Datetime:
+    """The reference time a run measures ages against: the config's as-of date
+    at 00:00 when the file sets as_of, else `now` from the caller."""
+    if config.as_of_pinned:
+        return Datetime.combine(config.as_of, Time.min)
+    return now
+
+
 def parse_fires_list(text, site_names, reference) -> FiresList:
     """Read a fires list's text. `site_names` is every name in the site list,
     built or not; `reference` is a naive local datetime from the caller (this
     module never reads the clock)."""
+    names = frozenset(site_names)
     lines = split_lines(text)
     fenced = [False] * len(lines)
     skipped_in_fences = 0
@@ -249,9 +306,11 @@ def parse_fires_list(text, site_names, reference) -> FiresList:
             continue
         if kind in ("entry", "entry_like"):
             entry, failures = _read_entry(number, line, item, kind == "entry_like")
+            entry = replace(entry, site_known=entry.site is not None and entry.site in names)
             entries.append(entry)
             if failures:
                 report.append(FiresReportEntry(None, number, "fires_bad_entry", "; ".join(failures)))
+            report += _fire_checks(entry, reference)
         elif kind == "empty":
             skipped_empty += 1
         chain = kind in ("entry", "entry_like", "note")
