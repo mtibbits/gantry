@@ -38,11 +38,13 @@
     return state;
   }
 
+  const HOWS = new Set(["direct", "indirect"]);
+
   // view: {lane_of: [[leafKey, laneIndex], ...], collapsed: [laneIndex, ...]}
   function marks(trace, state, view) {
     const hover = isObj(state) && isText(state.hover) ? state.hover : null;
     const out = { selected: null, selecting: false, leaves: new Map(), needs: [], lanes: [], tracing: hover,
-      upstream: [], chain: [] };
+      upstream: [], chain: [], foreign: new Map() };
     if (!isObj(trace) || !Array.isArray(trace.requirements)) return out;
     const rows = new Map(trace.requirements.map((r) => [r.id, r]));
     const id = isObj(state) && isText(state.selected) ? state.selected : null;
@@ -50,6 +52,10 @@
     if (row === undefined) return out;
     out.selected = id;
     out.leaves = new Map(row.light);
+    // Leaves on other sites (#21): index into trace.foreign -> how. They light
+    // their panel item and never dim the network, so `selecting` ignores them.
+    const lit = Array.isArray(row.foreign) ? row.foreign : [];
+    out.foreign = new Map(lit.filter((f) => Array.isArray(f) && Number.isInteger(f[0]) && HOWS.has(f[1])));
     // The path (#77): the open leaves the serving leaves wait on, in work order, and the heaviest chain.
     const path = isObj(row.path) ? row.path : {};
     const order = Array.isArray(path.order) ? path.order : [];
@@ -599,6 +605,11 @@
         t.textContent = fillIn(DATA.texts.lit, [["n", n]]);
         g.append(t);
       }
+    }
+    for (const li of document.querySelectorAll("li.xleaf")) {
+      const how = m.foreign.get(Number(li.getAttribute("data-item")));
+      li.classList.remove("req-direct", "req-indirect");
+      if (how !== undefined) li.classList.add(HOW_CLASS.get(how));
     }
     for (const el of document.querySelectorAll("li.req, g.chip")) {
       const r = el.getAttribute("data-req");

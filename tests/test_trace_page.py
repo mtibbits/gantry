@@ -716,7 +716,7 @@ def test_hostile_trace_page_is_safe(tmp_path):
 START = {"selected": None, "hover": None}
 NO_VIEW = {"lane_of": [], "collapsed": []}
 EMPTY_MARKS = {"selected": None, "selecting": False, "leaves": [], "needs": [], "lanes": [], "tracing": None,
-               "upstream": [], "chain": []}
+               "upstream": [], "chain": [], "foreign": []}
 SR1_LIGHT = [["Issue-7", "indirect"], ["Issue-8", "direct"], ["Issue-10", "indirect"], ["Issue-11", "direct"]]
 
 
@@ -847,7 +847,8 @@ def test_step_bad_selected_unchanged(node, sample_page):
 def test_empty_light_set_not_selecting(node, sample_page):
     path, trace, _ = sample_page
     marks = marks_after(path, trace, [select("lighthouse:FR-2")])
-    assert marks == {**EMPTY_MARKS, "selected": "lighthouse:FR-2"}
+    # No leaf on this site serves FR-2; quarry's does (#21), which lights its panel item and never dims the network.
+    assert marks == {**EMPTY_MARKS, "selected": "lighthouse:FR-2", "foreign": [[0, "direct"]]}
 
 
 # --- Task 8: the thin layer, under the harness ---------------------------------------

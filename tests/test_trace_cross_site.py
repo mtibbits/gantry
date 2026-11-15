@@ -24,7 +24,9 @@ from test_samples import GANTRY_SAMPLE
 from test_trace import catalog, leaf, rid, tree
 from gantry.views.worksite import page_model
 from test_crosssite import force_render
-from test_trace_page import by_id, installation, report_items, req_li, row, sample, trace_of
+from page_script.harness import open_page, run_function
+from test_trace_page import (EMPTY_MARKS, NO_VIEW, by_id, installation, marks_after, report_items, req_li, row, sample,
+                             select, trace_of)
 from test_worksite_page import STRUCTURAL, find, text_of
 from test_worksite_page import tree as page_tree
 
@@ -516,3 +518,70 @@ def test_no_row_links_in_site_build(tmp_path, monkeypatch):
     assert code == 0, err
     page = (out / "sites" / f"{UNESTIMATED}.html").read_text(encoding="utf-8")
     assert row_links(page_tree(page), "lighthouse:FR-2") == [] and "lighthouse.html" not in page
+
+
+# --- Task 8: the script: foreign lights (Node) ----------------------------------------
+
+MARKED = "g.node.req-direct, g.node.req-indirect, g.node.req-upstream, rect.seg.req-direct, " \
+         "rect.seg.req-indirect, rect.seg.req-upstream"
+
+
+def lit_items(page):
+    return [(el.attrs.get("data-item"), sorted(c for c in el.classes if c.startswith("req-")))
+            for el in page.query("li.xleaf")]
+
+
+def test_marks_foreign_from_row(node, tmp_path):
+    page = sample(tmp_path).pages[SMALL]
+    path = tmp_path / "lighthouse.html"
+    path.write_bytes(page.encode("utf-8"))
+    trace = trace_of(page)
+    marks = marks_after(path, trace, [select("lighthouse:FR-2")])
+    assert marks["foreign"] == [[0, "direct"]]
+    # Foreign lights never dim the network: FR-2 has no leaf on this site.
+    assert marks["leaves"] == [] and marks["selecting"] is False
+    assert EMPTY_MARKS["foreign"] == []
+
+
+def test_select_lights_foreign_leaf(node, tmp_path):
+    path = tmp_path / "lighthouse.html"
+    path.write_bytes(sample(tmp_path).pages[SMALL].encode("utf-8"))
+    with open_page(path) as page:
+        assert lit_items(page) == [("0", [])]
+        page.drive("requirement", "lighthouse:FR-2")
+        assert lit_items(page) == [("0", ["req-direct"])]
+        assert page.query(MARKED) == []
+        page.key("Escape")
+        assert lit_items(page) == [("0", [])]
+        page.drive("requirement", "lighthouse:SR-1")
+        assert lit_items(page) == [("0", [])]
+
+
+UC_REQS = "# R\n\n## Use cases\n\n- UC-1: Use. {needs: [FR-1]}\n\n## Functional requirements\n\n- FR-1: One.\n"
+
+
+def test_use_case_lights_foreign_through_needs(node, tmp_path):
+    wbs = {"alpha": "# Alpha\n\n- [ ] One {issue: Issue-1}\n",
+           "beta": "# Beta\n\n- [ ] Two {issue: Issue-2, satisfies: alpha:FR-1}\n"}
+    result = build.build_all(load_config(installation(tmp_path, wbs, {"alpha": UC_REQS})))
+    path = tmp_path / "alpha.html"
+    path.write_bytes(result.pages["alpha"].encode("utf-8"))
+    with open_page(path) as page:
+        page.drive("requirement", "alpha:UC-1")
+        assert lit_items(page) == [("0", ["req-indirect"])]
+        page.drive("requirement", "alpha:FR-1")
+        assert lit_items(page) == [("0", ["req-direct"])]
+
+
+def test_foreign_index_proto_safe(node, tmp_path):
+    path = tmp_path / "lighthouse.html"
+    page = sample(tmp_path).pages[SMALL]
+    path.write_bytes(page.encode("utf-8"))
+    trace = trace_of(page)
+    for r in trace["requirements"]:
+        r["foreign"] = [["__proto__", "direct"], ["0", "direct"], [0, "__proto__"], "x", None]
+    marks = run_function(path, "gantryTrace.marks", [trace, {"selected": "lighthouse:FR-2", "hover": None}, NO_VIEW])
+    assert marks["foreign"] == []
+    trace["requirements"] = [{**r, "foreign": None} for r in trace["requirements"]]
+    assert run_function(path, "gantryTrace.marks",
+                        [trace, {"selected": "lighthouse:FR-2", "hover": None}, NO_VIEW])["foreign"] == []
