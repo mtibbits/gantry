@@ -11,6 +11,9 @@ line under `## [Unreleased]`.
 
 ### Added
 
+- The fires list: a private Markdown file of fires that are not leaves yet,
+  the `fires_check_days` config key and `gantry fires --config <file>`,
+  which checks it; the build does not read it yet (docs/fires-list.md).
 - A security policy with private vulnerability reporting (SECURITY.md).
 - The README's Support section: what Gantry promises, what it does not, and
   the supported versions of Python, git, Claude Code and bash; git's oldest
