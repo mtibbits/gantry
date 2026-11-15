@@ -399,7 +399,7 @@ another resolve against the catalog. Each site's report has these fields:
 | `undefined` | the reader's `undefined_link`, `undefined_cross_link` (a link into another namespace naming no requirement) and `undefined_id` (a leaf entry naming no requirement) |
 | `unserved` | the site's own requirements that no leaf serves, constraints aside |
 | `untraced` | the site's open leaves that name no ID that resolves |
-| `sites_not_read` | a full build's sites whose leaves could not be counted, in config order; none in a `--site` build |
+| `sites_not_read` | a full build's sites whose leaves could not be counted, in config order (below); none in a `--site` build |
 | `undefined_foreign` | `undefined_foreign`: another site's leaf naming an ID of this in-trace site that names no requirement, under that site's `WBS.md` |
 
 An undefined ID or link names one of these reasons: the namespace is not a
@@ -409,8 +409,22 @@ read; the portfolio file has no `## Business requirements` section; the file
 defines no such ID; or the ID is in `br_namespace` and
 `portfolio_file` is not set.
 
-`unserved` counts only this site's leaves, so its `unserved_scope` is
-`"site"`; "Trace across projects" (#21) widens it. `untraced` lists an open
+In a full build `unserved` counts every read site's leaves (#21): a leaf on
+another site whose `satisfies:` serves one of this site's requirements,
+directly or through refinement or a use case's needs, serves it here too,
+and the report's `unserved_scope` is `"installation"`. In a `--site` build
+only this site's leaves are counted, and `unserved_scope` is `"site"`.
+`sites_not_read` lists, in config order, every site whose leaves the full
+build could not count: one that could not be read, whatever the reason
+(an invalid or clashing name, an unreadable or unparseable `WBS.md`, a bad
+`devdoc_dir`, a path it may not check), and one whose trace failed. A site
+that provably has no leaves is not listed: no `devdoc_dir`, no planning
+directory, or no `WBS.md` in it. A site that is read but fails to render
+is not listed either, since its leaves were counted. `undefined_foreign`
+holds, for a site in the trace, the entries of other sites' leaves that
+name one of its IDs that names no requirement, under the source
+`{site} WBS.md`; that site's own report still lists the entry as
+`undefined_id`. `untraced` lists an open
 leaf with no `satisfies:` key, with `satisfies: []`, or with only malformed
 or undefined entries; the bad entries are reported as well.
 

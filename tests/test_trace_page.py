@@ -112,7 +112,8 @@ SAMPLE_LINE_FULL = SAMPLE_LINE_SITE.replace("unserved 2", "unserved 1")
 
 
 def traced(config_path, site):
-    """(page_trace, SiteTrace) of one site, read and joined as the build does."""
+    """(page_trace, SiteTrace) of one site, read and joined as a --site build
+    does: site scope, only this site's leaves (a full build widens it, #21)."""
     config = load_config(config_path)
     roots = config_roots(config)
     sites = load_sites(config, roots)[0]
@@ -1031,7 +1032,7 @@ def test_requirements_panel_states_the_marks(tmp_path):
 TRACE_TEXTS = [getattr(worksite, name) for name in (
     "CHIP_MORE", "REQUIREMENTS_HEADING", "SELECT_NOTE", "ROW_DETAIL", "ROW_HELD", "ROW_FINISHED", "TRACE_HEADING",
     "UNSERVED_SCOPE_OTHER", "TRACE_COUNT", "TRACE_NONE", "ENTRY_LINE", "ENTRY_WHOLE", "SATISFIES", "LIT",
-    "NO_ISSUE_ID")] + list(worksite.LAYER_HEADINGS.values()) + list(worksite.TRACE_LABELS.values()) + list(
+    "NO_ISSUE_ID", "XSITE_HEADING", "UNSERVED_NOT_COUNTED")] + list(worksite.LAYER_HEADINGS.values()) + list(worksite.TRACE_LABELS.values()) + list(
     worksite.UNSERVED_SCOPES.values()) + [COUNT_OPEN, COUNT_HELD, COUNT_FINISHED, REQUIREMENTS_LABEL]
 STDOUT_FORM = ("trace <site>: unreadable N, malformed N, duplicate N, misplaced N, cycle N, undefined N, "
                "unserved N, untraced N")

@@ -635,3 +635,33 @@ def test_hostile_foreign_under_harness(node, tmp_path):
             "also served on beta by __proto__, which this page does not plan"]
         used = {c for e in page.query("[class]") for c in e.classes}
         assert used - CLASS_TOKENS - STRUCTURAL == set()
+
+
+# --- Task 11: the docs -----------------------------------------------------------------
+
+DOCS = PurePath(__file__).parent.parent / "docs"
+
+
+def doc(name):
+    return " ".join(open(DOCS / name, encoding="utf-8").read().split())
+
+
+def test_doc_states_cross_site():
+    page = doc("worksite-page.md")
+    for text in ("`served-elsewhere`", "`not_read`", "`<name>.html#leaf-<key>`", "`<name>.html`",
+                 "`undefined_foreign`", f"`{worksite.XSITE_HEADING}`", f"`{worksite.UNSERVED_NOT_COUNTED}`",
+                 f"`{worksite.PATH_NOT_READ}`", f"`{FOREIGN_SOURCE}`", "`installation`"):
+        assert text in page, text
+    fmt = doc("requirements-format.md")
+    for text in ("`sites_not_read`", "`undefined_foreign`", '"installation"', "--site"):
+        assert text in fmt, text
+
+
+def test_no_stale_cross_site_promises():
+    root = PurePath(__file__).parent.parent
+    for rel in ("docs/worksite-page.md", "docs/requirements-format.md", "gantry/trace.py", "gantry/path.py",
+                "gantry/build.py", "gantry/views/worksite.py", "tests/test_trace_page.py"):
+        text = " ".join(open(root / rel, encoding="utf-8").read().split())
+        for stale in ("#21 widens", "wait for #21", "Provisional (#21", "every page today uses the site forms",
+                      "#21 adds its keys"):
+            assert stale not in text, (rel, stale)

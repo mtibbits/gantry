@@ -11,7 +11,9 @@ load_catalog reads every in-trace site's requirements file and, when
 portfolio_file is set, the portfolio file's business requirements, once per
 build. build_site_trace returns one SiteTrace per site: each leaf's IDs, the
 leaves serving each requirement (direct or indirect), the site's use cases
-and its TraceReport. page_trace binds a SiteTrace to the worksite page's
+and its TraceReport. In a full build, build_installation_trace widens every
+SiteTrace with the leaves of other sites that serve its requirements (#21);
+sites_not_read names the sites whose leaves could not be counted. page_trace binds a SiteTrace to the worksite page's
 `trace` data (#20), and counts_line gives the build's `trace <site>:` line
 from that data. This module renders and prints nothing.
 

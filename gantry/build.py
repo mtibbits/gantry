@@ -1,8 +1,9 @@
 """The full build: read every site, then render every read site (#11).
 
-build_all reads each site in devagent's config order, then renders each site
-it read, each in its own `try`, and returns one BuildResult that every view
-reads, with the week plan (#61) made from the built sites and the portfolio
+build_all reads each site in devagent's config order, traces each site it
+read and widens the traces to the installation (#21), then renders each
+traced site, each step per site in its own `try`, and returns one
+BuildResult that every view reads, with the week plan (#61) made from the built sites and the portfolio
 file the trace's catalog read. It writes nothing; write_all writes the pages
 and the index, and the command line writes the plan file. A site that cannot
 be built gets a reason that names its config key or file kind, never an
