@@ -162,7 +162,10 @@ depends on the site alone: no leaf's `h:` changes it.
 ## The planner
 
 `gantry build` (the full build, not `--site`) plans the next 10 working
-days after it has built the sites (`gantry/planner.py`, `plan_week`). The
+days after it has built the sites, dividing each day between them by
+priority tier and then by the portfolio file's intended shares
+(`gantry/planner.py`, `plan_week`). The plan names that rule in
+`allocation_rule`: "fair share by intended shares". The
 plan is data: it is written to `week-plan.json` ([The plan file](#the-plan-file))
 and handed, as one object, to every view rendered from the build's result
 after planning. Today that is the index, which does not show it yet; a
@@ -202,7 +205,7 @@ it takes at most 6 agent hours a day and a longer leaf continues on later
 days. Its rate charges rate × agent hours of operator attention. A leaf
 whose rate is 0 goes in the day's **lanes row** and needs no block.
 
-The planner works in whole minutes, by two rules:
+The planner charges whole minutes, by two rules:
 
 - every input is rounded to whole minutes once, as `int(hours * 60 + 0.5)`:
   a weekday's attention, each reserved block, `block_min_hours`, the start
@@ -212,6 +215,10 @@ The planner works in whole minutes, by two rules:
   up, so a block's work plus its start cost always fits its length; the
   agent minutes that fit some operator minutes round down. A rate under half
   a part per million is rate 0.
+
+Fair-share targets are the one exception: they are exact fractions, never
+rounded, compared with the whole-minute charges
+([Fair share between sites](#fair-share-between-sites)).
 
 No number in the portfolio file can stop the planner. A value over 24 hours
 (a block of `1e308` hours, say) counts as 24, a lane count over 1,000,000
@@ -225,27 +232,33 @@ length is its start cost (`block_start_cost_hours`) plus the operator hours
 of the work placed in it, and it is charged to the day's attention. A block
 is never shorter than `block_min_hours`: one whose work needs less is still
 charged that length. No block mixes sites. A block has an order and a
-length, never a clock time.
+length, never a clock time. A site can hold more than one block a day,
+never two in a row ([Merged blocks](#merged-blocks)).
 
 A block never runs past the day's attention. A leaf that would is placed
 for the most whole agent minutes whose operator minutes still fit, and the
-rest of it continues on a later working day; the block then goes on with
-any other leaf of its site that still fits, and closes when none does. When
-a block's next leaf finds no lane hours left, the block closes there.
+rest of it continues later; the block then goes on with any other leaf of
+its site that still fits. A leaf that finds no lane hours left is placed
+no further. A block stays open until a block of another site opens or the
+day ends, and its padding up to `block_min_hours` is charged when it
+closes.
 
 ### A ready leaf that fits
 
 At a point in a day, a ready leaf fits when the day still has lane minutes
 free and the leaf is under its 6 agent hours that day, and, when its rate
 is above 0, either its site's block is open and the day's attention holds
-one more agent minute of it, or no block of its site has opened and the day
-has left both `block_min_hours` and the start cost plus one agent minute of
+one more agent minute of it, or its site's block is not open and the
+attention left, less the open block's padding up to `block_min_hours`,
+holds both `block_min_hours` and the start cost plus one agent minute of
 the leaf. A block that could hold no leaf is not opened.
 
 ### Order within a site
 
-Within a site, leaves go in effective-priority order with `WBS.md` order
-breaking ties, a blocker always before the leaf that waits on it. This is
+Within a site and [tier](#priority-tiers), leaves go in effective-priority
+order with `WBS.md` order breaking ties, a blocker always before the leaf
+that waits on it. A started leaf of any priority is tier 2, so it goes
+before its site's pending leaves of tier 3. This is
 the worksite schedule's rule, and it is one function,
 `gantry.schedule.pick_ready`, that both call, so the two orders cannot
 drift. Effective priority is taken as the worksite page takes it, over
@@ -254,34 +267,152 @@ lifts the leaf it waits on. Effective priority is computed within each
 site: a cross-site entry only holds a leaf and never raises its blocker's
 priority.
 
-### Which site goes next
+### Priority tiers
 
-Until #37 adds priority tiers and fair share, each day is planned site by
-site, and the plan names the rule in `allocation_rule`:
-"most urgent site first; intended shares not applied".
+Each open leaf has a `tier`, fixed for the whole plan: `p0` when its
+effective priority is 0 (a P0 leaf, or a leaf of its site that a P0 leaf
+waits on); otherwise `started` when it is in progress (`~`) or stuck (`!`);
+otherwise `fair_share`. A leaf the plan started on an earlier day keeps its
+tier.
 
-When a block can open, it goes to the site whose most urgent ready leaf of
-rate above 0 that fits is the most urgent, ties to devagent's config order.
-The block holds that site's leaves in the order above. Nothing in a day
-makes a leaf fit again once it does not, so a site gets at most one block a
-day. After the day's blocks, the lanes row takes ready rate-0 leaves site
-by site: the sites go in order of their most urgent ready rate-0 leaf that
-fits, ties to config order, and each leaf takes up to its 6 agent hours or
-the lane hours left.
+Each day runs in eight phases:
+
+1. `p0` blocks;
+2. `p0` rate-0 leaves, in the lanes row;
+3. `started` blocks;
+4. `started` rate-0 leaves;
+5. `fair_share` blocks of the share sites;
+6. the share sites' `fair_share` lanes row;
+7. `fair_share` blocks of the [share-less sites](#share-less-sites);
+8. their lanes row.
+
+In phases 1 to 4, the sites with a ready leaf of the tier go in order of
+their most urgent such leaf's effective priority, ties to devagent's config
+order, fixed when the phase starts; in phase 1 every such leaf is P0, so
+config order decides. Each site gets one block holding its ready leaves of
+the tier with a rate above 0, in the order within a site, limited only by
+the day's attention, the lanes and each leaf's 6 agent hours; then, in the
+same site order, its rate-0 leaves of the tier join the lanes row. P0 work
+and work already in progress go first whatever a site's share, and their
+charges count against it. A P0 leaf held by another site's open leaf is
+not ready until that leaf finishes; a site's `p0` list names what holds
+each of its P0 leaves. Phases 5 to 8 divide what is left by intended
+shares.
+
+### Merged blocks
+
+At most one block is open: from its opening until a block of another site
+opens or the day ends. A phase that gives the next block to the open
+block's site continues it: one record, one start cost, its leaves of every
+tier in the order placed. So a site can hold more than one block a day,
+never two in a row. A block's length is its start cost plus the operator
+hours placed in it; its padding up to `block_min_hours` is charged when it
+closes, so a short P0 block followed by another site's block is charged
+`block_min_hours` alone. A leaf placed in two blocks of one day is listed
+in both, but once in its `days` and once in the day's `unestimated` count.
+
+### How long a block runs
+
+A block of phases 1 to 4 runs as long as the day's pools and its leaves
+allow. A block of phase 5 or 7 may always reach `block_default_hours`,
+measured over the whole merged block (its start cost, any tier 1 or 2 work
+and its `fair_share` work). Past it, the block extends one whole minute at
+a time: a minute is allowed when the site's attention charged plus that
+minute, less its target after that minute, is at most
+`block_default_hours`, or when no other site of its class has a ready
+`fair_share` leaf of rate above 0 that fits, judged on the attention left
+before the minute. Leaves are placed in whole agent minutes against the
+smaller of the day's attention and that cap, so a leaf is split where its
+block stops and continues in a later block.
+
+When the site with the largest deficit is the open block's own site and
+it can place no whole agent minute under its cap while another site of its
+class fits (at a rate above 1 one operator minute holds no agent minute),
+the cap is lifted for that pick: the block runs on until it has placed at
+least one agent minute and `block_default_hours` more operator minutes, or
+a pool of the day runs out, and then the next pick is made.
+
+The rule bounds each minute; it promises no bound on a day's result. With
+two share sites the tests' installations keep each site within
+`block_default_hours` of its attention target at every day's end; three or
+more share sites can go past it, and so can a day whose last minutes are
+under `block_min_hours`.
+
+### Fair share between sites
+
+For each of the 10 days the planner reads the allocation that applies on
+that day ([portfolio-file.md](portfolio-file.md#the-allocation-on-a-day))
+against the built sites. Shares of projects that are not built sites are
+dropped, with a `shares_dropped` note; the built sites left with a share
+above 0 are that day's **share sites**, their shares scaled to sum to 1,
+and every other built site is [share-less](#share-less-sites) that day.
+With no allocation, or nothing left to scale, every built site is a share
+site at an equal share and the day has a `no_allocation` note: "no
+intended shares apply on <date>; every site planned with equal shares".
+
+Each site has one ledger per pool for the 10 days: the whole minutes
+**charged** and a **target**, kept as exact fractions; its **deficit** is
+target less charged. Attention is charged at a block's start cost, at each
+placement's operator minutes and at its closing padding; lane minutes at
+each placement. A charge of some minutes adds to the targets of the sites
+that can use the pool, judged before the charge: a site can use attention
+while it has a ready leaf of rate above 0 under its 6 agent hours that day,
+and lanes while it has any ready leaf under its 6 agent hours. A site that
+cannot absorb a minute today accrues nothing, so the share it cannot use
+goes to the share sites that can.
+
+| A charge to | In phases | Each share site that can use the pool gains | Each share-less site that can use it gains |
+|---|---|---|---|
+| a share site | any | minutes × its share ÷ the shares of those sites | nothing |
+| a share-less site | 1 to 4 | minutes × its share ÷ the shares of those sites | minutes ÷ their number |
+| a share-less site | 7 and 8 | nothing | minutes ÷ their number |
+
+A site that changes class from one day to the next keeps its ledger and
+competes with it in its new class. The plan records each site's targets at
+the horizon's end, `attention_hours_target` and `lane_hours_target`.
+
+In phase 5, while a share site has a ready `fair_share` leaf of rate above
+0 that fits, the share site with the largest attention deficit, ties to
+config order, gets the next block: it continues its block when that is the
+open one and opens one otherwise. Only work of rate above 0 counts here: a
+site whose only ready work is rate 0 takes no block and caps no other
+site's block.
+
+### The lanes row
+
+The lanes row holds the day's rate-0 leaves, each up to its 6 agent hours
+or the lane hours left. In phases 2 and 4 they join site by site, in the
+tier's site order. In phase 6, while lane minutes are left and a share
+site has a ready `fair_share` rate-0 leaf that fits, the share site with
+the largest lane deficit, ties to config order, places its first such
+leaf; phase 8 does the same among the share-less sites.
+
+### Share-less sites
+
+A built site with no share above 0 in the day's allocation is share-less
+that day. Its P0 and started work still go in phases 1 to 4, and those
+charges move the targets of both classes. Its `fair_share` work gets only
+what is left once no share site has a ready leaf that fits: phases 7 and 8,
+where the share-less sites divide that rest at equal shares by the same
+rules. Its site record lists its `shareless_days`, a null `share` on each
+of them, and the note "no intended share set; planned only into capacity
+left after the sites with shares".
 
 ### Started in this plan
 
 A leaf the plan placed on an earlier day and has not finished goes first
-among its site's leaves on each following day, ahead of a more urgent leaf
-that became ready since, until it finishes. Several such leaves of one site
+among its site's leaves of its tier on each following day, ahead of a more
+urgent leaf that became ready since, until it finishes. Several such leaves of one site
 keep the order within a site among themselves.
 
 ### States
 
 The planner reads `WBS.md` states only. A leaf blocked externally (`?`) or
 parked (`P`) is not planned. Every other open leaf is, an in-progress (`~`)
-or stuck (`!`) one included: an issue parked in devagent whose leaf still
-reads `[~]` is planned like any other.
+or stuck (`!`) one included: such a leaf is tier 2, `started`, and goes
+before its site's `fair_share` work ([Priority tiers](#priority-tiers)). An
+issue parked in devagent whose leaf still reads `[~]` is planned as started
+work.
 
 ### Dependencies within a site
 
@@ -372,6 +503,17 @@ them, attention first:
   fits", a day also counts as attention running out when `block_min_hours`
   is left but the start cost plus one agent minute of the ready leaf no
   longer fits.
+
+Both are judged against the day's attention, never against a block's
+fair-share cap. The check runs for the share sites' leaves after phase 5
+and for the share-less sites' after phase 7, against the block open then:
+a leaf whose site's block is open is short when the attention left holds no
+more agent minute of it, and a leaf whose site's block is not open is short
+when the attention left, less the open block's padding, cannot open one.
+Keyed on the open block instead of a site's one block of the day, the two
+mean what they meant when a site had one block a day, so `ran_out`,
+`days_run_out` and `binding` keep their meaning and
+[the version rule](#the-version-rule) is not triggered.
 
 A leaf with no lane minute free waits on lanes alone, with one exception:
 when a single placement takes the last lane minute and the last of the
@@ -464,7 +606,8 @@ passes a ratio), its `attention_hours_charged` (its block lengths over the
 10 days, start costs and minimum-length padding included), its
 `lane_hours_charged` (the agent hours placed), its `attention_hours_target`
 and `lane_hours_target` (each pool's fair-share target at the horizon's
-end), its `unestimated_planned` count, its `unplanned` list (`key`, `reason`, `state`,
+end: [Fair share between sites](#fair-share-between-sites)), its
+`unestimated_planned` count, its `unplanned` list (`key`, `reason`, `state`,
 `unresolved_local`), its `shares` (one per horizon day: the `date` and its
 `share` in percent, null on a day the site is share-less), its
 `shareless_days`, its `share_note` (null, or the text "no intended share
@@ -820,6 +963,7 @@ rule says how a reader takes it.
 ### Determinism
 
 The same inputs and as-of date give the same plan and a byte-identical file
-on any machine: the planner works in whole minutes, breaks every tie by a
-stated order, and the file holds no build time. A rebuild 15 minutes later
+on any machine: the planner charges whole minutes and keeps its targets as
+exact fractions compared with those charges, breaks every tie by a stated
+order, and the file holds no build time. A rebuild 15 minutes later
 does not reshuffle today.

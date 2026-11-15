@@ -22,6 +22,11 @@ line under `## [Unreleased]`.
 
 ### Changed
 
+- The week plan divides each day between sites by priority tier, P0 work
+  and work in progress first, then by the portfolio file's intended shares;
+  `week-plan.json` gains `notes`, each leaf's `tier`, and each site's
+  shares, share-less days, share note, fair-share targets and P0 list
+  (docs/week-plan.md).
 - A break now includes raising the oldest supported version of a tool, and
   a release with a break says in its CHANGELOG section what to change
   (README.md).

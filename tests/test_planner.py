@@ -309,7 +309,7 @@ def test_states_question_and_parked_unplanned(tmp_path):
         "Issue-5": ("parked", "parked"),
         "Issue-6": ("waits_on_unplanned", "pending"),
     }
-    # In-progress and stuck leaves are planned like any other open leaf.
+    # In-progress and stuck leaves are planned, as started work.
     assert sorted(placed_keys(plan, "a")) == ["Issue-1", "Issue-2", "Issue-3"]
     assert [placed(plan, "a", key)["state"] for key in ("Issue-1", "Issue-3")] == ["in_progress", "stuck"]
     assert unplanned(plan, "b") == {}
@@ -1882,18 +1882,26 @@ def test_week_plan_doc_states_planner():
         "`unresolved_local`", *(f"`{kind}`" for kind in planner.PLAN_REPORT_KINDS),
         "first ready on the working day after", "never raises its blocker's priority",
         "local entry that names nothing is not a dependency", "cross-site blocker is itself `beyond_horizon`",
+        planner.SHARE_NOTE, "no intended shares apply on", "one whole minute at a time", "exact fractions",
+        "held by", "never two in a row",
     ]
     assert [w for w in wanted if w not in doc] == []
+    # The interim rule is gone. Split, so this test is not itself a hit of the sweep's grep.
+    absent = ["Until " + "#37", "most urgent site " + "first", "at most one block a day", "planned like any other"]
+    assert [a for a in absent if a in doc] == []
     assert len(planner.UNPLANNED_REASONS) == 8 and len(NO_PLAN) == 5
     # The planner's rules are in its section, the file's in its own.
     the_planner = " ".join(doc_section(text, "## The planner").split())
     for topic in ("### Days and capacity", "### What each leaf costs", "### Blocks", "### A ready leaf that fits",
-                  "### Order within a site", "### Which site goes next", "### Started in this plan", "### States",
+                  "### Order within a site", "### Priority tiers", "### Merged blocks", "### How long a block runs",
+                  "### Fair share between sites", "### The lanes row", "### Share-less sites",
+                  "### Started in this plan", "### States",
                   "### Dependencies within a site", "### Dependencies across sites",
                   "### Local entries that name nothing", "### Cycles across sites", "### Unplanned leaves",
                   "### Past the horizon",
                   "### The binding pool", "### When there is no plan"):
         assert topic in the_planner, topic
+    assert "### Which site goes next" not in the_planner
     the_file = " ".join(doc_section(text, "## The plan file").split())
     for topic in ("### Fields", "### The version rule", "### The pinned shape", "### Determinism"):
         assert topic in the_file, topic

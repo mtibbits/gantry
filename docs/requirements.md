@@ -222,6 +222,9 @@ acknowledging a security report within seven days (BRule-6).
   chain with the most hours and the working day the current schedule ends
   that work, labelled as agent capacity only. A path it cannot show whole
   says why. {refines: SR-4}
+- FR-26: The week plan divides each day between the sites by priority
+  tier (P0 work, then work in progress, then the rest) and then by the
+  portfolio file's intended shares. {refines: SR-4}
 
 ## Quality attributes
 
