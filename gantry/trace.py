@@ -49,6 +49,7 @@ from gantry.model import meta_values
 from gantry.portfolio_file import PORTFOLIO_LABEL, Portfolio, PortfolioEntry, read_portfolio_file
 from gantry.requirements import (PROJECT_LAYERS, ReportEntry, ReqId, Requirement, RequirementSet, in_trace_sites,
                                  parse_id, read_requirements)
+from gantry.sites import NO_LEAVES
 
 UNSERVED_SCOPE = "site"  # only this site's leaves are counted; #21 widens it
 LEAF_SOURCE = "WBS.md"
@@ -345,6 +346,14 @@ def _serving(leaves, leaf_ids, catalog):
         for key in seen:
             found.setdefault(key, []).append(Serving(leaf.key, "direct" if key in named else "indirect"))
     return {key: tuple(found[key]) for key in catalog.requirements if key in found}
+
+
+def sites_not_read(sites, unbuilt) -> tuple[str, ...]:
+    """The sites whose leaves the trace could not count, in config order (#21):
+    each site in `unbuilt` ({name: reason}, the read and trace failures) unless
+    its SiteEntry.problem proves it has no leaves. Every other problem fails
+    closed: the site may hold leaves serving a requirement."""
+    return tuple(site.name for site in sites if site.name in unbuilt and site.problem not in NO_LEAVES)
 
 
 # --- the page's `trace` data (#20) ----------------------------------------------

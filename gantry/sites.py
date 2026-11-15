@@ -41,6 +41,13 @@ from gantry.roots import (
 # `[refresh] dir`; serve writes nothing.
 WRITABLE = {"build": ("output_dir",), "check": (), "refresh": (), "serve": ()}
 
+# The problems that prove a site has no leaves (#21): such a site is not
+# counted among the sites the trace could not read.
+NO_DEVDOC_DIR = "no devdoc_dir"
+NO_PLANNING_DIR = "planning directory does not exist"
+NO_WBS = "no WBS.md in the planning directory"
+NO_LEAVES = frozenset({NO_DEVDOC_DIR, NO_PLANNING_DIR, NO_WBS})
+
 
 @dataclass(frozen=True)
 class SiteEntry:
@@ -91,13 +98,13 @@ def _stat(roots, path, missing, label, *, key, site):
 
 def _stat_problem(roots, planning_dir, site):
     """The first problem with a planning directory and its WBS.md, or None."""
-    st, problem = _stat(roots, planning_dir, "planning directory does not exist", "the planning directory",
+    st, problem = _stat(roots, planning_dir, NO_PLANNING_DIR, "the planning directory",
                         key="devdoc_dir", site=site)
     if problem:
         return problem
     if not stat.S_ISDIR(st.st_mode):
         return "planning directory is not a directory"
-    wbs, problem = _stat(roots, planning_dir / "WBS.md", "no WBS.md in the planning directory", "WBS.md",
+    wbs, problem = _stat(roots, planning_dir / "WBS.md", NO_WBS, "WBS.md",
                          key="WBS.md", site=site)
     if problem:
         return problem
@@ -115,7 +122,7 @@ def _site(name, table, dfile):
     if not isinstance(table, dict):
         return SiteEntry(name, None, f"[project.{name}] is not a table")
     if "devdoc_dir" not in table:
-        return SiteEntry(name, None, "no devdoc_dir")
+        return SiteEntry(name, None, NO_DEVDOC_DIR)
     raw = table["devdoc_dir"]
     if not isinstance(raw, str):
         return SiteEntry(name, None, "devdoc_dir is not a string")
