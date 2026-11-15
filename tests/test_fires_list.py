@@ -14,6 +14,8 @@ from pathlib import Path
 from gantry import fires_list as fl
 from gantry import model
 from gantry.config import load_config
+from gantry.roots import directory_roots
+from page_safety import HOSTILE
 from helpers_config import write_config
 
 FIXTURES = Path(__file__).parent / "fixtures" / "fires_list"
@@ -33,6 +35,9 @@ EXPECTED = {
     "entry_like.md": [3, 4, 5, 6, 7],
     "bad_entries.md": list(range(1, 13)),
     "sites.md": [1, 2, 3, 4, 5, 6],
+    "empty.md": [],
+    "ended_only.md": [3, 4],
+    "not_utf8.md": [],
 }
 
 
@@ -464,3 +469,110 @@ def test_no_clock_read(monkeypatch, tmp_path):
     e = result.entries[0]
     assert fl.entry_age(e, REFERENCE) is not None
     assert fl.still_a_fire(e, REFERENCE, 3) is True
+
+
+# --- reading the file, the statuses, hostile text (Task 6) -------------------------
+
+
+def read(roots, path, names=NAMES, reference=REFERENCE):
+    return fl.read_fires_list(roots, path, names, reference)
+
+
+def _missing(tmp_path, monkeypatch):
+    return directory_roots([tmp_path]), tmp_path / "missing.md", "fires_list: the fires list does not exist"
+
+
+def _directory(tmp_path, monkeypatch):
+    (tmp_path / "fires.md").mkdir()
+    return directory_roots([tmp_path]), tmp_path / "fires.md", "fires_list: the fires list is not a file"
+
+
+def _not_utf8(tmp_path, monkeypatch):
+    return (directory_roots([FIXTURES]), FIXTURES / "not_utf8.md",
+            "fires_list: the fires list is not valid UTF-8 at byte 28")
+
+
+def _outside_roots(tmp_path, monkeypatch):
+    (tmp_path / "inside").mkdir()
+    path = tmp_path / "fires.md"
+    path.write_bytes(b"- [ ] 2026-10-24 @harbor x\n")
+    return (directory_roots([tmp_path / "inside"]), path,
+            "fires_list: cannot read the fires list: fires_list is outside the configured roots")
+
+
+def _permission(tmp_path, monkeypatch):
+    path = tmp_path / "fires.md"
+    path.write_bytes(b"- [ ] 2026-10-24 @harbor x\n")
+
+    def refuse(roots, p, *, key, site=None):
+        raise PermissionError(13, "Permission denied", str(p))
+
+    monkeypatch.setattr(fl, "stat_confined", refuse)
+    return directory_roots([tmp_path]), path, "fires_list: cannot read the fires list: Permission denied"
+
+
+NOT_READ = {"missing": _missing, "directory": _directory, "not_utf8": _not_utf8,
+            "outside_roots": _outside_roots, "permission": _permission}
+
+
+def test_not_read(tmp_path, monkeypatch):
+    ran = 0
+    for case, make in NOT_READ.items():
+        folder = tmp_path / case
+        folder.mkdir()
+        with monkeypatch.context() as m:
+            roots, path, message = make(folder, m)
+            result = read(roots, path)
+        assert (result.status, result.entries, result.reason) == ("not_read", (), message), case
+        assert [(e.site, e.line, e.kind, e.message) for e in result.report] == [
+            (None, None, "fires_list_unreadable", message)], case
+        for text in (message, result.reason):
+            assert str(tmp_path) not in text and str(FIXTURES) not in text and "fires.md" not in text, case
+        ran += 1
+    assert ran == 5
+
+
+def test_not_configured():
+    result = read(directory_roots([FIXTURES]), None)
+    assert (result.status, result.entries, result.report) == ("not_configured", (), ())
+    assert result.reason == "fires_list is not set"
+
+
+def test_read_statuses(tmp_path):
+    roots = directory_roots([FIXTURES])
+    for name in ("empty.md", "ended_only.md"):
+        result = read(roots, FIXTURES / name)
+        assert lines_of(result) == EXPECTED[name]
+        assert (result.status, result.report, result.reason) == ("read", (), None), name
+        assert [e for e in result.entries if not e.ended] == []
+    path = tmp_path / "fires.md"
+    path.write_bytes((FIXTURES / "ended_only.md").read_bytes() + b"- [?] 2026-10-24 @harbor x\n")
+    result = read(directory_roots([tmp_path]), path)
+    assert result.status == "read_with_problems"
+
+
+def test_read_matches_parse():
+    result = read(directory_roots([FIXTURES]), FIXTURES / "well_formed.md")
+    assert result == parse_fixture("well_formed.md")
+
+
+def test_hostile_text_round_trips():
+    assert len(HOSTILE) == 11
+    no_blank = [s for s in HOSTILE if " " not in s and chr(9) not in s]
+    assert no_blank
+    for s in HOSTILE:
+        e, _ = one("- [ ] 2026-10-24 @harbor " + s)
+        assert e.reason == s and e.reason.encode("utf-8") == s.encode("utf-8")
+        line = "- " + s
+        e, _ = one(line)
+        assert e.state == "unreadable"
+        assert e.raw == line and e.raw.encode("utf-8") == line.encode("utf-8")
+    for s in no_blank:
+        e, _ = one(f"- [ ] 2026-10-24 @{s} x")
+        assert e.site == s and e.site.encode("utf-8") == s.encode("utf-8")
+
+
+def test_no_clock_read_from_the_file(monkeypatch):
+    raise_on_clock(monkeypatch)
+    result = read(directory_roots([FIXTURES]), FIXTURES / "well_formed.md")
+    assert lines_of(result) == EXPECTED["well_formed.md"]

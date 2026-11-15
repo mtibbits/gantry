@@ -8,6 +8,7 @@ gantry.model's: the fire collector (#32) merges the two reports. Every
 """
 
 import re
+import stat
 from dataclasses import dataclass
 from dataclasses import replace
 from datetime import date as Date
@@ -15,8 +16,13 @@ from datetime import datetime as Datetime
 from datetime import time as Time
 from datetime import timedelta
 
-from gantry.requirements import FENCE_RE, fence_spans, split_lines
+from gantry.config import error_reason
+from gantry.requirements import FENCE_RE, fence_spans, read_utf8, split_lines
+from gantry.roots import OutsideRoots, stat_confined
 from gantry.sites import shown
+
+KEY = "fires_list"
+LABEL = "the fires list"
 
 # Whitespace here is space and tab only: never split(), strip() or
 # splitlines() with no argument, \s or \d, which also match U+2028, U+0085,
@@ -317,3 +323,32 @@ def parse_fires_list(text, site_names, reference) -> FiresList:
     report = tuple(report_order(report))
     status = "read_with_problems" if report else "read"
     return FiresList(tuple(entries), status, None, report, skipped_empty, skipped_in_fences)
+
+
+def read_fires_list(roots, path, site_names, reference) -> FiresList:
+    """Read the fires list at `path` under `roots` as UTF-8; `path` is None
+    when fires_list is not set. It never raises on what the path holds: a file
+    that cannot be read gives status not_read and one fires_list_unreadable
+    entry naming the key, never a path."""
+    if path is None:
+        return FiresList((), "not_configured", f"{KEY} is not set", (), 0, 0)
+
+    def not_read(reason):
+        message = f"{KEY}: {reason}"
+        return FiresList((), "not_read", message, (FiresReportEntry(None, None, "fires_list_unreadable", message),),
+                         0, 0)
+
+    # stat first, so a directory reads alike on every operating system.
+    try:
+        st = stat_confined(roots, path, key=KEY)
+    except FileNotFoundError:
+        return not_read(f"{LABEL} does not exist")
+    except (OSError, ValueError, OutsideRoots) as e:
+        # ValueError: an embedded NUL, or a path too long for Windows.
+        return not_read(f"cannot read {LABEL}: {error_reason(e)}")
+    if not stat.S_ISREG(st.st_mode):
+        return not_read(f"{LABEL} is not a file")
+    text, reason = read_utf8(roots, path, LABEL, key=KEY)
+    if text is None:
+        return not_read(reason)
+    return parse_fires_list(text, site_names, reference)
