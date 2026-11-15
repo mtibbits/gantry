@@ -14,6 +14,12 @@ line under `## [Unreleased]`.
 - The fires list: a private Markdown file of fires that are not leaves yet,
   the `fires_check_days` config key and `gantry fires --config <file>`,
   which checks it; the build does not read it yet (docs/fires-list.md).
+- Threshold and objective paths (#79): a requirement may state a
+  `Threshold:` and an `Objective:`, a leaf's `objective:` names the
+  requirements it serves at objective only, and selecting a requirement
+  with an open objective-only leaf splits its path box into the threshold's
+  path and end day and the objective's (docs/requirements-format.md,
+  docs/worksite-page.md).
 - A security policy with private vulnerability reporting (SECURITY.md).
 - The README's Support section: what Gantry promises, what it does not, and
   the supported versions of Python, git, Claude Code and bash; git's oldest
@@ -32,6 +38,12 @@ line under `## [Unreleased]`.
 
 ### Changed
 
+- The requirements reader (#79): a meta block that ends a requirement's own
+  text before its first nested item is now read, no longer reported; a
+  `Threshold:` or `Objective:` list item it cannot place, silent prose
+  before, is now reported `malformed_item`; and a statement leaves the
+  requirement's text, so the Requirements panel no longer shows it and the
+  path box shows it on selection (docs/requirements-format.md).
 - In a full build, a requirement served only by another site's leaf is no
   longer unserved (#21): unserved counts, the unserved label and the
   `trace <site>:` line's `unserved` count every read site's leaves, and the

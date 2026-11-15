@@ -172,7 +172,7 @@ def test_sample_rows_by_layer():
     page = traced(GANTRY_SAMPLE, SMALL)[0]
     assert [r["id"] for r in page["requirements"]] == [
         "life:BR-1", "lighthouse:UC-1", "lighthouse:UC-2", "lighthouse:UC-3", "lighthouse:SR-1",
-        "lighthouse:FR-1", "lighthouse:FR-2", "lighthouse:QA-1", "lighthouse:CON-1"]
+        "lighthouse:FR-1", "lighthouse:FR-2", "lighthouse:FR-3", "lighthouse:QA-1", "lighthouse:CON-1"]
 
 
 def test_light_sets_partition_serving(tmp_path):
@@ -287,10 +287,10 @@ def test_catalog_loaded_once_per_run(tmp_path, monkeypatch):
 def test_trace_failure_stops_only_its_site(tmp_path, monkeypatch):
     real = build.build_site_trace
 
-    def failing(site, leaves, catalog):
+    def failing(site, leaves, catalog, **kw):
         if site == BUSY:
             raise RuntimeError("trace fault")
-        return real(site, leaves, catalog)
+        return real(site, leaves, catalog, **kw)
 
     monkeypatch.setattr(build, "build_site_trace", failing)
     result = sample(tmp_path)
@@ -343,6 +343,19 @@ def test_untraced_site_with_entry_prints_line(tmp_path, capsys):
         "trace alpha: unreadable 0, malformed 0, duplicate 0, misplaced 0, cycle 0, undefined 1, unserved 0, "
         "untraced 0"]
     assert lines[-1].startswith("trace alpha: ") and len(lines) == 5
+
+
+@pytest.mark.parametrize("args", [[], ["--site", "alpha"]])
+def test_parent_row_objective_reaches_the_build(tmp_path, capsys, args):
+    # #79: a full build and a --site build both pass the site's rows to the trace.
+    wbs = {"alpha": "# A\n\n- [ ] Epic {objective: alpha:FR-1}\n"
+                    "  - [ ] One {issue: Issue-1, satisfies: alpha:FR-1}\n"}
+    config_path = installation(tmp_path, wbs, {"alpha": "- FR-1: a\n"})
+    assert main(["build", "--config", str(config_path), *args]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert [line for line in lines if line.startswith("trace ")] == [
+        "trace alpha: unreadable 0, malformed 1, duplicate 0, misplaced 0, cycle 0, undefined 0, unserved 0, "
+        "untraced 0"]
 
 
 def test_trace_line_bytes(tmp_path):
@@ -401,7 +414,7 @@ def test_sample_box_chips(tmp_path):
     assert chips(t, seven) == [("FR-1", "lighthouse:FR-1"), ("life:BR-1", "life:BR-1"), ("QA-1", "lighthouse:QA-1")]
     assert more_of(t, seven) == ["+1"]
     eight = node_of(t, "Issue-8")
-    assert chips(t, eight) == [("SR-1", "lighthouse:SR-1"), ("UC-3", "lighthouse:UC-3")]
+    assert chips(t, eight) == [("SR-1", "lighthouse:SR-1"), ("UC-3", "lighthouse:UC-3"), ("FR-3", "lighthouse:FR-3")]
     assert more_of(t, eight) == []
 
 
@@ -649,10 +662,12 @@ def test_direct_marks_are_solid():
 # --- Task 5: hostile strings in the trace (AC 7) ------------------------------------
 
 
-def hostile_leaf(key, issue, line, title="Plain", glyph=" ", hours=6, satisfies=None):
+def hostile_leaf(key, issue, line, title="Plain", glyph=" ", hours=6, satisfies=None, objective=None):
     meta = {"issue": issue} if issue is not None else {}
     if satisfies is not None:
         meta["satisfies"] = satisfies
+    if objective is not None:
+        meta["objective"] = objective
     return Leaf(key, issue, str(line), title, glyph, STATE_GLYPHS[glyph], glyph not in FINISHED_GLYPHS, None, (),
                 meta, None, line, estimate=Estimate(hours, hours, "est", "time", None))
 
@@ -717,7 +732,7 @@ def test_hostile_trace_page_is_safe(tmp_path):
 START = {"selected": None, "hover": None}
 NO_VIEW = {"lane_of": [], "collapsed": []}
 EMPTY_MARKS = {"selected": None, "selecting": False, "leaves": [], "needs": [], "lanes": [], "tracing": None,
-               "upstream": [], "chain": [], "foreign": []}
+               "upstream": [], "chain": [], "foreign": [], "objective": []}
 SR1_LIGHT = [["Issue-7", "indirect"], ["Issue-8", "direct"], ["Issue-10", "indirect"], ["Issue-11", "direct"]]
 
 
@@ -854,7 +869,7 @@ def test_empty_light_set_not_selecting(node, sample_page):
 
 # --- Task 8: the thin layer, under the harness ---------------------------------------
 
-MARK_SELECTOR = ".req-direct, .req-indirect, .req-on, .req-need, .req-upstream, .req-chain"
+MARK_SELECTOR = ".req-direct, .req-indirect, .req-on, .req-need, .req-upstream, .req-chain, .req-objective"
 
 
 def marked(page, selector, cls):
@@ -1053,3 +1068,64 @@ def test_docs_state_the_build_reads_the_portfolio_file():
         text = (ROOT / rel).read_bytes().decode("utf-8")
         assert "the build does not read it yet" not in text, rel
         assert "business requirements" in text, rel
+
+
+# --- #79: statements and objective-only keys in the page's `trace` data ---------------------
+
+ROW_KEYS = ["id", "label", "layer", "text", "threshold", "objective", "needs", "objective_only",
+            "objective_only_foreign", "light", "held", "finished", "foreign", "counts"]
+STATED_REQS = "- FR-1: a\n  - Threshold: t\n  - Objective: o\n- FR-2: b\n"
+
+
+def test_row_carries_statements(tmp_path):
+    wbs = {"alpha": "# A\n\n- [ ] One {issue: Issue-1, satisfies: [alpha:FR-1, alpha:FR-2]}\n"}
+    page, _ = traced(installation(tmp_path, wbs, {"alpha": STATED_REQS}), "alpha")
+    fr1, fr2 = row(page, "alpha:FR-1"), row(page, "alpha:FR-2")
+    assert list(fr1) == ROW_KEYS
+    assert (fr1["text"], fr1["threshold"], fr1["objective"]) == ("a", "t", "o")
+    assert (fr2["threshold"], fr2["objective"]) == (None, None)
+
+
+def test_business_requirement_statements_never_on_page(tmp_path):
+    secrets = ("Grow the keeper guild", "Every coast has a keeper", "Every keeper has a relief")
+    portfolio = f"- BR-1: {secrets[0]}.\n  - Threshold: {secrets[1]}.\n  - Objective: {secrets[2]}.\n"
+    wbs = {"alpha": ("# A\n\n- [ ] One {issue: Issue-1, satisfies: life:BR-1}\n"
+                     "- [ ] Two {issue: Issue-2, depends_on: [Issue-1]}\n")}
+    config_path = installation(tmp_path, wbs, portfolio=portfolio)
+    config = load_config(config_path)
+    br = load_catalog(config_roots(config), config, load_sites(config)[0]).requirements["life:BR-1"]
+    assert (br.threshold, br.objective) == (f"{secrets[1]}.", f"{secrets[2]}.")
+    page = page_of(config_path, "alpha")
+    (row_,) = trace_of(page)["requirements"]
+    assert (row_["text"], row_["threshold"], row_["objective"]) == (None, None, None)
+    assert [s for s in secrets if s in page] == []
+
+
+OBJECTIVE_WBS = ("# A\n\n"
+                 "- [ ] Gate {issue: Issue-1, satisfies: alpha:FR-1}\n"
+                 "- [ ] Lit {issue: Issue-2, satisfies: alpha:FR-1, objective: alpha:FR-1}\n"
+                 "- [ ] Held {issue: Issue-3, depends_on: [Issue-4], satisfies: alpha:FR-1, objective: alpha:FR-1}\n"
+                 "- [ ] Loop {issue: Issue-4, depends_on: [Issue-3]}\n"
+                 "- [x] Done {issue: Issue-5, satisfies: alpha:FR-1, objective: alpha:FR-1}\n")
+
+
+def test_row_objective_only_keys(tmp_path):
+    page, _ = traced(installation(tmp_path, {"alpha": OBJECTIVE_WBS}, {"alpha": "- FR-1: a\n"}), "alpha")
+    fr1 = row(page, "alpha:FR-1")
+    assert [x[0] for x in fr1["light"]] == ["Issue-1", "Issue-2"]
+    assert [x[0] for x in fr1["held"]] == ["Issue-3"] and [x[0] for x in fr1["finished"]] == ["Issue-5"]
+    assert fr1["objective_only"] == ["Issue-2", "Issue-3", "Issue-5"]
+    assert fr1["objective_only_foreign"] == []
+
+
+def test_malformed_objective_in_report_panel(tmp_path):
+    wbs = {"alpha": "# A\n\n- [ ] One {issue: Issue-1, satisfies: alpha:FR-1, objective: FR-1}\n"}
+    config_path = installation(tmp_path, wbs, {"alpha": "- FR-1: a\n"})
+    page, _ = traced(config_path, "alpha")
+    assert counts_line("alpha", page) == (
+        "trace alpha: unreadable 0, malformed 1, duplicate 0, misplaced 0, cycle 0, undefined 0, unserved 0, "
+        "untraced 0")
+    items = report_items(tree(page_of(config_path, "alpha")))
+    label = worksite.TRACE_LABELS["malformed"]
+    assert items[label] == (f"{label}: 1", [
+        "WBS.md line 3: objective: entry 'FR-1' is not a full requirement ID (<namespace>:<code>-<n>); it is ignored"])

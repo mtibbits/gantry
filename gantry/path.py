@@ -7,6 +7,10 @@ set is worked in one lane in schedule.plan's order (work_order, held equal
 to it by a test), and its heaviest chain of waits is walked here, held to
 schedule.chain_hours.
 
+A row whose open serving leaves include an objective-only one (#79) also
+gets a SplitPath: the threshold path, #77's path built from its gating
+leaves alone, and how the path set divides around it.
+
 Imports only gantry.schedule and the standard library. Plain loops and no
 recursion: Python's float sum is compensated and the page script's is not,
 and a WBS can hold chains deeper than the recursion limit.
@@ -208,4 +212,33 @@ def build_paths(serving, items, *, unestimated, links, foreign, sites_not_read=N
         out[rid] = ReqPath(state=state, order=order, targets=targets, chain=chain, chain_hours=chain_total,
                            hours=hours, unestimated=sum(item["key"] in unestimated for item in subset),
                            reasons=tuple(reasons))
+    return out
+
+
+@dataclass(frozen=True)
+class SplitPath:
+    """A row's path split at its threshold (#79). `threshold` is the path of
+    its gating leaves; `waits` the objective-only keys in that path (the tail
+    delaying the threshold), in work order; `rest` the path's (key, mark)
+    pairs outside it, in the path's work order."""
+    threshold: ReqPath
+    waits: tuple[str, ...]
+    rest: tuple[tuple[str, str], ...]
+
+
+def split_paths(paths, thresholds, objective_only) -> dict[str, SplitPath]:
+    """{row id: SplitPath} for each row of `thresholds`.
+
+    `paths` is build_paths' result over every serving leaf and `thresholds`
+    its result over each split row's gating leaves alone (other sites' open
+    gating leaves as its `other_serving`); `objective_only` is {row id: the
+    row's objective-only leaf keys}. The threshold is build_paths' own walk
+    over the gating leaves, so its set is a subset of the row's path set and
+    closed under waits."""
+    out = {}
+    for rid, t in thresholds.items():
+        members = {key for key, _ in t.order}
+        tail = objective_only[rid]
+        out[rid] = SplitPath(threshold=t, waits=tuple(key for key, _ in t.order if key in tail),
+                             rest=tuple(pair for pair in paths[rid].order if pair[0] not in members))
     return out

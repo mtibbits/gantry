@@ -1,0 +1,752 @@
+{
+ "samples/portfolio.md": {
+  "requirements": [
+   [
+    "life:BR-1",
+    "BR",
+    "Keep the harbor safe to work in, all year round.",
+    null,
+    [],
+    9
+   ],
+   [
+    "life:BR-2",
+    "BR",
+    "Keep the market supplied every week.",
+    null,
+    [],
+    10
+   ],
+   [
+    "life:BR-3",
+    "BR",
+    "Bring in a full harvest each autumn.",
+    null,
+    [],
+    11
+   ]
+  ],
+  "report": []
+ },
+ "tests/fixtures/requirements/candidates.md": {
+  "requirements": [
+   [
+    "alpha:FR-1",
+    "FR",
+    "parent - FR-2: child",
+    null,
+    [],
+    22
+   ],
+   [
+    "alpha:FR-6",
+    "FR",
+    "",
+    null,
+    [],
+    27
+   ],
+   [
+    "alpha:FR-5",
+    "FR",
+    "still read",
+    null,
+    [],
+    28
+   ]
+  ],
+  "report": [
+   [
+    12,
+    "malformed_item",
+    "'FR12:' is not a requirement: no '-' between the code and the number"
+   ],
+   [
+    13,
+    "malformed_item",
+    "'Fr-12:' is not a requirement: 'Fr' is not a layer code (BR, BRule, UC, SR, FR, QA, EI, CON)"
+   ],
+   [
+    14,
+    "malformed_item",
+    "'FR-012:' is not a requirement: the number '012' is not a positive integer without a leading zero"
+   ],
+   [
+    15,
+    "malformed_item",
+    "'NFR-4:' is not a requirement: 'NFR' is not a layer code (BR, BRule, UC, SR, FR, QA, EI, CON)"
+   ],
+   [
+    16,
+    "malformed_item",
+    "'FR-3a:' is not a requirement: letters after the number"
+   ],
+   [
+    17,
+    "malformed_item",
+    "'FR-3 :' is not a requirement: a space before the colon"
+   ],
+   [
+    18,
+    "malformed_item",
+    "'**FR-3:' is not a requirement: marks around the ID (write it plain)"
+   ],
+   [
+    19,
+    "malformed_item",
+    "'`FR-3`:' is not a requirement: marks around the ID (write it plain)"
+   ],
+   [
+    20,
+    "malformed_item",
+    "'gantry:FR-12:' is not a requirement: a namespace (a requirement is defined with a bare ID)"
+   ],
+   [
+    21,
+    "malformed_item",
+    "'FR-3:' is not a requirement: an ordered list item (a requirement uses -, * or +)"
+   ],
+   [
+    23,
+    "malformed_item",
+    "'FR-2:' is not a requirement: requirements are not nested"
+   ],
+   [
+    24,
+    "malformed_item",
+    "'Step-1:' is not a requirement: 'Step' is not a layer code (BR, BRule, UC, SR, FR, QA, EI, CON)"
+   ],
+   [
+    25,
+    "malformed_item",
+    "'Q3:' is not a requirement: 'Q' is not a layer code (BR, BRule, UC, SR, FR, QA, EI, CON); no '-' between the code and the number"
+   ],
+   [
+    26,
+    "malformed_item",
+    "'v2:' is not a requirement: 'v' is not a layer code (BR, BRule, UC, SR, FR, QA, EI, CON); no '-' between the code and the number"
+   ]
+  ]
+ },
+ "tests/fixtures/requirements/empty.md": {
+  "requirements": [],
+  "report": []
+ },
+ "tests/fixtures/requirements/layers.md": {
+  "requirements": [
+   [
+    "alpha:BR-1",
+    "BR",
+    "Grow the harbor trade.",
+    null,
+    [],
+    7
+   ],
+   [
+    "alpha:BRule-1",
+    "BRule",
+    "A berth holds one vessel at a time.",
+    null,
+    [],
+    8
+   ],
+   [
+    "alpha:UC-1",
+    "UC",
+    "Book a berth.",
+    null,
+    [
+     "alpha:FR-1",
+     "alpha:QA-1"
+    ],
+    12
+   ],
+   [
+    "alpha:UC-2",
+    "UC",
+    "Cancel a booking.",
+    null,
+    [
+     "alpha:FR-1"
+    ],
+    13
+   ],
+   [
+    "alpha:UC-3",
+    "UC",
+    "Browse the schedule.",
+    null,
+    [],
+    14
+   ],
+   [
+    "alpha:SR-1",
+    "SR",
+    "The system keeps a berth register.",
+    null,
+    [],
+    18
+   ],
+   [
+    "alpha:FR-1",
+    "FR",
+    "The register lists every berth with its length and its depth - sub point",
+    null,
+    [],
+    19
+   ],
+   [
+    "alpha:FR-2",
+    "FR",
+    "Bookings are checked against length. This line continues the text.",
+    "alpha:SR-1",
+    [],
+    23
+   ],
+   [
+    "alpha:FR-3",
+    "FR",
+    "Each booking names a vessel and a date.",
+    "alpha:SR-1",
+    [],
+    25
+   ],
+   [
+    "alpha:QA-1",
+    "QA",
+    "A booking is confirmed within one second.",
+    null,
+    [],
+    27
+   ],
+   [
+    "alpha:EI-1",
+    "EI",
+    "The register is read from a CSV export.",
+    null,
+    [],
+    28
+   ],
+   [
+    "alpha:CON-1",
+    "CON",
+    "The system runs on the harbor office computer.",
+    null,
+    [],
+    29
+   ]
+  ],
+  "report": []
+ },
+ "tests/fixtures/requirements/report/br-in-project.md": {
+  "requirements": [
+   [
+    "alpha:FR-9",
+    "FR",
+    "still read",
+    null,
+    [],
+    2
+   ]
+  ],
+  "report": [
+   [
+    1,
+    "misplaced",
+    "alpha:BR-1 is a BR item, a layer this file does not hold (BRule, UC, SR, FR, QA, EI, CON)"
+   ]
+  ]
+ },
+ "tests/fixtures/requirements/report/cycle.md": {
+  "requirements": [
+   [
+    "alpha:FR-1",
+    "FR",
+    "a",
+    "alpha:FR-2",
+    [],
+    1
+   ],
+   [
+    "alpha:FR-2",
+    "FR",
+    "b",
+    "alpha:FR-1",
+    [],
+    2
+   ],
+   [
+    "alpha:FR-9",
+    "FR",
+    "still read",
+    null,
+    [],
+    3
+   ]
+  ],
+  "report": [
+   [
+    1,
+    "refines_cycle",
+    "refines cycle: alpha:FR-1 -> alpha:FR-2 -> alpha:FR-1"
+   ]
+  ]
+ },
+ "tests/fixtures/requirements/report/duplicate.md": {
+  "requirements": [
+   [
+    "alpha:FR-1",
+    "FR",
+    "first",
+    null,
+    [],
+    1
+   ],
+   [
+    "alpha:FR-9",
+    "FR",
+    "still read",
+    null,
+    [],
+    3
+   ]
+  ],
+  "report": [
+   [
+    2,
+    "duplicate_id",
+    "alpha:FR-1 is also defined on line 1; the first definition is kept"
+   ]
+  ]
+ },
+ "tests/fixtures/requirements/report/fr-in-br.md": {
+  "requirements": [
+   [
+    "life:BR-9",
+    "BR",
+    "still read",
+    null,
+    [],
+    2
+   ]
+  ],
+  "report": [
+   [
+    1,
+    "misplaced",
+    "life:FR-1 is a FR item, a layer this file does not hold (BR)"
+   ]
+  ]
+ },
+ "tests/fixtures/requirements/report/installation-link.md": {
+  "requirements": [
+   [
+    "alpha:FR-1",
+    "FR",
+    "x",
+    null,
+    [],
+    1
+   ],
+   [
+    "alpha:FR-9",
+    "FR",
+    "still read",
+    null,
+    [],
+    2
+   ]
+  ],
+  "report": [
+   [
+    1,
+    "misplaced",
+    "refines: life:BR-1 is in the installation namespace 'life', which only the portfolio file may link to; it is not read"
+   ]
+  ]
+ },
+ "tests/fixtures/requirements/report/malformed-link.md": {
+  "requirements": [
+   [
+    "alpha:UC-1",
+    "UC",
+    "x",
+    null,
+    [
+     "alpha:FR-1"
+    ],
+    1
+   ],
+   [
+    "alpha:FR-1",
+    "FR",
+    "y",
+    null,
+    [],
+    2
+   ],
+   [
+    "alpha:FR-9",
+    "FR",
+    "still read",
+    null,
+    [],
+    3
+   ]
+  ],
+  "report": [
+   [
+    1,
+    "malformed_link",
+    "needs: 'fr-2' is not a requirement ID"
+   ]
+  ]
+ },
+ "tests/fixtures/requirements/report/mid-text.md": {
+  "requirements": [
+   [
+    "alpha:FR-1",
+    "FR",
+    "a {refines: SR-2} b",
+    null,
+    [],
+    1
+   ],
+   [
+    "alpha:SR-2",
+    "SR",
+    "y",
+    null,
+    [],
+    2
+   ],
+   [
+    "alpha:FR-9",
+    "FR",
+    "still read",
+    null,
+    [],
+    3
+   ]
+  ],
+  "report": [
+   [
+    1,
+    "malformed_meta",
+    "a meta block inside the text; it stays in the text and is not read"
+   ]
+  ]
+ },
+ "tests/fixtures/requirements/report/needs-empty.md": {
+  "requirements": [
+   [
+    "alpha:UC-1",
+    "UC",
+    "x",
+    null,
+    [],
+    1
+   ],
+   [
+    "alpha:FR-9",
+    "FR",
+    "still read",
+    null,
+    [],
+    2
+   ]
+  ],
+  "report": [
+   [
+    1,
+    "malformed_meta",
+    "needs: [] names no target"
+   ]
+  ]
+ },
+ "tests/fixtures/requirements/report/needs-non-uc.md": {
+  "requirements": [
+   [
+    "alpha:FR-1",
+    "FR",
+    "x",
+    null,
+    [],
+    1
+   ],
+   [
+    "alpha:SR-1",
+    "SR",
+    "y",
+    null,
+    [],
+    2
+   ],
+   [
+    "alpha:FR-9",
+    "FR",
+    "still read",
+    null,
+    [],
+    3
+   ]
+  ],
+  "report": [
+   [
+    1,
+    "misplaced",
+    "needs: on alpha:FR-1, which is not a use case; it is not read"
+   ]
+  ]
+ },
+ "tests/fixtures/requirements/report/other-site.md": {
+  "requirements": [
+   [
+    "alpha:FR-1",
+    "FR",
+    "x",
+    "ferry:SR-2",
+    [],
+    1
+   ],
+   [
+    "alpha:FR-9",
+    "FR",
+    "still read",
+    null,
+    [],
+    2
+   ]
+  ],
+  "report": []
+ },
+ "tests/fixtures/requirements/report/refines-list.md": {
+  "requirements": [
+   [
+    "alpha:FR-1",
+    "FR",
+    "x",
+    null,
+    [],
+    1
+   ],
+   [
+    "alpha:SR-1",
+    "SR",
+    "y",
+    null,
+    [],
+    2
+   ],
+   [
+    "alpha:FR-9",
+    "FR",
+    "still read",
+    null,
+    [],
+    3
+   ]
+  ],
+  "report": [
+   [
+    1,
+    "malformed_meta",
+    "refines: takes one target, not a list; it is not read"
+   ]
+  ]
+ },
+ "tests/fixtures/requirements/report/repeated-key.md": {
+  "requirements": [
+   [
+    "alpha:FR-1",
+    "FR",
+    "x",
+    "alpha:SR-1",
+    [],
+    1
+   ],
+   [
+    "alpha:SR-1",
+    "SR",
+    "y",
+    null,
+    [],
+    2
+   ],
+   [
+    "alpha:SR-2",
+    "SR",
+    "z",
+    null,
+    [],
+    3
+   ],
+   [
+    "alpha:FR-9",
+    "FR",
+    "still read",
+    null,
+    [],
+    4
+   ]
+  ],
+  "report": [
+   [
+    1,
+    "malformed_meta",
+    "key 'refines' is repeated in the meta block; the first is kept"
+   ]
+  ]
+ },
+ "tests/fixtures/requirements/report/second-block.md": {
+  "requirements": [
+   [
+    "alpha:FR-1",
+    "FR",
+    "x more {refines: SR-1}",
+    "alpha:SR-1",
+    [],
+    1
+   ],
+   [
+    "alpha:SR-1",
+    "SR",
+    "y",
+    null,
+    [],
+    3
+   ],
+   [
+    "alpha:FR-9",
+    "FR",
+    "still read",
+    null,
+    [],
+    4
+   ]
+  ],
+  "report": [
+   [
+    1,
+    "malformed_meta",
+    "a second meta block on one item; it stays in the text and is not read"
+   ]
+  ]
+ },
+ "tests/fixtures/requirements/report/self-refines.md": {
+  "requirements": [
+   [
+    "alpha:FR-1",
+    "FR",
+    "x",
+    "alpha:FR-1",
+    [],
+    1
+   ],
+   [
+    "alpha:FR-9",
+    "FR",
+    "still read",
+    null,
+    [],
+    2
+   ]
+  ],
+  "report": [
+   [
+    1,
+    "refines_cycle",
+    "alpha:FR-1 refines itself"
+   ]
+  ]
+ },
+ "tests/fixtures/requirements/report/undefined.md": {
+  "requirements": [
+   [
+    "alpha:FR-1",
+    "FR",
+    "x",
+    "alpha:SR-7",
+    [],
+    1
+   ],
+   [
+    "alpha:FR-9",
+    "FR",
+    "still read",
+    null,
+    [],
+    2
+   ]
+  ],
+  "report": [
+   [
+    1,
+    "undefined_link",
+    "refines: alpha:SR-7 is not defined in this file"
+   ]
+  ]
+ },
+ "tests/fixtures/requirements/report/unknown-key.md": {
+  "requirements": [
+   [
+    "alpha:FR-1",
+    "FR",
+    "x",
+    "alpha:SR-1",
+    [],
+    1
+   ],
+   [
+    "alpha:SR-1",
+    "SR",
+    "y",
+    null,
+    [],
+    2
+   ],
+   [
+    "alpha:FR-9",
+    "FR",
+    "still read",
+    null,
+    [],
+    3
+   ]
+  ],
+  "report": [
+   [
+    1,
+    "malformed_meta",
+    "unknown key 'owner' in the meta block (a requirement's keys are refines and needs)"
+   ]
+  ]
+ },
+ "tests/fixtures/requirements/report/unreadable-block.md": {
+  "requirements": [
+   [
+    "alpha:FR-1",
+    "FR",
+    "x",
+    null,
+    [],
+    1
+   ],
+   [
+    "alpha:FR-9",
+    "FR",
+    "still read",
+    null,
+    [],
+    2
+   ]
+  ],
+  "report": [
+   [
+    1,
+    "malformed_meta",
+    "the meta block '{refines: [SR-1}' cannot be read: an unclosed [ or quote"
+   ]
+  ]
+ }
+}

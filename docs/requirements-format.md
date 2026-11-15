@@ -139,7 +139,9 @@ removed. A requirement with no text
 (`- FR-6:`) is read with empty text.
 
 A list item inside that text is a **nested** item. It keeps its marker in
-the joined text (`... - sub point`) and never opens an item of its own.
+the joined text (`... - sub point`) and never opens an item of its own. A
+`Threshold:` or `Objective:` statement is the exception: it leaves the text
+([Threshold and objective](#threshold-and-objective)).
 
 A list item is nested too when it is indented to at least the **content
 column** of an **enclosing list item**. The content column is where an
@@ -240,9 +242,12 @@ FR-2 is not read.
 A requirement may carry one meta block in devagent's brace form, either at
 the end of its first line (where devagent's own `WBS.md` lines put it) or at
 the end of its joined text. The block is removed from the text. When the text
-holds a nested item, only a block on the first line is read: a block at the
-end of the joined text may belong to the nested item, so it is reported and
-not read.
+holds a nested item, the block read is the one ending the first line, or else
+the one ending the own text before the first nested item: the first line and
+the lines after it up to the first nested item's line. So a block closing the
+text on a continuation line is read when nested items or statements follow.
+Any other block, one after a nested item or in a statement included, may
+belong to that item, so it is reported and not read.
 
 ```text
 - UC-1: A keeper logs the lamp's nightly check. {needs: [FR-1, QA-1]}
@@ -284,6 +289,121 @@ A link to another site's namespace is returned unresolved and not reported
 here: the trace resolves it against the catalog and reports `refines:`
 cycles that cross files ([the trace report](#the-trace-report)).
 
+## Threshold and objective
+
+A requirement may say where its **threshold** lies: the part that, once
+delivered, makes it usable, usually a share of the cases it covers rather
+than a level of polish. Its **objective** is the whole requirement, every
+case included. A leaf may say that it serves a requirement at objective
+only. A selection on the worksite page then shows two paths and two end
+days, the threshold's and the objective's
+([worksite-page.md](worksite-page.md#threshold-and-objective)). Whether a
+leaf gates is the operator's statement, not Gantry's judgment.
+
+### Statements
+
+```text
+- FR-21: A dependency on another site's leaf is shown and
+  checked. {refines: SR-1}
+  - Threshold: dependencies within one installation.
+  - Objective: also dependencies on sites that are not read, named.
+```
+
+- A **statement** is an unordered list item (`-`, `*` or `+`) directly
+  under a requirement, whose text starts with `Threshold:` or
+  `Objective:`, exact case. "Directly under" means inside the
+  requirement's text ([Text](#text)) and not inside another nested item.
+  `threshold:`, `Thresholds:` and `**Threshold:**` are ordinary text, and
+  an item that starts like an ID (`Threshold:FR-2:`) is a candidate first
+  ([Candidates](#candidates)).
+- A nested item is **first-level** when it is not inside an earlier
+  first-level item. A line is inside one while it is indented deeper than
+  that item's marker. A line that is not a list item continues the item
+  before it, as a page continues that item's paragraph (a lazy
+  continuation line), and a list item indented no deeper than the marker
+  starts the next first-level item.
+- A statement's text is the rest of its line after the colon, then the
+  lines inside it, joined as a requirement's text is. The reader stores the
+  first `Threshold:` in the requirement's `threshold` and the first
+  `Objective:` in its `objective`, and removes them from its text: the
+  text is the own text, then the other nested items, in file order. With
+  no statement the field is empty (`None`); an empty statement
+  (`- Threshold:`) reads as empty text.
+- Reported `malformed_item` on the item's own line, and left where it is:
+  - a second `Threshold:` statement on one requirement, or a second
+    `Objective:` one ("a second `Threshold:` statement"); it stays in the
+    text;
+  - a `Threshold:` or `Objective:` list item that is not a statement:
+    inside another nested item, with an ordered marker, at the top level,
+    under a prose bullet or another item that is not a requirement, or
+    after a blank line, which ends the requirement's text though a page
+    still nests the item ("a statement not directly under a requirement").
+    It stays as prose, or in the text.
+- A statement under an item the reader drops (`misplaced`, `duplicate_id`,
+  or a comment before the ID) goes with it, covered by that entry. A line
+  in a fence or a comment is never read, and a line after an unclosed fence
+  inside the item is code on a page: it is never a statement and is not
+  reported. So every `Threshold:` or `Objective:` list item outside a fence,
+  a comment or the code after an unclosed fence fills a field or is covered
+  by one entry.
+- A meta block in a statement is not read: it is reported
+  `malformed_meta`, "a meta block inside the text", and stays in the
+  statement. An unclosed block opener or an inline comment in a statement
+  is reported as in any text, once per requirement ([Links](#links)).
+- The worksite page's Requirements panel shows a requirement's text, so it
+  no longer shows a statement's text: the statements appear in the path
+  box when the requirement is selected. A constraint has no path box, so
+  its statements are read but not shown. A business requirement's
+  statements are read like any other, in the portfolio file, and never
+  embedded in a worksite page, as no business requirement's text is.
+
+### The `objective:` key
+
+A leaf may carry `objective:` beside `satisfies:`, read as `satisfies:` is
+([The `satisfies:` key](#the-satisfies-key)) and in the same ID grammar.
+Each entry must also be in the leaf's `satisfies:`.
+
+```text
+- [ ] Log the nightly check {issue: Issue-4, satisfies: [lighthouse:FR-1, lighthouse:FR-3], objective: lighthouse:FR-3}
+```
+
+- **Gating.** A serving leaf **gates** a requirement when at least one ID
+  in its `satisfies:` that is not in its `objective:` reaches the
+  requirement by the serving walk ([Served](#served)): directly, through
+  `refines:`, or through a use case's `needs:`. Otherwise it serves the
+  requirement **at objective only**. A leaf with
+  `satisfies: [gantry:FR-1, gantry:FR-2]` and `objective: [gantry:FR-2]`,
+  where both refine `gantry:SR-1`, gates `FR-1` and `SR-1` and is
+  objective-only for `FR-2`. An `objective:` entry has no effect for a
+  requirement a gating entry also reaches: with
+  `satisfies: [gantry:FR-2, gantry:SR-1]` and `objective: [gantry:SR-1]`,
+  the leaf still gates `SR-1` through `FR-2`. A leaf on another site (#21)
+  gates or not by its own `objective:`.
+- `satisfies:` itself is unchanged, and so are the served, unserved and
+  untraced results: an objective-only leaf still serves.
+- Reported under `malformed` and ignored, each naming `objective:`:
+  `malformed_objective`, an entry that is not a full requirement ID;
+  `unmatched_objective`, an entry that is not in the leaf's `satisfies:`;
+  `unbracketed_objective`, a key equal to a known namespace that follows
+  `objective:`, since an unbracketed `objective: a:X, a:Y` splits at its
+  first comma as `satisfies:` does (this report names it, not
+  `unbracketed_list`); `miscased_objective`, a key such as `Objective:`;
+  and `objective_not_on_leaf`, `objective:` on a row with children, which
+  serves nothing. `satisfies:` on a row with children is ignored without a
+  report, as before. An ID repeated in `objective:` counts once.
+
+### Deciding what gates
+
+Decide whether a leaf gates by asking whether the threshold statement
+holds without it, never by the kind of work: an edge case the threshold
+covers gates, and an enhancement the threshold needs gates. Detecting the
+cases the threshold does not cover, and refusing or degrading clearly on
+them, is threshold work; full handling of those cases is objective work.
+These statements are unrelated to the portfolio file's `[thresholds]` view
+settings (`wip_max` and the like). An `objective:` entry has no effect for
+a requirement that another, gating entry also reaches. More than one ID in
+`objective:` needs brackets.
+
 ## Withdrawn requirements
 
 A withdrawn requirement is deleted from the file. Its ID is still never
@@ -299,8 +419,8 @@ FR-7 was withdrawn on 2026-11-05.
 
 ## The report
 
-The reader returns the requirements (ID, layer, text, links, source and
-line) and a report. Each entry names its source (the file's path, or the
+The reader returns the requirements (ID, layer, text, links, source, line,
+and the threshold and objective statements) and a report. Each entry names its source (the file's path, or the
 label a caller passes, such as the portfolio file's for its
 business-requirements section) and its 1-based line, counted in the whole
 file a section came from. No entry stops the read. Entries are sorted by
@@ -309,7 +429,7 @@ line, then in this order:
 | Kind | When |
 |---|---|
 | `unreadable` | the path does not exist, is not a file, or is not valid UTF-8; the set is empty |
-| `malformed_item` | a candidate that is not a requirement, with its reasons |
+| `malformed_item` | a list item the reader cannot place: a candidate that is not a requirement, or a `Threshold:` or `Objective:` item that is not a statement, with its reasons |
 | `malformed_meta` | a meta block that cannot be read, or a key or value shape it does not allow |
 | `malformed_link` | a link target that is not a requirement ID |
 | `malformed_comment` | an HTML comment the reader does not hide: in a requirement's text (read as written), before an ID (not read), or starting a list item without closing on its line; or a block comment with no `-->`, or whose list item ends first, which hides every line after it |
@@ -359,7 +479,11 @@ an unbracketed `satisfies: a:X, a:Y` splits at its first comma into
   `a:b:FR-1`, is reported `malformed_satisfies` and ignored.
 - When a leaf has `satisfies:`, each other key of the leaf that equals a
   known namespace (a site's name, or `br_namespace`) is reported
-  `unbracketed_list`, naming the key: a probable unbracketed list.
+  `unbracketed_list`, naming the key: a probable unbracketed list. A key
+  that follows `objective:` is reported `unbracketed_objective` instead
+  ([The `objective:` key](#the-objective-key)). On a site named
+  `objective`, the `objective:` key itself equals a known namespace, so it
+  is reported `unbracketed_list` too: give such a site another name.
 - An ID repeated on one leaf counts once.
 - `satisfies: []` names nothing.
 
@@ -392,7 +516,7 @@ another resolve against the catalog. Each site's report has these fields:
 | Field | Holds |
 |---|---|
 | `unreadable` | `unreadable`: the site's configured requirements file could not be read |
-| `malformed` | the reader's `malformed_item`, `malformed_meta`, `malformed_link` and `malformed_comment`, plus `malformed_satisfies` and `unbracketed_list` |
+| `malformed` | the reader's `malformed_item`, `malformed_meta`, `malformed_link` and `malformed_comment`, plus `malformed_satisfies` and `unbracketed_list`, and a leaf's `objective:` entries: `malformed_objective`, `unmatched_objective`, `unbracketed_objective`, `miscased_objective` and `objective_not_on_leaf` |
 | `duplicate` | the reader's `duplicate_id` |
 | `misplaced` | the reader's `misplaced` |
 | `cycle` | `refines_cycle`: the reader's loops within the file, and `refines:` loops that cross files, each reported once, at the member listed first in the catalog |
@@ -467,6 +591,17 @@ an illustration, not Gantry's own requirements:
 - CON-1: The build needs no network connection.
 
 FR-3 was withdrawn on 2026-11-05.
+```
+
+A requirement with a threshold and an objective, read in namespace
+`gantry` ([Threshold and objective](#threshold-and-objective)):
+
+```markdown
+- SR-1: The tool reads each site's work breakdown.
+- FR-21: A dependency on another site's leaf is shown and
+  checked. {refines: SR-1}
+  - Threshold: dependencies within one installation.
+  - Objective: also dependencies on sites that are not read, named.
 ```
 
 The business-requirements section of a portfolio file, read in namespace

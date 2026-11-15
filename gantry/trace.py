@@ -37,7 +37,11 @@ Decisions:
 - D7 a cycle within one file is the reader's; this module reports a cycle
   spanning namespaces once, at the member first in catalog order.
 - D8 with a `satisfies` key present, every other key equal to a known
-  namespace is reported as a probable unbracketed list.
+  namespace is reported as a probable unbracketed list, unless it follows
+  `objective:`, whose own report names it (#79).
+- D9 a leaf's `objective:` (#79) names IDs of its `satisfies:`; each serving
+  entry is gating unless only those IDs reach the requirement. An entry not in
+  `satisfies:`, or malformed, is reported and ignored.
 
 Report entries are gantry.requirements.ReportEntry. An entry about a leaf has
 source LEAF_SOURCE and the leaf's line; one about a requirement has its
@@ -59,11 +63,14 @@ UNSERVED_SCOPE = "site"  # a --site build, and build_site_trace alone: only this
 INSTALLATION_SCOPE = "installation"  # a full build (#21): every read site's leaves are counted
 LEAF_SOURCE = "WBS.md"
 FOREIGN_SOURCE = "{site} WBS.md"  # an entry about another site's leaf (#21)
-TRACE_KINDS = ("malformed_satisfies", "unbracketed_list", "undefined_cross_link", "undefined_id")
+TRACE_KINDS = ("malformed_satisfies", "unbracketed_list", "malformed_objective", "unmatched_objective",
+               "unbracketed_objective", "miscased_objective", "objective_not_on_leaf", "undefined_cross_link",
+               "undefined_id")
 FIELDS = {  # TraceReport entry field -> the kinds it holds
     "unreadable": ("unreadable",),
     "malformed": ("malformed_item", "malformed_meta", "malformed_link", "malformed_comment", "malformed_satisfies",
-                  "unbracketed_list"),
+                  "unbracketed_list", "malformed_objective", "unmatched_objective", "unbracketed_objective",
+                  "miscased_objective", "objective_not_on_leaf"),
     "duplicate": ("duplicate_id",),
     "misplaced": ("misplaced",),
     "cycle": ("refines_cycle",),
@@ -74,6 +81,15 @@ MESSAGES = {
                            "it is ignored",
     "unbracketed_list": "key {key!r} is a namespace: satisfies looks like an unbracketed list, which splits at "
                         "its first comma; write satisfies: [a:X, b:Y]",
+    # A leaf's objective: (#79).
+    "malformed_objective": "objective: entry {entry!r} is not a full requirement ID (<namespace>:<code>-<n>); "
+                           "it is ignored",
+    "unmatched_objective": "objective: entry {rid} is not in this leaf's satisfies:; it is ignored",
+    "unbracketed_objective": "key {key!r} is a namespace: objective looks like an unbracketed list, which splits at "
+                             "its first comma; write objective: [a:X, b:Y]",
+    "miscased_objective": "key {key!r} is not read; did you mean objective:?",
+    "objective_not_on_leaf": "objective: is on a row with children; only a leaf's objective: is read, so it is "
+                             "ignored",
     "undefined_id": "satisfies entry {rid} names no requirement: {why}",
     "undefined_cross_link": "{key}: {rid} names no requirement: {why}",
     "refines_cycle": "cross-file refines cycle: {chain}",
@@ -146,6 +162,7 @@ class Catalog:
 class Serving:
     leaf: str  # the leaf's key
     how: str  # "direct" or "indirect"
+    gating: bool = True  # False: the leaf serves the requirement at objective only (#79)
 
 
 @dataclass(frozen=True)
@@ -184,6 +201,7 @@ class ForeignLeaf:
     open: bool  # Leaf.open: the one open predicate
     ids: tuple[ReqId, ...]  # the IDs it names that resolve, as written
     serves: tuple[tuple[str, str], ...]  # (str(ReqId), how) of this site's requirements, in catalog order
+    objective_only: tuple[str, ...] = ()  # the keys in `serves` it serves at objective only (#79)
 
 
 @dataclass(frozen=True)
@@ -199,6 +217,19 @@ class SiteTrace:
     foreign: tuple[ForeignLeaf, ...] = ()  # a full build's (#21): config order, then WBS order
 
 
+def _split_keys(meta, namespaces):
+    """{key: the key it was split from} for each key of `meta` equal to a known
+    namespace: the nearest key before it that is not one (satisfies and
+    objective never are), or None. An unbracketed list splits into such keys."""
+    split, owner = {}, None
+    for key in meta:
+        if key in namespaces and key not in ("satisfies", "objective"):
+            split[key] = owner
+        else:
+            owner = key
+    return split
+
+
 def satisfies_ids(leaf, namespaces) -> tuple[list[ReqId], list[ReportEntry]]:
     """(ids, problems) for a leaf's `satisfies:`; never raises on any text."""
     ids, problems = [], []
@@ -211,10 +242,38 @@ def satisfies_ids(leaf, namespaces) -> tuple[list[ReqId], list[ReportEntry]]:
         elif rid not in ids:
             ids.append(rid)
     if "satisfies" in meta:
+        split = _split_keys(meta, namespaces)
         for key in meta:
-            if key != "satisfies" and key in namespaces:
+            if key != "satisfies" and key in namespaces and split.get(key) != "objective":
                 problems.append(ReportEntry(LEAF_SOURCE, leaf.line, "unbracketed_list",
                                             MESSAGES["unbracketed_list"].format(key=key)))
+    return ids, problems
+
+
+def objective_ids(leaf, satisfied, namespaces=frozenset()) -> tuple[list[ReqId], list[ReportEntry]]:
+    """(ids, problems) for a leaf's `objective:` (#79): the IDs it names that
+    are in `satisfied`, the leaf's well-formed `satisfies:` IDs, resolved or
+    not. `namespaces` finds an unbracketed list. Never raises on any text."""
+    ids, problems = [], []
+    meta = leaf.meta
+
+    def report(kind, **values):
+        problems.append(ReportEntry(LEAF_SOURCE, leaf.line, kind, MESSAGES[kind].format(**values)))
+
+    for entry in meta_values(meta.get("objective")):
+        rid = parse_id(entry)
+        if rid is None:
+            report("malformed_objective", entry=entry)
+        elif rid not in satisfied:
+            report("unmatched_objective", rid=rid)
+        elif rid not in ids:
+            ids.append(rid)
+    for key, owner in _split_keys(meta, namespaces).items():
+        if owner == "objective":
+            report("unbracketed_objective", key=key)
+    for key in meta:
+        if key != "objective" and key.lower() == "objective":
+            report("miscased_objective", key=key)
     return ids, problems
 
 
@@ -304,15 +363,20 @@ def _links(catalog):
             for ns in catalog.sets if ns in found}
 
 
-def build_site_trace(site, leaves, catalog) -> SiteTrace:
+def build_site_trace(site, leaves, catalog, *, rows=()) -> SiteTrace:
     """The trace of the site named `site` (its namespace): `leaves` are its
-    parsed leaves in WBS order. No entry stops the build."""
+    parsed leaves in WBS order, and `rows` its rows with children, whose
+    `objective:` is reported. No entry stops the build."""
     leaves = tuple(leaves)
     in_trace = catalog.in_trace(site)
-    leaf_ids, leaf_entries, unresolved = {}, [], []
+    leaf_ids, leaf_entries, unresolved, objective = {}, [], [], {}
     for leaf in leaves:
         ids, problems = satisfies_ids(leaf, catalog.namespaces)
         leaf_entries.extend(problems)
+        named, problems = objective_ids(leaf, ids, catalog.namespaces)
+        leaf_entries.extend(problems)
+        if named:
+            objective[leaf.key] = {str(rid) for rid in named}
         resolved = []
         for rid in ids:
             _, why = catalog.lookup(rid)
@@ -324,7 +388,11 @@ def build_site_trace(site, leaves, catalog) -> SiteTrace:
                                                 MESSAGES["undefined_id"].format(rid=rid, why=why)))
         if resolved:
             leaf_ids[leaf.key] = tuple(resolved)
-    serving = _serving(leaves, leaf_ids, catalog)
+    for row in rows:
+        if "objective" in row.meta:
+            leaf_entries.append(ReportEntry(LEAF_SOURCE, row.line, "objective_not_on_leaf",
+                                            MESSAGES["objective_not_on_leaf"]))
+    serving = _serving(leaves, leaf_ids, catalog, objective)
     if in_trace:
         own = catalog.sets[site]
         own_entries, link_entries = tuple(own.report), catalog.link_report.get(site, ())
@@ -354,14 +422,14 @@ def build_installation_trace(sites, inputs, traces, unbuilt, catalog) -> dict[st
     arguments are never changed."""
     not_read = sites_not_read(sites, unbuilt)
     order = [site.name for site in sites if site.name in traces]
-    # Once per site, not per (site, leaf): each leaf's (key, how) pairs in
+    # Once per site, not per (site, leaf): each leaf's (key, how, gating) in
     # catalog order, and the unresolved entries by the namespace they name.
     by_leaf, by_namespace = {}, {}
     for name in order:
         pairs = by_leaf[name] = {}
         for key, found in traces[name].serving.items():
             for s in found:
-                pairs.setdefault(s.leaf, []).append((key, s.how))
+                pairs.setdefault(s.leaf, []).append((key, s.how, s.gating))
         groups = by_namespace[name] = {}
         for entry in traces[name].unresolved:
             groups.setdefault(entry[2].namespace, []).append(entry)
@@ -379,10 +447,12 @@ def build_installation_trace(sites, inputs, traces, unbuilt, catalog) -> dict[st
                 continue
             t = traces[other]
             for leaf in inputs[other].data.leaves:
-                serves = tuple(pair for pair in by_leaf[other].get(leaf.key, ()) if pair[0] in own)
-                if serves:
+                picked = [entry for entry in by_leaf[other].get(leaf.key, ()) if entry[0] in own]
+                if picked:
                     foreign.append(ForeignLeaf(other, leaf.key, leaf.line, leaf.issue, leaf.title, leaf.state,
-                                               leaf.open, t.leaf_ids[leaf.key], serves))
+                                               leaf.open, t.leaf_ids[leaf.key],
+                                               tuple((key, how) for key, how, _ in picked),
+                                               tuple(key for key, _, gating in picked if not gating)))
             undefined.extend(sorted(
                 (ReportEntry(FOREIGN_SOURCE.format(site=other), line, "undefined_foreign",
                              MESSAGES["undefined_foreign"].format(key=key, rid=rid, why=why))
@@ -409,26 +479,36 @@ def _flows(reqs):
     return flows
 
 
-def _serving(leaves, leaf_ids, catalog):
+def _reach(named, flows):
+    """`named` and every requirement it flows to. Each walk visits a
+    requirement once, so a cycle cannot loop."""
+    seen, stack = set(named), list(named)
+    while stack:
+        for nxt in flows.get(stack.pop(), ()):
+            if nxt not in seen:
+                seen.add(nxt)
+                stack.append(nxt)
+    return seen
+
+
+def _serving(leaves, leaf_ids, catalog, objective):
     """{str(ReqId): serving leaves in WBS order}, keyed in catalog order. A
     skipped leaf never serves; a leaf serves directly what it names, and
-    indirectly what that flows to. Each walk visits a requirement once, so a
-    cycle cannot loop."""
+    indirectly what that flows to. `objective` is {leaf key: the str(ReqId)
+    its objective: names}: an entry is gating when the leaf's other IDs reach
+    the requirement too (#79)."""
     found = {}
     for leaf in leaves:
         if leaf.state == "skipped" or leaf.key not in leaf_ids:
             continue
         named = {str(rid) for rid in leaf_ids[leaf.key]}
-        seen, stack = set(named), list(named)
-        while stack:
-            for nxt in catalog.flows.get(stack.pop(), ()):
-                if nxt not in seen:
-                    seen.add(nxt)
-                    stack.append(nxt)
+        seen = _reach(named, catalog.flows)
+        gating = _reach(named - objective[leaf.key], catalog.flows) if leaf.key in objective else seen
         # Collect the whole walk before appending, so a leaf that reaches a
         # requirement both directly and indirectly serves it once.
         for key in seen:
-            found.setdefault(key, []).append(Serving(leaf.key, "direct" if key in named else "indirect"))
+            found.setdefault(key, []).append(Serving(leaf.key, "direct" if key in named else "indirect",
+                                                     key in gating))
     return {key: tuple(found[key]) for key in catalog.requirements if key in found}
 
 
@@ -462,9 +542,12 @@ def page_trace(trace: SiteTrace, catalog: Catalog, data, *, built=frozenset()) -
     states it."""
     site, reqs = trace.site, catalog.requirements
     lit = {}  # str(ReqId) -> [[foreign index, how], ...]: an index, never a key, so keys of two sites never meet
+    tail = {}  # str(ReqId) -> [foreign index, ...] of the foreign leaves serving it at objective only (#79)
     for i, f in enumerate(trace.foreign):
         for key, how in f.serves:
             lit.setdefault(key, []).append([i, how])
+        for key in f.objective_only:
+            tail.setdefault(key, []).append(i)
     wanted = dict.fromkeys(catalog.sets[site].requirements if trace.in_trace else ())
     for ids in trace.leaf_ids.values():
         wanted.update(dict.fromkeys(str(rid) for rid in ids))
@@ -479,8 +562,10 @@ def page_trace(trace: SiteTrace, catalog: Catalog, data, *, built=frozenset()) -
     rows = []
     for key in keys:
         r = reqs[key]
-        light, held, finished = [], [], []
+        light, held, finished, objective_only = [], [], [], []
         for s in trace.serving.get(key, ()):
+            if not s.gating:
+                objective_only.append(s.leaf)
             leaf = by_key[s.leaf]
             if s.leaf in drawn:
                 light.append([s.leaf, s.how])
@@ -489,11 +574,17 @@ def page_trace(trace: SiteTrace, catalog: Catalog, data, *, built=frozenset()) -
         counts = [COUNT_OPEN.format(n=len(light))]
         counts += [COUNT_HELD.format(n=len(held))] if held else []
         counts += [COUNT_FINISHED.format(n=len(finished))] if finished else []
+        br = r.id.namespace == catalog.br_namespace
         rows.append({
             "id": key, "label": _label(r.id, site), "layer": r.layer,
-            # A business requirement's text is never on a worksite page (#23).
-            "text": None if r.id.namespace == catalog.br_namespace else r.text,
+            # A business requirement's text, statements included, is never on a worksite page (#23, #79).
+            "text": None if br else r.text,
+            "threshold": None if br else r.threshold,
+            "objective": None if br else r.objective,
             "needs": [str(n) for n in r.needs if str(n) in wanted and str(n) != key] if r.layer == "UC" else [],
+            # This site's leaves serving the row at objective only, in WBS order, and other sites' by index (#79).
+            "objective_only": objective_only,
+            "objective_only_foreign": tail.get(key, []),
             "light": light, "held": held, "finished": finished, "foreign": lit.get(key, []),
             "counts": ", ".join(counts),
         })
