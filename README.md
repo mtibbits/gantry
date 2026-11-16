@@ -203,13 +203,14 @@ Changelog. Each user-visible change adds its entry as a file,
 CHANGELOG.md lines, and each release compiles the waiting files into its
 section with `tools/changelog.py`:
 
-- `<key>` is the issue number, with no leading zero (`79`), or, for a change
-  with no issue, a slug that starts with a letter and holds lowercase
+- `<key>` is the issue number, positive with no leading zero (`79`), or, for
+  a change with no issue, a slug that starts with a letter and holds lowercase
   letters, digits and single hyphens (`security-policy`).
 - `<kind>` is one of `added`, `changed`, `deprecated`, `removed`, `fixed` and
   `security`; it becomes the `### Added` … `### Security` heading.
 - The body is one or more Markdown list items, written as they read in
-  CHANGELOG.md, wrapped lines indented two spaces.
+  CHANGELOG.md, wrapped lines indented two spaces, with blank lines between
+  items allowed and any code fence closed.
 
 An issue with entries of two kinds has two files, and a later change for the
 same issue edits that issue's file. `## [Unreleased]` holds only its pointer

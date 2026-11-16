@@ -130,9 +130,10 @@ def test_check_accepts_valid_entries(tmp_path, capsys):
     files = {name: FIXTURE_FILES[name]
              for name in ("9.added.md", "10.added.md", "security-policy.security.md")}
     files["blank-edges.changed.md"] = "\n\n- Edged.\n\n\n"
+    files["closed-fence.added.md"] = "- An example:\n  ```\n  code\n  ```\n"
     root = make_tree(tmp_path / "t", None, files)
     assert changelog.check(root) == []
-    assert run(capsys, root, "check") == (0, "changelog: check: no problems in 4 entry files\n", "")
+    assert run(capsys, root, "check") == (0, "changelog: check: no problems in 5 entry files\n", "")
 
 
 @pytest.mark.parametrize("folder", ["absent", "empty"])
@@ -190,6 +191,10 @@ PROBLEM_CASES = {
                                  f"{F}79.added.md: line 3 is not part of a list item"),
     "tab-continuation": ("79.added.md", "- x\n\tmore\n",
                          f"{F}79.added.md: line 2 is not part of a list item"),
+    "open-fence": ("79.added.md", "- An example:\n  ```\n  code\n",
+                   f"{F}79.added.md: line 2 opens a code fence that it never closes"),
+    "open-tilde-fence": ("79.added.md", "- x\n  ~~~~\n  ~~~\n",
+                         f"{F}79.added.md: line 2 opens a code fence that it never closes"),
     "not-utf8": ("79.added.md", b"- \xff\n", f"{F}79.added.md: not UTF-8"),
     "folder": ("sub", FOLDER, f"{F}sub: not a file; changelog.d/ holds only entry files"),
 }
@@ -375,8 +380,8 @@ New entries are files in changelog.d/; README's "Versioning & releases" says how
 """
 
 POINTER_TEXT = 'New entries are files in changelog.d/; README\'s "Versioning & releases" says how.'
-ALREADY_RELEASED = ("CHANGELOG.md already has a section for 9.9.9; add to it with --fold, "
-                    "or release a new version")
+ALREADY_RELEASED = ("CHANGELOG.md already has a section for 9.9.9; add to it with --fold "
+                    "before it is tagged, or release a new version")
 
 
 def released_tree(tmp_path):
@@ -558,8 +563,8 @@ def test_predicates_match_versioning_test(text):
 RELEASE_REFUSALS = {
     # case: (CHANGELOG text, entry files, argv after `release`, stderr after each `changelog: `)
     "existing-section": (FIXTURE_CHANGELOG, FIXTURE_FILES, ["0.1.0", "2026-12-01"], [
-        "CHANGELOG.md already has a section for 0.1.0; add to it with --fold, "
-        "or release a new version"]),
+        "CHANGELOG.md already has a section for 0.1.0; add to it with --fold "
+        "before it is tagged, or release a new version"]),
     "undated-section": (planted(FIXTURE_CHANGELOG, "## [0.1.0]", "## [9.9.9]\n\n## [0.1.0]"),
                         FIXTURE_FILES, ["9.9.9", "2026-12-01"], [ALREADY_RELEASED]),
     **{f"version-{v}": (FIXTURE_CHANGELOG, FIXTURE_FILES, [v, "2026-12-01"], [shown])

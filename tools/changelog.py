@@ -146,6 +146,10 @@ def read_entry(path):
     items, bad = list_items(lines)
     if items is None:
         return None, None, None, f"line {bad + 1} is not part of a list item"
+    opened = _fence_scan(lines)[1]
+    if opened is not None:
+        # Left open in CHANGELOG.md, it would hide every older section.
+        return None, None, None, f"line {opened + 1} opens a code fence that it never closes"
     return key, kind, items, None
 
 
@@ -185,14 +189,14 @@ def read_changelog(root):
         raise Refused(f"{CHANGELOG}: not UTF-8") from None
 
 
-def unfenced(lines):
-    """The lines with each line of a ``` or ~~~ fence replaced by None."""
-    out, fence = [], None
-    for line in lines:
+def _fence_scan(lines):
+    """(unfenced lines, index of the line opening a fence left open at the end, or None)."""
+    out, fence, opened = [], None, None
+    for i, line in enumerate(lines):
         if fence is None:
             m = FENCE.match(line)
             if m and not (m.group(1)[0] == "`" and "`" in m.group(2)):
-                fence = m.group(1)
+                fence, opened = m.group(1), i
                 out.append(None)
             else:
                 out.append(line)
@@ -202,7 +206,12 @@ def unfenced(lines):
         if (close and set(close) == {fence[0]} and len(close) >= len(fence)
                 and len(line) - len(line.lstrip(" ")) <= 3):
             fence = None
-    return out
+    return out, (opened if fence is not None else None)
+
+
+def unfenced(lines):
+    """The lines with each line of a ``` or ~~~ fence replaced by None."""
+    return _fence_scan(lines)[0]
 
 
 def _section_end(plain, start):
@@ -372,7 +381,7 @@ def release(root, version, date):
         m = RELEASE_HEADING.fullmatch(line) if line is not None else None
         if m and m.group("version") == version:
             raise Refused(f"{CHANGELOG} already has a section for {version}; "
-                          "add to it with --fold, or release a new version")
+                          "add to it with --fold before it is tagged, or release a new version")
     items, files = _waiting_items(root, lines, start, end)
     heading = f"## [{version}] — {date}"
     text = _with_section(lines, start, render(heading, items), end)
@@ -422,7 +431,7 @@ def fold(root, version):
     expected = render(heading, target).rstrip("\n").split("\n")
     for i, (have, want) in enumerate(zip(section + [None], expected + [None])):
         if have != want:
-            raise Refused(f"{CHANGELOG} line {end + i + 1 if have is not None else end + i}: "
+            raise Refused(f"{CHANGELOG} line {end + i + 1}: "
                           f"{heading} is not in the form release writes, so --fold cannot add "
                           "to it; release a new version instead")
     items, files = _waiting_items(root, lines, start, end)
