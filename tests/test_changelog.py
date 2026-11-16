@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 
 import changelog
+from helpers_docs import markdown_text
 
 REAL_ROOT = Path(__file__).resolve().parents[1]
 F = "changelog.d/"
@@ -668,3 +669,20 @@ def test_fold_refuses_hand_edited_section(tmp_path, capsys, case):
         f"changelog: CHANGELOG.md line {line}: ## [9.9.9] — 2026-12-01 is not in the form "
         "release writes, so --fold cannot add to it; release a new version instead\n"))
     assert snapshot(root) == before
+
+
+# --- the real CHANGELOG.md's pointer line and header ---------------------------------
+
+def test_real_changelog_pointer_line():
+    lines = markdown_text(REAL_ROOT / "CHANGELOG.md").split("\n")
+    assert lines.count("## [Unreleased]") == 1
+    at = lines.index("## [Unreleased]")
+    assert lines[at + 1:at + 4] == ["", changelog.POINTER, ""]
+    assert lines[at + 4].startswith(("### ", "## "))
+
+
+def test_real_changelog_header_says_where_entries_go():
+    text = markdown_text(REAL_ROOT / "CHANGELOG.md")
+    header = " ".join(text[:text.index("\n## [Unreleased]\n")].split())
+    assert "`changelog.d/`" in header
+    assert "line under `## [Unreleased]`" not in header
