@@ -1071,6 +1071,15 @@ def test_doc_cites_152():
     assert "tracks reporting these lines" not in joined
 
 
+def test_readme_says_more_reports_are_not_a_break():
+    from helpers_docs import markdown_text, section as doc_section
+
+    readme = markdown_text(Path(__file__).parent.parent / "README.md")
+    joined = doc_section(readme, "## Versioning & releases").replace(LF, " ")
+    assert "reporting more lines is not a break" in joined
+    assert "docs/fires-list.md#entry-like-lines" in joined
+
+
 
 def test_fenced_lines_count_with_or_without_a_marker():
     # docs/fires-list.md: skipped_in_fences counts entry-shaped lines (the
