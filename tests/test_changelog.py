@@ -1,0 +1,217 @@
+"""tools/changelog.py: entry files in changelog.d/, compiled into CHANGELOG.md (#160).
+
+Every test builds a temporary tree with CRLF line endings, as the Windows CI
+leg checks files out, runs the tool's functions or `main(argv, root=...)` on
+it, and compares against hand-written LF text. Expected texts are literals
+here, never built from the tool's own constants, so a check and its subject
+never share a source. The real tree is read by `test_check_repository_root`
+and `test_check_sees_real_entries` only, through REAL_ROOT; an autouse fixture
+points the tool's ROOT at a folder that does not exist, so a call that forgets
+`root=` fails instead of rewriting the real CHANGELOG.md.
+"""
+
+import shutil
+from pathlib import Path
+
+import pytest
+
+import changelog
+
+REAL_ROOT = Path(__file__).resolve().parents[1]
+F = "changelog.d/"
+FOLDER = object()  # a make_tree value: plant a folder, not a file
+
+
+def crlf(text):
+    return text.replace("\n", "\r\n").encode("utf-8")
+
+
+def make_tree(root, changelog_text, files):
+    """Write CHANGELOG.md (unless None) and changelog.d/ (unless None), CRLF.
+
+    A `files` value that is bytes is written as is; FOLDER plants a folder."""
+    root = Path(root)
+    root.mkdir(parents=True, exist_ok=True)
+    if changelog_text is not None:
+        (root / "CHANGELOG.md").write_bytes(crlf(changelog_text))
+        assert b"\r\n" in (root / "CHANGELOG.md").read_bytes()
+    if files is not None:
+        folder = root / "changelog.d"
+        folder.mkdir(exist_ok=True)
+        for name, content in files.items():
+            if content is FOLDER:
+                (folder / name).mkdir()
+            elif isinstance(content, bytes):
+                (folder / name).write_bytes(content)
+            else:
+                (folder / name).write_bytes(crlf(content))
+    return root
+
+
+def snapshot(root):
+    """{posix relpath: bytes} for every file under `root`."""
+    root = Path(root)
+    return {p.relative_to(root).as_posix(): p.read_bytes()
+            for p in sorted(root.rglob("*")) if p.is_file()}
+
+
+def run(capsys, root, *argv):
+    """(exit code, stdout, stderr) of the tool's main on `root`."""
+    rc = changelog.main(list(argv), root=root)
+    out, err = capsys.readouterr()
+    return rc, out, err
+
+
+def _real_state():
+    paths = [REAL_ROOT / "CHANGELOG.md"]
+    folder = REAL_ROOT / "changelog.d"
+    if folder.is_dir():
+        paths += sorted(folder.iterdir())
+    return {p.name: (p.read_bytes() if p.is_file() else None) for p in paths}
+
+
+@pytest.fixture(autouse=True)
+def real_tree_untouched(tmp_path, monkeypatch):
+    """No test reaches the real tree by default, and none changes it."""
+    monkeypatch.setattr(changelog, "ROOT", tmp_path / "no-root")
+    before = _real_state()
+    yield
+    assert _real_state() == before
+
+
+# --- the AC fixture --------------------------------------------------------------
+
+FIXTURE_CHANGELOG = """\
+# Changelog
+
+A fixture for tools/changelog.py.
+
+## [Unreleased]
+
+New entries are files in changelog.d/; README's "Versioning & releases" says how.
+
+### Added
+
+- Carried one, which wraps
+  onto a second line.
+
+- Carried two.
+
+## [0.1.0] — 2026-11-14
+
+### Added
+
+- The first release.
+"""
+
+FIXTURE_FILES = {
+    "9.added.md": "- Nine, which wraps\n  onto a second line.\n",
+    "10.added.md": "- Ten, first.\n\n- Ten, second.\n",
+    "10.fixed.md": "- Ten fixed.\n",
+    "security-policy.security.md": "- A security policy.\n",
+}
+
+
+# --- check -------------------------------------------------------------------------
+
+def test_check_accepts_valid_entries(tmp_path, capsys):
+    files = {name: FIXTURE_FILES[name]
+             for name in ("9.added.md", "10.added.md", "security-policy.security.md")}
+    files["blank-edges.changed.md"] = "\n\n- Edged.\n\n\n"
+    root = make_tree(tmp_path / "t", None, files)
+    assert changelog.check(root) == []
+    assert run(capsys, root, "check") == (0, "changelog: check: no problems in 4 entry files\n", "")
+
+
+@pytest.mark.parametrize("folder", ["absent", "empty"])
+def test_check_missing_or_empty_folder(tmp_path, capsys, folder):
+    root = make_tree(tmp_path / "t", None, None if folder == "absent" else {})
+    assert changelog.check(root) == []
+    assert run(capsys, root, "check") == (0, "changelog: check: no problems in 0 entry files\n", "")
+
+
+def test_check_one_file(tmp_path, capsys):
+    root = make_tree(tmp_path / "t", None, {"9.added.md": "- Nine.\n"})
+    assert run(capsys, root, "check") == (0, "changelog: check: no problems in 1 entry file\n", "")
+
+
+def test_check_accepts_bom(tmp_path):
+    root = make_tree(tmp_path / "t", None, {"9.added.md": b"\xef\xbb\xbf- Nine.\r\n"})
+    assert changelog.check(root) == []
+
+
+NAME_RULE = "it must be <key>.<kind>.md"
+KIND_LIST = "added, changed, deprecated, removed, fixed, security"
+SLUG_RULE = "must start with a letter and hold only lowercase letters, digits and single hyphens"
+PROBLEM_CASES = {
+    # case: (name, content, the problem)
+    "no-kind": ("79.md", "- x\n", f"{F}79.md: the name has no kind; {NAME_RULE}"),
+    "bare-md": (".md", "- x\n", f"{F}.md: the name has no kind; {NAME_RULE}"),
+    "unknown-kind": ("79.feature.md", "- x\n",
+                     f"{F}79.feature.md: unknown kind 'feature'; it must be one of {KIND_LIST}"),
+    "capital-kind": ("79.Added.md", "- x\n",
+                     f"{F}79.Added.md: unknown kind 'Added'; it must be one of {KIND_LIST}"),
+    "double-md": ("79.added.md.md", "- x\n",
+                  f"{F}79.added.md.md: unknown kind 'md'; it must be one of {KIND_LIST}"),
+    "txt": ("79.added.txt", "- x\n", f"{F}79.added.txt: the name does not end in .md; {NAME_RULE}"),
+    "gitkeep": (".gitkeep", "", f"{F}.gitkeep: the name does not end in .md; {NAME_RULE}"),
+    "backup": ("160.changed.md~", "- x\n",
+               f"{F}160.changed.md~: the name does not end in .md; {NAME_RULE}"),
+    "leading-zero": ("079.added.md", "- x\n",
+                     f"{F}079.added.md: the issue number '079' must be positive with no leading zero"),
+    "zero": ("0.added.md", "- x\n",
+             f"{F}0.added.md: the issue number '0' must be positive with no leading zero"),
+    "digit-slug": ("9-lives.added.md", "- x\n", f"{F}9-lives.added.md: the slug '9-lives' {SLUG_RULE}"),
+    "capital-slug": ("Security.security.md", "- x\n",
+                     f"{F}Security.security.md: the slug 'Security' {SLUG_RULE}"),
+    "double-hyphen": ("a--b.added.md", "- x\n", f"{F}a--b.added.md: the slug 'a--b' {SLUG_RULE}"),
+    "trailing-hyphen": ("a-.added.md", "- x\n", f"{F}a-.added.md: the slug 'a-' {SLUG_RULE}"),
+    "empty-slug": (".added.md", "- x\n", f"{F}.added.md: the slug '' {SLUG_RULE}"),
+    "dotted-slug": ("a.b.added.md", "- x\n", f"{F}a.b.added.md: the slug 'a.b' {SLUG_RULE}"),
+    "empty": ("79.added.md", "", f"{F}79.added.md: empty; the body must be one or more list items"),
+    "blank-lines": ("79.added.md", "\n\n",
+                    f"{F}79.added.md: empty; the body must be one or more list items"),
+    "prose-first": ("79.added.md", "Intro.\n- x\n",
+                    f"{F}79.added.md: line 1 is not part of a list item"),
+    "star-item": ("79.added.md", "* x\n", f"{F}79.added.md: line 1 is not part of a list item"),
+    "continuation-after-blank": ("79.added.md", "- x\n\n  more\n",
+                                 f"{F}79.added.md: line 3 is not part of a list item"),
+    "tab-continuation": ("79.added.md", "- x\n\tmore\n",
+                         f"{F}79.added.md: line 2 is not part of a list item"),
+    "not-utf8": ("79.added.md", b"- \xff\n", f"{F}79.added.md: not UTF-8"),
+    "folder": ("sub", FOLDER, f"{F}sub: not a file; changelog.d/ holds only entry files"),
+}
+
+
+@pytest.mark.parametrize("case", PROBLEM_CASES)
+def test_check_problem(tmp_path, case):
+    name, content, problem = PROBLEM_CASES[case]
+    root = make_tree(tmp_path / "t", None, {name: content})
+    assert changelog.check(root) == [problem]
+
+
+def test_check_reports_every_bad_file(tmp_path, capsys):
+    root = make_tree(tmp_path / "t", None, {
+        "9.feature.md": "- x\n", "10.added.md": "- Ten.\n", "079.added.md": "- x\n"})
+    expected = [
+        f"{F}079.added.md: the issue number '079' must be positive with no leading zero",
+        f"{F}9.feature.md: unknown kind 'feature'; it must be one of {KIND_LIST}",
+    ]
+    assert changelog.check(root) == expected
+    assert run(capsys, root, "check") == (1, "", "".join(f"changelog: {p}\n" for p in expected))
+
+
+def test_check_repository_root():
+    # The AC's "holds this PR's entry" is checked by listing the folder at
+    # preship: the next release deletes 160.changed.md, so no pin here.
+    assert changelog.check(REAL_ROOT) == []
+
+
+def test_check_sees_real_entries(tmp_path):
+    root = tmp_path / "t"
+    root.mkdir()
+    if (REAL_ROOT / "changelog.d").is_dir():
+        shutil.copytree(REAL_ROOT / "changelog.d", root / "changelog.d")
+    make_tree(root, None, {"079.added.md": "- x\n"})
+    assert changelog.check(root) == [
+        f"{F}079.added.md: the issue number '079' must be positive with no leading zero"]
