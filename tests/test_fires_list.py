@@ -1039,6 +1039,38 @@ def test_doc_examples_read_as_documented():
     assert (result.status, lines_of(result), len(notes)) == ("read", [1], 2)
 
 
+def entry_like_section():
+    from helpers_docs import section as doc_section
+
+    return doc_section(doc_text(), "## Entry-like lines")
+
+
+def test_doc_remaining_prose_reads_as_prose():
+    # The doc's list of shapes that stay prose after #152, executed. A probe
+    # just outside the rule (a date-led link) must stay prose too.
+    block = first_fence_under("## Entry-like lines")
+    assert len(block) >= 6
+    assert [line for line in block if line.startswith("## ")] == []  # section() is not fence-aware
+    assert "[2026-10-24 postmortem](https://example.com) notes" in block
+    entry_lines = [i + 1 for i, line in enumerate(block) if line.startswith("- [ ] ")]
+    assert len(entry_lines) == 1
+    result = parse(LF.join(block) + LF, names=("harbor", "quarry"))
+    assert (result.status, lines_of(result)) == ("read", entry_lines)
+
+
+def test_doc_must_report_probe_is_reported():
+    probe = "-[] 2026-10-24 @harbor x"
+    assert f"`{probe}`" in entry_like_section()
+    result = parse(probe + LF)
+    assert kinds_of(result) == [(1, "fires_bad_entry")]
+
+
+def test_doc_cites_152():
+    joined = entry_like_section().replace(LF, " ")
+    assert "since #152" in joined
+    assert "tracks reporting these lines" not in joined
+
+
 
 def test_fenced_lines_count_with_or_without_a_marker():
     # docs/fires-list.md: skipped_in_fences counts entry-shaped lines (the

@@ -20,6 +20,10 @@ file.
 <!-- Editor note: tests/test_fires_list.py::test_doc_examples_read_as_documented
 reads the first fenced block under this heading and the one under "Notes under
 an entry" as fires lists; edit them and that test together.
+test_doc_remaining_prose_reads_as_prose reads the block under "Entry-like
+lines" the same way: every line but its one entry must stay prose, and no
+line of it may start with `## `. test_doc_must_report_probe_is_reported and
+test_doc_cites_152 pin that section's must-report probe and its #152 note.
 tests/test_fires_list.py::test_doc_names_every_kind_status_and_key pins this
 doc's `## ` headings and their order, every report kind, status and key, and
 a few phrases (it lists them); reword those with that test. -->
@@ -46,7 +50,11 @@ space or tab.
    is a box that did not parse, among them `[-]` and `[/]`, which some phone
    task apps write, and `[?]`. The box must be followed by a space or tab:
    in `- [ ]2026-10-24 …` the box is read, the missing space is a failure,
-   and reading goes on from the character after the box.
+   and reading goes on from the character after the box. `[` and `]`
+   around no character or several (`[]`, `[xx]`), followed by a space, a
+   tab or the end of the line, are also a box that did not parse: the
+   token is consumed and reading goes on, so `- [] 2026-10-24 …` keeps its
+   date.
 2. **The date**: a token that begins with four digits and a hyphen is a
    date attempt. It is valid when it is exactly `YYYY-MM-DD` and a real
    calendar date. It is the installation's local date the fire began, and
@@ -81,15 +89,17 @@ failure). Nothing typed into the list vanishes without a trace.
 
 Only a line feed ends a line, and a carriage return directly before it is
 dropped, so CRLF line ends read as LF ones. A leading byte-order mark is
-skipped. Every other character stays inside its line, including a lone
+skipped; one later in the file is a mark like any other (see
+[Entry-like lines](#entry-like-lines)). Every other character stays inside its line, including a lone
 carriage return, U+2028, U+2029, U+0085, vertical tab and form feed, so a
 reason holding one comes back whole, on one line number. A carriage return
 at the very end of a file with no final line feed is dropped too.
 
 ## Notes under an entry
 
-A bullet indented two or three spaces whose text starts with neither a box
-nor a date attempt is a **note** when it comes after an entry or another
+A bullet indented two or three spaces whose text starts with neither a box,
+a box-like pair (`[]`, `[xx]`, `[WIP]`, followed by a space, a tab or the
+end of the line) nor a date attempt is a **note** when it comes after an entry or another
 note, with only blank lines between. It is not read. This is how a phone
 editor nests a line under an entry:
 
@@ -104,7 +114,9 @@ holds nothing, or a bullet indented four or more spaces that starts with
 no box or date (a sub-note: the next two-space note is then an entry).
 The same bullet with no entry or note above it (first in the file, or
 after a heading or a paragraph) is an unreadable entry. A two- or
-three-space bullet that starts with a box or a date is always an entry, and
+three-space bullet that starts with a box, a box-like pair or a date is
+always an entry, so `  - [] 2026-10-25 …` and `  - [WIP] still digging`
+under an entry are unreadable entries, not notes, and
 a bullet at column 0 or indented one space is always an entry, so
 `- call the supplier back` with no box is an unreadable fire, not a note.
 
@@ -114,7 +126,10 @@ A top-level item whose text is empty, only spaces, or only a box and spaces
 (`- `, `- [ ] `) holds nothing. Phone editors leave one when they continue
 a list on Enter. It is skipped with no report entry, and `gantry fires`
 counts it (`skipped_empty`). An entry-like line (below) that holds nothing
-after its box is skipped and counted alike.
+after its box is skipped and counted alike, whatever marks come before the
+box, so `• [ ]`, `> - [ ]` and `– [x]` are skipped and counted like
+`1. [ ]`. Only the exact one-character box counts here: a lone `[]` or
+`1. []` holds a box-like pair, so it is reported, never skipped.
 
 A **thematic break**, a line of three or more of the same `-`, `*` or `_`,
 with spaces or tabs between allowed and up to three spaces before
@@ -122,33 +137,76 @@ with spaces or tabs between allowed and up to three spaces before
 
 ## Entry-like lines
 
-Any other line whose text, after any leading spaces or tabs and an optional
-list marker (`-`, `*`, `+`, or digits followed by `.` or `)`), with or
-without a space after the marker, begins with a box or a date attempt is an
-**entry-like line**: for example `1. [ ] …`, `-[ ] …`, a tab- or
-four-space-indented `- [ ] …`, or a bare `2026-10-24 …`. Its fields are read
-by the same rules, and it is kept as an unreadable entry and reported
-(`fires_bad_entry`, ``not a top-level `- ` item``). An ended one, such as
-`1. [x] 2026-10-20 …`, is reported but is not a fire. Headings, paragraphs
-and indented lines that start with neither a box nor a date are prose and
-are not read.
+Any other unfenced line is an **entry-like line** when, after any leading
+spaces or tabs and an optional number marker (digits followed by `.` or
+`)`), at most eight **marks** follow, with spaces or tabs between them
+allowed, and then a box, a box-like pair or a date attempt. A mark is any
+character that is not a letter or digit in the Unicode sense, a space, a
+tab or `[`: a list marker `-`, `*` or `+`, a `•` or `–` bullet (which some
+notes apps and autocorrect write), a `>` quote, `_`, a no-break space or a
+stray byte-order mark. So these are all entry-like lines, with or without a
+space after a marker: `1. [ ] …`, `-[ ] …`, a tab- or four-space-indented
+`- [ ] …`, a bare `2026-10-24 …`, `[] 2026-10-24 …`, `1. [xx] …`,
+`• [ ] …`, `– [ ] …`, `-` and a no-break space before `[ ] …`, and
+`> - [ ] …`. Its fields are read by the same rules, and it is kept as an
+unreadable entry and reported (`fires_bad_entry`, ``not a top-level `- `
+item``). An ended one, such as `1. [x] 2026-10-20 …`, is reported but is
+not a fire.
 
-Only the markers above, spaces and tabs count. A line that starts with
-anything else is prose, even when an entry follows it, so it is neither
-read nor reported: a no-break space, a `•` or `–` bullet (which some notes
-apps and autocorrect write), a `>` quote, a `#` heading, or a table row. A
-box is exactly one character between `[` and `]`, so an empty `[]` or a
-`[xx]` is no box: `- [] …` at column 0 is an unreadable entry, but
-`[] …`, `-[] …`, `1. [] …` and a deeper-indented `- [] …` are prose, and
-`  - [] …` under an entry is a note. Issue #152 tracks reporting these
-lines. Write each entry as `- ` at the start of its line, and run `gantry fires`
+The rule has covered any short run of marks and box-like pairs since #152,
+so a mistyped entry is reported rather than lost: `-[] 2026-10-24 @harbor x`,
+for one, is an unreadable entry. These **stay prose**, neither read nor
+reported:
+
+- a heading: one to six `#`, then a space, a tab or the end of the line,
+  whatever follows;
+- a line where a letter or digit, other than a leading number marker, comes
+  before any box or date (`Called back 2026-10-24`, `1. call back`);
+- more than eight marks before the box or date;
+- a number marker after a mark (`> 1. [ ] …`);
+- a line starting with `[` whose pair is followed by something other than
+  a space, a tab or the end of the line, whatever the brackets hold: a
+  link, an image or a footnote, even one whose text starts with a date. A
+  one-character label such as `[a](…)` or `[1]: …` is the exception: it is
+  read as a box and reported, as before #152;
+- a two- or three-space bullet under an entry whose text starts with a mark
+  before its box (`  - > [ ] …` is a note).
+
+These are **also reported**, since failing closed beats losing a fire: a
+date-led table row (`| 2026-10-24 | … |`), an emphasis-led date
+(`**2026-10-24** …`), a one-line HTML comment around an entry, a
+struck-through entry (`~~- [ ] …~~`), a GitHub alert (`> [!NOTE]`), a
+parenthesised date (`(2026-10-24) …`) and a bracket-led word
+(`[WIP] still digging`). A wrapped date such as `2026-10-24**` or
+`2026-10-24)` does not parse, so such a line reads undated until it is
+fixed. A new entry-like line takes a following two- or three-space bullet
+as its note, as any entry does.
+
+The shapes that stay prose, each read as prose, under one real entry:
+
+```
+# [ ] 2026-10-24 @harbor a heading stays prose
+Called back 2026-10-24 about the crane
+1. call back the surveyor
+> > > > > > > > > [ ] 2026-10-24 @harbor nine marks
+> 1. [ ] 2026-10-24 @harbor a number marker after a mark
+[2026-10-24 postmortem](https://example.com) notes
+![2026-10-24 crane](crane.png)
+[^2026-10-24]: see the log
+[runbook](https://example.com) says restart
+- [ ] 2026-10-24 @harbor the release build is red
+  - > [ ] 2026-10-25 @harbor a mark first, so a note
+```
+
+Write each entry as `- ` at the start of its line, and run `gantry fires`
 after an edit to see that the count of fires is what you typed.
 
 In short: a bullet at column 0 or 1 is always an entry; at two or three
-spaces it is an entry when it starts with a box or a date or has no entry
-above it, and otherwise a note; deeper, numbered, or with no space after the
-marker, it is reported when it starts with a box or a date and is prose
-otherwise; items that hold nothing and thematic breaks are skipped.
+spaces it is an entry when it starts with a box, a box-like pair or a date
+or has no entry above it, and otherwise a note; any other line that is not
+a heading and reaches a box, a box-like pair or a date through at most
+eight marks is reported, and is prose otherwise; items that hold nothing
+and thematic breaks are skipped.
 
 ## Fences
 
@@ -157,8 +215,10 @@ file: lines inside a closed fence are not read. A fence opens on three or
 more backticks or tildes at any indent and closes on a run of the same
 character at least as long with no info string; a backtick run whose info
 string holds a backtick is not a fence. `gantry fires` counts the
-entry-shaped lines a closed fence hides (`skipped_in_fences`: lines, with or
-without a list marker, that start with a box or a date), so a stray fence that
+entry-shaped lines a closed fence hides (`skipped_in_fences`: an item that
+starts with a box, a box-like pair or a date, or a line the
+[entry-like rule](#entry-like-lines) above would report, with or without a
+list marker), so a stray fence that
 swallows real entries shows. An HTML comment hides nothing.
 
 An opener with no closer is not a fence: every line after it is still
