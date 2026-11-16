@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
 from gantry import fires_list, priority
+from gantry.devagent_records import ABSENT, FOLDER_MISSING, PRESENT, READ, UNREADABLE
 from gantry.sites import NO_WBS
 from gantry.stamp import public_text
 
@@ -268,3 +269,97 @@ class P0Source(PerSiteSource):
         else:
             status = self.status(context, view.name, view.wbs, view.reason)
         return SourceResult(found, (status,))
+
+
+LEAF_UNKNOWN_WHY = "leaf unknown: WBS.md could not be read"
+PARKED_UNKNOWN_WHY = "parked unknown: checklist.md could not be read"
+MARKER_UNKNOWN_WHY = "step and reason unknown: STUCK could not be read"
+RECORDS_NOT_READ = "records not read"
+FINISHED_STATES = ("done", "skipped")
+
+
+def holds_marker(records) -> bool:
+    """Whether an issue folder holds a STUCK marker. A folder that vanished
+    between listings holds none, as #31 reads a STUCK deleted between listing
+    and read; any other folder #31 could not list holds an unreadable one."""
+    record = records.stuck
+    if record.status == ABSENT:
+        return False
+    return not (record.status == UNREADABLE and record.reason == FOLDER_MISSING)
+
+
+def marker_why(record) -> str:
+    """`step N name: reason`, with what is missing named as unknown."""
+    if record.status != PRESENT:
+        return MARKER_UNKNOWN_WHY
+    m = record.value
+    step = "step unknown" if m.step is None else f"step {m.step} {m.step_name}"
+    reason = m.reason if m.reason is not None and m.reason.strip() != "" else "reason unknown"
+    return f"{step}: {reason}"
+
+
+class StuckSource(PerSiteSource):
+    """Every STUCK marker in a site's issue folders. Each has exactly one
+    outcome, tested in this order: a fire when the site's WBS.md was not read
+    (leaf_unknown); the no-open-leaf count when no leaf names the folder or
+    the first leaf that does is done or skipped (or the site has no WBS.md);
+    the parked count when that leaf or its checklist is parked; else a fire
+    (parked_unknown when the checklist could not be read)."""
+
+    name = "stuck"
+
+    def collect_site(self, context, entry, view) -> SourceResult:
+        name = entry.name
+        if entry.planning_dir is None:
+            return SourceResult((), (self.status(context, name, "not_read", entry.problem),))
+        records = context.records.get(name)
+        if records is None:
+            return SourceResult((), (self.status(context, name, "not_read", RECORDS_NOT_READ),))
+        if records.status != READ:
+            return SourceResult((), (self.status(context, name, "not_read", records.reason),))
+        joined = {}
+        for leaf in view.leaves:
+            joined.setdefault(leaf.issue, leaf)
+        found, parked, no_leaf = [], [], []
+        for issue in sorted(records.issues):
+            folder = records.issues[issue]
+            if not holds_marker(folder):
+                continue
+            leaf = joined.get(issue)
+            checklist = folder.checklist
+            if view.wbs == "not_read":
+                found.append(self.fire(context, name, issue, None, folder, LEAF_UNKNOWN_WHY, "leaf_unknown"))
+            elif view.wbs == "absent" or leaf is None or leaf.state in FINISHED_STATES:
+                no_leaf.append(issue)
+            elif leaf.state == "parked" or (checklist.status == PRESENT and checklist.value.parked):
+                parked.append(issue)
+            elif checklist.status == UNREADABLE:
+                found.append(self.fire(context, name, issue, leaf, folder, PARKED_UNKNOWN_WHY, "parked_unknown"))
+            else:
+                found.append(self.fire(context, name, issue, leaf, folder))
+        problems = []
+        partly = sum(f.unreadable or f.fail_closed == "parked_unknown" or f.since is None for f in found)
+        if partly:
+            problems.append(f"stuck fires not fully read: {partly}")
+        if records.skipped:
+            problems.append(f"linked issue folders not read: {len(records.skipped)}")
+        if problems:
+            status = self.status(context, name, "read_with_problems", "; ".join(problems))
+        else:
+            status = self.status(context, name, "read")
+        return SourceResult(tuple(found), (status,), {name: tuple(parked)} if parked else {},
+                            {name: tuple(no_leaf)} if no_leaf else {})
+
+    def fire(self, context, site, issue, leaf, folder, closed_why=None, fail_closed=None) -> Fire:
+        record = folder.stuck
+        created = record.value.created if record.status == PRESENT else None
+        since = _in_zone(created, context.reference)
+        why = marker_why(record)
+        if closed_why is not None:
+            why = f"{closed_why}; {why}"
+        return Fire(
+            kinds=(self.name,), site=site, site_as_written=None, issue=issue,
+            leaf_key=None if leaf is None else leaf.key, title=None if leaf is None else leaf.title,
+            why=(why,), unreadable=record.status != PRESENT, fail_closed=fail_closed, since=since,
+            date_only=False, age=_age(since, context.reference), still_a_fire=None, this_machine=True,
+        )

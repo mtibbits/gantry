@@ -11,6 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from gantry import devagent_records as dr
 from gantry import fires, model
 from gantry import fires_list as fl
 from gantry.fires import (
@@ -329,3 +330,240 @@ def test_entry_like_line_stops_confirmed_none():
     assert by_source(report, "fires_list") == [(None, "read_with_problems", "fires list report entries: 1")]
     assert len(report.fires) == 1 and report.fires[0].unreadable is True
     assert report.all_read is False
+
+
+# --- the STUCK source -------------------------------------------------------------------
+
+LOCAL_CREATED = datetime(2026, 1, 12, 9, 30)
+
+
+def marker(step=2, step_name="draft", reason="waiting", created=LOCAL_CREATED, fmt=None):
+    if fmt is None:
+        fmt = dr.LOCAL_MINUTES if created is not None and created.tzinfo is None else dr.ISO_OFFSET
+    return dr.StuckMarker(step, step_name, reason, None, created, fmt if created is not None else dr.UNPARSEABLE, ())
+
+
+def present(value):
+    return dr.Record(dr.PRESENT, value, None)
+
+
+GONE = dr.Record(dr.ABSENT, None, None)
+UNREAD = dr.Record(dr.UNREADABLE, None, "checklist.md is not valid UTF-8 at byte 3")
+UNREAD_STUCK = dr.Record(dr.UNREADABLE, None, "STUCK is not valid UTF-8 at byte 3")
+
+
+def checklist(parked=False):
+    step = dr.Step(3, "scope", "P") if parked else None
+    return present(dr.ChecklistState(None, step, None, False, True, 1, ()))
+
+
+UNPARKED, PARKED = checklist(False), checklist(True)
+
+
+def folder(name, stuck=None, checklist=GONE):
+    """An issue folder's records; `stuck` defaults to a readable marker."""
+    return dr.IssueRecords(name, present(marker()) if stuck is None else stuck, checklist, GONE)
+
+
+def site_records(*folders, skipped=None):
+    return dr.SiteRecords(dr.READ, None, {f.issue: f for f in folders}, dict(skipped or {}))
+
+
+def stuck(result, records, **kw):
+    return collect_one(fires.StuckSource(), context(result, records=records, **kw))
+
+
+def all_sources(result, records, fires_list=NO_FIRES_LIST):
+    """The three sources' statuses and fires, by hand: collect_fires is Task 4's."""
+    ctx = context(result, fires_list=fires_list, records=records)
+    got = [s.collect(ctx) for s in (fires.FiresListSource(), fires.P0Source(), fires.StuckSource())]
+    return FireReport(tuple(f for g in got for f in g.fires), tuple(s for g in got for s in g.statuses))
+
+
+def outcome_table():
+    """(result, records): one marker per AC-2 case."""
+    from gantry.sites import NO_WBS
+
+    result = fake_result(
+        site("harbor", [leaf("Issue-1"), leaf("Issue-2"), leaf("Issue-3"), leaf("Issue-4"), leaf("Issue-5", "parked"),
+                        leaf("Issue-6", "done"), leaf("Issue-7", "done"), leaf("Issue-8", "skipped"),
+                        leaf("Issue-9", "skipped")]),
+        site("bakery", read=False, problem=NO_WBS),
+        site("marsh", read=False, reason="WBS.md is not valid UTF-8 at byte 7"),
+    )
+    records = {
+        "harbor": site_records(
+            folder("Issue-1", checklist=UNPARKED), folder("Issue-2"), folder("Issue-3", checklist=UNREAD),
+            folder("Issue-4", checklist=PARKED), folder("Issue-5", checklist=UNPARKED),
+            folder("Issue-6", checklist=UNPARKED), folder("Issue-7", checklist=PARKED),
+            folder("Issue-8", checklist=UNPARKED), folder("Issue-9", checklist=PARKED), folder("Issue-50")),
+        "bakery": site_records(folder("Issue-1")),
+        "marsh": site_records(folder("Issue-1", checklist=UNPARKED)),
+    }
+    return result, records
+
+
+def test_stuck_outcomes():
+    report = stuck(*outcome_table())
+    assert [(f.site, f.issue, f.fail_closed) for f in report.fires] == [
+        ("harbor", "Issue-1", None), ("harbor", "Issue-2", None), ("harbor", "Issue-3", "parked_unknown"),
+        ("marsh", "Issue-1", "leaf_unknown")]
+    for fire in report.fires:
+        assert fire.kinds == ("stuck",) and fire.this_machine is True and fire.unreadable is False
+    harbor = report.fires[:3]
+    assert [f.leaf_key for f in harbor] == ["Issue-1", "Issue-2", "Issue-3"]
+    assert [f.why for f in harbor] == [("step 2 draft: waiting",), ("step 2 draft: waiting",),
+                                       ("parked unknown: checklist.md could not be read; step 2 draft: waiting",)]
+    marsh = report.fires[3]
+    assert (marsh.leaf_key, marsh.title) == (None, None)
+    assert marsh.why == ("leaf unknown: WBS.md could not be read; step 2 draft: waiting",)
+    assert report.stuck_parked == {"harbor": ("Issue-4", "Issue-5")}
+    assert report.stuck_no_open_leaf == {"harbor": ("Issue-50", "Issue-6", "Issue-7", "Issue-8", "Issue-9"),
+                                         "bakery": ("Issue-1",)}
+    assert by_source(report, "stuck") == [("harbor", "read_with_problems", "stuck fires not fully read: 1"),
+                                          ("bakery", "read", None), ("marsh", "read", None)]
+
+
+def test_every_marker_has_exactly_one_outcome():
+    result, records = outcome_table()
+    markers = [(name, f) for name, r in records.items() for f in r.issues if r.issues[f].stuck.status != dr.ABSENT]
+    assert len(markers) == 12
+    report = stuck(result, records)
+    fired = {(f.site, f.issue) for f in report.fires}
+    parked = {(s, f) for s, names in report.stuck_parked.items() for f in names}
+    no_leaf = {(s, f) for s, names in report.stuck_no_open_leaf.items() for f in names}
+    assert len(fired) == len(report.fires)
+    assert len(markers) == len(report.fires) + len(parked) + len(no_leaf)
+    assert fired.isdisjoint(parked) and fired.isdisjoint(no_leaf) and parked.isdisjoint(no_leaf)
+    assert fired | parked | no_leaf == set(markers)
+
+
+def test_stuck_unreadable_marker():
+    result = fake_result(site("harbor", [leaf("Issue-1")]))
+    report = stuck(result, {"harbor": site_records(folder("Issue-50", UNREAD_STUCK))})
+    assert report.fires == () and report.stuck_no_open_leaf == {"harbor": ("Issue-50",)}
+    assert by_source(report, "stuck") == [("harbor", "read", None)]
+
+    report = stuck(result, {"harbor": site_records(folder("Issue-1", UNREAD_STUCK, UNPARKED))})
+    assert len(report.fires) == 1
+    fire = report.fires[0]
+    assert fire.unreadable is True and fire.since is None and fire.age is None
+    assert fire.why == ("step and reason unknown: STUCK could not be read",)
+    assert by_source(report, "stuck") == [("harbor", "read_with_problems", "stuck fires not fully read: 1")]
+
+
+@pytest.mark.parametrize("reason", ["", "  \t", None])
+def test_stuck_blank_reason(reason):
+    result = fake_result(site("harbor", [leaf("Issue-1")]))
+    report = stuck(result, {"harbor": site_records(folder("Issue-1", present(marker(reason=reason)), UNPARKED))})
+    assert len(report.fires) == 1
+    assert report.fires[0].why == ("step 2 draft: reason unknown",)
+
+
+def test_stuck_unknown_step():
+    result = fake_result(site("harbor", [leaf("Issue-1")]))
+    unknown = present(marker(step=None, step_name=None))
+    report = stuck(result, {"harbor": site_records(folder("Issue-1", unknown, UNPARKED))})
+    assert report.fires[0].why == ("step unknown: waiting",)
+
+
+def test_stuck_vanished_folder():
+    result = fake_result(site("harbor", [leaf("Issue-1")]))
+    gone = dr.Record(dr.UNREADABLE, None, dr.FOLDER_MISSING)
+    vanished = dr.IssueRecords("Issue-1", gone, gone, gone)
+    report = stuck(result, {"harbor": site_records(vanished)})
+    assert (report.fires, report.stuck_parked, report.stuck_no_open_leaf) == ((), {}, {})
+    assert by_source(report, "stuck") == [("harbor", "read", None)]
+
+    refused = dr.Record(dr.UNREADABLE, None, dr.FOLDER_CANNOT_READ.format(error="Access is denied"))
+    report = stuck(result, {"harbor": site_records(dr.IssueRecords("Issue-1", refused, refused, refused))})
+    assert len(report.fires) == 1 and report.fires[0].unreadable is True
+    assert by_source(report, "stuck") == [("harbor", "read_with_problems", "stuck fires not fully read: 1")]
+
+
+def test_stuck_missing_records_entry():
+    result = fake_result(site("harbor", [leaf("Issue-1")]), site("quarry", [leaf("Issue-1")]))
+    report = stuck(result, {"quarry": site_records()})
+    assert by_source(report, "stuck") == [("harbor", "not_read", "records not read"), ("quarry", "read", None)]
+
+
+def test_stuck_glyph_alone_is_not_a_fire():
+    result = fake_result(site("harbor", [leaf("Issue-1", "stuck")]))
+    report = stuck(result, {"harbor": site_records(folder("Issue-2", GONE, UNPARKED))})
+    assert (report.fires, report.stuck_parked, report.stuck_no_open_leaf) == ((), {}, {})
+    # The control: a marker on the same leaf is a fire.
+    assert len(stuck(result, {"harbor": site_records(folder("Issue-1"))}).fires) == 1
+
+
+def test_stuck_duplicate_issue_joins_first_leaf():
+    leaves = [leaf("1.1", "done", issue="Issue-1"), leaf("1.2", "pending", issue="Issue-1")]
+    report = stuck(fake_result(site("harbor", leaves)), {"harbor": site_records(folder("Issue-1", checklist=UNPARKED))})
+    assert report.fires == () and report.stuck_no_open_leaf == {"harbor": ("Issue-1",)}
+
+
+def test_stuck_statuses():
+    result = fake_result(
+        site("harbor", [leaf("Issue-1")]),
+        site("b\tad", read=False, problem="name does not match the rule", planning=False),
+        site("quarry", read=False, problem="planning directory does not exist"),
+        site("orchard", [leaf("Issue-1")]),
+        site("marsh", [leaf("Issue-1")]),
+    )
+    records = {
+        "harbor": site_records(folder("Issue-1", present(marker(created=None)), UNPARKED)),
+        "quarry": dr.SiteRecords(dr.NOT_READ, dr.PLANNING_MISSING, {}, {}),
+        "orchard": dr.SiteRecords(dr.NOT_READ, dr.PLANNING_CANNOT_LIST.format(error="Access is denied"), {}, {}),
+        "marsh": site_records(),
+    }
+    report = stuck(result, records)
+    assert by_source(report, "stuck") == [
+        ("harbor", "read_with_problems", "stuck fires not fully read: 1"),
+        ("b\tad", "not_read", "name does not match the rule"),
+        ("quarry", "not_read", dr.PLANNING_MISSING),
+        ("orchard", "not_read", "planning directory cannot be listed: Access is denied"),
+        ("marsh", "read", None),
+    ]
+    assert len(report.fires) == 1 and report.fires[0].since is None and report.fires[0].age is None
+
+
+def test_stuck_skipped_link_folder():
+    result = fake_result(site("harbor", [leaf("Issue-1")]))
+    control = all_sources(result, {"harbor": site_records()})
+    assert len(control.sources) == 3 and control.confirmed_none is True
+
+    report = all_sources(result, {"harbor": site_records(skipped={"Issue-60": dr.SKIPPED_LINK})})
+    assert report.fires == ()
+    assert by_source(report, "stuck") == [("harbor", "read_with_problems", "linked issue folders not read: 1")]
+    assert report.all_read is False and report.confirmed_none is False
+
+    both = all_sources(result, {"harbor": site_records(folder("Issue-1", UNREAD_STUCK, UNPARKED),
+                                                       skipped={"Issue-60": dr.SKIPPED_LINK})})
+    assert by_source(both, "stuck") == [
+        ("harbor", "read_with_problems", "stuck fires not fully read: 1; linked issue folders not read: 1")]
+    assert all("Issue-60" not in (s.reason or "") for s in both.sources)
+
+
+def test_stuck_ages():
+    plus_two = timezone(timedelta(hours=2))
+    leaves = [leaf("Issue-1"), leaf("Issue-2"), leaf("Issue-3")]
+    records = site_records(
+        folder("Issue-1", present(marker(created=LOCAL_CREATED)), UNPARKED),
+        folder("Issue-2", present(marker(created=datetime(2026, 1, 12, 9, 30, tzinfo=plus_two))), UNPARKED),
+        folder("Issue-3", present(marker(created=datetime(2026, 1, 25, 8, 0))), UNPARKED),
+    )
+    report = stuck(fake_result(site("harbor", leaves)), {"harbor": records})
+    local, offset, future = report.fires
+    assert local.since == datetime(2026, 1, 12, 9, 30, tzinfo=timezone.utc)
+    assert local.age == timedelta(days=7, hours=14, minutes=30)
+    assert offset.since == datetime(2026, 1, 12, 9, 30, tzinfo=plus_two)
+    assert offset.age == timedelta(days=7, hours=16, minutes=30)
+    assert future.age == timedelta(0)
+    assert sorted(f.since for f in report.fires) == [offset.since, local.since, future.since]
+
+
+def test_open_p0_leaf_with_parked_checklist():
+    result = fake_result(site("harbor", [leaf("Issue-1", "pending", "P0")]))
+    records = {"harbor": site_records(folder("Issue-1", checklist=PARKED))}
+    assert [f.kinds for f in p0(result).fires] == [("p0_leaf",)]
+    report = stuck(result, records)
+    assert report.fires == () and report.stuck_parked == {"harbor": ("Issue-1",)}
