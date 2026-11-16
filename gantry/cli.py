@@ -15,8 +15,8 @@ environment or the home folder to find one. Exit codes:
 - 0: the full build wrote the index and at least one site page; `--site`
   wrote its page; `portfolio` found no report entry;
 - 1: a config error; the full build wrote no site page (the index is still
-  written) or cannot write the index or the output folder, or the plan file
-  cannot be written; `--site` names no
+  written) or cannot write the index or the output folder, the week page
+  cannot be rendered or written, or the plan file cannot be written; `--site` names no
   site, a case clash, a site that cannot be built, a render error or a page
   that cannot be written; `portfolio` found an entry (an advisory one
   included), or the config sets no portfolio_file; `fires` read the fires
@@ -185,6 +185,8 @@ def _build_all(config):
     for s in result.summaries:
         if s.status != "built":
             print(f"gantry: warning: site {shown(s.name)} is not built: {s.reason}", file=sys.stderr)
+    if result.week_error is not None:
+        print(f"gantry: error: {result.week_error}", file=sys.stderr)
     if plan_error is not None:
         print(f"gantry: error: cannot write {PLAN_FILE}: {plan_error}", file=sys.stderr)
     if index_error is not None:
@@ -194,7 +196,7 @@ def _build_all(config):
     if not result.pages:
         print("gantry: error: no site page was written", file=sys.stderr)
         return 1
-    return 0 if plan_error is None else 1
+    return 0 if plan_error is None and result.week_error is None else 1
 
 
 def _build(args):

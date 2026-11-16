@@ -1110,12 +1110,21 @@ index with its reason and on stderr as
   then fails on its own and the index is still written.
 
 A reason names the site and a config key or file kind, never an absolute
-path. Three more lines can follow on stderr:
+path. Five more lines can follow on stderr:
 
 - `gantry: error: cannot write <index path>: <reason>`: the index cannot be
   written. When the output folder itself cannot be made, this is the only
   error line (the not-built lines still come first), and nothing is written;
   when `output_dir` is a file, the reason is `output_dir is not a folder`;
+- `gantry: error: cannot render week.html: <type>: <message>`, or
+  `gantry: error: cannot render week.html: <type>` when the message is
+  empty: the week view (#38) cannot be rendered;
+- `gantry: error: cannot write week.html: <reason>`: the week view cannot be
+  written. Either week line names no path, comes after the not-built lines
+  and before the plan file's line, and is not attempted when the output
+  folder itself cannot be made. The index is still written, without its
+  "Week view" link, and the plan file still is; a `week.html` left by an
+  earlier build is not deleted, so the index's missing link is the signal;
 - `gantry: error: cannot write week-plan.json: <reason>`: the plan file
   cannot be written. It comes before the index's line, names no path, and
   is not attempted when the output folder itself cannot be made; when only
@@ -1125,7 +1134,7 @@ path. Three more lines can follow on stderr:
 | Exit | When |
 |---|---|
 | 0 | the index was written and at least one site page was written (sites not built and warnings do not change it); with `--site`, its page was written |
-| 1 | a config error; no site page was written (the index is still written); the index or the output folder cannot be written; the plan file cannot be written; with `--site`, any of the errors below |
+| 1 | a config error; no site page was written (the index is still written); the index or the output folder cannot be written; the week page cannot be rendered or written; the plan file cannot be written; with `--site`, any of the errors below |
 | 2 | a usage error, such as a missing `--config` |
 
 ### One site: `--site`

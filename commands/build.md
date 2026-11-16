@@ -52,5 +52,6 @@ Relay the output (stdout and stderr) and the exit status to the user
 unchanged: exit 0 is success, the index and at least one site page were
 written (sites not built and warnings do not change it); 1 is a config
 error, no site page was written, the index or the output folder cannot
-be written, or the plan file cannot be written;
+be written, the week page cannot be rendered or written, or the plan file
+cannot be written;
 2 is a usage error.

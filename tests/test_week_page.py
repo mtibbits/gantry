@@ -809,3 +809,17 @@ def test_week_hostile_no_plan(node, tmp_path):
     assert_page_safe(html, [HOSTILE[5]])
     with open_page(write(tmp_path, html)) as page:
         assert page.planted_nodes([HOSTILE[5]]) == Planted([], [], [])
+
+
+# --- the demo build (AC 12) --------------------------------------------------------------------
+
+
+def test_demo_week_page_byte_identical(tmp_path, monkeypatch):
+    from helpers_config import demo_build
+
+    pages = []
+    for n in (1, 2):
+        code, out, _, stderr = demo_build(tmp_path / f"run{n}", monkeypatch)
+        assert code == 0, stderr
+        pages.append((out / "week.html").read_bytes())
+    assert pages[0] == pages[1]
