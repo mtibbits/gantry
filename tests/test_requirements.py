@@ -999,6 +999,7 @@ def test_format_doc_states_rules():
         "a page may pair it differently", "runs on past a later item line",
         "is not a fence", "and no item encloses", "whose list item ends inside it",
         "may lazily continue an item", "a comment after such a line is not skipped",
+        "is used once it is on the file's default branch",
     ]
     assert [w for w in wanted if w not in doc] == []
 
