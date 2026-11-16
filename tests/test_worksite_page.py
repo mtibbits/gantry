@@ -55,7 +55,7 @@ FIXTURES = ROOT / "tests" / "fixtures" / "wbs"
 INPUTS = ROOT / "tests" / "fixtures" / "inputs"
 SAMPLE_ROOTS = directory_roots([SAMPLES])  # the sample sites, read where they are (#59)
 PAGE_ASSETS = ("gantry/templates/worksite.html", "gantry/templates/index.html", "gantry/static/schedule.js",
-               "gantry/static/worksite.js")
+               "gantry/static/worksite.js", "gantry/templates/week.html")
 
 
 def fixture(name):
@@ -503,7 +503,16 @@ POSITIVE = {
 }
 
 
-def devagent_hits(text):
+# Reviewed literals, each allowed as an exact string in one file only.
+ALLOWED_DEVAGENT = {
+    # #38: the week view's allocation-rule line quotes devagent's forecast issue as the issue words it.
+    "gantry/views/week.py": "(mtibbits/devagent#745)",
+}
+
+
+def devagent_hits(text, allowed=None):
+    if allowed is not None:
+        text = text.replace(allowed, "")
     return [name for name, form in DEVAGENT_FORMS.items() if form.search(text)]
 
 
@@ -512,9 +521,21 @@ def test_no_prototype_devagent_content():
         assert name in devagent_hits(text), name
     assert devagent_hits("#7110 and 7110, 7240 and 711") == []
     files = [p for p in code_files(ROOT) if p.startswith("gantry/")]
-    assert set(PAGE_ASSETS) | {"gantry/views/worksite.py"} <= set(files)
-    found = {p: hits for p in files if (hits := devagent_hits((ROOT / p).read_bytes().decode("utf-8")))}
+    assert set(PAGE_ASSETS) | {"gantry/views/worksite.py"} <= set(ALLOWED_DEVAGENT) | set(files)
+    found = {p: hits for p in files
+             if (hits := devagent_hits((ROOT / p).read_bytes().decode("utf-8"), ALLOWED_DEVAGENT.get(p)))}
     assert found == {}
+
+
+def test_devagent_allowance_is_exact_and_scoped():
+    (path, literal), = ALLOWED_DEVAGENT.items()
+    text = (ROOT / path).read_bytes().decode("utf-8")
+    # Load-bearing: without the allowance the file is a hit.
+    assert devagent_hits(text) == ["epic"]
+    # The same text anywhere else, or a near form, still fails.
+    assert devagent_hits(f"x {literal} y") == ["epic"]
+    assert devagent_hits("x (devagent#745) y", literal) == ["epic"]
+    assert devagent_hits("x #745 y", literal) == ["epic"]
 
 
 def test_page_assets_hold_no_path_form():
@@ -592,7 +613,8 @@ def test_page_assets_are_package_data():
     globs = setuptools["package-data"]["gantry"]
     assets = sorted(p.relative_to(ROOT / "gantry").as_posix()
                     for folder in ("templates", "static") for p in (ROOT / "gantry" / folder).iterdir())
-    assert assets == ["static/schedule.js", "static/worksite.js", "templates/index.html", "templates/worksite.html"]
+    assert assets == ["static/schedule.js", "static/worksite.js", "templates/index.html", "templates/week.html",
+                      "templates/worksite.html"]
     for asset in assets:
         assert any(fnmatch.fnmatch(asset, g) for g in globs), asset
 
