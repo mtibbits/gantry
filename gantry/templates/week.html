@@ -29,7 +29,7 @@ ul { padding-left: 1.25rem; margin: .25rem 0; }
 #lines p, #lines li { margin: .2rem 0; }
 #lines .rule, #lines .mapping, #lines .capacity, #notes li { color: var(--muted); font-size: .9rem; }
 #days { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: .75rem; margin: 1rem 0; }
-.day { border: 1px solid var(--rule); border-radius: 4px; padding: .5rem .6rem; }
+.day { border: 1px solid var(--rule); border-radius: 4px; padding: .5rem .6rem; overflow-wrap: anywhere; }
 .day[data-today] { border-color: var(--today); }
 .day .today { color: var(--today); font-weight: 600; margin: 0; }
 .day .hours, .day .reserved, .day .left, .day .none { color: var(--muted); font-size: .85rem; margin: .2rem 0; }

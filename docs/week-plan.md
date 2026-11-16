@@ -1034,11 +1034,13 @@ day is headed `{weekday} {date}`, the as-of day marked `today`, then
 `reserved {start}, {hours}: {label}`, or `reserved {start}, {hours}` when it
 has no label. Each block is headed with its site, its length and
 `start cost {hours}`; a day with none reads `no block planned`. The day's
-lanes row follows under `runs in a lane; no block needed`, then
+lanes row follows under `runs in a lane; no block needed`, each of its
+leaves headed by its site, since the row mixes sites, then
 `left: {attention_pool} {attention}; {lanes_pool} {lanes}`.
 
 A leaf shows its title, linked to its worksite page when that page was
-written (otherwise its key, or its title unlinked), its agent hours in that
+written (its key when it has no title; unlinked when that page was not
+written), its agent hours in that
 block, `unestimated` or `unestimated (3 pr)` for an unestimated leaf with a
 non-time `est:`, its state when it is not pending (`in progress`, `stuck`,
 or the state as written), `P0` on a P0 leaf (an unknown tier as written),
@@ -1082,4 +1084,4 @@ written. A `week.html` from an earlier build is not deleted
 ([docs/worksite-page.md](worksite-page.md#every-site-and-the-index)).
 
 The page reads the plan's file form. It does not render `report`; it shows
-cycle leaves by their reason, and a follow-up issue will read `report`.
+cycle leaves by their reason, and #167 will read `report`.

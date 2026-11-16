@@ -521,7 +521,8 @@ def test_no_prototype_devagent_content():
         assert name in devagent_hits(text), name
     assert devagent_hits("#7110 and 7110, 7240 and 711") == []
     files = [p for p in code_files(ROOT) if p.startswith("gantry/")]
-    assert set(PAGE_ASSETS) | {"gantry/views/worksite.py"} <= set(ALLOWED_DEVAGENT) | set(files)
+    assert set(PAGE_ASSETS) | {"gantry/views/worksite.py"} <= set(files)
+    assert set(ALLOWED_DEVAGENT) <= set(files)
     found = {p: hits for p in files
              if (hits := devagent_hits((ROOT / p).read_bytes().decode("utf-8"), ALLOWED_DEVAGENT.get(p)))}
     assert found == {}

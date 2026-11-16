@@ -143,12 +143,14 @@ def _placements(plan):
     return found
 
 
-def _leaf_line(page, entry, cont):
+def _leaf_line(page, entry, cont, show_site=False):
     site, key = entry["site"], entry["key"]
     record = page.records[(site, key)]
     leaf = page.leaves.get((site, key))
     state, tier, tag = record["state"], record["tier"], record["tag"]
-    parts = [page.link(site, key), _span("hours", hours_text(entry["agent_hours"]))]
+    # A lanes row mixes sites and has no site header, so its leaves name their own.
+    parts = [_span("site", site)] if show_site else []
+    parts += [page.link(site, key), _span("hours", hours_text(entry["agent_hours"]))]
     if record["unestimated"]:
         parts.append(_span("unest", unestimated_text(leaf.meta.get("est") if leaf is not None else None)))
     if state != "pending":
@@ -197,22 +199,22 @@ def _day(page, day, conts):
             text = RESERVED.format(start=r["start"], hours=hours_text(r["hours"]))
         head.append(_p("reserved", text))
 
-    def line(entry):
-        return _leaf_line(page, entry, next(conts[(entry["site"], entry["key"])]))
+    def line(entry, show_site=False):
+        return _leaf_line(page, entry, next(conts[(entry["site"], entry["key"])]), show_site)
 
     body = []
     for blk in day["blocks"]:
         name = esc(blk["site"])
         title = DOT.join([blk["site"], hours_text(blk["length_hours"]),
                           START_COST.format(hours=hours_text(blk["start_cost_hours"]))])
-        body.append(f'<div class="block" data-block="{blk["number"]}" data-site="{name}"><h3>{esc(title)}</h3>'
+        body.append(f'<div class="block" data-block="{esc(blk["number"])}" data-site="{name}"><h3>{esc(title)}</h3>'
                     f'<ul>{"".join(line(entry) for entry in blk["leaves"])}</ul></div>')
     if not day["blocks"]:
         body.append(_p("none", NO_BLOCKS))
     row = day["lanes_row"]
     if row:
         body.append(f'<div class="lanes" data-lanes="{len(row)}"><h3>{esc(LANES_ROW)}</h3>'
-                    f'<ul>{"".join(line(entry) for entry in row)}</ul></div>')
+                    f'<ul>{"".join(line(entry, show_site=True) for entry in row)}</ul></div>')
     pools = page.plan.pools
     body.append(_p("left", LEFT.format(attention_pool=pools[0]["name"],
                                        attention=hours_text(day["left"]["attention_hours"]),
@@ -244,7 +246,7 @@ def _lines(page):
                                                               for p in plan.pools))))
     n = plan.unestimated_planned
     count = _count_line(n, COUNT, COUNT_ONE) if n else ""
-    out.append(f'<p data-unestimated="{n}">{esc(count)}</p>')
+    out.append(f'<p data-unestimated="{esc(n)}">{esc(count)}</p>')
     shareless = [s for s in plan.sites if s["shareless_days"]]
     if shareless:
         out.append(_p("shareless", _count_line(len(shareless), SHARELESS, SHARELESS_ONE)))

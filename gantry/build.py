@@ -122,7 +122,7 @@ def _write_week(result, out):
         why = render_reason(e, roots, (WEEK_RENDER_ERROR, WEEK_RENDER_ERROR_BARE))
         return replace(result, week_error=why), None
     try:
-        write_page(roots, out, "week", text)
+        write_page(roots, out, week.PAGE.removesuffix(".html"), text)
     except (OSError, OutsideRoots) as e:
         return replace(result, week_error=WEEK_WRITE_ERROR.format(why=why_not_written(e, roots))), None
     return result, out / week.PAGE

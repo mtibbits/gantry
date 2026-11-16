@@ -35,7 +35,7 @@ NEW_ATTRS = ("data-beyond", "data-block", "data-day", "data-figure", "data-lanes
 STRUCTURAL = frozenset({"wrap", "label", "stamp", "not-working", "rule", "mapping", "capacity", "shareless", "day", "later",
                         "today", "hours", "reserved", "none", "block", "lanes", "left", "leaf", "title", "unest",
                         "state", "tier", "need", "basis", "cont", "site-unplanned", "beyond-list", "reason", "held",
-                        "p0-leaf", "gone"})
+                        "p0-leaf", "gone", "site"})
 ALLOWED_CLASSES = WEEK_CLASSES | STRUCTURAL | set(STATE_CLASSES.values()) | {STATE_FALLBACK}
 
 
@@ -218,7 +218,17 @@ def test_constructed_lanes_row_under_blocks():
     row = one(t, "data-lanes", "1")
     assert row > with_attr(t, "data-block")[-1]
     assert texts(t, "h3", within=row) == ["runs in a lane; no block needed"]
-    assert parts(t, leaf_lines(t, within=row)[0])[:2] == ["Issue-2", "4 h"]
+    assert parts(t, leaf_lines(t, within=row)[0])[:3] == ["alpha", "Issue-2", "4 h"]
+    # A block's leaves take their site from the block header.
+    assert texts(t, "span", ["site"], with_attr(t, "data-block")[-1]) == []
+
+
+def test_mixed_site_lanes_row_names_each_site(tmp_path):
+    t = tree(fixture_page(tmp_path, "unequal_rates"))
+    rows = with_attr(t, "data-lanes")
+    lines = [i for row in rows for i in leaf_lines(t, within=row)]
+    assert any({attr(t, i, "data-site") for i in leaf_lines(t, within=row)} == {"a", "b"} for row in rows)
+    assert all(parts(t, i)[0] == attr(t, i, "data-site") for i in lines)
 
 
 def test_constructed_split_leaf_continues():
