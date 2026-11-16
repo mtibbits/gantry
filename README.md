@@ -109,8 +109,10 @@ What a run does (`gantry` here is `python3 -m gantry` when you run in place):
 
 - `gantry build --config <file>` builds every site's worksite page and the
   index that links them, and writes the week plan to `week-plan.json`
-  ([docs/week-plan.md](docs/week-plan.md)); `--site <name>` builds one
-  site's page.
+  ([docs/week-plan.md](docs/week-plan.md)); its last line counts the
+  installation's fires, `fires: N; sources not fully read: M`
+  ([docs/daily-screen.md](docs/daily-screen.md#fires)); `--site <name>`
+  builds one site's page.
 - `gantry portfolio --config <file>` checks the installation's portfolio
   file without building ([docs/portfolio-file.md](docs/portfolio-file.md)).
 - `gantry fires --config <file>` checks the installation's fires list

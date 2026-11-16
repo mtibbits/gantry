@@ -6,7 +6,9 @@ week and writes the plan to <output_dir>/week-plan.json (#61); with
 `--site` it builds that one page, no index and no plan, reading that site's
 WBS.md and inputs, every requirements file and the portfolio file. Both
 print each written file's path, then a `trace <site>:` line for each written
-page whose site is in the trace or whose trace report has an entry (#20). `gantry portfolio` checks the
+page whose site is in the trace or whose trace report has an entry (#20);
+the full build then prints one `fires:` line, the count of fires and of
+sources not fully read (#32, docs/daily-screen.md). `gantry portfolio` checks the
 portfolio file the config names, without building (#22); `gantry fires`
 checks the fires list, without building (#30). There is no default
 config location: `--config` is required, and nothing here reads the
@@ -289,8 +291,8 @@ def _fires(args):
     if loaded is None:
         return 1
     config, roots, site_names = loaded
-    # fires_reference is the rule #32's build will use too: as_of at 00:00
-    # when the config sets it, else now.
+    # fires_reference is the rule the full build uses too (#32): as_of at
+    # 00:00 when the config sets it, else now.
     reference = fires_reference(config, datetime.now())
     result = read_fires_list(roots, config.fires_list, site_names, reference)
     if result.status == "not_configured":

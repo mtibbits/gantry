@@ -816,3 +816,19 @@ def test_sample_quarry_records_read_clean():
     assert got.issues["Issue-20"].stuck.value.created_format == dr.LOCAL_MINUTES
     assert got.issues["Issue-9"].checklist.value.parked is True
     assert got.issues["Issue-20"].checklist.value.parked is False
+
+
+# --- the doc ------------------------------------------------------------------------------
+
+
+def test_doc_names_every_token():
+    from gantry.cli import FIRES_LINE
+    from test_samples import ROOT
+
+    text = (ROOT / "docs" / "daily-screen.md").read_bytes().decode("utf-8")
+    tokens = [*STATUSES, *KINDS, *FAIL_CLOSED, "stuck_parked", "stuck_no_open_leaf", "this_machine",
+              FIRES_LINE.format(n="N", m="M")]
+    assert len(tokens) == 14
+    assert [t for t in tokens if f"`{t}`" not in text] == []
+    assert "the-page" not in [line[3:].lower().replace(" ", "-") for line in text.splitlines()
+                              if line.startswith("## ")]

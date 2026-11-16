@@ -882,3 +882,16 @@ def test_build_fires_fault_degrades(tmp_path, monkeypatch):
     result = build_all(load_config(faulty / "gantry.sample.toml"), samples=faulty)
     assert result.fires.sources == (SourceStatus("fires", None, "not_read", "collector failed: RuntimeError"),)
     assert result.fires.fires == ()
+
+
+def test_no_home_defers_to_32():
+    # The homes that deferred to #32 say what the build does now. Split, so
+    # this test is not itself a hit of the sweep's grep.
+    stale = ("yet (#" + "32)", "(#" + "32) will", "No build reads the " + "records yet", "does not read " + "it yet",
+             "#" + "32's build will", "#" + "32 adds the read", "no build reads the fires " + "list yet",
+             "will " + "read each site once", "(#" + "32) merges", "does not read " + "the file yet")
+    assert_no_stale(stale, [*swept_files(), ROOT / "samples" / "README.md", ROOT / "tests" / "test_cli.py",
+                            ROOT / "CHANGELOG.md"])
+    for rel in BUILD_HOMES:
+        text = " ".join((ROOT / rel).read_bytes().decode("utf-8").split())
+        assert "fires:" in text, rel

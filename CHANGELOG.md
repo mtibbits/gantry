@@ -16,7 +16,7 @@ New entries are files in changelog.d/; README's "Versioning & releases" says how
 
 - The fires list: a private Markdown file of fires that are not leaves yet,
   the `fires_check_days` config key and `gantry fires --config <file>`,
-  which checks it; the build does not read it yet (docs/fires-list.md).
+  which checks it (docs/fires-list.md).
 - Threshold and objective paths (#79): a requirement may state a
   `Threshold:` and an `Objective:`, a leaf's `objective:` names the
   requirements it serves at objective only, and selecting a requirement
@@ -35,8 +35,8 @@ New entries are files in changelog.d/; README's "Versioning & releases" says how
   and plans, read from every issue folder of a planning directory with no
   link followed, pinned by fixtures that devagent's own scripts write and a
   contract test against devagent 3.0.0 (`tests/devagent.pin`) on the Ubuntu
-  CI legs; the harbor sample gains seven issue folders. No build reads the
-  records yet (#32) (docs/devagent-formats.md).
+  CI legs; the harbor sample gains seven issue folders
+  (docs/devagent-formats.md).
 
 - The "Served from other sites" panel on a worksite page (#21): in a full
   build, each leaf on another site whose `satisfies:` names one of this
