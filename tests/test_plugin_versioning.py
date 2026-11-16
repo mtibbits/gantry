@@ -344,6 +344,25 @@ def test_planted_unreadable_manifest(release_tree, rel, content, expected):
         assert changelog_problems(release_tree) == []
 
 
+def test_release_keeps_versioning_checks(release_tree):
+    """tools/changelog.py's release writes a section changelog_problems accepts (#160).
+
+    It runs on a copy of the real CHANGELOG.md, so it also fails, naming the
+    line, when the real ## [Unreleased] gains a line release cannot place."""
+    import changelog  # here, not at the top: this module still collects when the tool is broken
+
+    plant_json(release_tree, PLUGIN, _set("version", "9.9.9"))
+    (release_tree / "changelog.d").mkdir()
+    (release_tree / "changelog.d" / "1.added.md").write_bytes(b"- A planted entry.\n")
+    assert changelog_problems(release_tree) == [
+        f"{CHANGELOG}: no '## [9.9.9] — <date>' section for plugin.json's version"]
+    changelog.release(release_tree, "9.9.9", "2026-12-01")
+    assert release_problems(release_tree) == []
+    lines = markdown_text(release_tree / CHANGELOG).split("\n")
+    at = lines.index(UNRELEASED)
+    assert lines[at + 1:at + 5] == ["", changelog.POINTER, "", "## [9.9.9] — 2026-12-01"]
+
+
 # --- the README's release section and plugin install block ------------------------------
 
 RELEASE_SECTION = "## Versioning & releases"

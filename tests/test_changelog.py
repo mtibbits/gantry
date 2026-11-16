@@ -10,6 +10,7 @@ points the tool's ROOT at a folder that does not exist, so a call that forgets
 `root=` fails instead of rewriting the real CHANGELOG.md.
 """
 
+import importlib
 import shutil
 from pathlib import Path
 
@@ -325,3 +326,141 @@ def test_preview_refuses(tmp_path, capsys, case):
     before = snapshot(root)
     assert run(capsys, root, "preview") == (1, "", "".join(f"changelog: {x}\n" for x in lines))
     assert snapshot(root) == before
+
+
+# --- release <version> <date> --------------------------------------------------------
+
+EXPECTED_RELEASED = """\
+# Changelog
+
+A fixture for tools/changelog.py.
+
+## [Unreleased]
+
+New entries are files in changelog.d/; README's "Versioning & releases" says how.
+
+## [9.9.9] — 2026-12-01
+
+### Added
+
+- Carried one, which wraps
+  onto a second line.
+- Carried two.
+- Nine, which wraps
+  onto a second line.
+- Ten, first.
+- Ten, second.
+
+### Fixed
+
+- Ten fixed.
+
+### Security
+
+- A security policy.
+
+## [0.1.0] — 2026-11-14
+
+### Added
+
+- The first release.
+"""
+
+POINTER_TEXT = 'New entries are files in changelog.d/; README\'s "Versioning & releases" says how.'
+R1_999 = ("CHANGELOG.md already has a section for 9.9.9; add to it with --fold, "
+          "or release a new version")
+
+
+def released_tree(tmp_path):
+    root = make_tree(tmp_path / "t", FIXTURE_CHANGELOG, FIXTURE_FILES)
+    assert changelog.main(["release", "9.9.9", "2026-12-01"], root=root) == 0
+    return root
+
+
+def test_release_fixture(tmp_path, capsys):
+    root = make_tree(tmp_path / "t", FIXTURE_CHANGELOG, FIXTURE_FILES)
+    assert run(capsys, root, "release", "9.9.9", "2026-12-01") == (
+        0, "changelog: wrote ## [9.9.9] — 2026-12-01: 7 items, 4 entry files deleted\n", "")
+    assert (root / "CHANGELOG.md").read_bytes() == EXPECTED_RELEASED.encode("utf-8")
+    assert list((root / "changelog.d").iterdir()) == []
+
+
+def test_preview_matches_release(tmp_path, capsys):
+    root = make_tree(tmp_path / "t", FIXTURE_CHANGELOG, FIXTURE_FILES)
+    rc, shown, _ = run(capsys, root, "preview")
+    assert rc == 0
+    assert run(capsys, root, "release", "9.9.9", "2026-12-01")[0] == 0
+    lines = (root / "CHANGELOG.md").read_bytes().decode("utf-8").split("\n")
+    start = lines.index("## [9.9.9] — 2026-12-01")
+    end = lines.index("## [0.1.0] — 2026-11-14")
+    section = lines[start:end]
+    while section and section[-1] == "":
+        section.pop()
+    assert "\n".join(["## [Unreleased]"] + section[1:]) + "\n" == shown
+
+
+def test_release_first_section(tmp_path):
+    text = ("# Changelog\n\nA fixture for tools/changelog.py.\n\n## [Unreleased]\n\n"
+            f"{POINTER_TEXT}\n\n### Added\n\n- Carried.\n")
+    root = make_tree(tmp_path / "t", text, None)
+    changelog.release(root, "1.0.0", "2026-12-01")
+    assert (root / "CHANGELOG.md").read_bytes().decode("utf-8") == (
+        "# Changelog\n\nA fixture for tools/changelog.py.\n\n## [Unreleased]\n\n"
+        f"{POINTER_TEXT}\n\n## [1.0.0] — 2026-12-01\n\n### Added\n\n- Carried.\n")
+
+
+def test_release_restores_pointer(tmp_path):
+    text = planted(FIXTURE_CHANGELOG, f"{POINTER_TEXT}\n\n", "")
+    root = make_tree(tmp_path / "t", text, FIXTURE_FILES)
+    changelog.release(root, "9.9.9", "2026-12-01")
+    assert (root / "CHANGELOG.md").read_bytes() == EXPECTED_RELEASED.encode("utf-8")
+
+
+def test_release_refusal_order(tmp_path, capsys):
+    text = planted(FIXTURE_CHANGELOG, "## [0.1.0]",
+                   "## [9.9.9] — 2026-11-20\n\n### Added\n\n- Older.\n\n## [0.1.0]")
+    root = make_tree(tmp_path / "t", text, {**FIXTURE_FILES, "079.added.md": "- x\n"})
+    before = snapshot(root)
+    assert run(capsys, root, "release", "9.9.9", "2026-12-01") == (1, "", f"changelog: {R1_999}\n")
+    assert snapshot(root) == before
+
+
+def test_release_write_fails(tmp_path, capsys, monkeypatch):
+    root = make_tree(tmp_path / "t", FIXTURE_CHANGELOG, FIXTURE_FILES)
+    before = snapshot(root)
+
+    def refuse(self, data):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(Path, "write_bytes", refuse)
+    assert run(capsys, root, "release", "9.9.9", "2026-12-01") == (
+        1, "", "changelog: CHANGELOG.md: could not write (Permission denied); nothing changed\n")
+    assert snapshot(root) == before
+
+
+def test_release_unlink_fails(tmp_path, capsys, monkeypatch):
+    root = make_tree(tmp_path / "t", FIXTURE_CHANGELOG, FIXTURE_FILES)
+    real_unlink = Path.unlink
+
+    def unlink(self, missing_ok=False):
+        if self.name == "10.added.md":
+            raise PermissionError(13, "Permission denied")
+        real_unlink(self, missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", unlink)
+    assert run(capsys, root, "release", "9.9.9", "2026-12-01") == (
+        1, "", "changelog: CHANGELOG.md now holds these items; delete these files by hand, "
+               "do not fold them: changelog.d/10.added.md\n")
+    assert (root / "CHANGELOG.md").read_bytes() == EXPECTED_RELEASED.encode("utf-8")
+    assert sorted(p.name for p in (root / "changelog.d").iterdir()) == ["10.added.md"]
+
+
+@pytest.mark.parametrize("text", [
+    "9.9.9", "09.9.9", "1\u0662.0.0",
+    "## [9.9.9] — 2026-12-01", "## [9.9.9]", "## [9.9.9] - 2026-12-01"])
+def test_predicates_match_versioning_test(text):
+    versioning = importlib.import_module("test_plugin_versioning")
+    for ours, theirs in ((changelog.SEMVER, versioning.SEMVER),
+                         (changelog.RELEASE_HEADING, versioning.RELEASE_HEADING)):
+        a, b = ours.fullmatch(text), theirs.fullmatch(text)
+        assert (a and a.groups()) == (b and b.groups())

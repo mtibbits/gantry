@@ -27,6 +27,7 @@ README's "Versioning & releases" says when to run each command.
 """
 
 import argparse
+import datetime
 import re
 import sys
 from pathlib import Path
@@ -48,6 +49,11 @@ FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 NAME_RULE = "it must be <key>.<kind>.md"
 CHANGELOG = "CHANGELOG.md"
 UNRELEASED = "## [Unreleased]"
+DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")  # fullmatch, then a real calendar date
+# Copied from tests/test_plugin_versioning.py, which a tool may not import;
+# tests/test_changelog.py keeps the two copies in agreement.
+SEMVER = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")  # fullmatch only; ASCII digits
+RELEASE_HEADING = re.compile(r"## \[(?P<version>[^\]]+)\](?: — (?P<date>[0-9]{4}-[0-9]{2}-[0-9]{2}))?")  # fullmatch
 
 
 def _plural(n, word):
@@ -277,6 +283,84 @@ def preview(root):
     return render(UNRELEASED, waiting(root)[0])
 
 
+# --- release ------------------------------------------------------------------------
+
+class Unfinished(Refused):
+    """CHANGELOG.md was written, but some entry files used could not be deleted."""
+
+
+def _check_version(version):
+    if not SEMVER.fullmatch(version):
+        raise Refused(f"{version!r} is not a plain X.Y.Z version")
+
+
+def _check_date(date):
+    try:
+        if DATE.fullmatch(date) and datetime.date.fromisoformat(date):
+            return
+    except ValueError:
+        pass
+    raise Refused(f"{date!r} is not a YYYY-MM-DD date")
+
+
+def _count(items):
+    return sum(len(kind_items) for kind_items in items.values())
+
+
+def _waiting_items(root):
+    """waiting(), or Refused (R4) when it holds no item."""
+    items, files = waiting(root)
+    if not _count(items):
+        raise Refused(f"nothing is waiting: no entry files in {FOLDER}/ and no items under {UNRELEASED}")
+    return items, files
+
+
+def _with_section(lines, start, end, section, rest):
+    """The file: lines before ## [Unreleased], its pointer lines, `section`,
+    then, after a blank line, lines[rest:] when any remain."""
+    out = lines[:start] + [UNRELEASED, "", POINTER, ""] + section.rstrip("\n").split("\n")
+    if rest < len(lines):
+        return "\n".join(out + [""] + lines[rest:])
+    return "\n".join(out) + "\n"
+
+
+def _write(root, text, files):
+    """Write CHANGELOG.md, then delete `files`: Refused (R11) when the write
+    fails, Unfinished (R10) naming the files left when a delete fails."""
+    try:
+        (Path(root) / CHANGELOG).write_bytes(text.encode("utf-8"))
+    except OSError as e:
+        raise Refused(f"{CHANGELOG}: could not write ({e.strerror or type(e).__name__}); "
+                      "nothing changed") from None
+    left = []
+    for path in files:
+        try:
+            path.unlink()
+        except OSError:
+            left.append(_shown(path.name))
+    if left:
+        raise Unfinished(f"{CHANGELOG} now holds these items; delete these files by hand, "
+                         f"do not fold them: {', '.join(left)}")
+    return len(files)
+
+
+def release(root, version, date):
+    """Write ## [<version>] — <date> from what is waiting, above the newest
+    dated section, and delete the entry files used: (items, files deleted)."""
+    _check_version(version)
+    _check_date(date)
+    lines = read_changelog(root)
+    start, end = unreleased_span(lines)
+    for line in unfenced(lines):
+        m = RELEASE_HEADING.fullmatch(line) if line is not None else None
+        if m and m.group("version") == version:
+            raise Refused(f"{CHANGELOG} already has a section for {version}; "
+                          "add to it with --fold, or release a new version")
+    items, files = _waiting_items(root)
+    section = render(f"## [{version}] — {date}", items)
+    return _count(items), _write(root, _with_section(lines, start, end, section, end), files)
+
+
 def build_parser():
     parser = argparse.ArgumentParser(prog=PROG, description=__doc__.split("\n\n")[0],
                                      allow_abbrev=False)
@@ -284,6 +368,10 @@ def build_parser():
     sub.add_parser("check", help="report entry files that break the rules", allow_abbrev=False)
     sub.add_parser("preview", help="print the ## [Unreleased] section release would write",
                    allow_abbrev=False)
+    p = sub.add_parser("release", help="write a release's section and delete the entry files used",
+                       allow_abbrev=False)
+    p.add_argument("version", help="the release's X.Y.Z version")
+    p.add_argument("date", help="the release's YYYY-MM-DD date")
     return parser
 
 
@@ -309,7 +397,12 @@ def main(argv=None, root=None) -> int:
         _say([f"check: no problems in {_plural(len(_entries(root)), 'entry file')}"], sys.stdout)
         return 0
     try:
-        sys.stdout.write(preview(root))
+        if args.command == "preview":
+            sys.stdout.write(preview(root))
+        else:
+            items, deleted = release(root, args.version, args.date)
+            _say([f"wrote ## [{args.version}] — {args.date}: {_plural(items, 'item')}, "
+                  f"{_plural(deleted, 'entry file')} deleted"], sys.stdout)
     except Refused as e:
         trailer = [f"{args.command} refused: fix the changelog.d/ problems above"]
         _say(e.lines + (trailer if e.check_failed else []), sys.stderr)
