@@ -228,6 +228,7 @@ acknowledging a security report within seven days (BRule-6).
 - FR-27: A requirement may state a threshold and an objective, and a leaf
   may serve a requirement at objective only; a selection shows the path
   and end day of each. {refines: SR-4}
+- FR-28: Demonstration requirement A for epic #159; never merged. {refines: SR-4}
 
 ## Quality attributes
 
