@@ -521,3 +521,150 @@ def test_release_usage_error(tmp_path, capsys, argv):
         changelog.main(argv, root=root)
     assert e.value.code == 2
     assert snapshot(root) == before
+
+
+# --- release <version> --fold ---------------------------------------------------------
+
+EXPECTED_FOLDED = """\
+# Changelog
+
+A fixture for tools/changelog.py.
+
+## [Unreleased]
+
+New entries are files in changelog.d/; README's "Versioning & releases" says how.
+
+## [9.9.9] — 2026-12-01
+
+### Added
+
+- Carried one, which wraps
+  onto a second line.
+- Carried two.
+- Nine, which wraps
+  onto a second line.
+- Ten, first.
+- Ten, second.
+
+### Removed
+
+- Twelve removed.
+
+### Fixed
+
+- Ten fixed.
+- Eleven fixed.
+
+### Security
+
+- A security policy.
+
+## [0.1.0] — 2026-11-14
+
+### Added
+
+- The first release.
+"""
+
+
+def replant(root, old, new):
+    """Rewrite the tree's CHANGELOG.md, CRLF, with its one `old` replaced by `new`."""
+    path = root / "CHANGELOG.md"
+    text = path.read_bytes().decode("utf-8").replace("\r\n", "\n")
+    path.write_bytes(crlf(planted(text, old, new)))
+
+
+def test_fold_fixture(tmp_path, capsys):
+    root = released_tree(tmp_path)
+    make_tree(root, None, {"11.fixed.md": "- Eleven fixed.\n", "12.removed.md": "- Twelve removed.\n"})
+    capsys.readouterr()
+    assert run(capsys, root, "release", "9.9.9", "--fold") == (
+        0, "changelog: folded 2 items into ## [9.9.9] — 2026-12-01: 2 entry files deleted\n", "")
+    assert (root / "CHANGELOG.md").read_bytes() == EXPECTED_FOLDED.encode("utf-8")
+    assert list((root / "changelog.d").iterdir()) == []
+
+
+def test_fold_carries_unreleased_lines(tmp_path, capsys):
+    root = released_tree(tmp_path)
+    replant(root, f"{POINTER_TEXT}\n\n", f"{POINTER_TEXT}\n\n### Fixed\n\n- Carried late.\n\n")
+    capsys.readouterr()
+    assert run(capsys, root, "release", "9.9.9", "--fold") == (
+        0, "changelog: folded 1 item into ## [9.9.9] — 2026-12-01: 0 entry files deleted\n", "")
+    assert (root / "CHANGELOG.md").read_bytes() == planted(
+        EXPECTED_RELEASED, "- Ten fixed.\n", "- Ten fixed.\n- Carried late.\n").encode("utf-8")
+
+
+def r8(newest, version):
+    return (f"--fold adds only to the newest dated section, which is {newest}, not {version}; "
+            "release a new version instead")
+
+
+ELEVEN = {"11.fixed.md": "- Eleven fixed.\n"}
+FOLD_REFUSALS = {
+    # case: (starting tree, (old, new) planted in CHANGELOG.md or None, entry files,
+    #        version, stderr after each `changelog: `)
+    "older-section": ("released", None, ELEVEN, "0.1.0", [r8("9.9.9", "0.1.0")]),
+    "no-section": ("released", None, ELEVEN, "9.9.8", [r8("9.9.9", "9.9.8")]),
+    "nothing-waiting": ("released", None, {}, "9.9.9", [
+        "nothing is waiting: no entry files in changelog.d/ and no items under ## [Unreleased]"]),
+    "bad-file": ("released", None, {**ELEVEN, "079.added.md": "- x\n"}, "9.9.9", [
+        f"{F}079.added.md: the issue number '079' must be positive with no leading zero",
+        "release refused: fix the changelog.d/ problems above"]),
+    "undated-newest": ("released", ("## [9.9.9] — 2026-12-01", "## [9.9.9]"), ELEVEN, "9.9.9",
+                       [r8("9.9.9", "9.9.9")]),
+    "bad-version": ("released", None, ELEVEN, "9.9", ["'9.9' is not a plain X.Y.Z version"]),
+    "unreleased-fixture": ("fixture", None, FIXTURE_FILES, "9.9.9", [r8("0.1.0", "9.9.9")]),
+    "no-dated-section": ("fixture", ("\n## [0.1.0] — 2026-11-14\n\n### Added\n\n- The first release.\n", ""),
+                         FIXTURE_FILES, "9.9.9", [r8("none", "9.9.9")]),
+}
+
+
+def fold_tree(tmp_path, start, plant, files):
+    if start == "released":
+        root = released_tree(tmp_path)
+    else:
+        root = make_tree(tmp_path / "t", FIXTURE_CHANGELOG, {})
+    if plant:
+        replant(root, *plant)
+    return make_tree(root, None, files)
+
+
+@pytest.mark.parametrize("case", FOLD_REFUSALS)
+def test_fold_refuses(tmp_path, capsys, case):
+    start, plant, files, version, lines = FOLD_REFUSALS[case]
+    root = fold_tree(tmp_path, start, plant, files)
+    before = snapshot(root)
+    capsys.readouterr()
+    assert run(capsys, root, "release", version, "--fold") == (
+        1, "", "".join(f"changelog: {x}\n" for x in lines))
+    assert snapshot(root) == before
+
+
+HAND_EDITS = {
+    # case: (old, new, the planted line's number)
+    "prose": ("## [9.9.9] — 2026-12-01\n\n",
+              "## [9.9.9] — 2026-12-01\n\nUpgrade note: edit your config.\n\n", 11),
+    "unknown-heading": ("- Ten, second.\n\n### Fixed", "- Ten, second.\n\n### Notes\n\n### Fixed", 21),
+    # A kind heading out of KINDS order differs from render() at the first
+    # kind heading line, where ### Security now stands instead of ### Added.
+    "out-of-order": ("2026-12-01\n\n### Added\n",
+                     "2026-12-01\n\n### Security\n\n- A security policy.\n\n### Added\n", 11),
+    "blank-between-items": ("- Ten, first.\n- Ten, second.\n", "- Ten, first.\n\n- Ten, second.\n", 19),
+    "empty-kind": ("- Ten, second.\n\n### Fixed", "- Ten, second.\n\n### Deprecated\n\n### Fixed", 21),
+}
+
+
+@pytest.mark.parametrize("case", HAND_EDITS)
+def test_fold_refuses_hand_edited_section(tmp_path, capsys, case):
+    old, new, line = HAND_EDITS[case]
+    root = released_tree(tmp_path)
+    replant(root, old, new)
+    if case == "out-of-order":
+        replant(root, "- Ten fixed.\n\n### Security\n\n- A security policy.\n", "- Ten fixed.\n")
+    make_tree(root, None, ELEVEN)
+    before = snapshot(root)
+    capsys.readouterr()
+    assert run(capsys, root, "release", "9.9.9", "--fold") == (1, "", (
+        f"changelog: CHANGELOG.md line {line}: ## [9.9.9] — 2026-12-01 is not in the form "
+        "release writes, so --fold cannot add to it; release a new version instead\n"))
+    assert snapshot(root) == before

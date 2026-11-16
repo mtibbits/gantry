@@ -346,7 +346,7 @@ def _write(root, text, files):
 
 def release(root, version, date):
     """Write ## [<version>] — <date> from what is waiting, above the newest
-    dated section, and delete the entry files used: (items, files deleted)."""
+    dated section, and delete the entry files used: (items, files deleted, heading)."""
     _check_version(version)
     _check_date(date)
     lines = read_changelog(root)
@@ -357,8 +357,63 @@ def release(root, version, date):
             raise Refused(f"{CHANGELOG} already has a section for {version}; "
                           "add to it with --fold, or release a new version")
     items, files = _waiting_items(root)
-    section = render(f"## [{version}] — {date}", items)
-    return _count(items), _write(root, _with_section(lines, start, end, section, end), files)
+    heading = f"## [{version}] — {date}"
+    text = _with_section(lines, start, end, render(heading, items), end)
+    return _count(items), _write(root, text, files), heading
+
+
+def section_items(lines):
+    """A section's items per kind, read leniently: an item under no kind
+    heading, or under an unknown heading, is left out, so render() of the
+    result differs from a section that holds one."""
+    items, kind, current = _no_items(), None, None
+    for line in lines:
+        role = line_role(line, current is not None)
+        if line in HEADINGS:
+            kind, current = KINDS[HEADINGS.index(line)], None
+        elif HEADING.match(line):
+            kind, current = None, None
+        elif role == "item" and kind is not None:
+            current = [line]
+            items[kind].append(current)
+        elif role == "more" and current is not None:
+            current.append(line)
+        else:
+            current = None
+    return items
+
+
+def fold(root, version):
+    """Add what is waiting to the newest dated section, which must be
+    <version>'s and in the form release writes, and delete the entry files
+    used: (items, files deleted, heading)."""
+    _check_version(version)
+    lines = read_changelog(root)
+    start, end = unreleased_span(lines)
+    plain = unfenced(lines)
+    m = RELEASE_HEADING.fullmatch(lines[end]) if end < len(lines) else None
+    if not (m and m.group("date") and m.group("version") == version):
+        newest = "none" if end == len(lines) else m.group("version") if m else lines[end][3:]
+        raise Refused(f"--fold adds only to the newest dated section, which is {newest}, "
+                      f"not {version}; release a new version instead")
+    heading = lines[end]
+    rest = next((i for i in range(end + 1, len(plain))
+                 if plain[i] is not None and plain[i].startswith("## ")), len(lines))
+    section = lines[end:rest]
+    while len(section) > 1 and not section[-1].strip():
+        section.pop()  # the blank lines before the next section are release's separator
+    target = section_items(section[1:])
+    expected = render(heading, target).rstrip("\n").split("\n")
+    for i, (have, want) in enumerate(zip(section + [None], expected + [None])):
+        if have != want:
+            raise Refused(f"{CHANGELOG} line {end + i + 1 if have is not None else end + i}: "
+                          f"{heading} is not in the form release writes, so --fold cannot add "
+                          "to it; release a new version instead")
+    items, files = _waiting_items(root)
+    for kind in KINDS:
+        target[kind] += items[kind]
+    text = _with_section(lines, start, end, render(heading, target), rest)
+    return _count(items), _write(root, text, files), heading
 
 
 def build_parser():
@@ -371,12 +426,21 @@ def build_parser():
     p = sub.add_parser("release", help="write a release's section and delete the entry files used",
                        allow_abbrev=False)
     p.add_argument("version", help="the release's X.Y.Z version")
-    p.add_argument("date", help="the release's YYYY-MM-DD date")
+    p.add_argument("date", nargs="?", help="the release's YYYY-MM-DD date; none with --fold")
+    p.add_argument("--fold", action="store_true",
+                   help="add what is waiting to <version>'s section, the newest dated one")
     return parser
 
 
 def parse_args(argv):
-    return build_parser().parse_args(argv)  # a usage error exits 2
+    """The parsed arguments; a usage error exits 2."""
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.command == "release" and args.fold and args.date is not None:
+        parser.error("release --fold takes no date; the section keeps its own")
+    if args.command == "release" and not args.fold and args.date is None:
+        parser.error("release needs a date, or --fold")
+    return args
 
 
 def _say(lines, stream):
@@ -399,9 +463,13 @@ def main(argv=None, root=None) -> int:
     try:
         if args.command == "preview":
             sys.stdout.write(preview(root))
+        elif args.fold:
+            items, deleted, heading = fold(root, args.version)
+            _say([f"folded {_plural(items, 'item')} into {heading}: "
+                  f"{_plural(deleted, 'entry file')} deleted"], sys.stdout)
         else:
-            items, deleted = release(root, args.version, args.date)
-            _say([f"wrote ## [{args.version}] — {args.date}: {_plural(items, 'item')}, "
+            items, deleted, heading = release(root, args.version, args.date)
+            _say([f"wrote {heading}: {_plural(items, 'item')}, "
                   f"{_plural(deleted, 'entry file')} deleted"], sys.stdout)
     except Refused as e:
         trailer = [f"{args.command} refused: fix the changelog.d/ problems above"]
