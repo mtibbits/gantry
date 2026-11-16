@@ -38,7 +38,9 @@ Matching is exact and case-sensitive, for the namespace and for the code:
 
 IDs are never renumbered or reused. A requirement keeps its number for life,
 and a number once used is never given to another requirement, even after the
-first is withdrawn (see below).
+first is withdrawn (see below). A number is used once it is on the file's
+default branch; the rules above apply from then, so a pull request may
+renumber its own new requirement before it merges.
 
 Every full ID is also a valid `<namespace>:<id>` entry in the shape
 mtibbits/devagent#888 checks in `satisfies:` (each half matches

@@ -25,6 +25,11 @@ QUALIFIED_RE = re.compile(
 META_KEYS = {"needs", "refines"}
 # The source-of-truth claims (AC5), one anchor phrase each, matched on the normalised header.
 SOT_PHRASES = ("derived once", "changes with the code", "not re-derived", "never renumbered or reused")
+# The ID rule (#161), one anchor phrase per claim: the tool; the claim in the issue;
+# who renumbers; what they update; the qualifier; run once; the claim's form.
+RULE_PHRASES = ("tools/next_requirement_id.py", "in the issue's body", "merges second renumbers",
+                "every reference on its branch", "once they are on `main`", "run the tool once",
+                "set off by a space or punctuation")
 
 PLANTED = (
     "See life:BR-3 and harbor:FR-1.\n"
@@ -97,6 +102,20 @@ def test_header_links_the_format_doc():
 def test_header_states_source_of_truth():
     text = normalised(header(own_text()))
     assert [p for p in SOT_PHRASES if p not in text] == []
+
+
+def test_header_states_the_id_rule():
+    text = normalised(header(own_text()))
+    assert [p for p in RULE_PHRASES if p not in text] == []
+
+
+def test_header_holds_no_id():
+    # tools/next_requirement_id.py counts every mention in this file, so an
+    # example number in the header would be skipped for good.
+    from next_requirement_id import CODES, mentions
+
+    head = header(own_text())
+    assert {code: mentions(head, code) for code in CODES if mentions(head, code)} == {}
 
 
 def test_scanners_find_planted_tokens():
