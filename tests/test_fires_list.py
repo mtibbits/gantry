@@ -235,9 +235,10 @@ def test_hostile_shapes_are_cheap():
 
 def test_wide_entry_like_is_cheap():
     # #152's wider rule: a long blank run, mark run or bracket run before
-    # the box. A non-possessive lead blank run makes the first two lines
-    # take tens of seconds.
-    lines = [chr(9) * 20000 + "[" + "x" * 20000, " " * 20000 + "[" + " " * 20000,
+    # the box. A non-possessive lead blank run is quadratic on the first two
+    # lines (about 2 s each at 20,000 characters, so they are 50,000 long and
+    # take tens of seconds).
+    lines = [chr(9) * 50000 + "[" + "x" * 50000, " " * 50000 + "[" + " " * 50000,
              "-" + " " * 20000 + "[" + "x" * 20000, "> " * 20000 + "x", "[" * 20000,
              chr(0xA0) * 20000 + "[ ] 2026-10-24 x", "1" * 20000 + ". [", "[] " * 10000 + "x"]
     start = clock.perf_counter()
