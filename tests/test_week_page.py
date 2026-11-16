@@ -777,24 +777,30 @@ def hostile_plan_and_result():
     """One plan and result planting HOSTILE by index: est [0] (in no other
     plant); title and note [1]; key and mapping.rejected [2]; site name and a
     beyond title [3]; reserved label and a waits_on_unplanned title [4];
-    unknown reason [5], tag [6], state [7], tier [8]; basis [9]; pool name [10]."""
+    unknown reason [5], tag [6], state [7], tier [8]; basis [9]; pool name [10].
+    The site name also reaches the lanes row, the P0 list (as site and
+    holder) and the share-less lines; a not-built site carries [3] and [4];
+    the mapping source is [5] and the allocation rule [9]."""
     h = HOSTILE
     site, key = h[3], h[2]
     assert not any(h[0] in other for other in h[1:])
     plan = make_plan(
-        mapping={"values": [0.0, 0.1, 0.25, 0.5, 1.0], "source": "default", "rejected": h[2]},
+        mapping={"values": [0.0, 0.1, 0.25, 0.5, 1.0], "source": h[5], "rejected": h[2]},
+        allocation_rule=h[9],
         pools=[{"name": h[10], "capacity_source": "portfolio file", "days_run_out": [HORIZON[0]]},
                {"name": LANES, "capacity_source": "portfolio file", "days_run_out": []}],
         binding={"pool": h[10], "first_day": HORIZON[0], "text": h[10]},
         notes=[{"kind": "no_allocation", "date": HORIZON[0], "projects": [], "text": h[1]}],
-        days=[day(HORIZON[0], [block(1, site, [(key, 1.0)])],
+        days=[day(HORIZON[0], [block(1, site, [(key, 1.0)])], [lane(site, "Issue-L", 4.0)],
                   reserved=[{"start": "09:00", "hours": 1.0, "label": h[4]}])],
-        leaves=[leaf_record(site, key, tag=h[6], state=h[7], tier=h[8], basis=h[9], unestimated=True)],
+        leaves=[leaf_record(site, key, tag=h[6], state=h[7], tier=h[8], basis=h[9], unestimated=True),
+                leaf_record(site, "Issue-L", need=0, rate=0.0)],
         sites=[site_record(site, unplanned=[("Issue-B", "beyond_horizon"), ("Issue-W", "waits_on_unplanned"),
-                                            ("Issue-U", h[5])])],
+                                            ("Issue-U", h[5])],
+                           p0=[{"key": key, "held_by": [site]}], shareless=[HORIZON[1]])],
         unestimated_planned=1)
     result = make_result([(site, key, h[1], h[0]), (site, "Issue-B", h[3], None), (site, "Issue-W", h[4], None)],
-                         pages=(site,))
+                         pages=(site,), not_built=[(h[3], h[4])])
     return plan, result
 
 
@@ -805,9 +811,11 @@ def test_week_hostile(node, tmp_path):
     assert_no_external_resources(html)
     t = tree(html)
     assert texts(t, "span", ["reason"]).count("not planned: " + HOSTILE[5]) == 1
-    (line,) = leaf_lines(t)
+    (line,) = leaf_lines(t, HOSTILE[2])
     assert {"tag-other", "st-other", "tier-other"} <= set(t.elements[line]["classes"])
     assert texts(t, "span", ["unest"], line) == ["unestimated"]
+    assert texts(t, "span", ["site"]) == [HOSTILE[3]]
+    assert texts(t, "span", ["held"]) == ["held by " + HOSTILE[3]]
     with open_page(write(tmp_path, html)) as page:
         page.drive("days", "10")
         page.drive("beyond-1", "toggle")

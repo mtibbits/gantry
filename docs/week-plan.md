@@ -646,10 +646,12 @@ date `shares_dropped` before `no_allocation`.
 
 The fields added by #37 (`notes`, a leaf's `tier`, and a site's `shares`,
 `shareless_days`, `share_note`, `p0`, `attention_hours_target` and
-`lane_hours_target`) are read by the week view (#38). A site may hold more
-than one block a day, and a leaf may sit in two blocks of one day; the week
-view shows both; #33 and #24 must not assume either away. A `p0` entry's `held_by` keeps absent and unresolved
-outcomes as well as open ones, since each holds the leaf (#62), and
+`lane_hours_target`) are read by the week view (#38), except `share_note`:
+the week view words the share-less line itself, so `share_note` stays
+provisional until a view reads it. A site may hold more than one block a
+day, and a leaf may sit in two blocks of one day; the week view shows
+both; #33 and #24 must not assume either away. A `p0` entry's `held_by`
+keeps absent and unresolved outcomes as well as open ones, since each holds the leaf (#62), and
 `share_note` is set for the whole site once any day is share-less. The
 targets are the values at the horizon's end; the file holds no per-day
 target.
@@ -1068,9 +1070,9 @@ behind a `show or hide` button. A site with none reads
 written: its leaves stay in the days, unlinked.
 
 **Per site.** Under `Per site`, a table with the columns `site`,
-`share on {weekday} {date}` (the plan's first day, or
-`no intended share set`) and each pool, where each pool's cell is
-`{charged} charged, {target} target` over the 10 days.
+`share on {weekday} {date}` (the plan's first day; a site with no share
+that day reads `no intended share set`) and each pool, where each pool's
+cell is `{charged} charged, {target} target` over the 10 days.
 
 **No plan.** When the plan's status is `no_plan`, the page shows
 `no week plan: {reason}` and the stamp, and nothing else; the index still

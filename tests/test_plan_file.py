@@ -259,8 +259,9 @@ V1_FIELDS = {
     "plan.report[].kind": "string", "plan.report[].leaves[].site": "string",
     "plan.report[].leaves[].key": "string", "plan.leaves[].unresolved_local": "integer",
     "plan.sites[].unplanned[].unresolved_local": "integer",
-    # Added by #37: always written, read by the week view (#38); a reader takes a
-    # missing list as empty and a missing share_note or tier as not given.
+    # Added by #37: always written, read by the week view (#38) except share_note, which
+    # stays provisional; a reader takes a missing list as empty and a missing share_note
+    # or tier as not given.
     "plan.notes[].kind": "string", "plan.notes[].date": "date", "plan.notes[].projects[]": "string",
     "plan.notes[].text": "string", "plan.leaves[].tier": "string",
     "plan.sites[].shares[].date": "date", "plan.sites[].shares[].share": "null|number",

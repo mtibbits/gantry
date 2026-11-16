@@ -7,7 +7,9 @@
   const all = (selector) => Array.from(document.querySelectorAll(selector));
   const setDays = (ten) => {
     all(".day.later").forEach((day) => day.classList.toggle("gone", !ten));
-    all('button[data-control="days"]').forEach((b) => b.setAttribute("aria-pressed", String((b.getAttribute("data-value") === "10") === ten)));
+    all('button[data-control="days"]').forEach((b) => {
+      b.setAttribute("aria-pressed", String((b.getAttribute("data-value") === "10") === ten));
+    });
   };
   all("[data-control]").forEach((el) => el.classList.remove("gone"));
   all(".beyond-list").forEach((list) => list.classList.add("gone"));
