@@ -19,7 +19,7 @@ and in this checkout, in the bodies of open issues, and in this file in open
 pull requests, the last two only when the repository's owner, a member or a
 collaborator opened them. A claim edited into an issue anyone else opened is
 not counted, so claim the ID in an issue one of them opened, opening one if
-needed.
+needed; a contributor outside those roles asks one of them to.
 
 - Claim the ID in the issue's body as soon as it is chosen: at capture, or,
   for an issue that named none, when its plan is drafted. Write the bare ID
@@ -27,7 +27,7 @@ needed.
   "Claims FR-<n>."; a word joined to it by a colon reads as another
   namespace, and the tool does not count it.
 - Run the tool once, when the ID is chosen. A later run counts the issue's
-  own claim, prints one more, and names that issue on stderr.
+  own claim and prints one more.
 - An issue drafted before it is filed runs the tool again at filing, since
   no other run can see a draft, and updates the claim if the number moved.
 - If two pull requests still take one ID, the one that merges second
