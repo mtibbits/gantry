@@ -10,8 +10,9 @@ allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/tools/gantry-build.sh"), Bash(ba
 
 Loads the installation config, checks it, and builds every site that
 devagent's config names: each site's worksite page under
-`<output_dir>/sites/`, then `<output_dir>/index.html`, which links them,
-then the week plan, `<output_dir>/week-plan.json`. It
+`<output_dir>/sites/`, then the week view, `<output_dir>/week.html`, then
+`<output_dir>/index.html`, which links them, then the week plan,
+`<output_dir>/week-plan.json`. It
 prints one absolute path per file written, then one `trace <site>:` line
 per written page whose site is in the trace or whose trace report has an
 item. A site that cannot be built is

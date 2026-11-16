@@ -19,7 +19,8 @@ and how to try the demo.
   list of fires that are not leaves yet, its entries and how they end, and
   how `gantry fires` checks it.
 - [week-plan.md](week-plan.md): how Gantry estimates each leaf's attention
-  need, how the build plans the week, and what `week-plan.json` holds.
+  need, how the build plans the week, what `week-plan.json` holds and what
+  the week view page shows.
 - [wbs-history.md](wbs-history.md): how Gantry reads a site's `WBS.md` history
   from its planning repository, and the sample history it is tested on.
 - [devagent-formats.md](devagent-formats.md): devagent's per-issue records

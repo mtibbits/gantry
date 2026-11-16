@@ -1,8 +1,9 @@
 """The gantry command line: `gantry build --config FILE [--site NAME]`,
 `gantry portfolio --config FILE` and `gantry fires --config FILE`.
 
-`gantry build` builds every configured site's page and the index, plans the
-week and writes the plan to <output_dir>/week-plan.json (#61); with
+`gantry build` builds every configured site's page, the week view
+(<output_dir>/week.html, #38) and the index, plans the week and writes the
+plan to <output_dir>/week-plan.json (#61); with
 `--site` it builds that one page, no index and no plan, reading that site's
 WBS.md and inputs, every requirements file and the portfolio file. Both
 print each written file's path, then a `trace <site>:` line for each written
@@ -61,8 +62,9 @@ def _parser():
         help="build every site's worksite page and the index, or one site's page",
         description="Build every site an installation config names: each site's page to "
         "<output_dir>/sites/<name>.html, then <output_dir>/index.html, then the week plan to "
-        "<output_dir>/week-plan.json. A site that cannot be built is listed on the index with "
-        "its reason. With --site, build only that site's page: no index and no plan.",
+        "<output_dir>/week-plan.json. The week view goes to <output_dir>/week.html, written "
+        "before the index. A site that cannot be built is listed on the index with its reason. "
+        "With --site, build only that site's page: no index, no week view and no plan.",
     )
     _add_config(build)
     build.add_argument(

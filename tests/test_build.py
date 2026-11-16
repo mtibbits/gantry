@@ -891,3 +891,25 @@ def test_week_and_plan_errors_order(tmp_path):
     assert code == 1
     lines = stderr.splitlines()
     assert [line.split(": ")[2] for line in lines] == ["cannot write week.html", "cannot write week-plan.json"]
+
+
+def test_build_homes_name_the_week_page(capsys):
+    # Every place that says what the build writes or prints names the week view (#38).
+    for rel in BUILD_HOMES:
+        text = " ".join((ROOT / rel).read_bytes().decode("utf-8").split())
+        assert "week.html" in text, rel
+    for rel in ("gantry/views/index.py", "gantry/build.py"):
+        assert "week.html" in (ROOT / rel).read_bytes().decode("utf-8"), rel
+    from gantry.cli import main
+
+    with pytest.raises(SystemExit):
+        main(["build", "--help"])
+    assert "<output_dir>/week.html" in " ".join(capsys.readouterr().out.split())
+
+
+def test_no_home_defers_to_38():
+    # The repo's deferrals to the week view are reworded now that it reads the plan.
+    # Split, so this test is not itself a hit.
+    stale = ("is " + "#38 and does not exist", "the week view (" + "#38) will", "provisional until " + "#38",
+             "the first view reads it (" + "#38)", "view reads them (" + "#38)", "#24 or " + "#33, the first to read it")
+    assert_no_stale(stale, [*swept_files(), ROOT / "tests" / "test_plan_file.py"])

@@ -823,3 +823,31 @@ def test_demo_week_page_byte_identical(tmp_path, monkeypatch):
         assert code == 0, stderr
         pages.append((out / "week.html").read_bytes())
     assert pages[0] == pages[1]
+
+
+# --- the docs (AC 17) ---------------------------------------------------------------------
+
+
+def week_texts():
+    """Every text the page can show, as week.py states it."""
+    found = {name: value for name, value in vars(week).items()
+             if name.isupper() and isinstance(value, str) and name != "DOT"}  # DOT is the worksite page's
+    for table in ("STATE_TEXTS", "MAPPING_SOURCES", "REASON_TEXTS"):
+        found.update({f"{table}[{key}]": value for key, value in getattr(week, table).items()})
+    found.update({f"DAYS_BUTTONS[{value}]": label for value, label in week.DAYS_BUTTONS})
+    found["LINK"] = week.LINK[0]
+    return found
+
+
+def test_week_doc_states_texts():
+    from helpers_docs import section
+    from test_samples import ROOT
+
+    text = section((ROOT / "docs" / "week-plan.md").read_bytes().decode("utf-8"), "## The week view page")
+    assert text is not None
+    flat = " ".join(text.split())
+    texts_ = week_texts()
+    assert len(texts_) >= 60
+    missing = [name for name, value in texts_.items() if f"`{' '.join(value.split())}`" not in flat]
+    assert missing == []
+    assert "[Unplanned leaves](#unplanned-leaves)" in flat

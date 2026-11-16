@@ -85,9 +85,10 @@ class WeekPlan:
     Frozen at the top level only: every view of a build gets this one object,
     so a view must not change its lists or dicts.
 
-    Provisional in memory: the fields are the file's top-level keys, pinned
-    by tests/fixtures/week_plan/shape-v1.json, but no view binds to this
-    class yet. #24 or #33, the first to read it, fixes the in-memory form.
+    The fields are the file's top-level keys, pinned by
+    tests/fixtures/week_plan/shape-v1.json. The week view (#38), its first
+    reader, reads the file-form lists and dicts, so the file form is the
+    in-memory form.
     """
 
     plan_version: int

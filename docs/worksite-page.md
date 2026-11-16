@@ -1059,9 +1059,11 @@ the as-of date is working day 1, even on a weekend; so a plan that ends in
 day 3 from Tuesday 2026-01-20 finishes on Thursday 2026-01-22.
 
 A site that was not built shows its name and `not built: {reason}` instead,
-and has no link. The index leaves three slots empty for later views: a
-headline at the top (`#headline`), one `span.extra` on each site's line,
-and a list of links to other views (`#view-links`). The index has no
+and has no link. The index leaves two slots empty for later views: a
+headline at the top (`#headline`) and one `span.extra` on each site's line.
+Its list of links to other views (`#view-links`) holds "Week view", to
+`week.html` ([the week view page](week-plan.md#the-week-view-page)), when
+the build wrote it, and is empty otherwise. The index has no
 script; its data block holds the stamp, the as-of date, each site's
 summary and the warnings, as shown.
 
@@ -1072,11 +1074,13 @@ its config order. It first reads every site, then resolves the foreign
 entries across them ([Foreign entries](#foreign-entries)), then renders each
 site it read, each in its own `try`; after a render failure it re-resolves
 and re-renders the pages that wait on or link to the failed site, and writes `<output_dir>/sites/<name>.html` for
-each, then `<output_dir>/index.html` ([The index](#the-index)). It then
+each, then the week view, `<output_dir>/week.html`
+([week-plan.md](week-plan.md#the-week-view-page)), then
+`<output_dir>/index.html` ([The index](#the-index)). It then
 writes the week plan to `<output_dir>/week-plan.json`
 ([week-plan.md](week-plan.md#the-plan-file)). It prints
-one absolute path per file it wrote: the pages in config order, then the
-index, then the plan file. Then, for each page it wrote whose site is in the trace or whose
+one absolute path per file it wrote: the pages in config order, then
+`week.html`, then the index, then the plan file. Then, for each page it wrote whose site is in the trace or whose
 trace report has an item, in config order, one line
 `trace <site>: unreadable N, malformed N, duplicate N, misplaced N, cycle N, undefined N, unserved N, untraced N`,
 every category in that order, zeros included; a site not in the trace

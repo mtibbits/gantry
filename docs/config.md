@@ -286,7 +286,8 @@ empty one, is an error: a build with no sites almost always means
 a wrong path.
 
 `gantry build` builds every site: each site's worksite page to
-`<output_dir>/sites/<name>.html`, then `<output_dir>/index.html`, which
+`<output_dir>/sites/<name>.html`, then the week view,
+`<output_dir>/week.html`, then `<output_dir>/index.html`, which
 lists every site with its open leaves, finish and report count, or why it
 was not built, then the week plan, `<output_dir>/week-plan.json`
 ([week-plan.md](week-plan.md#the-plan-file)). It prints one absolute path

@@ -3,7 +3,7 @@
 The week plan fits each site's open leaves into the operator's week: the
 agent hours a leaf takes, and the operator hours it needs while it runs.
 The full build makes the plan and writes it to `week-plan.json` (#61); the
-week view that will show it is #38 and does not exist yet. This page states
+[week view](#the-week-view-page) (#38) shows it. This page states
 each leaf's attention need and rate (`gantry/attention.py`, #36), then
 [the planner](#the-planner) and [the plan file](#the-plan-file)
 (`gantry/planner.py`).
@@ -16,9 +16,9 @@ agent hour: a leaf of 6 agent hours at a rate of 0.25 needs 1.5 operator
 hours. Every leaf gets a rate from the first of four sources that applies,
 tagged with that source and a basis naming its inputs.
 
-No page shows needs, rates, tags or bases yet; the week view (#38) will.
-The plan file records them for each placed leaf. Of what this module works
-out, only a bad `h:` reaches a page today, as a report entry.
+The week view (#38) shows each placed leaf's need or rate, tag and basis,
+which the plan file records; a worksite page shows only a bad `h:`, as a
+report entry.
 
 ### The scale
 
@@ -646,10 +646,9 @@ date `shares_dropped` before `no_allocation`.
 
 The fields added by #37 (`notes`, a leaf's `tier`, and a site's `shares`,
 `shareless_days`, `share_note`, `p0`, `attention_hours_target` and
-`lane_hours_target`) are provisional until the first
-view reads them (#38). A site may hold more than one block a day, and a
-leaf may sit in two blocks of one day; #38, #33 and #24 must not assume
-either away. A `p0` entry's `held_by` keeps absent and unresolved
+`lane_hours_target`) are read by the week view (#38). A site may hold more
+than one block a day, and a leaf may sit in two blocks of one day; the week
+view shows both; #33 and #24 must not assume either away. A `p0` entry's `held_by` keeps absent and unresolved
 outcomes as well as open ones, since each holds the leaf (#62), and
 `share_note` is set for the whole site once any day is share-less. The
 targets are the values at the horizon's end; the file holds no per-day
@@ -658,9 +657,10 @@ target.
 A report entry holds its `kind`, `cross_site_cycle`, and its `leaves`,
 each a `site` and `key`, in devagent's config order of site, then `WBS.md`
 order; entries go in the order of their first leaf. At version 1, `report`
-holds only `cross_site_cycle` entries. The entry's shape is provisional
-until the first view reads it (#38); a kind with another shape changes the
-pinned shape and this section in the same change.
+holds only `cross_site_cycle` entries. No view reads `report` yet (the
+week view shows cycle leaves by their reason), so its shape stays
+provisional until one does; a kind with another shape changes the pinned
+shape and this section in the same change.
 
 A planned file, from `tests/fixtures/week_plan/binds_lanes/`, with `days`,
 `leaves`, `sites` and `notes`, and the site's `shares`, cut to their first
@@ -984,3 +984,102 @@ on any machine: the planner charges whole minutes and keeps its targets as
 exact fractions compared with those charges, breaks every tie by a stated
 order, and the file holds no build time. A rebuild 15 minutes later
 does not reshuffle today.
+
+## The week view page
+
+Every full build writes `week.html` beside the index, after the site pages
+and before `index.html`, and the index links it as `Week view` (#38). It
+renders the build's plan and nothing else: it computes no planning value,
+and `gantry build --site` writes no week page. The page is read-only in v1.
+It holds the installation's titles and keys, like every page in the output
+folder. Every text below is a constant in `gantry/views/week.py`; `{…}`
+marks a value from the plan.
+
+**Hours.** Every hour figure is rounded once, half up, to two decimals,
+with trailing zeros dropped and an `h`: 135 minutes is "2.25 h", 120 is
+"2 h", 7 is "0.12 h". A fair-share target is an exact fraction and rounds
+the same way, so a target of 3.025 hours is "3.03 h". A share is rounded
+the same way and shown in percent ("33.33%"). A rate is written as is,
+with no exponent ("0.000001").
+
+**Above the days**, in order:
+
+- `the as-of date {as_of} is not a working day; the plan starts {weekday} {date}`,
+  only when the as-of date is not one of the plan's days;
+- the binding pool, `binding: {pool} (ran out first on {weekday} {date})`, or
+  `no pool ran out in the planned week`; the line carries
+  `data-figure="binding"` and `data-source`, `week plan as of {as_of}`;
+- the allocation rule:
+  `{rule} (Gantry v1); devagent's forecast (mtibbits/devagent#745) may allocate differently`;
+- the mapping:
+  `attention mapping: {values} operator hours per agent hour for needs 0 to 4, {source}`,
+  where the source is `default` or `from the portfolio file`, then
+  `the portfolio file's mapping was not used: {reason}` when it was not;
+- `capacity from: {parts}`, each part a pool's name and its capacity source;
+- the count, `Includes {n} unestimated leaves` or `Includes 1 unestimated leaf`,
+  carrying `data-unestimated` (empty when the count is 0);
+- the share-less sites, `{n} sites have no intended share set; they are planned only into capacity left after the sites with shares`
+  or `1 site has no intended share set; it is planned only into capacity left after the sites with shares`,
+  then per site `{site}: on every planned day` or `{site}: on {days}`;
+- each of the plan's notes, as written;
+- the P0 leaves, each linked and marked `held by {holders}` when a
+  cross-site entry holds it, then
+  `devagent's wbs order ranks these differently until mtibbits/devagent#889 lands`.
+
+**The days.** All 10 days are on the page; with the page script, the
+first 5 show and the `5 days` and `10 days` buttons show or hide the rest.
+With scripts off, every day and list shows and the buttons do not. Each
+day is headed `{weekday} {date}`, the as-of day marked `today`, then
+`{hours} attention after reserved blocks` and each reserved block,
+`reserved {start}, {hours}: {label}`, or `reserved {start}, {hours}` when it
+has no label. Each block is headed with its site, its length and
+`start cost {hours}`; a day with none reads `no block planned`. The day's
+lanes row follows under `runs in a lane; no block needed`, then
+`left: {attention_pool} {attention}; {lanes_pool} {lanes}`.
+
+A leaf shows its title, linked to its worksite page when that page was
+written (otherwise its key, or its title unlinked), its agent hours in that
+block, `unestimated` or `unestimated (3 pr)` for an unestimated leaf with a
+non-time `est:`, its state when it is not pending (`in progress`, `stuck`,
+or the state as written), `P0` on a P0 leaf (an unknown tier as written),
+`need {need}, {tag}` or `{rate} h per agent hour, {tag}` when it has no
+need, and its basis, so a tier-less leaf reads "no model tiers or flags
+recorded". The tag is `scored`, `measured`, `declared` or `estimated`
+([The four sources](#the-four-sources)). A leaf split across blocks or days
+reads `continues {weekday} {date}` with its next placement's day on every
+placement but its last; on its last, a leaf with hours left after the 10
+days reads `continues after {weekday} {date} ({hours} left)`, naming the
+plan's last day.
+
+**Unplanned leaves.** Under `Unplanned leaves`, each built site lists its
+unplanned leaves with their reason in words
+([Unplanned leaves](#unplanned-leaves)): `blocked externally`, `parked`,
+`waits on a cycle`, `part of a cycle across sites`,
+`waits on a site not in this installation`,
+`waits on a reference that could not be resolved` and
+`waits on an unplanned leaf`, and a reason the page does not know as
+`not planned: {code}`. Leaves `beyond_horizon` are counted,
+`{n} leaves beyond the 10 days` or `1 leaf beyond the 10 days`, and listed
+behind a `show or hide` button. A site with none reads
+`no unplanned leaves`. Each site that was not built follows as
+`{name}: not built: {reason}`, including a site whose page could not be
+written: its leaves stay in the days, unlinked.
+
+**Per site.** Under `Per site`, a table with the columns `site`,
+`share on {weekday} {date}` (the plan's first day, or
+`no intended share set`) and each pool, where each pool's cell is
+`{charged} charged, {target} target` over the 10 days.
+
+**No plan.** When the plan's status is `no_plan`, the page shows
+`no week plan: {reason}` and the stamp, and nothing else; the index still
+links it.
+
+**Errors.** When the page cannot be rendered, the build prints
+`gantry: error: cannot render week.html: <type>: <message>`; when it cannot
+be written, `gantry: error: cannot write week.html: <reason>`. Either exits
+1, the index is written without its link and the plan file is still
+written. A `week.html` from an earlier build is not deleted
+([docs/worksite-page.md](worksite-page.md#every-site-and-the-index)).
+
+The page reads the plan's file form. It does not render `report`; it shows
+cycle leaves by their reason, and a follow-up issue will read `report`.
