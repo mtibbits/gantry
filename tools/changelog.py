@@ -147,29 +147,33 @@ def read_entry(path):
     return key, kind, items, None
 
 
+def _read_entries(root):
+    """(path, read_entry(path)) for each entry in changelog.d/, by name."""
+    return [(path, read_entry(path)) for path in _entries(root)]
+
+
+def _problems(entries):
+    return [f"{_shown(path.name)}: {entry[3]}" for path, entry in entries if entry[3]]
+
+
 def check(root):
     """Every problem in changelog.d/, one per entry at most, by entry name."""
-    problems = []
-    for path in _entries(root):
-        problem = read_entry(path)[3]
-        if problem:
-            problems.append(f"{_shown(path.name)}: {problem}")
-    return problems
+    return _problems(_read_entries(root))
 
 
 # --- CHANGELOG.md -----------------------------------------------------------------
 
 class Refused(Exception):
-    """A reason to exit 1, changing nothing: one or more message lines."""
+    """A reason to exit 1: one or more message lines. Only _write's failed
+    delete comes after a change, and its message says so."""
 
-    def __init__(self, *lines, check_failed=False):
-        super().__init__(*lines)
-        self.lines = list(lines)
-        self.check_failed = check_failed  # the caller adds its own `<command> refused` line
+
+class CheckFailed(Refused):
+    """Refused for changelog.d/ problems; main adds its `<command> refused` line."""
 
 
 def read_changelog(root):
-    """CHANGELOG.md's lines, read as UTF-8 with CRLF as LF, or Refused (R0)."""
+    """CHANGELOG.md's lines, read as UTF-8 with CRLF as LF, or Refused."""
     path = Path(root) / CHANGELOG
     if not path.is_file():
         raise Refused(f"{CHANGELOG}: missing")
@@ -199,15 +203,19 @@ def unfenced(lines):
     return out
 
 
-def unreleased_span(lines):
-    """(index of the ## [Unreleased] line, index of the next ## line or len(lines)), or Refused (R7)."""
-    plain = unfenced(lines)
+def _section_end(plain, start):
+    """The index of the first unfenced ## line after `start`, or len(plain)."""
+    return next((i for i in range(start + 1, len(plain))
+                 if plain[i] is not None and plain[i].startswith("## ")), len(plain))
+
+
+def unreleased_span(plain):
+    """(index of the ## [Unreleased] line, index of the next ## line or the end)
+    in `plain`, the unfenced() lines; or Refused."""
     if UNRELEASED not in plain:
         raise Refused(f"{CHANGELOG} has no '{UNRELEASED}' line")
     start = plain.index(UNRELEASED)
-    end = next((i for i in range(start + 1, len(plain))
-                if plain[i] is not None and plain[i].startswith("## ")), len(lines))
-    return start, end
+    return start, _section_end(plain, start)
 
 
 def _no_items():
@@ -215,7 +223,7 @@ def _no_items():
 
 
 def carried_items(lines, start, end):
-    """The items under ## [Unreleased] per kind, in document order, or Refused (R6).
+    """The items under ## [Unreleased] per kind, in document order, or Refused.
 
     Blank lines, kind headings (repeated or not) and, before the first kind
     heading, the pointer line are placed; anything else is refused."""
@@ -244,26 +252,23 @@ def carried_items(lines, start, end):
     return items
 
 
-def _key_order(path):
-    key = path.name[:-3].rsplit(".", 1)[0]
+def _key_order(key):
     return (0, len(key), key) if NUMBER_KEY.fullmatch(key) else (1, 0, key)
 
 
-def waiting(root):
-    """(items per kind, the entry files used): carried items first, in document
-    order, then each entry file's items, issue numbers before slugs; or Refused
-    (R0, R7, R5, R6)."""
-    lines = read_changelog(root)
-    start, end = unreleased_span(lines)
-    problems = check(root)
+def waiting(root, lines, start, end):
+    """(items per kind, the entry files used) for CHANGELOG.md's `lines`, whose
+    ## [Unreleased] spans [start, end): carried items first, in document order,
+    then each entry file's items, issue numbers before slugs; or Refused."""
+    entries = _read_entries(root)
+    problems = _problems(entries)
     if problems:
-        raise Refused(*problems, check_failed=True)
+        raise CheckFailed(*problems)
     items = carried_items(lines, start, end)
-    files = sorted(_entries(root), key=_key_order)
-    for path in files:
-        _, kind, entry_items, _ = read_entry(path)
+    entries.sort(key=lambda pair: _key_order(pair[1][0]))
+    for _, (_, kind, entry_items, _) in entries:
         items[kind].extend(entry_items)
-    return items, files
+    return items, [path for path, _ in entries]
 
 
 def render(heading, items):
@@ -271,7 +276,7 @@ def render(heading, items):
     its heading, a blank line and its item lines, none between items."""
     out = [heading]
     for kind, kind_heading in zip(KINDS, HEADINGS):
-        if items.get(kind):
+        if items[kind]:
             out += ["", kind_heading, ""]
             for item in items[kind]:
                 out += item
@@ -280,14 +285,12 @@ def render(heading, items):
 
 def preview(root):
     """The ## [Unreleased] section release would write, or Refused as release is."""
-    return render(UNRELEASED, waiting(root)[0])
+    lines = read_changelog(root)
+    start, end = unreleased_span(unfenced(lines))
+    return render(UNRELEASED, waiting(root, lines, start, end)[0])
 
 
 # --- release ------------------------------------------------------------------------
-
-class Unfinished(Refused):
-    """CHANGELOG.md was written, but some entry files used could not be deleted."""
-
 
 def _check_version(version):
     if not SEMVER.fullmatch(version):
@@ -307,15 +310,15 @@ def _count(items):
     return sum(len(kind_items) for kind_items in items.values())
 
 
-def _waiting_items(root):
-    """waiting(), or Refused (R4) when it holds no item."""
-    items, files = waiting(root)
+def _waiting_items(root, lines, start, end):
+    """waiting(), or Refused when it holds no item."""
+    items, files = waiting(root, lines, start, end)
     if not _count(items):
         raise Refused(f"nothing is waiting: no entry files in {FOLDER}/ and no items under {UNRELEASED}")
     return items, files
 
 
-def _with_section(lines, start, end, section, rest):
+def _with_section(lines, start, section, rest):
     """The file: lines before ## [Unreleased], its pointer lines, `section`,
     then, after a blank line, lines[rest:] when any remain."""
     out = lines[:start] + [UNRELEASED, "", POINTER, ""] + section.rstrip("\n").split("\n")
@@ -325,11 +328,11 @@ def _with_section(lines, start, end, section, rest):
 
 
 def _write(root, text, files):
-    """Write CHANGELOG.md, then delete `files`: Refused (R11) when the write
-    fails, Unfinished (R10) naming the files left when a delete fails.
+    """Write CHANGELOG.md, then delete `files`: Refused when the write fails,
+    and Refused naming the files left, CHANGELOG.md written, when a delete fails.
 
     A write can fail after open() has truncated the file (a full disk), so a
-    failed write puts the original bytes back before R11 says nothing changed."""
+    failed write puts the original bytes back before saying nothing changed."""
     path = Path(root) / CHANGELOG
     original = path.read_bytes()
     try:
@@ -350,7 +353,7 @@ def _write(root, text, files):
         except OSError:
             left.append(_shown(path.name))
     if left:
-        raise Unfinished(f"{CHANGELOG} now holds these items; delete these files by hand, "
+        raise Refused(f"{CHANGELOG} now holds these items; delete these files by hand, "
                          f"do not fold them: {', '.join(left)}")
     return len(files)
 
@@ -361,15 +364,16 @@ def release(root, version, date):
     _check_version(version)
     _check_date(date)
     lines = read_changelog(root)
-    start, end = unreleased_span(lines)
-    for line in unfenced(lines):
+    plain = unfenced(lines)
+    start, end = unreleased_span(plain)
+    for line in plain:
         m = RELEASE_HEADING.fullmatch(line) if line is not None else None
         if m and m.group("version") == version:
             raise Refused(f"{CHANGELOG} already has a section for {version}; "
                           "add to it with --fold, or release a new version")
-    items, files = _waiting_items(root)
+    items, files = _waiting_items(root, lines, start, end)
     heading = f"## [{version}] — {date}"
-    text = _with_section(lines, start, end, render(heading, items), end)
+    text = _with_section(lines, start, render(heading, items), end)
     return _count(items), _write(root, text, files), heading
 
 
@@ -387,7 +391,7 @@ def section_items(lines):
         elif role == "item" and kind is not None:
             current = [line]
             items[kind].append(current)
-        elif role == "more" and current is not None:
+        elif role == "more":
             current.append(line)
         else:
             current = None
@@ -400,16 +404,15 @@ def fold(root, version):
     used: (items, files deleted, heading)."""
     _check_version(version)
     lines = read_changelog(root)
-    start, end = unreleased_span(lines)
     plain = unfenced(lines)
+    start, end = unreleased_span(plain)
     m = RELEASE_HEADING.fullmatch(lines[end]) if end < len(lines) else None
     if not (m and m.group("date") and m.group("version") == version):
         newest = "none" if end == len(lines) else m.group("version") if m else lines[end][3:]
         raise Refused(f"--fold adds only to the newest dated section, which is {newest}, "
                       f"not {version}; release a new version instead")
     heading = lines[end]
-    rest = next((i for i in range(end + 1, len(plain))
-                 if plain[i] is not None and plain[i].startswith("## ")), len(lines))
+    rest = _section_end(plain, end)
     section = lines[end:rest]
     while len(section) > 1 and not section[-1].strip():
         section.pop()  # the blank lines before the next section are release's separator
@@ -420,10 +423,10 @@ def fold(root, version):
             raise Refused(f"{CHANGELOG} line {end + i + 1 if have is not None else end + i}: "
                           f"{heading} is not in the form release writes, so --fold cannot add "
                           "to it; release a new version instead")
-    items, files = _waiting_items(root)
+    items, files = _waiting_items(root, lines, start, end)
     for kind in KINDS:
         target[kind] += items[kind]
-    text = _with_section(lines, start, end, render(heading, target), rest)
+    text = _with_section(lines, start, render(heading, target), rest)
     return _count(items), _write(root, text, files), heading
 
 
@@ -465,11 +468,12 @@ def main(argv=None, root=None) -> int:
     args = parse_args(argv)
     root = Path(ROOT if root is None else root)
     if args.command == "check":
-        problems = check(root)
+        entries = _read_entries(root)
+        problems = _problems(entries)
         if problems:
             _say(problems, sys.stderr)
             return 1
-        _say([f"check: no problems in {_plural(len(_entries(root)), 'entry file')}"], sys.stdout)
+        _say([f"check: no problems in {_plural(len(entries), 'entry file')}"], sys.stdout)
         return 0
     try:
         if args.command == "preview":
@@ -484,7 +488,7 @@ def main(argv=None, root=None) -> int:
                   f"{_plural(deleted, 'entry file')} deleted"], sys.stdout)
     except Refused as e:
         trailer = [f"{args.command} refused: fix the changelog.d/ problems above"]
-        _say(e.lines + (trailer if e.check_failed else []), sys.stderr)
+        _say(list(e.args) + (trailer if isinstance(e, CheckFailed) else []), sys.stderr)
         return 1
     return 0
 
