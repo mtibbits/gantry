@@ -233,6 +233,22 @@ def test_hostile_shapes_are_cheap():
     assert clock.perf_counter() - start < 5
 
 
+def test_wide_entry_like_is_cheap():
+    # #152's wider rule: a long blank run, mark run or bracket run before
+    # the box. A non-possessive lead blank run makes the first two lines
+    # take tens of seconds.
+    lines = [chr(9) * 20000 + "[" + "x" * 20000, " " * 20000 + "[" + " " * 20000,
+             "-" + " " * 20000 + "[" + "x" * 20000, "> " * 20000 + "x", "[" * 20000,
+             chr(0xA0) * 20000 + "[ ] 2026-10-24 x", "1" * 20000 + ". [", "[] " * 10000 + "x"]
+    start = clock.perf_counter()
+    for line in lines:
+        parse(line + LF)
+    # Linear parsing takes milliseconds; a quadratic regex on 20,000
+    # characters takes far longer than this loose bound, which a loaded CI
+    # runner cannot trip.
+    assert clock.perf_counter() - start < 5
+
+
 # --- the field reader (Task 4) ----------------------------------------------------
 
 
