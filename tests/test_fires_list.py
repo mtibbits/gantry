@@ -20,7 +20,7 @@ from gantry import model
 from gantry.config import load_config
 from gantry.roots import directory_roots
 from page_safety import HOSTILE
-from test_samples import GANTRY_SAMPLE
+from test_samples import GANTRY_SAMPLE, ROOT
 from helpers_config import write_config
 
 FIXTURES = Path(__file__).parent / "fixtures" / "fires_list"
@@ -224,23 +224,13 @@ def test_entry_like_lines():
 def test_hostile_shapes_are_cheap():
     lines = [" " * 20000 + "x", "- " + " " * 20000 + "x", "1" * 20000 + "x", "- " * 10000 + "x",
              chr(9) * 20000 + "[", "`" * 20000 + "x"]
-    start = clock.perf_counter()
-    for line in lines:
-        parse(line + LF)
-    # Linear parsing takes milliseconds; a quadratic regex on 20,000
-    # characters takes far longer than this loose bound, which a loaded CI
-    # runner cannot trip.
-    assert clock.perf_counter() - start < 5
-
-
-def test_wide_entry_like_is_cheap():
     # #152's wider rule: a long blank run, mark run or bracket run before
     # the box. A non-possessive lead blank run is quadratic on the first two
     # lines (about 2 s each at 20,000 characters, so they are 50,000 long and
     # take tens of seconds).
-    lines = [chr(9) * 50000 + "[" + "x" * 50000, " " * 50000 + "[" + " " * 50000,
-             "-" + " " * 20000 + "[" + "x" * 20000, "> " * 20000 + "x", "[" * 20000,
-             chr(0xA0) * 20000 + "[ ] 2026-10-24 x", "1" * 20000 + ". [", "[] " * 10000 + "x"]
+    lines += [chr(9) * 50000 + "[" + "x" * 50000, " " * 50000 + "[" + " " * 50000,
+              "-" + " " * 20000 + "[" + "x" * 20000, "> " * 20000 + "x", "[" * 20000,
+              chr(0xA0) * 20000 + "[ ] 2026-10-24 x", "1" * 20000 + ". [", "[] " * 10000 + "x"]
     start = clock.perf_counter()
     for line in lines:
         parse(line + LF)
@@ -614,7 +604,8 @@ def test_stray_fence_counts():
 # --- the sample (Task 8) -------------------------------------------------------------
 
 
-def test_sample_reads_clean():
+def read_sample():
+    """samples/fires.md as (config, reference, result)."""
     from gantry.build import site_list
     from gantry.sites import config_roots
 
@@ -622,8 +613,12 @@ def test_sample_reads_clean():
     roots = config_roots(config, purpose="check")
     sites, _ = site_list(config, roots)
     reference = fl.fires_reference(config, datetime(2030, 6, 1, 12, 0))
+    return config, reference, fl.read_fires_list(roots, config.fires_list, [s.name for s in sites], reference)
+
+
+def test_sample_reads_clean():
+    config, reference, result = read_sample()
     assert config.as_of_pinned and reference == datetime(2026, 1, 20)
-    result = fl.read_fires_list(roots, config.fires_list, [s.name for s in sites], reference)
     assert (result.status, result.report, result.skipped_empty) == ("read", (), 0)
     assert lines_of(result) == [6, 8, 9, 10, 11, 12]  # line 7 is a note
     assert [e.state for e in result.entries] == ["open"] * 4 + ["resolved", "promoted"]
@@ -654,18 +649,6 @@ def as_tuple(result):
             tuple((e.line, e.state, e.ended, e.date, e.time, e.site, e.reason) for e in result.entries),
             tuple((e.line, e.kind, e.message) for e in result.report),
             result.skipped_empty, result.skipped_in_fences)
-
-
-def sample_result():
-    """samples/fires.md, read the way test_sample_reads_clean reads it."""
-    from gantry.build import site_list
-    from gantry.sites import config_roots
-
-    config = load_config(GANTRY_SAMPLE)
-    roots = config_roots(config, purpose="check")
-    sites, _ = site_list(config, roots)
-    reference = fl.fires_reference(config, datetime(2030, 6, 1, 12, 0))
-    return fl.read_fires_list(roots, config.fires_list, [s.name for s in sites], reference)
 
 
 # Captured once on the unfixed tree (d712992), before #152 widened the
@@ -836,7 +819,7 @@ FIXTURE_GOLDEN = {
 def test_fixtures_read_as_before():
     assert set(FIXTURE_GOLDEN) == set(EXPECTED) - {"not_utf8.md"} | {"sample"}
     for name, expected in FIXTURE_GOLDEN.items():
-        result = sample_result() if name == "sample" else parse_fixture(name)
+        result = read_sample()[2] if name == "sample" else parse_fixture(name)
         assert as_tuple(result) == expected, name
 
 
@@ -850,7 +833,7 @@ def _old_starts_entry_shape(text):
 
 def _old_classify(line, chain):
     """A frozen copy of d712992's _classify, the oracle for the differential."""
-    if line.strip(" " + chr(9)) == "":
+    if fl._blank(line):
         return "blank", None
     if fl.THEMATIC_RE.fullmatch(line):
         return "break", None
@@ -890,7 +873,7 @@ def test_widening_keeps_every_old_catch():
     assert notes > 0
 
 
-NOT_TOP = "not a top-level `- ` item"
+NOT_TOP = fl.NOT_TOP_LEVEL
 
 
 def box_not(glyph):
@@ -911,20 +894,14 @@ ISSUE_152_SHAPES = [
 ]
 
 
-def check_issue_152_shape(line, message):
-    result = parse(line + LF)
-    assert len(result.entries) == 1, line
-    e = result.entries[0]
-    assert (e.state, e.ended, e.date, e.site, e.reason) == ("unreadable", False, date(2026, 10, 24), "harbor",
-                                                             "x"), line
-    assert kinds_of(result) == [(1, "fires_bad_entry")], line
-    assert (result.report[0].message, result.status) == (message, "read_with_problems"), line
-
-
 def test_issue_152_shapes_are_reported():
     assert len(ISSUE_152_SHAPES) == 9
     for line, message in ISSUE_152_SHAPES:
-        check_issue_152_shape(line, message)
+        e, result = one(line)
+        assert (e.state, e.ended, e.date, e.site, e.reason) == ("unreadable", False, date(2026, 10, 24),
+                                                                 "harbor", "x"), line
+        assert kinds_of(result) == [(1, "fires_bad_entry")], line
+        assert (result.report[0].message, result.status) == (message, "read_with_problems"), line
 
 
 def test_mid_file_bom_line_is_reported():
@@ -1093,7 +1070,7 @@ def test_doc_cites_152():
 def test_readme_says_more_reports_are_not_a_break():
     from helpers_docs import markdown_text, section as doc_section
 
-    readme = markdown_text(Path(__file__).parent.parent / "README.md")
+    readme = markdown_text(ROOT / "README.md")
     joined = doc_section(readme, "## Versioning & releases").replace(LF, " ")
     assert "reporting more lines is not a break" in joined
     assert "docs/fires-list.md#entry-like-lines" in joined

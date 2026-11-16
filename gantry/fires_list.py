@@ -32,16 +32,17 @@ LABEL = "the fires list"
 THEMATIC_RE = re.compile(r" {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*")  # fullmatch
 TOP_ITEM_RE = re.compile(r"(?P<indent> {0,3})[-*+][ \t]+(?P<text>.*)")  # fullmatch; "- " alone has empty text
 ATX_HEADING_RE = re.compile(r" {0,3}#{1,6}(?:[ \t].*)?")  # fullmatch; a heading stays prose
-_FOLLOW = r"(?=[ \t]|\Z)"  # a box-like pair counts only before a blank or the end of the line
-_BOX_BODY = r"\[(?P<glyph>[^\]]*)\]"  # [ and ] around zero or more characters
-BOX_LIKE_RE = re.compile(_BOX_BODY + _FOLLOW)  # match; tried after BOX_RE
+# [ and ] around zero or more characters, counted only before a blank or the end of the line
+_BOX_LIKE = r"\[(?P<glyph>[^\]]*+)\](?=[ \t]|\Z)"
+BOX_LIKE_RE = re.compile(_BOX_LIKE)  # match; tried after BOX_RE
+_ENTRY_START = r"(?:\[.\]|" + _BOX_LIKE + r"|[0-9]{4}-)"  # a box, a box-like pair or a date attempt
+ENTRY_START_RE = re.compile(_ENTRY_START)  # match, at the start of the text
 # fullmatch. The lead blanks are possessive, and the marks (characters that are not a letter or
 # digit in the Unicode sense, a space, a tab or "[") are at most eight, with blanks between free:
 # linear on a long line. "[" is not a mark, so a link's text is never searched. The mark run is
 # lazy, so the text starts at the earliest box, box-like pair or date.
-ENTRY_LIKE_RE = re.compile(r"[ \t]*+(?:[0-9]+[.)])?(?:[ \t]*+(?:_|[^\w \t\[])){0,8}?[ \t]*+"
-                           r"(?P<text>(?:\[.\]|" + _BOX_BODY.replace("?P<glyph>", "?:") + _FOLLOW
-                           + r"|[0-9]{4}-).*)")
+ENTRY_LIKE_RE = re.compile(r"[ \t]*+(?:[0-9]++[.)])?(?:[ \t]*+(?:_|[^\w \t\[])){0,8}?[ \t]*+"
+                           r"(?P<text>" + _ENTRY_START + r".*)")
 BOX_RE = re.compile(r"\[(?P<glyph>.)\]")  # match, at the start of the text
 DATE_TRY_RE = re.compile(r"[0-9]{4}-")  # match, at the start of a token
 _BLANKS = " \t"
@@ -110,7 +111,7 @@ def _holds_nothing(text):
 def _starts_entry_shape(text):
     """A box, a box-like pair or a date attempt at the very start. Marks are
     left out, so "  - > [ ] ..." under an entry stays a note."""
-    return any(p.match(text) is not None for p in (BOX_RE, BOX_LIKE_RE, DATE_TRY_RE))
+    return ENTRY_START_RE.match(text) is not None
 
 
 def _opens_fence(line):
@@ -130,7 +131,7 @@ def _classify(line, chain):
         text = m["text"]
         if _holds_nothing(text):
             return "empty", None
-        if len(m["indent"]) >= 2 and not _starts_entry_shape(text) and chain:
+        if chain and len(m["indent"]) >= 2 and not _starts_entry_shape(text):
             return "note", None
         return "entry", text
     if ATX_HEADING_RE.fullmatch(line):
