@@ -83,17 +83,19 @@ SAMPLE_CONFIG = "samples/gantry.sample.toml"
 
 SAMPLE_TRACE_LINE = ("trace lighthouse: unreadable 0, malformed 0, duplicate 0, misplaced 0, cycle 0, "
                      "undefined 1, unserved 1, untraced 3")  # a full build counts quarry's leaf (#21)
+SAMPLE_FIRES_LINE = "fires: 7; sources not fully read: 1"  # the demo's fires (#32)
 
 
 def check_written(stdout_bytes, out_dir):
     """The full build's stdout: one absolute path per written file, the pages in
-    config order, then the index, then the plan file (#61), then the trace line."""
+    config order, then the index, then the plan file (#61), then the trace
+    line, then the fires line (#32)."""
     assert b"\r" not in stdout_bytes
     lines = stdout_bytes.decode("utf-8").splitlines()
     pages = [name for name in sample_projects() if name in READABLE]
-    # Then the one sample site in the trace prints its trace line (#20).
-    assert len(lines) == len(pages) + 3 == 7
-    assert lines[6:] == [SAMPLE_TRACE_LINE]
+    # Then the one sample site in the trace prints its trace line (#20), and the fires line is last.
+    assert len(lines) == len(pages) + 4 == 8
+    assert lines[6:] == [SAMPLE_TRACE_LINE, SAMPLE_FIRES_LINE]
     lines = lines[:6]
     assert all(os.path.isabs(line) for line in lines), lines
     for line, name in zip(lines, pages):
@@ -135,7 +137,7 @@ def test_write_site_tree_builds_sites(tmp_path, capsys):
     out = tmp_path / "out"
     assert capsys.readouterr().out.splitlines() == [
         str(out / "sites" / "alpha.html"), str(out / "sites" / "beta.html"), str(out / "index.html"),
-        str(out / "week-plan.json")]
+        str(out / "week-plan.json"), "fires: 0; sources not fully read: 1"]
     assert "14 open leaves" in (out / "index.html").read_bytes().decode("utf-8")
     assert NO_LEAVES in (out / "sites" / "beta.html").read_bytes().decode("utf-8")
 
@@ -280,21 +282,25 @@ def test_site_page_reads_estimates_file(tmp_path, capsys):
     assert f"no estimates file: site.{BUSY}.estimates is false" in page
 
 
-# The build does not read fires_list yet (#32 adds the read), so repointing it
-# changes nothing. The
+# The build reads fires_list for its fires (#32), never for a page, so repointing
+# it changes only the fires line of stdout. The
 # requirements key and the portfolio file are the trace's (#20): each changes
 # the pages whose trace it reaches, and no other page, and neither warns.
 def test_unread_keys_leave_pages_and_trace_inputs_change_them(tmp_path, monkeypatch):
     copy = copy_samples(tmp_path)
     config = copy / "gantry.sample.toml"
-    code, out, _, plain_err = demo_build(tmp_path, monkeypatch, copy=copy)
+    code, out, plain_out, plain_err = demo_build(tmp_path, monkeypatch, copy=copy)
     assert code == 0
     plain = written_bytes(out)
     assert len(plain) == 6  # four pages, the index and week-plan.json (#61)
     replace_bytes(config, 'fires_list = "fires.md"', 'fires_list = "nope.md"')
-    code, out, _, err = demo_build(tmp_path, monkeypatch, copy=copy)
+    code, out, nope_out, err = demo_build(tmp_path, monkeypatch, copy=copy)
     assert code == 0 and err == plain_err
     assert written_bytes(out) == plain
+    # Only the fires line differs: the fires list's four fires are gone and it is not read.
+    assert plain_out.splitlines()[:-1] == nope_out.splitlines()[:-1]
+    assert (plain_out.splitlines()[-1], nope_out.splitlines()[-1]) == (
+        SAMPLE_FIRES_LINE, "fires: 3; sources not fully read: 2")
 
     def trace(written, site):
         return assert_page_safe(written[f"sites/{site}.html"].decode("utf-8"), [])["trace"]
@@ -373,7 +379,7 @@ def test_launcher_prefers_python(tmp_path):
     shims = shim_dir(tmp_path, ["python", "python3"])
     result, names = run_launcher(copy, [SAMPLE_CONFIG], shims, copy, tmp_path)
     assert result.returncode == 0, result.stderr
-    assert sample_line_count(result) == 7
+    assert sample_line_count(result) == 8
     assert names == {"python"}
 
 
@@ -383,7 +389,7 @@ def test_launcher_falls_back_to_python3(tmp_path):
     shims = shim_dir(tmp_path, ["python3"])
     result, names = run_launcher(copy, [SAMPLE_CONFIG], shims, copy, tmp_path)
     assert result.returncode == 0, result.stderr
-    assert sample_line_count(result) == 7
+    assert sample_line_count(result) == 8
     assert names == {"python3"}
 
 
@@ -414,7 +420,7 @@ def test_launcher_one_literal_argument(tmp_path):
     shims = shim_dir(tmp_path, ["python"])
     result, _ = run_launcher(copy, ["samples/" + name], shims, copy, tmp_path)
     assert result.returncode == 0, result.stderr
-    assert sample_line_count(result) == 7
+    assert sample_line_count(result) == 8
     assert list(tmp_path.rglob("pwned")) == []
 
 
@@ -429,7 +435,7 @@ def test_launcher_P_ignores_cwd_package(tmp_path):
     result, _ = run_launcher(copy, [str(config)], shims, elsewhere, tmp_path)
     assert b"decoy" not in result.stderr
     assert result.returncode == 0, result.stderr
-    assert sample_line_count(result) == 7
+    assert sample_line_count(result) == 8
 
 
 @needs_posix_bash
@@ -455,7 +461,7 @@ def test_launcher_dash_leading_config_is_a_value(tmp_path):
     shims = shim_dir(tmp_path, ["python"])
     result, _ = run_launcher(copy, ["-dash.toml"], shims, samples, tmp_path)
     assert result.returncode == 0, result.stderr
-    assert sample_line_count(result) == 7
+    assert sample_line_count(result) == 8
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX file modes only")

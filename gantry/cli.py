@@ -49,6 +49,10 @@ from gantry.sites import config_roots, shown
 from gantry.stamp import stamp_text
 from gantry.trace import counts_line, load_catalog
 
+# The full build's last stdout line (#32): how many fires, and how many sources
+# were not fully read. It names no fire; docs/daily-screen.md#fires states it.
+FIRES_LINE = "fires: {n}; sources not fully read: {m}"
+
 
 def _parser():
     parser = argparse.ArgumentParser(
@@ -182,6 +186,8 @@ def _build_all(config):
     for s in result.summaries:
         if s.trace_line is not None and config.output_dir / "sites" / f"{s.name}.html" in written:
             print(s.trace_line)
+    # Last, the fires line (#32): counts only, whether or not anything was written.
+    print(FIRES_LINE.format(n=len(result.fires.fires), m=result.fires.not_fully_read))
     for s in result.summaries:
         if s.status != "built":
             print(f"gantry: warning: site {shown(s.name)} is not built: {s.reason}", file=sys.stderr)

@@ -13,11 +13,14 @@ absolute path. docs/worksite-page.md states the build.
 
 import stat
 from dataclasses import dataclass, field, replace
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from gantry.attention import check_h
 from gantry.config import Config, error_reason
 from gantry.crosssite import resolve_foreign
+from gantry.devagent_records import NOT_READ, SiteRecords, read_site_records
+from gantry.fires import FireReport, SourceStatus, collect_fires, fire_reference, naive_reference
+from gantry.fires_list import FiresList, read_fires_list
 from gantry.inputs import Inputs, apply_inputs
 from gantry.model import ForeignOutcome
 from gantry.planner import WeekPlan, plan_week
@@ -74,6 +77,12 @@ class BuildResult:
     plan: WeekPlan | None = None
     # Set by write_all when the output folder could not be made: nothing was written.
     wrote_nothing: bool = False
+    # The full build's fires (#32), each read once per run; a --site build fills none.
+    # The fires list as the run read it: #34 reads its report from fires_list.report.
+    fires_list: FiresList | None = None
+    # {site: its devagent issue records}, every site with a planning directory, in config order.
+    records: dict[str, SiteRecords] = field(default_factory=dict)
+    fires: FireReport | None = None
 
 
 def site_list(config, roots=None):
@@ -275,6 +284,9 @@ def build_all(config, *, now=None, samples=None) -> BuildResult:
     # Every requirements file and the portfolio file, once per run (#20); a
     # file that cannot be read is a report entry, never an exception.
     catalog = load_catalog(roots, config, sites)
+    # The clock is read once: the stamp and the fires' reference time share it.
+    if now is None:
+        now = datetime.now(timezone.utc)
     stamp = stamp_text(config, now=now, samples=samples, roots=roots)
     raw, reasons = read_sites(config, sites, roots=roots)
     resolved, foreign = resolve_foreign(sites, raw, reasons)
@@ -291,7 +303,38 @@ def build_all(config, *, now=None, samples=None) -> BuildResult:
     result = BuildResult(config, tuple(sites), tuple(warnings), resolved, pages, summaries, stamp, roots, foreign,
                          portfolio=catalog.portfolio)
     # The plan is made from the rendered sites: a worksite page does not get it.
-    return replace(result, plan=plan_week(result, result.portfolio, config))
+    result = replace(result, plan=plan_week(result, result.portfolio, config))
+    return collect_build_fires(result, config, sites, now)
+
+
+def read_records(roots, sites) -> dict:
+    """{site: SiteRecords} for every site with a planning directory, in
+    config order, each read in its own `try`."""
+    found = {}
+    for site in sites:
+        if site.planning_dir is None:
+            continue
+        try:
+            found[site.name] = read_site_records(roots, site.planning_dir, site=site.name)
+        except Exception as e:
+            found[site.name] = SiteRecords(NOT_READ, f"records read failed: {type(e).__name__}", {}, {})
+    return found
+
+
+def collect_build_fires(result, config, sites, now):
+    """`result` with its fires list, records and fires (#32), read once. A
+    fault anywhere in the fires step degrades to a report with one not_read
+    status: it never stops the index or the pages."""
+    fires_list, records = None, {}
+    try:
+        reference = fire_reference(config, now)
+        fires_list = read_fires_list(result.roots, config.fires_list, [s.name for s in sites],
+                                     naive_reference(reference))
+        records = read_records(result.roots, sites)
+        fires = collect_fires(result, config, fires_list, records, reference)
+    except Exception as e:
+        fires = FireReport((), (SourceStatus("fires", None, "not_read", f"collector failed: {type(e).__name__}"),))
+    return replace(result, fires_list=fires_list, records=records, fires=fires)
 
 
 def _is_file_shaped(roots, folder) -> bool:
