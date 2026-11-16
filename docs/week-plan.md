@@ -659,7 +659,7 @@ each a `site` and `key`, in devagent's config order of site, then `WBS.md`
 order; entries go in the order of their first leaf. At version 1, `report`
 holds only `cross_site_cycle` entries. No view reads `report` yet (the
 week view shows cycle leaves by their reason), so its shape stays
-provisional until one does; a kind with another shape changes the pinned
+provisional until one does (#167); a kind with another shape changes the pinned
 shape and this section in the same change.
 
 A planned file, from `tests/fixtures/week_plan/binds_lanes/`, with `days`,
