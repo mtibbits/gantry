@@ -234,9 +234,9 @@ def test_hostile_shapes_are_cheap():
     start = clock.perf_counter()
     for line in lines:
         parse(line + LF)
-    # Linear parsing takes milliseconds; a quadratic regex on 20,000
-    # characters takes far longer than this loose bound, which a loaded CI
-    # runner cannot trip.
+    # Linear parsing takes milliseconds; a quadratic regex on 20,000 to
+    # 50,000 characters takes far longer than this loose bound, which a
+    # loaded CI runner cannot trip.
     assert clock.perf_counter() - start < 5
 
 
@@ -942,6 +942,23 @@ def test_column_zero_box_like_keeps_its_date():
         e, result = one(f"- [{glyph}] 2026-10-24 @harbor x")
         assert (e.state, e.date, e.site) == ("unreadable", date(2026, 10, 24), "harbor"), glyph
         assert [r.message for r in result.report] == [box_not(glyph)], glyph
+
+
+def test_box_like_glued_to_its_date_is_reported():
+    # Two phone typos at once: an empty or wide box, and no space before the
+    # date. The one-character [ ]2026-... is already reported.
+    nospace = "no space after the state box"
+    for line, top in (("[]2026-10-24 @harbor x", False), ("-[]2026-10-24 @harbor x", False),
+                      ("1. [xx]2026-10-24 @harbor x", False), ("- []2026-10-24 @harbor x", True)):
+        glyph = "xx" if "[xx]" in line else ""
+        e, result = one(line)
+        assert (e.state, e.date, e.site) == ("unreadable", date(2026, 10, 24), "harbor"), line
+        expected = [box_not(glyph), nospace] if top else [NOT_TOP, box_not(glyph), nospace]
+        assert [r.message for r in result.report] == ["; ".join(expected)], line
+    result = parse(ENTRY + LF + "  - []2026-10-25 @harbor y" + LF)
+    assert lines_of(result) == [1, 2]
+    assert result.entries[1].date == date(2026, 10, 25)
+    assert result.status == "read_with_problems"
 
 
 def test_box_like_alone_is_reported_not_skipped():

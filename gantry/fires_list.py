@@ -32,8 +32,9 @@ LABEL = "the fires list"
 THEMATIC_RE = re.compile(r" {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*")  # fullmatch
 TOP_ITEM_RE = re.compile(r"(?P<indent> {0,3})[-*+][ \t]+(?P<text>.*)")  # fullmatch; "- " alone has empty text
 ATX_HEADING_RE = re.compile(r" {0,3}#{1,6}(?:[ \t].*)?")  # fullmatch; a heading stays prose
-# [ and ] around zero or more characters, counted only before a blank or the end of the line
-_BOX_LIKE = r"\[(?P<glyph>[^\]]*+)\](?=[ \t]|\Z)"
+# [ and ] around zero or more characters, counted only before a blank, the end of the line or a
+# date attempt ("[]2026-10-24": two typos at once must not read as prose)
+_BOX_LIKE = r"\[(?P<glyph>[^\]]*+)\](?=[ \t]|\Z|[0-9]{4}-)"
 BOX_LIKE_RE = re.compile(_BOX_LIKE)  # match; tried after BOX_RE
 _ENTRY_START = r"(?:\[.\]|" + _BOX_LIKE + r"|[0-9]{4}-)"  # a box, a box-like pair or a date attempt
 ENTRY_START_RE = re.compile(_ENTRY_START)  # match, at the start of the text

@@ -53,9 +53,10 @@ space or tab.
    in `- [ ]2026-10-24 …` the box is read, the missing space is a failure,
    and reading goes on from the character after the box. `[` and `]`
    around no character or several (`[]`, `[xx]`), followed by a space, a
-   tab or the end of the line, are also a box that did not parse: the
-   token is consumed and reading goes on, so `- [] 2026-10-24 …` keeps its
-   date.
+   tab, the end of the line or a date attempt, are also a box that did not
+   parse: the token is consumed and reading goes on, so `- [] 2026-10-24 …`
+   keeps its date, and so does `- []2026-10-24 …`, with the missing space
+   reported.
 2. **The date**: a token that begins with four digits and a hyphen is a
    date attempt. It is valid when it is exactly `YYYY-MM-DD` and a real
    calendar date. It is the installation's local date the fire began, and
@@ -91,18 +92,19 @@ failure). Nothing typed into the list vanishes without a trace.
 Only a line feed ends a line, and a carriage return directly before it is
 dropped, so CRLF line ends read as LF ones. A leading byte-order mark is
 skipped; one later in the file is a mark like any other (see
-[Entry-like lines](#entry-like-lines)). Every other character stays inside its line, including a lone
-carriage return, U+2028, U+2029, U+0085, vertical tab and form feed, so a
+[Entry-like lines](#entry-like-lines)). Every other character stays inside
+its line, including a lone carriage return, U+2028, U+2029, U+0085,
+vertical tab and form feed, so a
 reason holding one comes back whole, on one line number. A carriage return
 at the very end of a file with no final line feed is dropped too.
 
 ## Notes under an entry
 
 A bullet indented two or three spaces whose text starts with neither a box,
-a box-like pair (`[]`, `[xx]`, `[WIP]`, followed by a space, a tab or the
-end of the line) nor a date attempt is a **note** when it comes after an entry or another
-note, with only blank lines between. It is not read. This is how a phone
-editor nests a line under an entry:
+a box-like pair (`[]`, `[xx]`, `[WIP]`, followed by a space, a tab, the end
+of the line or a date attempt) nor a date attempt is a **note** when it
+comes after an entry or another note, with only blank lines between. It is
+not read. This is how a phone editor nests a line under an entry:
 
 ```
 - [ ] 2026-10-24 @harbor the release build is red
@@ -159,17 +161,17 @@ so a mistyped entry is reported rather than lost: `-[] 2026-10-24 @harbor x`,
 for one, is an unreadable entry. These **stay prose**, neither read nor
 reported:
 
-- a heading: one to six `#`, then a space, a tab or the end of the line,
-  whatever follows;
+- a heading: up to three spaces, one to six `#`, then a space, a tab or the
+  end of the line, whatever follows;
 - a line where a letter or digit, other than a leading number marker, comes
   before any box or date (`Called back 2026-10-24`, `1. call back`);
 - more than eight marks before the box or date;
 - a number marker after a mark (`> 1. [ ] …`);
 - a line starting with `[` whose pair is followed by something other than
-  a space, a tab or the end of the line, whatever the brackets hold: a
-  link, an image or a footnote, even one whose text starts with a date. A
-  one-character label such as `[a](…)` or `[1]: …` is the exception: it is
-  read as a box and reported, as before #152;
+  a space, a tab, the end of the line or a date attempt, whatever the
+  brackets hold: a link, an image or a footnote, even one whose text starts
+  with a date. A one-character label such as `[a](…)` or `[1]: …` is the
+  exception: it is read as a box and reported, as before #152;
 - a two- or three-space bullet under an entry whose text starts with a mark
   before its box (`  - > [ ] …` is a note).
 
@@ -179,8 +181,9 @@ date-led table row (`| 2026-10-24 | … |`), an emphasis-led date
 struck-through entry (`~~- [ ] …~~`), a GitHub alert (`> [!NOTE]`), a
 parenthesised date (`(2026-10-24) …`), a bracket-led word
 (`[WIP] still digging`), and a code span or a quotation mark before a box
-or a date (`` `2026-10-24` was the day ``, `"2026-10-24",`). A wrapped date such as `2026-10-24**` or
-`2026-10-24)` does not parse, so such a line reads undated until it is
+or a date (`` `2026-10-24` was the day ``, `"2026-10-24",`). A wrapped
+date such as `2026-10-24**` or `2026-10-24)` does not parse, so such a
+line reads undated until it is
 fixed. A new entry-like line takes a following two- or three-space bullet
 as its note, as any entry does.
 
