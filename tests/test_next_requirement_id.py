@@ -7,6 +7,7 @@ reaches the network; the read-only tests run real git against a local bare
 remote they build, with a fake gh.
 """
 
+import json
 import re
 import string
 import subprocess
@@ -405,3 +406,252 @@ def test_script_entry_point(tmp_path):
     assert helped.returncode == 0
     assert b"--offline" in helped.stdout
     assert b"Exit 0" in helped.stdout
+
+
+# --- the gh sources and the pagination contract -------------------------------------
+
+NWO = "owner/repo"
+H = "c3" * 20
+REMEDY = "or run --offline (which reads no open issues or pull requests)"
+
+
+def page_argv(query, after=None):
+    argv = ["gh", "api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-f", "query=" + query]
+    return tuple(argv + (["-f", "after=" + after] if after is not None else []))
+
+
+ISSUES = page_argv(nri.ISSUES_QUERY)
+PULLS = page_argv(nri.PULLS_QUERY)
+
+
+def contents_argv(oid):
+    return ("gh", "api", "-H", "Accept: application/vnd.github.raw+json",
+            f"repos/{{owner}}/{{repo}}/contents/docs/requirements.md?ref={oid}")
+
+
+def page(field, nodes, total=None, after=None):
+    """A listing page in the live probe's shape; `after` is the next page's cursor."""
+    total = len(nodes) if total is None else total
+    end = after if after is not None else (f"c-{nodes[-1]['number']}" if nodes else None)
+    listing = {"totalCount": total, "pageInfo": {"hasNextPage": after is not None, "endCursor": end},
+               "nodes": nodes}
+    return ok(json.dumps({"data": {"repository": {"nameWithOwner": NWO, field: listing}}}))
+
+
+def inode(number, association, body):
+    return {"number": number, "authorAssociation": association, "body": body}
+
+
+def pnode(number, association, oid=H):
+    return {"number": number, "authorAssociation": association, "headRefOid": oid}
+
+
+def online(main_text="", issues=(), pulls=(), files=None):
+    script = {**git_script(main_text), ISSUES: page("issues", list(issues)), PULLS: page("pullRequests", list(pulls))}
+    for oid, text in (files or {}).items():
+        script[contents_argv(oid)] = ok(text)
+    return script
+
+
+def test_queries_are_single_line_and_read_only():
+    for query in (nri.ISSUES_QUERY, nri.PULLS_QUERY):
+        assert "\n" not in query
+        assert not re.search(r"\b(mutation|subscription)\b", query)
+        assert query.startswith("query(")
+
+
+def test_pages_until_total(capsys, tmp_path):
+    script = online(f"- FR-{K}: x\n")
+    script[ISSUES] = page("issues", [inode(1, "OWNER", ""), inode(2, "OWNER", "")], total=3, after="c1")
+    script[page_argv(nri.ISSUES_QUERY, "c1")] = page("issues", [inode(3, "OWNER", f"FR-{K + 1}")], total=3)
+    runner = FakeRunner(script)
+    rc, out, _ = run_main(capsys, ["FR"], runner, tree(tmp_path))
+    assert (rc, out) == (0, f"FR-{K + 2}\n")
+    pages = [argv for argv in runner.calls if "query=" + nri.ISSUES_QUERY in argv]
+    assert pages == [list(ISSUES), list(ISSUES) + ["-f", "after=c1"]]
+
+
+@pytest.mark.parametrize("field, argv, where", [("issues", ISSUES, "open issues"),
+                                                ("pullRequests", PULLS, "open pull requests")])
+def test_listing_short_refuses(capsys, tmp_path, field, argv, where):
+    nodes = ([inode(1, "NONE", ""), inode(2, "NONE", "")] if field == "issues"
+             else [pnode(1, "NONE"), pnode(2, "NONE")])
+    script = {**online(), argv: page(field, nodes, total=3)}
+    refused(capsys, ["FR"], FakeRunner(script), tree(tmp_path), f"{where}: could not read: read 2 of 3; run again")
+
+
+def test_repeated_cursor_refuses(capsys, tmp_path):
+    script = online()
+    script[ISSUES] = page("issues", [inode(1, "OWNER", "")], total=3, after="c1")
+    script[page_argv(nri.ISSUES_QUERY, "c1")] = page("issues", [inode(2, "OWNER", "")], total=3, after="c1")
+    refused(capsys, ["FR"], FakeRunner(script), tree(tmp_path),
+            "open issues: could not read: the same page came back twice; run again")
+
+
+def test_duplicate_number_refuses(capsys, tmp_path):
+    script = online()
+    script[ISSUES] = page("issues", [inode(1, "OWNER", "")], total=2, after="c1")
+    script[page_argv(nri.ISSUES_QUERY, "c1")] = page("issues", [inode(1, "OWNER", "")], total=2)
+    refused(capsys, ["FR"], FakeRunner(script), tree(tmp_path), "open issues: could not read: read 1 of 2; run again")
+
+
+def test_page_cap_refuses(capsys, tmp_path):
+    script = online()
+    script[ISSUES] = page("issues", [], total=0, after="c1")
+    script[page_argv(nri.ISSUES_QUERY, "c1")] = page("issues", [], total=0, after="c2")
+    runner = FakeRunner(script)  # a third page is unscripted: the cap must stop first
+    refused(capsys, ["FR"], runner, tree(tmp_path),
+            "open issues: could not read: more pages than 0 items need; run again")
+
+
+def listing(field="issues", **changes):
+    node = inode(1, "OWNER", "") if field == "issues" else pnode(1, "OWNER")
+    doc = {"data": {"repository": {"nameWithOwner": NWO, field: {
+        "totalCount": 1, "pageInfo": {"hasNextPage": False, "endCursor": "c"}, "nodes": [node]}}}}
+    inner = doc["data"]["repository"][field]
+    for key, value in changes.items():
+        if key == "node":
+            inner["nodes"] = [value]
+        elif key in ("hasNextPage", "endCursor"):
+            inner["pageInfo"][key] = value
+        elif value is DROP:
+            inner["pageInfo"].pop("hasNextPage")
+        else:
+            inner[key] = value
+    return json.dumps(doc)
+
+
+DROP = object()
+BAD = [
+    pytest.param("not json", id="not-json"),
+    pytest.param("null", id="null"),
+    pytest.param('{"data": null}', id="data-null"),
+    pytest.param(listing(node=None), id="null-node"),
+    pytest.param(listing(totalCount="1"), id="string-total"),
+    pytest.param(listing(totalCount=True), id="bool-total"),
+    pytest.param(listing(missing=DROP), id="no-hasNextPage"),
+    pytest.param(listing(hasNextPage=True, endCursor=None), id="next-without-cursor"),
+    pytest.param(listing(hasNextPage=True, endCursor=""), id="next-empty-cursor"),
+    pytest.param(listing(node={"number": True, "authorAssociation": "OWNER", "body": ""}), id="bool-number"),
+    pytest.param(listing(node={"number": 1, "authorAssociation": "OWNER"}), id="no-body"),
+    pytest.param("[" * 100_000 + "]" * 100_000, id="deep"),
+]
+
+
+@pytest.mark.parametrize("payload", BAD)
+def test_bad_response_refuses(capsys, tmp_path, payload):
+    script = {**online(), ISSUES: ok(payload)}
+    refused(capsys, ["FR"], FakeRunner(script), tree(tmp_path), "open issues: could not read: unexpected response")
+
+
+def test_bad_pull_node_refuses(capsys, tmp_path):
+    script = {**online(), PULLS: ok(listing("pullRequests", node={"number": 1, "authorAssociation": "OWNER"}))}
+    refused(capsys, ["FR"], FakeRunner(script), tree(tmp_path),
+            "open pull requests: could not read: unexpected response")
+
+
+def test_gh_missing(capsys, tmp_path):
+    script = {**online(), ISSUES: FileNotFoundError(2, "No such file or directory", "gh")}
+    refused(capsys, ["FR"], FakeRunner(script), tree(tmp_path), "open issues: could not read: gh is not installed")
+
+
+def test_gh_unauthenticated(capsys, tmp_path):
+    err = (b"To get started with GitHub CLI, please run:  gh auth login\n"
+           b"Alternatively, populate the GH_TOKEN environment variable with a GitHub API authentication token.\n")
+    script = {**online(), ISSUES: fail(4, err)}
+    refused(capsys, ["FR"], FakeRunner(script), tree(tmp_path),
+            "open issues: could not read: gh exited 4: To get started with GitHub CLI, please run:  gh auth login")
+
+
+def test_gh_fails_without_stderr(capsys, tmp_path):
+    script = {**online(), PULLS: fail(1)}
+    refused(capsys, ["FR"], FakeRunner(script), tree(tmp_path), "open pull requests: could not read: gh exited 1")
+
+
+@pytest.mark.parametrize("k", KS)
+def test_number_only_in_working_tree_counts(capsys, tmp_path, k):
+    runner = FakeRunner(online(f"- FR-{k}: x\n"))
+    rc, out, err = run_main(capsys, ["FR"], runner, tree(tmp_path, f"- FR-{k}: x\n- FR-{k + 4}: y\n"))
+    assert (rc, out) == (0, f"FR-{k + 5}\n")
+    assert err.splitlines()[-1] == f"{P}FR-{k + 5}: the highest FR number, {k + 4}, is in the working tree"
+
+
+def test_pull_file_read_at_head(capsys, tmp_path):
+    runner = FakeRunner(online(f"- FR-{K}: x\n", pulls=[pnode(7, "MEMBER", H)],
+                               files={H: f"- gantry:FR-{K + 2}: y\n"}))
+    rc, out, err = run_main(capsys, ["FR"], runner, tree(tmp_path))
+    assert (rc, out) == (0, f"FR-{K + 3}\n")
+    assert list(contents_argv(H)) in runner.calls
+    assert contents_argv(H)[-1] == f"repos/{{owner}}/{{repo}}/contents/docs/requirements.md?ref={H}"
+    assert "headRefOid" in nri.PULLS_QUERY and "baseRef" not in nri.PULLS_QUERY
+    assert err.splitlines()[-1].endswith("is in open pull request #7")
+
+
+def test_author_filter_before_scan(capsys, tmp_path):
+    runner = FakeRunner(online(f"- FR-{K}: x\n", issues=[inode(3, "NONE", f"FR-{K + 50}")],
+                               pulls=[pnode(5, "CONTRIBUTOR", H)]))  # no file scripted for #5
+    rc, out, _ = run_main(capsys, ["FR"], runner, tree(tmp_path))
+    assert (rc, out) == (0, f"FR-{K + 1}\n")
+    assert not [argv for argv in runner.calls if argv[:3] == ["gh", "api", "-H"]]
+
+
+def test_unknown_association_refuses(capsys, tmp_path):
+    runner = FakeRunner(online(issues=[inode(3, "SPONSOR", "")]))
+    refused(capsys, ["FR"], runner, tree(tmp_path),
+            "open issues: could not read: unknown author association SPONSOR on #3; "
+            f"this tool needs updating for it, {REMEDY}")
+
+
+@pytest.mark.parametrize("oid", ["HEAD", "c3" * 19, ("C3" * 20), "c3" * 20 + "\n", "-x"])
+def test_bad_head_oid_refuses(capsys, tmp_path, oid):
+    runner = FakeRunner(online(pulls=[pnode(7, "OWNER", oid)]))
+    refused(capsys, ["FR"], runner, tree(tmp_path), "open pull request #7: could not read: unexpected head commit")
+    assert not [argv for argv in runner.calls if argv[:3] == ["gh", "api", "-H"]]
+
+
+def test_pull_file_fails_refuses(capsys, tmp_path):
+    script = {**online(pulls=[pnode(7, "OWNER", H)]), contents_argv(H): fail(1, b"gh: Not Found (HTTP 404)\n")}
+    rc, out, err = run_main(capsys, ["FR"], FakeRunner(script), tree(tmp_path))
+    assert (rc, out) == (1, "")
+    assert err == (f"{P}open pull request #7: could not read: gh exited 1: gh: Not Found (HTTP 404)\n"
+                   f"{P}open pull request #7 has no docs/requirements.md at its head {H}; "
+                   f"ask its author to rebase, or close it, {REMEDY}\n")
+
+
+def test_pull_file_other_failure_has_no_404_line(capsys, tmp_path):
+    script = {**online(pulls=[pnode(7, "OWNER", H)]), contents_argv(H): fail(1, b"gh: Server Error (HTTP 502)\n")}
+    refused(capsys, ["FR"], FakeRunner(script), tree(tmp_path),
+            "open pull request #7: could not read: gh exited 1: gh: Server Error (HTTP 502)")
+
+
+def test_pull_file_not_utf8_refuses(capsys, tmp_path):
+    script = {**online(pulls=[pnode(7, "OWNER", H)]), contents_argv(H): ok(b"\xff")}
+    refused(capsys, ["FR"], FakeRunner(script), tree(tmp_path), "open pull request #7: could not read: not UTF-8")
+
+
+def test_pull_files_read_ascending(capsys, tmp_path):
+    h2 = "d4" * 20
+    runner = FakeRunner(online(pulls=[pnode(9, "OWNER", h2), pnode(4, "COLLABORATOR", H)],
+                               files={H: "", h2: ""}))
+    assert run_main(capsys, ["FR"], runner, tree(tmp_path))[0] == 0
+    reads = [argv[-1] for argv in runner.calls if argv[:3] == ["gh", "api", "-H"]]
+    assert reads == [contents_argv(H)[-1], contents_argv(h2)[-1]]
+
+
+def test_tie_stderr_names_earlier(capsys, tmp_path):
+    runner = FakeRunner(online(f"- FR-{K}: x\n", issues=[inode(4, "OWNER", f"Claims FR-{K + 1}.")],
+                               pulls=[pnode(2, "OWNER", H)], files={H: f"- FR-{K + 1}: y\n"}))
+    rc, out, err = run_main(capsys, ["FR"], runner, tree(tmp_path))
+    assert (rc, out) == (0, f"FR-{K + 2}\n")
+    assert err.splitlines()[-1] == f"{P}FR-{K + 2}: the highest FR number, {K + 1}, is in open issue #4"
+
+
+def test_online_stderr_summary(capsys, tmp_path):
+    h2 = "d4" * 20
+    runner = FakeRunner(online(issues=[inode(1, "OWNER", ""), inode(2, "NONE", ""), inode(5, "MEMBER", "")],
+                               pulls=[pnode(3, "CONTRIBUTOR", h2), pnode(6, "OWNER", H)], files={H: ""}))
+    rc, out, err = run_main(capsys, ["FR"], runner, tree(tmp_path))
+    assert (rc, out) == (0, "FR-1\n")
+    assert err == (f"{P}read origin/main at {SHA[:12]}, the working tree, and {NWO}'s 3 open issues and "
+                   "2 open pull requests (2 and 1 by the owner, a member or a collaborator)\n"
+                   f"{P}FR-1: no FR number was found\n")

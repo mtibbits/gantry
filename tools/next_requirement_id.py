@@ -39,6 +39,7 @@ apart on stderr only; the contract is provisional for machine consumers.
 """
 
 import argparse
+import json
 import os
 import re
 import subprocess
@@ -75,6 +76,20 @@ SCAN = re.compile(
 
 ORDER = {"main": 0, "tree": 1, "issue": 2, "pull": 3}
 SHA_RE = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")  # fullmatch
+# Single-line queries, so no newline goes into a Windows argv; read-only by construction.
+ISSUES_QUERY = (
+    "query($owner: String!, $name: String!, $after: String) { repository(owner: $owner, name: $name) "
+    "{ nameWithOwner issues(states: OPEN, first: 100, after: $after) "
+    "{ totalCount pageInfo { hasNextPage endCursor } nodes { number authorAssociation body } } } }"
+)
+PULLS_QUERY = (
+    "query($owner: String!, $name: String!, $after: String) { repository(owner: $owner, name: $name) "
+    "{ nameWithOwner pullRequests(states: OPEN, first: 100, after: $after) "
+    "{ totalCount pageInfo { hasNextPage endCursor } nodes { number authorAssociation headRefOid } } } }"
+)
+LISTINGS = {"issues": ("open issues", "body"), "pullRequests": ("open pull requests", "headRefOid")}
+CONTENTS = "repos/{owner}/{repo}/contents/" + FILE + "?ref="  # gh fills {owner}/{repo} from the checkout
+OFFLINE_REMEDY = "or run --offline (which reads no open issues or pull requests)"
 EPILOG = """exit status:
   Exit 0 printed an ID; 1 refused (stdout is empty; stderr names the source
   and the remedy); 2 a usage error. 1 covers retryable and permanent refusals
@@ -232,9 +247,87 @@ def tree_text(root) -> str:
     return decoded(data, where)
 
 
+def listing_page(data, field, where):
+    """(listing, nameWithOwner) from one page; refuses on any other shape."""
+    text_key = LISTINGS[field][1]
+    try:
+        repository = json.loads(data.decode("utf-8"))["data"]["repository"]
+        name, listing = repository["nameWithOwner"], repository[field]
+        total, info, nodes = listing["totalCount"], listing["pageInfo"], listing["nodes"]
+        more, cursor = info["hasNextPage"], info["endCursor"]
+        good = (type(name) is str and type(total) is int and total >= 0 and type(more) is bool
+                and (cursor is None or type(cursor) is str) and (not more or bool(cursor))
+                and type(nodes) is list
+                and all(type(node) is dict and type(node.get("number")) is int
+                        and type(node.get("authorAssociation")) is str and type(node.get(text_key)) is str
+                        for node in nodes))
+    except (ValueError, RecursionError, TypeError, KeyError):
+        good = False
+    if not good:
+        raise unreadable(where, "unexpected response")
+    for node in nodes:
+        if node["authorAssociation"] not in ASSOCIATIONS:  # refuse, never drop a claim unseen
+            raise unreadable(where, f"unknown author association {node['authorAssociation']} on "
+                                    f"#{node['number']}; this tool needs updating for it, {OFFLINE_REMEDY}")
+    return listing, name
+
+
+def graphql_pages(runner, root, query, field):
+    """(every node, nameWithOwner) of one listing, read until the count matches the total."""
+    where = LISTINGS[field][0]
+    nodes, cursors, pages, cursor = [], set(), 0, None
+    while True:
+        argv = ["gh", "api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-f", "query=" + query]
+        if cursor is not None:
+            argv += ["-f", "after=" + cursor]
+        listing, name = listing_page(checked(runner, argv, root, where), field, where)
+        pages += 1
+        nodes += listing["nodes"]
+        total = listing["totalCount"]
+        if not listing["pageInfo"]["hasNextPage"]:
+            break
+        cursor = listing["pageInfo"]["endCursor"]
+        if cursor in cursors:
+            raise unreadable(where, "the same page came back twice; run again")
+        cursors.add(cursor)
+        if pages >= total // 100 + 2:
+            raise unreadable(where, f"more pages than {total} items need; run again")
+    numbers = {node["number"] for node in nodes}
+    if len(nodes) != total or len(numbers) != len(nodes):
+        raise unreadable(where, f"read {len(numbers)} of {total}; run again")
+    return nodes, name
+
+
+def pull_text(runner, root, node) -> str:
+    """The pull request's docs/requirements.md at its head commit."""
+    where, oid = f"open pull request #{node['number']}", node["headRefOid"]
+    if not SHA_RE.fullmatch(oid):  # checked before it goes into an argv
+        raise unreadable(where, "unexpected head commit")
+    argv = ["gh", "api", "-H", "Accept: application/vnd.github.raw+json", CONTENTS + oid]
+    result = call(runner, argv, root, where)
+    if result.returncode != 0:
+        lines = [f"{where}: could not read: {exited(argv, result)}"]
+        if b"HTTP 404" in result.stderr:
+            lines.append(f"{where} has no {FILE} at its head {oid}; ask its author to rebase, or close it, "
+                         + OFFLINE_REMEDY)
+        raise Refused(*lines)
+    return decoded(result.stdout, where)
+
+
 def read_github(runner, root):
-    """The open issues and pull requests (#161 task 3)."""
-    raise unreadable("open issues", "not read by this version")
+    """(sources, summary) for the open issues and pull requests.
+
+    Only counted pull requests' files are read, ascending; choose() drops the
+    other issues before it scans any text."""
+    issues, name = graphql_pages(runner, root, ISSUES_QUERY, "issues")
+    pulls, _ = graphql_pages(runner, root, PULLS_QUERY, "pullRequests")
+    sources = [Source("issue", node["number"], node["authorAssociation"], node["body"]) for node in issues]
+    mine = sorted((node for node in pulls if node["authorAssociation"] in COUNTED), key=lambda node: node["number"])
+    sources += [Source("pull", node["number"], node["authorAssociation"], pull_text(runner, root, node))
+                for node in mine]
+    counted_issues = sum(node["authorAssociation"] in COUNTED for node in issues)
+    return sources, (f"{name}'s {len(issues)} open issues and {len(pulls)} open pull requests "
+                     f"({counted_issues} and {len(mine)} by the owner, a member or a collaborator)")
 
 
 # --- the command -------------------------------------------------------------------
