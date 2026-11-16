@@ -10,6 +10,7 @@ from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
+from page_safety import HOSTILE
 
 from gantry import devagent_records as dr
 from gantry import fires, model
@@ -567,3 +568,225 @@ def test_open_p0_leaf_with_parked_checklist():
     assert [f.kinds for f in p0(result).fires] == [("p0_leaf",)]
     report = stuck(result, records)
     assert report.fires == () and report.stuck_parked == {"harbor": ("Issue-1",)}
+
+
+# --- collect_fires ------------------------------------------------------------------------
+
+
+def collect(result, records=None, fires_list=NO_FIRES_LIST, cfg=None, reference=REFERENCE):
+    return fires.collect_fires(result, cfg or config(), fires_list, {} if records is None else records, reference)
+
+
+def label(fire):
+    """A fire as (kinds, site, issue or first why)."""
+    return fire.kinds, fire.site, fire.issue if fire.issue is not None else fire.why[0]
+
+
+EVERY_KIND_FIRES = """\
+- [ ] no date at all
+- [ ] 2026-01-15 @harbor older
+- [ ] 2026-01-19 @quarry newest
+- [ ] 2026-01-15 tie later in the file
+- [?] 2026-01-17 a bad box
+- [ ] undated again
+- [x] 2026-01-18 resolved
+"""
+
+
+def at(day, hour=9):
+    return present(marker(created=datetime(2026, 1, day, hour, 0)))
+
+
+def every_kind():
+    """(result, records, fires_list): every kind of fire, with ties."""
+    result = fake_result(
+        site("harbor", [leaf("Issue-1", "pending", "P0"), leaf("Issue-2", "in_progress", "P0"), leaf("Issue-4"),
+                        leaf("Issue-5"), leaf("Issue-7")]),
+        site("quarry", [leaf("Issue-3", "pending", "P0"), leaf("Issue-6"), leaf("Issue-8")]),
+    )
+    no_date = present(marker(created=None))
+    records = {
+        "harbor": site_records(folder("Issue-2", at(10), UNPARKED), folder("Issue-4", at(12), UNPARKED),
+                               folder("Issue-5", at(14), UNPARKED), folder("Issue-7", no_date, UNPARKED)),
+        "quarry": site_records(folder("Issue-6", at(14), UNPARKED), folder("Issue-8", no_date, UNPARKED)),
+    }
+    return result, records, fires_list_of(EVERY_KIND_FIRES)
+
+
+def test_order_on_every_kind():
+    result, records, listed = every_kind()
+    report = collect(result, records, listed)
+    assert [label(f) for f in report.fires] == [
+        (("fires_list",), None, "- [ ] no date at all"),
+        (("fires_list",), None, "- [ ] undated again"),
+        (("fires_list",), "quarry", "newest"),
+        (("fires_list",), None, "- [?] 2026-01-17 a bad box"),
+        (("fires_list",), "harbor", "older"),
+        (("fires_list",), None, "tie later in the file"),
+        (("p0_leaf",), "harbor", "Issue-1"),
+        (("p0_leaf", "stuck"), "harbor", "Issue-2"),
+        (("p0_leaf",), "quarry", "Issue-3"),
+        (("stuck",), "harbor", "Issue-5"),
+        (("stuck",), "quarry", "Issue-6"),
+        (("stuck",), "harbor", "Issue-4"),
+        (("stuck",), "harbor", "Issue-7"),
+        (("stuck",), "quarry", "Issue-8"),
+    ]
+    assert [s.source for s in report.sources] == ["fires_list", "p0_leaf", "p0_leaf", "stuck", "stuck"]
+
+
+def test_p0_and_stuck_merge():
+    result = fake_result(site("harbor", [leaf("Issue-1", "pending", "P0")]))
+    before = collect(result, {"harbor": site_records()})
+    assert len(before.fires) == 1 and before.fires[0].kinds == ("p0_leaf",)
+    report = collect(result, {"harbor": site_records(folder("Issue-1", at(12), UNPARKED))})
+    assert len(report.fires) == 1
+    fire = report.fires[0]
+    assert fire.kinds == ("p0_leaf", "stuck")
+    assert fire.why == ("P0 leaf", "step 2 draft: waiting")
+    assert fire.since == datetime(2026, 1, 12, 9, 0, tzinfo=timezone.utc)
+    assert fire.age == timedelta(days=7, hours=15)
+    assert fire.this_machine is True and fire.leaf_key == "Issue-1" and fire.title == "title Issue-1"
+
+
+def test_reports_equal_under_listing_order():
+    result, records, listed = every_kind()
+    flipped = {name: replace(r, issues=dict(reversed(r.issues.items()))) for name, r in reversed(records.items())}
+    assert list(flipped) != list(records)
+    assert collect(result, records, listed) == collect(result, flipped, listed)
+
+
+def test_reports_equal_across_clocks_and_zones():
+    result, records, _ = every_kind()
+    reports = []
+    for now in NOWS:
+        for local in (EST, IST):
+            reference = fire_reference(config(), now, local)
+            listed = fl.parse_fires_list(EVERY_KIND_FIRES, ("harbor", "quarry"), naive_reference(reference))
+            reports.append(collect(result, records, listed, reference=reference))
+    assert len(reports) == 4 and len(reports[0].fires) == 14
+    assert all(r == reports[0] for r in reports)
+
+
+class FakeSource(fires.FireSource):
+    name = "fake"
+
+    def __init__(self, raise_after=False):
+        self.raise_after = raise_after
+
+    def collect(self, context):
+        fire = a_fire(kinds=("fake",), why=("a fake fire",))
+        if self.raise_after:
+            found = [fire]
+            raise RuntimeError(f"failed after {len(found)}")
+        return fires.SourceResult((fire,), (SourceStatus("fake", None, "read", None),))
+
+
+def test_fake_source_appended(monkeypatch):
+    monkeypatch.setattr(fires, "SOURCES", (*fires.SOURCES, FakeSource()))
+    result, records, listed = every_kind()
+    report = collect(result, records, listed)
+    assert len(report.fires) == 15
+    assert [label(f) for f in report.fires][-2:] == [(("stuck",), "quarry", "Issue-8"), (("fake",), None, "a fake fire")]
+    assert report.sources[-1] == SourceStatus("fake", None, "read", None)
+
+
+def test_source_that_raises_as_a_whole(monkeypatch):
+    monkeypatch.setattr(fires, "SOURCES", (*fires.SOURCES, FakeSource(raise_after=True)))
+    result, records, listed = every_kind()
+    report = collect(result, records, listed)
+    assert len(report.fires) == 14
+    assert all(f.kinds != ("fake",) for f in report.fires)
+    assert report.sources[-1] == SourceStatus("fake", None, "not_read", "source failed: RuntimeError")
+
+
+class Boom:
+    @property
+    def status(self):
+        raise RuntimeError("no status")
+
+
+def test_stuck_site_that_raises():
+    result, records, listed = every_kind()
+    report = collect(result, {**records, "harbor": Boom()}, listed)
+    assert by_source(report, "stuck") == [("harbor", "not_read", "source failed: RuntimeError"),
+                                          ("quarry", "read_with_problems", "stuck fires not fully read: 1")]
+    assert [label(f) for f in report.fires if f.site == "harbor" and "stuck" in f.kinds] == []
+    assert [f.issue for f in report.fires if f.kinds == ("p0_leaf",)] == ["Issue-1", "Issue-2", "Issue-3"]
+    assert [f.issue for f in report.fires if f.kinds == ("stuck",)] == ["Issue-6", "Issue-8"]
+
+
+def test_by_site():
+    result, records, listed = every_kind()
+    report = collect(result, records, fires_list_of(EVERY_KIND_FIRES + "- [ ] 2026-01-16 @atlantis far away\n"))
+    groups = report.by_site()
+    assert list(groups) == [None, "quarry", "harbor"]
+    assert [label(f)[2] for f in groups[None]] == ["- [ ] no date at all", "- [ ] undated again", "- [?] 2026-01-17 a bad box",
+                                                   "far away", "tie later in the file"]
+    assert groups[None][3].site_as_written == "atlantis"
+    assert [f.issue for f in groups["harbor"] if f.issue] == ["Issue-1", "Issue-2", "Issue-5", "Issue-4", "Issue-7"]
+    assert sum(len(g) for g in groups.values()) == len(report.fires) == 15
+
+
+@pytest.mark.parametrize("hostile", HOSTILE)
+def test_hostile_text_is_kept_verbatim(hostile):
+    listed = fires_list_of(f"- [ ] 2026-01-15 {hostile}\n- [?] 2026-01-15 {hostile}\n")
+    result = fake_result(site("harbor", [leaf("Issue-1", "pending", "P0", title=hostile),
+                                         leaf("Issue-2", issue=hostile)]))
+    records = {"harbor": site_records(folder("Issue-1", present(marker(reason=hostile)), UNPARKED),
+                                      folder(hostile, present(marker(step_name=hostile)), UNPARKED))}
+    report = collect(result, records, listed)
+    reason_fire, raw_fire, p0_fire, folder_fire = report.fires
+    assert hostile in reason_fire.why[0] and hostile in raw_fire.why[0]
+    assert p0_fire.title == hostile and hostile in p0_fire.why[1]
+    assert folder_fire.issue == hostile and hostile in folder_fire.why[0]
+
+
+def test_confirmed_none():
+    from gantry.sites import NO_WBS
+
+    clean = fake_result(site("harbor", [leaf("Issue-1")]), site("bakery", read=False, problem=NO_WBS))
+    records = {"harbor": site_records(), "bakery": site_records()}
+    assert collect(clean, records).confirmed_none is True
+    burning = fake_result(site("harbor", [leaf("Issue-1", "pending", "P0")]), site("bakery", read=False, problem=NO_WBS))
+    positive = collect(burning, records)
+    assert positive.all_read is True and positive.confirmed_none is False
+    for listed in (fl.FiresList((), "not_configured", "fires_list is not set", (), 0, 0),
+                   fl.FiresList((), "not_read", "fires_list: the fires list does not exist", (), 0, 0),
+                   fires_list_of("- [ ] 2026-01-18 @atlantis x\n")):
+        assert collect(clean, records, listed).confirmed_none is False
+    marsh = fake_result(site("harbor", [leaf("Issue-1")]), site("marsh", read=False, reason="not UTF-8"))
+    assert collect(marsh, {"harbor": site_records(), "marsh": site_records()}).confirmed_none is False
+    missing = fake_result(site("harbor", [leaf("Issue-1")]),
+                          site("quarry", read=False, problem="planning directory does not exist"))
+    quarry = dr.SiteRecords(dr.NOT_READ, dr.PLANNING_MISSING, {}, {})
+    assert collect(missing, {"harbor": site_records(), "quarry": quarry}).confirmed_none is False
+
+
+def test_collect_refuses_naive_reference():
+    with pytest.raises(ValueError):
+        collect(fake_result(), reference=datetime(2026, 1, 20))
+
+
+@pytest.fixture
+def every_report():
+    """Every report this module's case builders make."""
+    reports = [collect(*outcome_table()), collect(*every_kind())]
+    for hostile in HOSTILE[:3]:
+        listed = fires_list_of(f"- [?] 2026-01-15 {hostile}\n")
+        result = fake_result(site("harbor", [leaf("Issue-1", "pending", "P0", title=hostile)]))
+        reports.append(collect(result, {"harbor": site_records(folder("Issue-1", UNREAD_STUCK, UNREAD))}, listed))
+    return reports
+
+
+def test_fire_invariants(every_report):
+    every = [f for r in every_report for f in r.fires]
+    assert len(every) > 20
+    for fire in every:
+        assert len(fire.kinds) == len(fire.why)
+        assert list(fire.kinds) == [k for k in KINDS if k in fire.kinds]
+        assert fire.this_machine == ("stuck" in fire.kinds)
+        assert fire.fail_closed is None or ("stuck" in fire.kinds and fire.fail_closed in FAIL_CLOSED)
+        assert (fire.age is None) == (fire.since is None)
+        assert fire.since is None or fire.since.utcoffset() is not None
+        assert (fire.still_a_fire is None) == ("fires_list" not in fire.kinds)

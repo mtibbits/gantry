@@ -16,7 +16,7 @@ this module binds to them. Record and fires-list text is kept verbatim:
 escaping happens once, where a page renders it.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 
 from gantry import fires_list, priority
@@ -363,3 +363,82 @@ class StuckSource(PerSiteSource):
             why=(why,), unreadable=record.status != PRESENT, fail_closed=fail_closed, since=since,
             date_only=False, age=_age(since, context.reference), still_a_fire=None, this_machine=True,
         )
+
+
+# The registry, read at call time: a test or a later source appends to it.
+SOURCES = (FiresListSource(), P0Source(), StuckSource())
+
+
+def _merge(p0_fires, stuck_fires):
+    """(P0 fires, STUCK fires left): a STUCK fire on an open P0 leaf joins
+    that leaf's fire, carrying the marker's time, unreadability and fail-closed
+    value."""
+    merged = list(p0_fires)
+    at = {(f.site, f.leaf_key): i for i, f in enumerate(merged)}
+    left = []
+    for fire in stuck_fires:
+        i = at.get((fire.site, fire.leaf_key)) if fire.leaf_key is not None else None
+        if i is None:
+            left.append(fire)
+            continue
+        p = merged[i]
+        merged[i] = replace(p, kinds=p.kinds + fire.kinds, why=p.why + fire.why, since=fire.since, age=fire.age,
+                            unreadable=fire.unreadable, fail_closed=fire.fail_closed,
+                            this_machine=fire.this_machine)
+    return merged, left
+
+
+def _newest_first(fires):
+    """Stable: fires with an equal time keep their order."""
+    return sorted(fires, key=lambda f: f.since, reverse=True)
+
+
+def order_fires(groups, site_order) -> list:
+    """The report's order. `groups` is [(source name, fires)] in registry
+    order. Fires-list fires: undated in file order, then dated newest first;
+    P0 fires as collected (site, then WBS.md order); STUCK fires newest first,
+    ties by site then folder name, then undated by site then folder name;
+    any other source's fires as collected."""
+    def site_key(fire):
+        return site_order.get(fire.site, len(site_order)), fire.issue or ""
+
+    ordered = []
+    for name, found in groups:
+        if name == "fires_list":
+            ordered += [f for f in found if f.since is None]
+            ordered += _newest_first(f for f in found if f.since is not None)
+        elif name == "stuck":
+            by_site = sorted(found, key=site_key)
+            ordered += _newest_first(f for f in by_site if f.since is not None)
+            ordered += [f for f in by_site if f.since is None]
+        else:
+            ordered += found
+    return ordered
+
+
+def collect_fires(result, config, fires_list, records, reference) -> FireReport:
+    """One build's FireReport. `reference` is fire_reference's aware time.
+    A source that raises gets one not_read status and loses its fires; the
+    other sources still run."""
+    if not _aware(reference):
+        raise ValueError("the reference time must be timezone-aware")
+    context = FireContext(result, config, fires_list, records, reference)
+    collected = []
+    for source in SOURCES:
+        try:
+            got = source.collect(context)
+        except Exception as e:
+            got = SourceResult((), (SourceStatus(source.name, None, "not_read", source_failed(e)),))
+        collected.append((source.name, got))
+    groups = [[name, list(got.fires)] for name, got in collected]
+    p0_group = next((g for g in groups if g[0] == "p0_leaf"), None)
+    stuck_group = next((g for g in groups if g[0] == "stuck"), None)
+    if p0_group is not None and stuck_group is not None:
+        p0_group[1], stuck_group[1] = _merge(p0_group[1], stuck_group[1])
+    site_order = {entry.name: i for i, entry in enumerate(result.sites)}
+    parked, no_leaf = {}, {}
+    for _, got in collected:
+        parked.update(got.stuck_parked)
+        no_leaf.update(got.stuck_no_open_leaf)
+    return FireReport(tuple(order_fires(groups, site_order)), tuple(s for _, got in collected for s in got.statuses),
+                      parked, no_leaf)
