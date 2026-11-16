@@ -213,9 +213,10 @@ section with `tools/changelog.py`:
 
 An issue with entries of two kinds has two files, and a later change for the
 same issue edits that issue's file. `## [Unreleased]` holds only its pointer
-line and the lines carried from before this rule; the suite fails on
-anything else there, as it does on an entry file that breaks the rules
-above. `python3 tools/changelog.py check` reports those files, and
+line and the lines carried from before this rule. The suite fails on prose
+or a heading other than the six kinds there, as it does on an entry file
+that breaks the rules above; review keeps new entries out of
+`## [Unreleased]`. `python3 tools/changelog.py check` reports those files, and
 `python3 tools/changelog.py preview` prints the section the next release
 would write.
 

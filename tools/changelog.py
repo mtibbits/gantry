@@ -326,12 +326,23 @@ def _with_section(lines, start, end, section, rest):
 
 def _write(root, text, files):
     """Write CHANGELOG.md, then delete `files`: Refused (R11) when the write
-    fails, Unfinished (R10) naming the files left when a delete fails."""
+    fails, Unfinished (R10) naming the files left when a delete fails.
+
+    A write can fail after open() has truncated the file (a full disk), so a
+    failed write puts the original bytes back before R11 says nothing changed."""
+    path = Path(root) / CHANGELOG
+    original = path.read_bytes()
     try:
-        (Path(root) / CHANGELOG).write_bytes(text.encode("utf-8"))
+        path.write_bytes(text.encode("utf-8"))
     except OSError as e:
-        raise Refused(f"{CHANGELOG}: could not write ({e.strerror or type(e).__name__}); "
-                      "nothing changed") from None
+        reason = e.strerror or type(e).__name__
+        try:
+            if path.read_bytes() != original:
+                path.write_bytes(original)
+        except OSError:
+            raise Refused(f"{CHANGELOG}: could not write ({reason}), nor restore it; "
+                          f"no entry file was deleted; restore {CHANGELOG} from git") from None
+        raise Refused(f"{CHANGELOG}: could not write ({reason}); nothing changed") from None
     left = []
     for path in files:
         try:

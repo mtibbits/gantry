@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 
 import changelog
+import helpers_docs
 from helpers_docs import CODE_SPAN, markdown_text, section, unfenced_lines
 
 REAL_ROOT = Path(__file__).resolve().parents[1]
@@ -456,6 +457,74 @@ def test_release_unlink_fails(tmp_path, capsys, monkeypatch):
     assert (root / "CHANGELOG.md").read_bytes() == EXPECTED_RELEASED.encode("utf-8")
     assert sorted(p.name for p in (root / "changelog.d").iterdir()) == ["10.added.md"]
 
+
+
+def test_release_write_fails_partway(tmp_path, capsys, monkeypatch):
+    # A full disk fails the write after open() has truncated the file.
+    root = make_tree(tmp_path / "t", FIXTURE_CHANGELOG, FIXTURE_FILES)
+    before = snapshot(root)
+    real_write, calls = Path.write_bytes, []
+
+    def write_bytes(self, data):
+        calls.append(data)
+        if len(calls) == 1:
+            real_write(self, data[:10])
+            raise OSError(28, "No space left on device")
+        return real_write(self, data)
+
+    monkeypatch.setattr(Path, "write_bytes", write_bytes)
+    assert run(capsys, root, "release", "9.9.9", "2026-12-01") == (
+        1, "", "changelog: CHANGELOG.md: could not write (No space left on device); nothing changed\n")
+    assert snapshot(root) == before
+
+
+def test_release_write_and_restore_fail(tmp_path, capsys, monkeypatch):
+    root = make_tree(tmp_path / "t", FIXTURE_CHANGELOG, FIXTURE_FILES)
+    real_write = Path.write_bytes
+
+    def write_bytes(self, data):
+        real_write(self, data[:10])
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(Path, "write_bytes", write_bytes)
+    assert run(capsys, root, "release", "9.9.9", "2026-12-01") == (
+        1, "", "changelog: CHANGELOG.md: could not write (No space left on device), nor restore it; "
+               "no entry file was deleted; restore CHANGELOG.md from git\n")
+    assert sorted(p.name for p in (root / "changelog.d").iterdir()) == sorted(FIXTURE_FILES)
+
+
+FENCED_HEADER = """\
+# Changelog
+
+A fixture for tools/changelog.py, quoting {quoted}:
+
+```
+{quoted}
+```
+
+## [Unreleased]
+"""
+
+
+@pytest.mark.parametrize("quoted", ["## [Unreleased]", "## [9.9.9] — 2026-11-20"])
+def test_release_skips_fenced_headings(tmp_path, capsys, quoted):
+    # A heading quoted in a fence is neither ## [Unreleased] (D5) nor a release (R1).
+    header = FENCED_HEADER.format(quoted=quoted)
+    text = planted(FIXTURE_CHANGELOG, "# Changelog\n\nA fixture for tools/changelog.py.\n\n## [Unreleased]\n",
+                   header)
+    root = make_tree(tmp_path / "t", text, FIXTURE_FILES)
+    assert run(capsys, root, "release", "9.9.9", "2026-12-01")[0] == 0
+    assert (root / "CHANGELOG.md").read_bytes().decode("utf-8") == planted(
+        EXPECTED_RELEASED, "# Changelog\n\nA fixture for tools/changelog.py.\n\n## [Unreleased]\n", header)
+
+
+@pytest.mark.parametrize("text", [
+    "```\n## x\n```", "~~~\n## x\n~~~", "````\n```\n## x\n````", "``` a`b\n## x",
+    "   ```\n## x\n   ```", "    ```\n## x", "```\n## x", "```\n## x\n``", "~~~\n## x\n```\n~~~",
+    "```\n## x\n    ```\n## y\n```", "## a\n```py\n## x\n```\n## b"])
+def test_unfenced_matches_docs_helper(text):
+    # tools/ may not import tests/, so changelog.py copies helpers_docs' fence rule.
+    assert changelog.unfenced(text.split("\n")) == helpers_docs.unfenced_lines(text)
 
 @pytest.mark.parametrize("text", [
     "9.9.9", "09.9.9", "1\u0662.0.0",
