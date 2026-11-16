@@ -23,7 +23,8 @@ an entry" as fires lists; edit them and that test together.
 test_doc_remaining_prose_reads_as_prose reads the block under "Entry-like
 lines" the same way: every line but its one entry must stay prose, and no
 line of it may start with `## `. test_doc_must_report_probe_is_reported and
-test_doc_cites_152 pin that section's must-report probe and its #152 note.
+test_doc_cites_152 pin that section's must-report probe and its #152 note;
+ALSO_REPORTED in that test file holds the "also reported" shapes.
 tests/test_fires_list.py::test_doc_names_every_kind_status_and_key pins this
 doc's `## ` headings and their order, every report kind, status and key, and
 a few phrases (it lists them); reword those with that test. -->
@@ -176,8 +177,9 @@ These are **also reported**, since failing closed beats losing a fire: a
 date-led table row (`| 2026-10-24 | … |`), an emphasis-led date
 (`**2026-10-24** …`), a one-line HTML comment around an entry, a
 struck-through entry (`~~- [ ] …~~`), a GitHub alert (`> [!NOTE]`), a
-parenthesised date (`(2026-10-24) …`) and a bracket-led word
-(`[WIP] still digging`). A wrapped date such as `2026-10-24**` or
+parenthesised date (`(2026-10-24) …`), a bracket-led word
+(`[WIP] still digging`), and a code span or a quotation mark before a box
+or a date (`` `2026-10-24` was the day ``, `"2026-10-24",`). A wrapped date such as `2026-10-24**` or
 `2026-10-24)` does not parse, so such a line reads undated until it is
 fixed. A new entry-like line takes a following two- or three-space bullet
 as its note, as any entry does.

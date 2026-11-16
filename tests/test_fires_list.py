@@ -977,6 +977,25 @@ def test_box_like_alone_is_reported_not_skipped():
         assert result.skipped_empty == 0, line
 
 
+# docs/fires-list.md's "also reported" shapes, and headings just outside the
+# heading rule (seven #, no blank after #, or indented four or more): each
+# is one unreadable entry, never silent prose.
+ALSO_REPORTED = [
+    "| 2026-10-24 | crane | down |", "**2026-10-24** crane down", "<!-- - [ ] 2026-10-24 @harbor x -->",
+    "~~- [ ] 2026-10-24 @harbor x~~", "> [!NOTE]", "(2026-10-24) crane down", "[WIP] still digging",
+    "`2026-10-24` was the day", '"2026-10-24",', "#[ ] 2026-10-24 @harbor x", "####### [ ] 2026-10-24 @harbor x",
+    "    # [ ] 2026-10-24 @harbor x", chr(9) + "# [ ] 2026-10-24 @harbor x",
+]
+
+
+def test_also_reported_shapes_are_reported():
+    assert len(ALSO_REPORTED) == 13
+    for line in ALSO_REPORTED:
+        result = parse(line + LF)
+        assert [e.state for e in result.entries] == ["unreadable"], line
+        assert kinds_of(result) == [(1, "fires_bad_entry")], line
+
+
 def test_fenced_wide_shapes_count():
     block = ["```", chr(0x2022) + " [ ] 2026-10-24 @harbor x", "[] 2026-10-24 @harbor x", "> - [ ] 2026-10-24 x",
              "```"]
