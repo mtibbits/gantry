@@ -113,8 +113,8 @@ not read. This is how a phone editor nests a line under an entry:
 
 Any other line ends a run of notes: a heading, a paragraph, a thematic
 break, an item that holds nothing, a fence, an entry-like line that
-holds nothing, or a bullet indented four or more spaces that starts with
-no box or date (a sub-note: the next two-space note is then an entry).
+holds nothing, or a bullet indented four or more spaces that is not an
+entry-like line (a sub-note: the next two-space note is then an entry).
 The same bullet with no entry or note above it (first in the file, or
 after a heading or a paragraph) is an unreadable entry. A two- or
 three-space bullet that starts with a box, a box-like pair or a date is
@@ -173,7 +173,8 @@ reported:
   with a date. A one-character label such as `[a](…)` or `[1]: …` is the
   exception: it is read as a box and reported, as before #152;
 - a two- or three-space bullet under an entry whose text starts with a mark
-  before its box (`  - > [ ] …` is a note).
+  before its box (`  - > [ ] …` is a note), even a mark that cannot be
+  seen, such as a no-break space or a zero-width space.
 
 These are **also reported**, since failing closed beats losing a fire: a
 date-led table row (`| 2026-10-24 | … |`), an emphasis-led date
@@ -293,7 +294,10 @@ The report kinds are `fires_list_unreadable`, `fires_bad_entry`,
 `fires_unclosed_fence`, `fires_unknown_site` and `fires_future_date`.
 
 Only `read` will let the daily screen say "nothing on fire": any of the
-other three means the list may hold a fire Gantry could not see. The fire
+other three means the list may hold a fire Gantry could not see. One shape
+reads `read` and still hides a fire: a two- or three-space bullet under an
+entry whose box comes after a mark, which is a note
+([Entry-like lines](#entry-like-lines)). The fire
 collector (#32) and the daily page (#34) will apply that rule; no page shows
 the fires list yet.
 
