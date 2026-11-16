@@ -17,9 +17,11 @@ import time
 import pytest
 
 import next_requirement_id as nri
-from gantry.requirements import DEFAULT_BR_NAMESPACE, ID_RE, PROJECT_LAYERS, parse_id, read_requirements
-from helpers_config import roots_around
-from test_samples import ROOT, git, git_env, needs_git
+from gantry.requirements import ID_RE, PROJECT_LAYERS, parse_id
+from helpers_history import write
+from test_commit_check import commit, run_git, stage
+from test_own_requirements import own_set, own_text
+from test_samples import ROOT, git, needs_git
 
 K = 731
 KS = (1, K)
@@ -88,26 +90,25 @@ def test_counted_associations(assoc):
     assert source.label == "open issue #4"
 
 
-N = 731
 SHAPES = [
-    (f"- FR-{N}: x", [N]),
-    (f"(FR-{N})", [N]),
-    (f"[FR-{N},", [N]),
-    (f"**FR-{N}**", [N]),
-    (f"`FR-{N}`", [N]),
-    (f"FR-{N}.", [N]),
-    (f"FR-{N}:", [N]),
-    (f"gantry:FR-{N}", [N]),
-    (f"FR-{N}\r\n", [N]),
-    (f"x-FR-{N}", [N]),
-    (f"_FR-{N}_", [N]),
-    (f"__FR-{N}__", [N]),
-    (f"e.g.FR-{N}", [N]),
-    (f"_gantry:FR-{N}_", [N]),
+    (f"- FR-{K}: x", [K]),
+    (f"(FR-{K})", [K]),
+    (f"[FR-{K},", [K]),
+    (f"**FR-{K}**", [K]),
+    (f"`FR-{K}`", [K]),
+    (f"FR-{K}.", [K]),
+    (f"FR-{K}:", [K]),
+    (f"gantry:FR-{K}", [K]),
+    (f"FR-{K}\r\n", [K]),
+    (f"x-FR-{K}", [K]),
+    (f"_FR-{K}_", [K]),
+    (f"__FR-{K}__", [K]),
+    (f"e.g.FR-{K}", [K]),
+    (f"_gantry:FR-{K}_", [K]),
     ("FR-3-FR-5", [3, 5]),
-    (f"FR-{N}a", []),
-    (f"xgantry:FR-{N}", []),
-    (f"x-gantry:FR-{N}", []),
+    (f"FR-{K}a", []),
+    (f"xgantry:FR-{K}", []),
+    (f"x-gantry:FR-{K}", []),
     ("{refines:FR-2}", []),
 ]
 
@@ -173,11 +174,9 @@ def test_result_is_an_id(code):
 
 
 def test_scanner_finds_every_defined_id():
-    doc = ROOT / "docs" / "requirements.md"
-    defined = read_requirements(roots_around(doc), doc, nri.NAMESPACE, layers=PROJECT_LAYERS,
-                                br_namespace=DEFAULT_BR_NAMESPACE).requirements.values()
+    defined = own_set().requirements.values()
     assert len(defined) >= 20
-    text = doc.read_bytes().decode("utf-8")
+    text = own_text()
     found = {(code, n) for code in nri.CODES for n in nri.mentions(text, code)}
     assert {(r.id.code, r.id.number) for r in defined} <= found
 
@@ -241,9 +240,7 @@ def git_script(main_text="", remote=SHA):
 
 
 def tree(tmp_path, data="# Requirements\n"):
-    path = tmp_path / "docs" / "requirements.md"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(data.encode("utf-8") if isinstance(data, str) else data)
+    write(tmp_path, "docs/requirements.md", data)
     return tmp_path
 
 
@@ -429,13 +426,17 @@ def contents_argv(oid):
             f"repos/{{owner}}/{{repo}}/contents/docs/requirements.md?ref={oid}")
 
 
+def envelope(field, nodes, total, more, end):
+    """A listing page in the live probe's shape."""
+    listing = {"totalCount": total, "pageInfo": {"hasNextPage": more, "endCursor": end}, "nodes": nodes}
+    return {"data": {"repository": {"nameWithOwner": NWO, field: listing}}}
+
+
 def page(field, nodes, total=None, after=None):
-    """A listing page in the live probe's shape; `after` is the next page's cursor."""
+    """A scripted listing page; `after` is the next page's cursor."""
     total = len(nodes) if total is None else total
     end = after if after is not None else (f"c-{nodes[-1]['number']}" if nodes else None)
-    listing = {"totalCount": total, "pageInfo": {"hasNextPage": after is not None, "endCursor": end},
-               "nodes": nodes}
-    return ok(json.dumps({"data": {"repository": {"nameWithOwner": NWO, field: listing}}}))
+    return ok(json.dumps(envelope(field, nodes, total, after is not None, end)))
 
 
 def inode(number, association, body):
@@ -506,16 +507,16 @@ def test_page_cap_refuses(capsys, tmp_path):
 
 def listing(field="issues", **changes):
     node = inode(1, "OWNER", "") if field == "issues" else pnode(1, "OWNER")
-    doc = {"data": {"repository": {"nameWithOwner": NWO, field: {
-        "totalCount": 1, "pageInfo": {"hasNextPage": False, "endCursor": "c"}, "nodes": [node]}}}}
+    doc = envelope(field, [node], 1, False, "c")
     inner = doc["data"]["repository"][field]
     for key, value in changes.items():
         if key == "node":
             inner["nodes"] = [value]
         elif key in ("hasNextPage", "endCursor"):
-            inner["pageInfo"][key] = value
-        elif value is DROP:
-            inner["pageInfo"].pop("hasNextPage")
+            if value is DROP:
+                inner["pageInfo"].pop(key)
+            else:
+                inner["pageInfo"][key] = value
         else:
             inner[key] = value
     return json.dumps(doc)
@@ -529,7 +530,7 @@ BAD = [
     pytest.param(listing(node=None), id="null-node"),
     pytest.param(listing(totalCount="1"), id="string-total"),
     pytest.param(listing(totalCount=True), id="bool-total"),
-    pytest.param(listing(missing=DROP), id="no-hasNextPage"),
+    pytest.param(listing(hasNextPage=DROP), id="no-hasNextPage"),
     pytest.param(listing(hasNextPage=True, endCursor=None), id="next-without-cursor"),
     pytest.param(listing(hasNextPage=True, endCursor=""), id="next-empty-cursor"),
     pytest.param(listing(node={"number": True, "authorAssociation": "OWNER", "body": ""}), id="bool-number"),
@@ -582,7 +583,6 @@ def test_pull_file_read_at_head(capsys, tmp_path):
     rc, out, err = run_main(capsys, ["FR"], runner, tree(tmp_path))
     assert (rc, out) == (0, f"FR-{K + 3}\n")
     assert list(contents_argv(H)) in runner.calls
-    assert contents_argv(H)[-1] == f"repos/{{owner}}/{{repo}}/contents/docs/requirements.md?ref={H}"
     assert "headRefOid" in nri.PULLS_QUERY and "baseRef" not in nri.PULLS_QUERY
     assert err.splitlines()[-1].endswith("is in open pull request #7")
 
@@ -661,23 +661,13 @@ def test_online_stderr_summary(capsys, tmp_path):
 # The AC's "as test_commit_check.py builds one": that file builds a hermetic temp
 # repo but no bare remote, so this builder makes its own in the same style.
 
-IDENTITY = ("-c", "user.name=Test", "-c", "user.email=test@example.invalid")
 REAL_GIT = {"rev-parse", "ls-remote", "cat-file"}
 PR = 21
 
 
-def run_git(cwd, *args):
-    result = git(cwd, *IDENTITY, *args, hermetic=True)
-    assert result.returncode == 0, (args, result.stderr.decode("utf-8", "replace"))
-    return result.stdout.decode("utf-8")
-
-
 def commit_file(repo, text, message):
-    path = repo / "docs" / "requirements.md"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(text.encode("utf-8"))
-    run_git(repo, "add", "--", "docs/requirements.md")
-    run_git(repo, "commit", "-q", "-m", message)
+    stage(repo, "docs/requirements.md", text)
+    commit(repo, message)
 
 
 def bare_remote_repo(tmp_path, k):
@@ -709,23 +699,19 @@ def snapshot(repo):
     )
 
 
-class HybridRunner:
+class HybridRunner(FakeRunner):
     """Real git for the reads the tool may run, a fake gh, and nothing else."""
 
     def __init__(self, k):
-        self.calls = []
-        self.gh = {ISSUES: page("issues", []), PULLS: page("pullRequests", [pnode(PR, "OWNER", H)]),
-                   contents_argv(H): ok(f"- FR-{k + 5}: the pull request's\n")}
+        super().__init__({ISSUES: page("issues", []), PULLS: page("pullRequests", [pnode(PR, "OWNER", H)]),
+                          contents_argv(H): ok(f"- FR-{k + 5}: the pull request's\n")})
 
     def __call__(self, argv, cwd):
-        self.calls.append(list(argv))
         if argv[0] == "git" and argv[1] in REAL_GIT:
-            done = subprocess.run(argv, cwd=cwd, capture_output=True, stdin=subprocess.DEVNULL,
-                                  env=git_env(hermetic=True))
+            self.calls.append(list(argv))
+            done = git(cwd, *argv[1:], input=b"", hermetic=True)
             return nri.Result(done.returncode, done.stdout, done.stderr)
-        if tuple(argv) in self.gh:
-            return self.gh[tuple(argv)]
-        raise AssertionError(f"unexpected argv: {argv}")
+        return super().__call__(argv, cwd)
 
     def ran(self, verb):
         return [argv for argv in self.calls if argv[:2] == ["git", verb]]

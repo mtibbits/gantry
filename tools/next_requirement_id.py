@@ -87,7 +87,8 @@ PULLS_QUERY = (
     "{ nameWithOwner pullRequests(states: OPEN, first: 100, after: $after) "
     "{ totalCount pageInfo { hasNextPage endCursor } nodes { number authorAssociation headRefOid } } } }"
 )
-LISTINGS = {"issues": ("open issues", "body"), "pullRequests": ("open pull requests", "headRefOid")}
+LISTINGS = {"issues": ("open issues", "body", ISSUES_QUERY),
+            "pullRequests": ("open pull requests", "headRefOid", PULLS_QUERY)}
 CONTENTS = "repos/{owner}/{repo}/contents/" + FILE + "?ref="  # gh fills {owner}/{repo} from the checkout
 OFFLINE_REMEDY = "or run --offline (which reads no open issues or pull requests)"
 EPILOG = """exit status:
@@ -165,8 +166,8 @@ def format_id(code: str, n: int) -> str:
 # --- the sources -------------------------------------------------------------------
 
 
-def unreadable(where, reason) -> Refused:
-    return Refused(f"{where}: could not read: {reason}")
+def unreadable(where, reason, *more) -> Refused:
+    return Refused(f"{where}: could not read: {reason}", *more)
 
 
 def exited(argv, result) -> str:
@@ -249,7 +250,7 @@ def tree_text(root) -> str:
 
 def listing_page(data, field, where):
     """(listing, nameWithOwner) from one page; refuses on any other shape."""
-    text_key = LISTINGS[field][1]
+    _, text_key, _ = LISTINGS[field]
     try:
         repository = json.loads(data.decode("utf-8"))["data"]["repository"]
         name, listing = repository["nameWithOwner"], repository[field]
@@ -272,16 +273,15 @@ def listing_page(data, field, where):
     return listing, name
 
 
-def graphql_pages(runner, root, query, field):
+def graphql_pages(runner, root, field):
     """(every node, nameWithOwner) of one listing, read until the count matches the total."""
-    where = LISTINGS[field][0]
-    nodes, cursors, pages, cursor = [], set(), 0, None
+    where, _, query = LISTINGS[field]
+    nodes, cursors, cursor = [], set(), None
     while True:
         argv = ["gh", "api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-f", "query=" + query]
         if cursor is not None:
             argv += ["-f", "after=" + cursor]
         listing, name = listing_page(checked(runner, argv, root, where), field, where)
-        pages += 1
         nodes += listing["nodes"]
         total = listing["totalCount"]
         if not listing["pageInfo"]["hasNextPage"]:
@@ -290,7 +290,7 @@ def graphql_pages(runner, root, query, field):
         if cursor in cursors:
             raise unreadable(where, "the same page came back twice; run again")
         cursors.add(cursor)
-        if pages >= total // 100 + 2:
+        if len(cursors) >= total // 100 + 2:  # one cursor per page read so far
             raise unreadable(where, f"more pages than {total} items need; run again")
     numbers = {node["number"] for node in nodes}
     if len(nodes) != total or len(numbers) != len(nodes):
@@ -306,11 +306,9 @@ def pull_text(runner, root, node) -> str:
     argv = ["gh", "api", "-H", "Accept: application/vnd.github.raw+json", CONTENTS + oid]
     result = call(runner, argv, root, where)
     if result.returncode != 0:
-        lines = [f"{where}: could not read: {exited(argv, result)}"]
-        if b"HTTP 404" in result.stderr:
-            lines.append(f"{where} has no {FILE} at its head {oid}; ask its author to rebase, or close it, "
-                         + OFFLINE_REMEDY)
-        raise Refused(*lines)
+        missing = [f"{where} has no {FILE} at its head {oid}; ask its author to rebase, or close it, "
+                   + OFFLINE_REMEDY] if b"HTTP 404" in result.stderr else []
+        raise unreadable(where, exited(argv, result), *missing)
     return decoded(result.stdout, where)
 
 
@@ -319,8 +317,8 @@ def read_github(runner, root):
 
     Only counted pull requests' files are read, ascending; choose() drops the
     other issues before it scans any text."""
-    issues, name = graphql_pages(runner, root, ISSUES_QUERY, "issues")
-    pulls, _ = graphql_pages(runner, root, PULLS_QUERY, "pullRequests")
+    issues, name = graphql_pages(runner, root, "issues")
+    pulls, _ = graphql_pages(runner, root, "pullRequests")
     sources = [Source("issue", node["number"], node["authorAssociation"], node["body"]) for node in issues]
     mine = sorted((node for node in pulls if node["authorAssociation"] in COUNTED), key=lambda node: node["number"])
     sources += [Source("pull", node["number"], node["authorAssociation"], pull_text(runner, root, node))

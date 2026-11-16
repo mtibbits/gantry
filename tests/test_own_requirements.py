@@ -117,7 +117,7 @@ def test_header_holds_no_id():
     from next_requirement_id import CODES, mentions
 
     head = header(own_text())
-    assert {code: mentions(head, code) for code in CODES if mentions(head, code)} == {}
+    assert [(code, n) for code in CODES for n in mentions(head, code)] == []
 
 
 def test_scanners_find_planted_tokens():
