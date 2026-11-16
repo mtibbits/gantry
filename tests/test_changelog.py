@@ -454,7 +454,6 @@ def test_release_unlink_fails(tmp_path, capsys, monkeypatch):
     assert sorted(p.name for p in (root / "changelog.d").iterdir()) == ["10.added.md"]
 
 
-
 def test_release_write_fails_partway(tmp_path, capsys, monkeypatch):
     # A full disk fails the write after open() has truncated the file.
     root = make_tree(tmp_path / "t", FIXTURE_CHANGELOG, FIXTURE_FILES)
@@ -485,6 +484,28 @@ def test_release_write_and_restore_fail(tmp_path, capsys, monkeypatch):
         1, "", "changelog: CHANGELOG.md: could not write (No space left on device), nor restore it; "
                "no entry file was deleted; restore CHANGELOG.md from git\n")
     assert sorted(p.name for p in (root / "changelog.d").iterdir()) == sorted(FIXTURE_FILES)
+
+
+@pytest.mark.parametrize("argv, name, shown", [
+    (["check"], "10.added.md", "changelog.d/10.added.md"),
+    (["preview"], "CHANGELOG.md", "CHANGELOG.md"),
+    (["release", "9.9.9", "2026-12-01"], "10.added.md", "changelog.d/10.added.md")],
+    ids=["check", "preview", "release"])
+def test_unreadable_file_is_reported(tmp_path, capsys, monkeypatch, argv, name, shown):
+    root = make_tree(tmp_path / "t", FIXTURE_CHANGELOG, FIXTURE_FILES)
+    before = snapshot(root)
+    real_read = Path.read_bytes
+
+    def read_bytes(self):
+        if self.name == name:
+            raise PermissionError(13, "Permission denied", str(self))
+        return real_read(self)
+
+    with monkeypatch.context() as m:
+        m.setattr(Path, "read_bytes", read_bytes)
+        result = run(capsys, root, *argv)
+    assert result == (1, "", f"changelog: {shown}: could not read (Permission denied)\n")
+    assert snapshot(root) == before
 
 
 FENCED_HEADER = """\
@@ -519,6 +540,7 @@ def test_release_skips_fenced_headings(tmp_path, capsys, quoted):
 def test_unfenced_matches_docs_helper(text):
     # tools/ may not import tests/, so changelog.py copies helpers_docs' fence rule.
     assert changelog.unfenced(text.split("\n")) == helpers_docs.unfenced_lines(text)
+
 
 @pytest.mark.parametrize("text", [
     "9.9.9", "09.9.9", "1\u0662.0.0",

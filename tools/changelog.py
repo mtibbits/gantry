@@ -22,7 +22,9 @@ in a local checkout, never in CI. A missing changelog.d/ counts as empty.
 
 Files are read as bytes, CRLF is read as LF, and CHANGELOG.md is written UTF-8
 with LF. Exit 0 when done or clean; 1 with `changelog: <reason>` lines on
-stderr for a problem or a refusal, which changes nothing; 2 for a usage error.
+stderr for a problem, a refusal or a file that cannot be read, none of which
+changes anything except a failed delete after CHANGELOG.md is written, whose
+message says so; 2 for a usage error.
 README's "Versioning & releases" says when to run each command.
 """
 
@@ -347,14 +349,14 @@ def _write(root, text, files):
                           f"no entry file was deleted; restore {CHANGELOG} from git") from None
         raise Refused(f"{CHANGELOG}: could not write ({reason}); nothing changed") from None
     left = []
-    for path in files:
+    for entry in files:
         try:
-            path.unlink()
+            entry.unlink()
         except OSError:
-            left.append(_shown(path.name))
+            left.append(_shown(entry.name))
     if left:
         raise Refused(f"{CHANGELOG} now holds these items; delete these files by hand, "
-                         f"do not fold them: {', '.join(left)}")
+                      f"do not fold them: {', '.join(left)}")
     return len(files)
 
 
@@ -467,16 +469,15 @@ def main(argv=None, root=None) -> int:
         stream.reconfigure(encoding="utf-8", errors="backslashreplace", newline="\n")
     args = parse_args(argv)
     root = Path(ROOT if root is None else root)
-    if args.command == "check":
-        entries = _read_entries(root)
-        problems = _problems(entries)
-        if problems:
-            _say(problems, sys.stderr)
-            return 1
-        _say([f"check: no problems in {_plural(len(entries), 'entry file')}"], sys.stdout)
-        return 0
     try:
-        if args.command == "preview":
+        if args.command == "check":
+            entries = _read_entries(root)
+            problems = _problems(entries)
+            if problems:
+                _say(problems, sys.stderr)
+                return 1
+            _say([f"check: no problems in {_plural(len(entries), 'entry file')}"], sys.stdout)
+        elif args.command == "preview":
             sys.stdout.write(preview(root))
         elif args.fold:
             items, deleted, heading = fold(root, args.version)
@@ -489,6 +490,10 @@ def main(argv=None, root=None) -> int:
     except Refused as e:
         trailer = [f"{args.command} refused: fix the changelog.d/ problems above"]
         _say(list(e.args) + (trailer if isinstance(e, CheckFailed) else []), sys.stderr)
+        return 1
+    except OSError as e:  # a failed read: _write reports its own failures, so nothing was written
+        where = Path(e.filename).relative_to(root).as_posix() if e.filename else "a file"
+        _say([f"{where}: could not read ({e.strerror or type(e).__name__})"], sys.stderr)
         return 1
     return 0
 
