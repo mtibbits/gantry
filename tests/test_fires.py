@@ -790,3 +790,29 @@ def test_fire_invariants(every_report):
         assert (fire.age is None) == (fire.since is None)
         assert fire.since is None or fire.since.utcoffset() is not None
         assert (fire.still_a_fire is None) == ("fires_list" not in fire.kinds)
+
+
+# --- the samples ------------------------------------------------------------------------
+
+
+def test_sample_quarry_records_read_clean():
+    from gantry.config import load_config
+    from gantry.sites import config_roots, load_sites
+    from test_samples import GANTRY_SAMPLE
+
+    cfg = load_config(GANTRY_SAMPLE)
+    roots = config_roots(cfg)
+    quarry = next(s for s in load_sites(cfg, roots)[0] if s.name == "quarry")
+    got = dr.read_site_records(roots, quarry.planning_dir, site="quarry")
+    assert (got.status, got.skipped) == ("read", {})
+    assert sorted(got.issues) == ["Issue-20", "Issue-9"]
+    formats = []
+    for name, records in got.issues.items():
+        assert records.stuck.status == "present" and records.stuck.value.problems == (), name
+        assert records.checklist.status == "present" and records.checklist.value.problems == (), name
+        assert records.stuck.value.created.date() < cfg.as_of
+        formats.append(records.stuck.value.created_format)
+    assert sorted(formats) == [dr.ISO_OFFSET, dr.LOCAL_MINUTES]
+    assert got.issues["Issue-20"].stuck.value.created_format == dr.LOCAL_MINUTES
+    assert got.issues["Issue-9"].checklist.value.parked is True
+    assert got.issues["Issue-20"].checklist.value.parked is False
