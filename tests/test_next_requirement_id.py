@@ -19,7 +19,7 @@ import pytest
 import next_requirement_id as nri
 from gantry.requirements import DEFAULT_BR_NAMESPACE, ID_RE, PROJECT_LAYERS, parse_id, read_requirements
 from helpers_config import roots_around
-from test_samples import ROOT
+from test_samples import ROOT, git, git_env, needs_git
 
 K = 731
 KS = (1, K)
@@ -655,3 +655,115 @@ def test_online_stderr_summary(capsys, tmp_path):
     assert err == (f"{P}read origin/main at {SHA[:12]}, the working tree, and {NWO}'s 3 open issues and "
                    "2 open pull requests (2 and 1 by the owner, a member or a collaborator)\n"
                    f"{P}FR-1: no FR number was found\n")
+
+
+# --- read only, with real git and a local bare remote (AC Read only) -----------------
+# The AC's "as test_commit_check.py builds one": that file builds a hermetic temp
+# repo but no bare remote, so this builder makes its own in the same style.
+
+IDENTITY = ("-c", "user.name=Test", "-c", "user.email=test@example.invalid")
+REAL_GIT = {"rev-parse", "ls-remote", "cat-file"}
+PR = 21
+
+
+def run_git(cwd, *args):
+    result = git(cwd, *IDENTITY, *args, hermetic=True)
+    assert result.returncode == 0, (args, result.stderr.decode("utf-8", "replace"))
+    return result.stdout.decode("utf-8")
+
+
+def commit_file(repo, text, message):
+    path = repo / "docs" / "requirements.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(text.encode("utf-8"))
+    run_git(repo, "add", "--", "docs/requirements.md")
+    run_git(repo, "commit", "-q", "-m", message)
+
+
+def bare_remote_repo(tmp_path, k):
+    """(repo, remote URI): repo's main pushed to a local bare remote, so origin/main exists."""
+    remote = tmp_path / "remote.git"
+    repo = tmp_path / "repo"
+    run_git(tmp_path, "init", "-q", "--bare", "-b", "main", str(remote))
+    repo.mkdir()
+    run_git(repo, "init", "-q", "-b", "main")
+    commit_file(repo, f"# Requirements\n\n- FR-{k}: on main\n", "main")
+    uri = remote.as_uri()  # one form on every OS (imPlan U2)
+    run_git(repo, "remote", "add", "origin", uri)
+    run_git(repo, "push", "-q", "origin", "main")
+    assert run_git(repo, "rev-parse", "--verify", "refs/remotes/origin/main").strip()
+    assert not (repo / ".git" / "FETCH_HEAD").exists()
+    return repo, uri
+
+
+def snapshot(repo):
+    files = tuple(sorted((p.relative_to(repo).as_posix(), p.read_bytes()) for p in repo.rglob("*")
+                         if p.is_file() and ".git" not in p.relative_to(repo).parts))
+    counts = dict(line.split(": ", 1) for line in run_git(repo, "count-objects", "-v").splitlines())
+    return (
+        files,
+        run_git(repo, "--no-optional-locks", "status", "--porcelain", "--untracked-files=all"),
+        run_git(repo, "for-each-ref"),
+        tuple(counts[key] for key in ("count", "in-pack", "packs")),
+        (repo / ".git" / "FETCH_HEAD").exists(),
+    )
+
+
+class HybridRunner:
+    """Real git for the reads the tool may run, a fake gh, and nothing else."""
+
+    def __init__(self, k):
+        self.calls = []
+        self.gh = {ISSUES: page("issues", []), PULLS: page("pullRequests", [pnode(PR, "OWNER", H)]),
+                   contents_argv(H): ok(f"- FR-{k + 5}: the pull request's\n")}
+
+    def __call__(self, argv, cwd):
+        self.calls.append(list(argv))
+        if argv[0] == "git" and argv[1] in REAL_GIT:
+            done = subprocess.run(argv, cwd=cwd, capture_output=True, stdin=subprocess.DEVNULL,
+                                  env=git_env(hermetic=True))
+            return nri.Result(done.returncode, done.stdout, done.stderr)
+        if tuple(argv) in self.gh:
+            return self.gh[tuple(argv)]
+        raise AssertionError(f"unexpected argv: {argv}")
+
+    def ran(self, verb):
+        return [argv for argv in self.calls if argv[:2] == ["git", verb]]
+
+
+@needs_git
+@pytest.mark.parametrize("k", KS)
+def test_online_path_writes_nothing(capsys, tmp_path, monkeypatch, k):
+    repo, _ = bare_remote_repo(tmp_path, k)
+    monkeypatch.chdir(repo)
+    before = snapshot(repo)
+    runner = HybridRunner(k)
+    rc, out, err = run_main(capsys, ["FR"], runner, None)
+    assert (rc, out) == (0, f"FR-{k + 6}\n"), err
+    assert err.splitlines()[-1].endswith(f"is in open pull request #{PR}")
+    assert len(runner.ran("ls-remote")) == 1
+    assert snapshot(repo) == before
+
+
+@needs_git
+def test_stale_origin_main_refuses_then_fetch_recovers(capsys, tmp_path, monkeypatch):
+    repo, uri = bare_remote_repo(tmp_path, K)
+    other = tmp_path / "other"
+    run_git(tmp_path, "clone", "-q", uri, str(other))
+    commit_file(other, f"# Requirements\n\n- FR-{K}: on main\n- FR-{K + 7}: merged elsewhere\n", "elsewhere")
+    run_git(other, "push", "-q", "origin", "main")
+    remote_tip = run_git(repo, "ls-remote", "origin", "refs/heads/main").split("\t")[0]
+    assert remote_tip != run_git(repo, "rev-parse", "refs/remotes/origin/main").strip()
+    monkeypatch.chdir(repo)
+    before = snapshot(repo)
+
+    rc, out, err = run_main(capsys, ["FR"], HybridRunner(K), None)
+    assert (rc, out) == (1, "")
+    assert err.endswith("; run git fetch\n")
+    assert snapshot(repo) == before
+
+    run_git(repo, "fetch", "-q", "origin")  # the remedy the refusal names
+    assert snapshot(repo) != before  # the instrument sees a fetch
+    rc, out, err = run_main(capsys, ["FR"], HybridRunner(K), None)
+    assert (rc, out) == (0, f"FR-{K + 8}\n"), err
+    assert err.splitlines()[-1].endswith("is in origin/main")
