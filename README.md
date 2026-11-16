@@ -189,7 +189,7 @@ fresh clone.
 
 ## Versioning & releases
 
-<!-- Editor note: tests/test_plugin_versioning.py pins the commands in this section and the plugin install lines under Install. -->
+<!-- Editor note: tests/test_plugin_versioning.py pins the commands in this section and the plugin install lines under Install, and tests/test_changelog.py parses each tools/changelog.py command in this section. -->
 
 Gantry follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html),
 with plain `X.Y.Z` versions (no pre-release or build suffix), so one version
@@ -198,8 +198,28 @@ carries the version, `pyproject.toml`'s `[project] version` mirrors it, and
 `tests/test_cli.py` keeps the two equal. The plugin's entry in
 `.claude-plugin/marketplace.json` carries no version, because Claude Code
 uses plugin.json's value. [CHANGELOG.md](CHANGELOG.md) follows Keep a
-Changelog: each user-visible change adds a line under its `## [Unreleased]`
-section.
+Changelog. Each user-visible change adds its entry as a file,
+`changelog.d/<key>.<kind>.md`, so two open pull requests never edit the same
+CHANGELOG.md lines, and each release compiles the waiting files into its
+section with `tools/changelog.py`:
+
+- `<key>` is the issue number, positive with no leading zero (`79`), or, for
+  a change with no issue, a slug that starts with a letter and holds lowercase
+  letters, digits and single hyphens (`security-policy`).
+- `<kind>` is one of `added`, `changed`, `deprecated`, `removed`, `fixed` and
+  `security`; it becomes the `### Added` … `### Security` heading.
+- The body is one or more Markdown list items, written as they read in
+  CHANGELOG.md, wrapped lines indented two spaces, with blank lines between
+  items allowed and any code fence closed.
+
+An issue with entries of two kinds has two files, and a later change for the
+same issue edits that issue's file. `## [Unreleased]` holds only its pointer
+line and the lines carried from before this rule. The suite fails on prose
+or a heading other than the six kinds there, as it does on an entry file
+that breaks the rules above; review keeps new entries out of
+`## [Unreleased]`. `python3 tools/changelog.py check` reports those files, and
+`python3 tools/changelog.py preview` prints the section the next release
+would write.
 
 A break is a change that makes something an existing installation depends
 on fail. An installation depends on:
@@ -247,14 +267,36 @@ clone loaded with
 ### Cutting a release
 
 1. In one change, bump `version` in `.claude-plugin/plugin.json`, set the
-   same value as `pyproject.toml`'s `[project] version`, and move the
-   `## [Unreleased]` lines of CHANGELOG.md under a new
-   `## [<version>] — <date>` section, where `<date>` is the day you tag.
-   Merge it.
-2. Tag `main` only while its head is the release commit: the last commit
-   that changed the release section. If anything else merged after it,
-   first move that change's `## [Unreleased]` lines into the release
-   section (that commit is then the release commit), or cut a new version.
+   same value as `pyproject.toml`'s `[project] version`, and write the
+   release's CHANGELOG section, where `<date>` is the day you tag:
+
+   ```
+   python3 tools/changelog.py release <version> <date>
+   ```
+
+   It writes `## [<version>] — <date>` from the lines carried under
+   `## [Unreleased]` and the files in `changelog.d/`, leaves
+   `## [Unreleased]` holding only its pointer line, and deletes the files it
+   used. When it refuses, it says why and changes nothing. A break note
+   (above) goes in as an item in an entry file; added by hand after
+   `release`, it leaves a section that `--fold` refuses to add to, and a late
+   entry then needs a new version. Merge the change.
+2. Tag `main` only while its head is the release commit, the last commit
+   that changed the release section, and only while this, run on `main`,
+   prints `## [Unreleased]` and nothing else:
+
+   ```
+   python3 tools/changelog.py preview
+   ```
+
+   An entry file merged after the release change would otherwise be in the
+   tagged code but missing from its notes. If anything merged after the
+   release commit, first add what it left waiting to the release section
+   (that commit is then the release commit), or cut a new version:
+
+   ```
+   python3 tools/changelog.py release <version> --fold
+   ```
 3. On a clean, up-to-date `main`, validate both manifests with warnings
    treated as errors. The tag command does not do this; it checks only that
    `plugin.json` and the marketplace entry agree:
