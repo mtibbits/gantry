@@ -17,8 +17,6 @@ New entries are files in changelog.d/; README's "Versioning & releases" says how
 - The fires list: a private Markdown file of fires that are not leaves yet,
   the `fires_check_days` config key and `gantry fires --config <file>`,
   which checks it; the build does not read it yet (docs/fires-list.md).
-  Lines that look like entries but miss the marker rule are reported
-  (#152).
 - Threshold and objective paths (#79): a requirement may state a
   `Threshold:` and an `Objective:`, a leaf's `objective:` names the
   requirements it serves at objective only, and selecting a requirement
