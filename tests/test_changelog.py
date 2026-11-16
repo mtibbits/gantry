@@ -11,13 +11,14 @@ points the tool's ROOT at a folder that does not exist, so a call that forgets
 """
 
 import importlib
+import shlex
 import shutil
 from pathlib import Path
 
 import pytest
 
 import changelog
-from helpers_docs import markdown_text
+from helpers_docs import CODE_SPAN, markdown_text, section, unfenced_lines
 
 REAL_ROOT = Path(__file__).resolve().parents[1]
 F = "changelog.d/"
@@ -686,3 +687,29 @@ def test_real_changelog_header_says_where_entries_go():
     header = " ".join(text[:text.index("\n## [Unreleased]\n")].split())
     assert "`changelog.d/`" in header
     assert "line under `## [Unreleased]`" not in header
+
+
+# --- the README's changelog.py commands parse -------------------------------------------
+
+TOOL = "python3 tools/changelog.py "
+
+
+def readme_changelog_commands():
+    """Each line of README's "Versioning & releases" that is a changelog.py
+    command, fenced or not, and each inline code span that is one."""
+    release = section(markdown_text(REAL_ROOT / "README.md"), "## Versioning & releases")
+    lines = [line.strip() for line in release.split("\n") if line.strip().startswith(TOOL)]
+    unfenced = "\n".join(line or "" for line in unfenced_lines(release))
+    spans = [" ".join(m.group(2).split())
+             for paragraph in unfenced.split("\n\n") for m in CODE_SPAN.finditer(paragraph)]
+    return lines + [span for span in spans if span.startswith(TOOL)]
+
+
+def test_readme_changelog_commands_parse():
+    shapes = set()
+    for command in readme_changelog_commands():
+        argv = shlex.split(command.replace("<version>", "9.9.9").replace("<date>", "2026-12-01"))[2:]
+        args = changelog.parse_args(argv)  # a usage error raises SystemExit
+        shapes.add("fold" if getattr(args, "fold", False) else
+                   "release-date" if args.command == "release" else args.command)
+    assert shapes == {"check", "preview", "release-date", "fold"}

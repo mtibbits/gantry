@@ -391,6 +391,8 @@ RELEASE_LINES = (
     'git -C "<clone>/samples" rev-parse --show-toplevel',
     "/gantry:build <clone>/samples/gantry.sample.toml",
     'python3 tools/commit_check.py names --text "<file>"',
+    "python3 tools/changelog.py release <version> <date>",
+    "python3 tools/changelog.py preview",
     # Only the history-less sample site loses its history with <clone>/.git.
     "the history-less sample site",
 )
@@ -436,6 +438,33 @@ def readme():
 
 def test_readme_release_section():
     assert readme_problems(markdown_text(ROOT / "README.md")) == []
+
+
+CUTTING = "### Cutting a release"
+
+
+def release_step(text, n):
+    """"Cutting a release" step n's list item, from `n. ` to `n+1. `, whitespace
+    collapsed; "" when the step cannot be found once."""
+    lines = (section(text, RELEASE_SECTION) or "").split("\n")
+    if lines.count(CUTTING) != 1:
+        return ""
+    lines = lines[lines.index(CUTTING) + 1:]
+    lines = lines[:next((i for i, line in enumerate(lines) if line.startswith("### ")), len(lines))]
+    starts = [i for i, line in enumerate(lines) if line.startswith(f"{n}. ")]
+    ends = [i for i, line in enumerate(lines) if line.startswith(f"{n + 1}. ")]
+    if len(starts) != 1 or len(ends) != 1 or ends[0] < starts[0]:
+        return ""
+    return " ".join(" ".join(lines[starts[0]:ends[0]]).split())
+
+
+def test_readme_release_steps_name_the_tool(readme):
+    # Anchored on the steps, so the convention line repeating a command cannot
+    # keep these green after a step loses it (#160).
+    assert "python3 tools/changelog.py release <version> <date>" in release_step(readme, 1)
+    step2 = release_step(readme, 2)
+    assert "python3 tools/changelog.py preview" in step2
+    assert "python3 tools/changelog.py release <version> --fold" in step2
 
 
 def test_release_tag_literals_use_plugin_name():
