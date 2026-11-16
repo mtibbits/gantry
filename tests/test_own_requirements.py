@@ -26,10 +26,12 @@ META_KEYS = {"needs", "refines"}
 # The source-of-truth claims (AC5), one anchor phrase each, matched on the normalised header.
 SOT_PHRASES = ("derived once", "changes with the code", "not re-derived", "never renumbered or reused")
 # The ID rule (#161), one anchor phrase per claim: the tool; the claim in the issue;
-# who renumbers; what they update; the qualifier; run once; the claim's form.
+# who renumbers; what they update; the qualifier; run once; the claim's form; the author
+# filter is on who opened the issue or pull request, and what that leaves uncounted.
 RULE_PHRASES = ("tools/next_requirement_id.py", "in the issue's body", "merges second renumbers",
                 "every reference on its branch", "once they are on `main`", "run the tool once",
-                "set off by a space or punctuation")
+                "set off by a space or punctuation", "a member or a collaborator opened them",
+                "anyone else opened is not counted")
 
 PLANTED = (
     "See life:BR-3 and harbor:FR-1.\n"

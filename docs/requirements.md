@@ -14,10 +14,12 @@ requirement is deleted, and its withdrawal is recorded in a prose line in its
 section.
 
 A new requirement takes the ID that `python3 tools/next_requirement_id.py <code>`
-prints. The tool counts every number for that layer on `main`, in this
-checkout, in the bodies of open issues and in the `docs/requirements.md` of
-open pull requests, the last two only when the repository's owner, a member
-or a collaborator wrote them.
+prints. The tool counts every number for that layer in this file on `main`
+and in this checkout, in the bodies of open issues, and in this file in open
+pull requests, the last two only when the repository's owner, a member or a
+collaborator opened them. A claim edited into an issue anyone else opened is
+not counted, so claim the ID in an issue one of them opened, opening one if
+needed.
 
 - Claim the ID in the issue's body as soon as it is chosen: at capture, or,
   for an issue that named none, when its plan is drafted. Write the bare ID
