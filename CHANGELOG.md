@@ -4,10 +4,13 @@ All notable changes to Gantry are recorded here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Gantry follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The version lives
 in `.claude-plugin/plugin.json`; the README's "Versioning & releases" section
-has the policy and the release procedure. Each user-visible change adds a
-line under `## [Unreleased]`.
+has the policy and the release procedure. Each user-visible change adds its
+entry as a file in `changelog.d/`, and each release compiles the waiting files
+into its section here.
 
 ## [Unreleased]
+
+New entries are files in changelog.d/; README's "Versioning & releases" says how.
 
 ### Added
 

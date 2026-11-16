@@ -344,6 +344,25 @@ def test_planted_unreadable_manifest(release_tree, rel, content, expected):
         assert changelog_problems(release_tree) == []
 
 
+def test_release_keeps_versioning_checks(release_tree):
+    """tools/changelog.py's release writes a section changelog_problems accepts (#160).
+
+    It runs on a copy of the real CHANGELOG.md, so it also fails, naming the
+    line, when the real ## [Unreleased] gains a line release cannot place."""
+    import changelog  # here, not at the top: this module still collects when the tool is broken
+
+    plant_json(release_tree, PLUGIN, _set("version", "9.9.9"))
+    (release_tree / "changelog.d").mkdir()
+    (release_tree / "changelog.d" / "1.added.md").write_bytes(b"- A planted entry.\n")
+    assert changelog_problems(release_tree) == [
+        f"{CHANGELOG}: no '## [9.9.9] — <date>' section for plugin.json's version"]
+    changelog.release(release_tree, "9.9.9", "2026-12-01")
+    assert release_problems(release_tree) == []
+    lines = markdown_text(release_tree / CHANGELOG).split("\n")
+    at = lines.index(UNRELEASED)
+    assert lines[at + 1:at + 5] == ["", changelog.POINTER, "", "## [9.9.9] — 2026-12-01"]
+
+
 # --- the README's release section and plugin install block ------------------------------
 
 RELEASE_SECTION = "## Versioning & releases"
@@ -372,6 +391,8 @@ RELEASE_LINES = (
     'git -C "<clone>/samples" rev-parse --show-toplevel',
     "/gantry:build <clone>/samples/gantry.sample.toml",
     'python3 tools/commit_check.py names --text "<file>"',
+    "python3 tools/changelog.py release <version> <date>",
+    "python3 tools/changelog.py preview",
     # Only the history-less sample site loses its history with <clone>/.git.
     "the history-less sample site",
 )
@@ -417,6 +438,33 @@ def readme():
 
 def test_readme_release_section():
     assert readme_problems(markdown_text(ROOT / "README.md")) == []
+
+
+CUTTING = "### Cutting a release"
+
+
+def release_step(text, n):
+    """"Cutting a release" step n's list item, from `n. ` to `n+1. `, whitespace
+    collapsed; "" when the step cannot be found once."""
+    lines = (section(text, RELEASE_SECTION) or "").split("\n")
+    if lines.count(CUTTING) != 1:
+        return ""
+    lines = lines[lines.index(CUTTING) + 1:]
+    lines = lines[:next((i for i, line in enumerate(lines) if line.startswith("### ")), len(lines))]
+    starts = [i for i, line in enumerate(lines) if line.startswith(f"{n}. ")]
+    ends = [i for i, line in enumerate(lines) if line.startswith(f"{n + 1}. ")]
+    if len(starts) != 1 or len(ends) != 1 or ends[0] < starts[0]:
+        return ""
+    return " ".join(" ".join(lines[starts[0]:ends[0]]).split())
+
+
+def test_readme_release_steps_name_the_tool(readme):
+    # Anchored on the steps, so the convention line repeating a command cannot
+    # keep these green after a step loses it (#160).
+    assert "python3 tools/changelog.py release <version> <date>" in release_step(readme, 1)
+    step2 = release_step(readme, 2)
+    assert "python3 tools/changelog.py preview" in step2
+    assert "python3 tools/changelog.py release <version> --fold" in step2
 
 
 def test_release_tag_literals_use_plugin_name():
