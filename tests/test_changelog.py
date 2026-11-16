@@ -215,3 +215,113 @@ def test_check_sees_real_entries(tmp_path):
     make_tree(root, None, {"079.added.md": "- x\n"})
     assert changelog.check(root) == [
         f"{F}079.added.md: the issue number '079' must be positive with no leading zero"]
+
+
+# --- the ## [Unreleased] reader, the renderer and preview ----------------------------
+
+EXPECTED_PREVIEW = """\
+## [Unreleased]
+
+### Added
+
+- Carried one, which wraps
+  onto a second line.
+- Carried two.
+- Nine, which wraps
+  onto a second line.
+- Ten, first.
+- Ten, second.
+
+### Fixed
+
+- Ten fixed.
+
+### Security
+
+- A security policy.
+"""
+
+BARE_CHANGELOG = """\
+# Changelog
+
+A fixture for tools/changelog.py.
+
+## [Unreleased]
+
+New entries are files in changelog.d/; README's "Versioning & releases" says how.
+
+## [0.1.0] — 2026-11-14
+
+### Added
+
+- The first release.
+"""
+
+
+def planted(text, old, new):
+    """`text` with its one `old` replaced by `new`."""
+    assert text.count(old) == 1
+    return text.replace(old, new)
+
+
+def test_preview_fixture(tmp_path, capsys):
+    root = make_tree(tmp_path / "t", FIXTURE_CHANGELOG, FIXTURE_FILES)
+    before = snapshot(root)
+    assert run(capsys, root, "preview") == (0, EXPECTED_PREVIEW, "")
+    assert snapshot(root) == before
+
+
+@pytest.mark.parametrize("case", ["absent", "empty-folder", "headings-only"])
+def test_preview_nothing_waiting(tmp_path, capsys, case):
+    text = BARE_CHANGELOG
+    if case == "headings-only":
+        text = planted(text, "says how.\n\n", "says how.\n\n### Added\n\n### Fixed\n\n")
+    root = make_tree(tmp_path / "t", text, None if case == "absent" else {})
+    assert run(capsys, root, "preview") == (0, "## [Unreleased]\n", "")
+
+
+def test_preview_key_order(tmp_path, capsys):
+    text = planted(BARE_CHANGELOG, "says how.\n\n", "says how.\n\n### Added\n\n- Carried.\n\n")
+    root = make_tree(tmp_path / "t", text, {
+        "10.added.md": "- Ten.\n", "2.added.md": "- Two.\n",
+        "beta.added.md": "- Beta.\n", "alpha.added.md": "- Alpha.\n"})
+    expected = ("## [Unreleased]\n\n### Added\n\n"
+                "- Carried.\n- Two.\n- Ten.\n- Alpha.\n- Beta.\n")
+    assert run(capsys, root, "preview") == (0, expected, "")
+
+
+UNRELEASED_TAIL = "says how.\n\n### Added\n"
+PREVIEW_REFUSALS = {
+    # case: (CHANGELOG text, entry files, stderr after each `changelog: `)
+    "bad-file": (FIXTURE_CHANGELOG, {**FIXTURE_FILES, "079.added.md": "- x\n"}, [
+        f"{F}079.added.md: the issue number '079' must be positive with no leading zero",
+        "preview refused: fix the changelog.d/ problems above"]),
+    "prose": (planted(FIXTURE_CHANGELOG, UNRELEASED_TAIL, "says how.\n\nSome prose.\n\n### Added\n"),
+              FIXTURE_FILES, [
+        "CHANGELOG.md line 9: ## [Unreleased] holds prose other than the pointer line; "
+        "move it into an entry file or delete it"]),
+    "pointer-after-heading": (
+        planted(FIXTURE_CHANGELOG, "- Carried two.\n",
+                "- Carried two.\n\nNew entries are files in changelog.d/; "
+                "README's \"Versioning & releases\" says how.\n"),
+        FIXTURE_FILES, [
+        "CHANGELOG.md line 16: ## [Unreleased] holds prose other than the pointer line; "
+        "move it into an entry file or delete it"]),
+    "unknown-heading": (planted(FIXTURE_CHANGELOG, UNRELEASED_TAIL,
+                                "says how.\n\n### Notes\n\n### Added\n"), FIXTURE_FILES, [
+        "CHANGELOG.md line 9: ## [Unreleased] holds a heading other than the six kinds: '### Notes'"]),
+    "item-no-heading": (planted(FIXTURE_CHANGELOG, UNRELEASED_TAIL,
+                                "says how.\n\n- Stray.\n\n### Added\n"), FIXTURE_FILES, [
+        "CHANGELOG.md line 9: ## [Unreleased] holds an item under no kind heading"]),
+    "no-unreleased": (planted(FIXTURE_CHANGELOG, "## [Unreleased]\n\n", ""), FIXTURE_FILES, [
+        "CHANGELOG.md has no '## [Unreleased]' line"]),
+}
+
+
+@pytest.mark.parametrize("case", PREVIEW_REFUSALS)
+def test_preview_refuses(tmp_path, capsys, case):
+    text, files, lines = PREVIEW_REFUSALS[case]
+    root = make_tree(tmp_path / "t", text, files)
+    before = snapshot(root)
+    assert run(capsys, root, "preview") == (1, "", "".join(f"changelog: {x}\n" for x in lines))
+    assert snapshot(root) == before

@@ -43,7 +43,11 @@ NUMBER_KEY = re.compile(r"[0-9]+")  # fullmatch: a key read as an issue number
 ISSUE_NUMBER = re.compile(r"[1-9][0-9]*")  # fullmatch
 SLUG = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*")  # fullmatch
 ITEM = re.compile(r"- \S")  # match: the first line of a list item
+HEADING = re.compile(r"#{1,6}(?:[ \t]|$)")  # match: an ATX heading
+FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 NAME_RULE = "it must be <key>.<kind>.md"
+CHANGELOG = "CHANGELOG.md"
+UNRELEASED = "## [Unreleased]"
 
 
 def _plural(n, word):
@@ -78,20 +82,34 @@ def split_name(name):
     return key, kind, None
 
 
-def list_items(lines):
-    """(items, None) or (None, index of the first line that is no part of an item).
+def line_role(line, in_item):
+    """'blank', 'item' or 'more' (a continuation line), or None: no part of a list.
 
     An item starts `- ` and a non-space; a continuation line starts with two
     spaces, is not blank, and directly follows an item or continuation line; a
-    blank line ends an item. Each item is its list of lines."""
+    blank line ends an item. Entry files and ## [Unreleased] share this rule."""
+    if not line.strip():
+        return "blank"
+    if ITEM.match(line):
+        return "item"
+    if line.startswith("  ") and in_item:
+        return "more"
+    return None
+
+
+def list_items(lines):
+    """(items, None) or (None, index of the first line that is no part of an item).
+
+    Each item is its list of lines."""
     items, current = [], None
     for i, line in enumerate(lines):
-        if not line.strip():
+        role = line_role(line, current is not None)
+        if role == "blank":
             current = None
-        elif ITEM.match(line):
+        elif role == "item":
             current = [line]
             items.append(current)
-        elif line.startswith("  ") and current is not None:
+        elif role == "more":
             current.append(line)
         else:
             return None, i
@@ -133,11 +151,139 @@ def check(root):
     return problems
 
 
+# --- CHANGELOG.md -----------------------------------------------------------------
+
+class Refused(Exception):
+    """A reason to exit 1, changing nothing: one or more message lines."""
+
+    def __init__(self, *lines, check_failed=False):
+        super().__init__(*lines)
+        self.lines = list(lines)
+        self.check_failed = check_failed  # the caller adds its own `<command> refused` line
+
+
+def read_changelog(root):
+    """CHANGELOG.md's lines, read as UTF-8 with CRLF as LF, or Refused (R0)."""
+    path = Path(root) / CHANGELOG
+    if not path.is_file():
+        raise Refused(f"{CHANGELOG}: missing")
+    try:
+        return _lf(path.read_bytes().decode("utf-8")).split("\n")
+    except UnicodeDecodeError:
+        raise Refused(f"{CHANGELOG}: not UTF-8") from None
+
+
+def unfenced(lines):
+    """The lines with each line of a ``` or ~~~ fence replaced by None."""
+    out, fence = [], None
+    for line in lines:
+        if fence is None:
+            m = FENCE.match(line)
+            if m and not (m.group(1)[0] == "`" and "`" in m.group(2)):
+                fence = m.group(1)
+                out.append(None)
+            else:
+                out.append(line)
+            continue
+        out.append(None)
+        close = line.strip()
+        if (close and set(close) == {fence[0]} and len(close) >= len(fence)
+                and len(line) - len(line.lstrip(" ")) <= 3):
+            fence = None
+    return out
+
+
+def unreleased_span(lines):
+    """(index of the ## [Unreleased] line, index of the next ## line or len(lines)), or Refused (R7)."""
+    plain = unfenced(lines)
+    if UNRELEASED not in plain:
+        raise Refused(f"{CHANGELOG} has no '{UNRELEASED}' line")
+    start = plain.index(UNRELEASED)
+    end = next((i for i in range(start + 1, len(plain))
+                if plain[i] is not None and plain[i].startswith("## ")), len(lines))
+    return start, end
+
+
+def _no_items():
+    return {kind: [] for kind in KINDS}
+
+
+def carried_items(lines, start, end):
+    """The items under ## [Unreleased] per kind, in document order, or Refused (R6).
+
+    Blank lines, kind headings (repeated or not) and, before the first kind
+    heading, the pointer line are placed; anything else is refused."""
+    items, kind, current = _no_items(), None, None
+    for i in range(start + 1, end):
+        line, where = lines[i], f"{CHANGELOG} line {i + 1}: {UNRELEASED} holds"
+        role = line_role(line, current is not None)
+        if role == "blank":
+            current = None
+        elif line in HEADINGS:
+            kind, current = KINDS[HEADINGS.index(line)], None
+        elif HEADING.match(line):
+            raise Refused(f"{where} a heading other than the six kinds: {line!r}")
+        elif role == "item":
+            if kind is None:
+                raise Refused(f"{where} an item under no kind heading")
+            current = [line]
+            items[kind].append(current)
+        elif role == "more":
+            current.append(line)
+        elif line == POINTER and kind is None:
+            current = None
+        else:
+            raise Refused(f"{where} prose other than the pointer line; "
+                          "move it into an entry file or delete it")
+    return items
+
+
+def _key_order(path):
+    key = path.name[:-3].rsplit(".", 1)[0]
+    return (0, len(key), key) if NUMBER_KEY.fullmatch(key) else (1, 0, key)
+
+
+def waiting(root):
+    """(items per kind, the entry files used): carried items first, in document
+    order, then each entry file's items, issue numbers before slugs; or Refused
+    (R0, R7, R5, R6)."""
+    lines = read_changelog(root)
+    start, end = unreleased_span(lines)
+    problems = check(root)
+    if problems:
+        raise Refused(*problems, check_failed=True)
+    items = carried_items(lines, start, end)
+    files = sorted(_entries(root), key=_key_order)
+    for path in files:
+        _, kind, entry_items, _ = read_entry(path)
+        items[kind].extend(entry_items)
+    return items, files
+
+
+def render(heading, items):
+    """`heading`, then each kind that has items, in KINDS order: a blank line,
+    its heading, a blank line and its item lines, none between items."""
+    out = [heading]
+    for kind, kind_heading in zip(KINDS, HEADINGS):
+        if items.get(kind):
+            out += ["", kind_heading, ""]
+            for item in items[kind]:
+                out += item
+    return "\n".join(out) + "\n"
+
+
+def preview(root):
+    """The ## [Unreleased] section release would write, or Refused as release is."""
+    return render(UNRELEASED, waiting(root)[0])
+
+
 def build_parser():
     parser = argparse.ArgumentParser(prog=PROG, description=__doc__.split("\n\n")[0],
                                      allow_abbrev=False)
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("check", help="report entry files that break the rules", allow_abbrev=False)
+    sub.add_parser("preview", help="print the ## [Unreleased] section release would write",
+                   allow_abbrev=False)
     return parser
 
 
@@ -155,11 +301,19 @@ def main(argv=None, root=None) -> int:
         stream.reconfigure(encoding="utf-8", errors="backslashreplace", newline="\n")
     args = parse_args(argv)
     root = Path(ROOT if root is None else root)
-    problems = check(root)
-    if problems:
-        _say(problems, sys.stderr)
+    if args.command == "check":
+        problems = check(root)
+        if problems:
+            _say(problems, sys.stderr)
+            return 1
+        _say([f"check: no problems in {_plural(len(_entries(root)), 'entry file')}"], sys.stdout)
+        return 0
+    try:
+        sys.stdout.write(preview(root))
+    except Refused as e:
+        trailer = [f"{args.command} refused: fix the changelog.d/ problems above"]
+        _say(e.lines + (trailer if e.check_failed else []), sys.stderr)
         return 1
-    _say([f"check: no problems in {_plural(len(_entries(root)), 'entry file')}"], sys.stdout)
     return 0
 
 
