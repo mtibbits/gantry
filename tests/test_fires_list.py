@@ -873,6 +873,100 @@ def test_widening_keeps_every_old_catch():
     assert notes > 0
 
 
+NOT_TOP = "not a top-level `- ` item"
+
+
+def box_not(glyph):
+    return f"state box [{glyph}] is not [ ], [x] or [>]"
+
+
+# Each shape issue #152 lists, with its exact fires_bad_entry message.
+ISSUE_152_SHAPES = [
+    ("[] 2026-10-24 @harbor x", NOT_TOP + "; " + box_not("")),
+    ("-[] 2026-10-24 @harbor x", NOT_TOP + "; " + box_not("")),
+    ("1. [] 2026-10-24 @harbor x", NOT_TOP + "; " + box_not("")),
+    ("    - [] 2026-10-24 @harbor x", NOT_TOP + "; " + box_not("")),
+    ("1. [xx] 2026-10-24 @harbor x", NOT_TOP + "; " + box_not("xx")),
+    (chr(0x2022) + " [ ] 2026-10-24 @harbor x", NOT_TOP),
+    (chr(0x2013) + " [ ] 2026-10-24 @harbor x", NOT_TOP),
+    ("-" + chr(0xA0) + "[ ] 2026-10-24 @harbor x", NOT_TOP),
+    ("> - [ ] 2026-10-24 @harbor x", NOT_TOP),
+]
+
+
+def check_issue_152_shape(line, message):
+    result = parse(line + LF)
+    assert len(result.entries) == 1, line
+    e = result.entries[0]
+    assert (e.state, e.ended, e.date, e.site, e.reason) == ("unreadable", False, date(2026, 10, 24), "harbor",
+                                                             "x"), line
+    assert kinds_of(result) == [(1, "fires_bad_entry")], line
+    assert (result.report[0].message, result.status) == (message, "read_with_problems"), line
+
+
+def test_issue_152_shapes_are_reported():
+    assert len(ISSUE_152_SHAPES) == 9
+    for line, message in ISSUE_152_SHAPES:
+        check_issue_152_shape(line, message)
+
+
+def test_mid_file_bom_line_is_reported():
+    result = parse("# Fires" + LF + chr(0xFEFF) + "- [ ] 2026-10-24 @harbor x" + LF)
+    assert lines_of(result) == [2]
+    assert result.entries[0].state == "unreadable"
+    assert [e.message for e in result.report] == [NOT_TOP]
+
+
+def test_empty_box_under_an_entry_is_an_entry():
+    for glyph in ("", "xx"):
+        result = parse(ENTRY + LF + f"  - [{glyph}] 2026-10-25 @harbor y" + LF)
+        assert lines_of(result) == [1, 2], glyph
+        e = result.entries[1]
+        assert (e.state, e.date) == ("unreadable", date(2026, 10, 25)), glyph
+        assert kinds_of(result) == [(2, "fires_bad_entry")], glyph
+        assert result.report[0].message == box_not(glyph), glyph
+
+
+def test_word_box_under_an_entry_is_an_entry():
+    result = parse(ENTRY + LF + "  - [WIP] still digging" + LF)
+    assert lines_of(result) == [1, 2]
+    assert result.entries[1].state == "unreadable"
+    assert kinds_of(result) == [(2, "fires_bad_entry")]
+    assert "state box [WIP]" in result.report[0].message
+
+
+def test_new_entry_like_line_takes_the_following_note():
+    # A newly entry-like line continues a note chain, as any entry does.
+    result = parse("**2026-10-24** crane down" + LF + "  - called the inspector" + LF)
+    assert lines_of(result) == [1]
+    assert kinds_of(result) == [(1, "fires_bad_entry")]
+    assert result.status == "read_with_problems"
+
+
+def test_column_zero_box_like_keeps_its_date():
+    for glyph in ("", "xx"):
+        e, result = one(f"- [{glyph}] 2026-10-24 @harbor x")
+        assert (e.state, e.date, e.site) == ("unreadable", date(2026, 10, 24), "harbor"), glyph
+        assert [r.message for r in result.report] == [box_not(glyph)], glyph
+
+
+def test_box_like_alone_is_reported_not_skipped():
+    # "- []" is reported before #152 too; "[]" and "1. []" were prose. Only
+    # the exact one-character box holds nothing (test_empty_items_skipped).
+    for line in ("[]", "1. []", "- []"):
+        result = parse(line + LF)
+        assert [e.state for e in result.entries] == ["unreadable"], line
+        assert kinds_of(result) == [(1, "fires_bad_entry")], line
+        assert result.skipped_empty == 0, line
+
+
+def test_fenced_wide_shapes_count():
+    block = ["```", chr(0x2022) + " [ ] 2026-10-24 @harbor x", "[] 2026-10-24 @harbor x", "> - [ ] 2026-10-24 x",
+             "```"]
+    result = parse(LF.join(block) + LF)
+    assert (result.entries, result.skipped_in_fences, result.status) == ((), 3, "read")
+
+
 
 # --- the docs (Task 9) ---------------------------------------------------------------
 
@@ -930,18 +1024,9 @@ def test_doc_examples_read_as_documented():
 
 
 def test_fenced_lines_count_with_or_without_a_marker():
-    # docs/fires-list.md: skipped_in_fences counts entry-shaped lines with or without a list marker.
+    # docs/fires-list.md: skipped_in_fences counts entry-shaped lines (the
+    # entry-like rule, with or without a list marker); test_fenced_wide_shapes_count
+    # covers the wider marks of #152.
     block = ["```", "- [ ] 2026-10-24 @harbor x", "[ ] 2026-10-24 @harbor x", "2026-10-24 bare", "- prose", "```"]
     result = parse(LF.join(block) + LF)
     assert (result.entries, result.skipped_in_fences, result.status) == ((), 3, "read")
-
-
-def test_documented_limits_are_prose():
-    # docs/fires-list.md's "Entry-like lines" names these as prose: only the
-    # ASCII markers, spaces and tabs make an entry-like line.
-    nbsp, bullet, dash = chr(0xA0), chr(0x2022), chr(0x2013)
-    lines = ["-" + nbsp + "[ ] 2026-10-24 @harbor x", bullet + " [ ] 2026-10-24 @harbor x",
-             dash + " [ ] 2026-10-24 @harbor x", "> - [ ] 2026-10-24 @harbor x", "# [ ] 2026-10-24 @harbor x"]
-    for line in lines:
-        result = parse(line + LF)
-        assert (result.entries, result.report, result.status) == ((), (), "read"), line
