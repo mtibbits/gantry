@@ -10,8 +10,11 @@ with a fallback. docs/worksite-page.md states the rules.
 import functools
 import html
 import json
+import math
 import re
+from fractions import Fraction
 
+from gantry.est_rules import classify_est
 from gantry.roots import PACKAGE_KEY, package_root, package_roots, read_bytes_confined
 
 
@@ -106,3 +109,63 @@ CLASS_TOKENS = frozenset(
     [*MODEL_CLASSES.values(), MODEL_FALLBACK, *STATE_CLASSES.values(), STATE_FALLBACK, *SLACK_CLASSES,
      UNESTIMATED_CLASS, *PRIORITY_MARKS]
 )
+
+
+# The week view's tables (#38), outside CLASS_TOKENS: the worksite script
+# reads no class from them, and the week script reads no class from data.
+TAG_CLASSES = {"scored": "tag-scored", "measured": "tag-measured", "declared": "tag-declared",
+               "estimated": "tag-estimated"}
+TAG_FALLBACK = "tag-other"
+TIER_CLASSES = {"p0": "tier-p0", "started": "tier-started", "fair_share": "tier-fair"}
+TIER_FALLBACK = "tier-other"
+# One per planner.UNPLANNED_REASONS (a test pins the keys); no planner import.
+REASON_CLASSES = {
+    "blocked_externally": "why-blocked", "parked": "why-parked", "waits_on_cycle": "why-cycle",
+    "cross_site_cycle": "why-cross-cycle", "waits_on_site_absent": "why-site-absent",
+    "waits_on_unresolved": "why-unresolved", "waits_on_unplanned": "why-waits", "beyond_horizon": "why-beyond",
+}
+REASON_FALLBACK = "why-other"
+WEEK_CLASSES = frozenset([*TAG_CLASSES.values(), TAG_FALLBACK, *TIER_CLASSES.values(), TIER_FALLBACK,
+                          *REASON_CLASSES.values(), REASON_FALLBACK])
+
+
+def tag_class(tag) -> str:
+    return _lookup(TAG_CLASSES, tag, TAG_FALLBACK)
+
+
+def tier_class(tier) -> str:
+    return _lookup(TIER_CLASSES, tier, TIER_FALLBACK)
+
+
+def reason_class(reason) -> str:
+    return _lookup(REASON_CLASSES, reason, REASON_FALLBACK)
+
+
+def hundredths(x) -> str:
+    """x rounded once, half up, to two decimals from its shortest decimal form,
+    trailing zeros dropped: 2.25, 2, 3.03."""
+    exact = Fraction(repr(float(x)))
+    cents = math.floor(abs(exact) * 100 + Fraction(1, 2))
+    sign = "-" if exact < 0 and cents else ""
+    return (sign + f"{cents // 100}.{cents % 100:02d}").rstrip("0").rstrip(".")
+
+
+def hours_text(hours) -> str:
+    """An hour figure as the week view and #33 write it: 135 minutes is "2.25 h".
+
+    On whole minutes it equals rounding the minutes to hundredths of an hour;
+    a fair-share target, an exact fraction, rounds the same way (3.025 is "3.03 h").
+    """
+    return hundredths(hours) + " h"
+
+
+def non_time_text(raw):
+    """A non-time est: value as text ("2.5 pr"), or None."""
+    value = classify_est(raw)
+    return f"{value.number:g} {value.unit}" if value.kind == "non_time" else None
+
+
+def unestimated_text(raw) -> str:
+    """An unestimated leaf's label: "unestimated (3 pr)" with a non-time est:, else "unestimated"."""
+    value = non_time_text(raw)
+    return f"unestimated ({value})" if value is not None else "unestimated"

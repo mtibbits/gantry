@@ -13,7 +13,6 @@ from typing import NamedTuple
 
 from gantry import network, priority, render, schedule
 from gantry.deps import open_sources, refs
-from gantry.est_rules import classify_est
 from gantry.inputs import NO_TIERS, UNEST_WHAT, has_tiers, scheduled, site_totals
 from gantry.links import id_href, leaf_anchor
 from gantry.model import HOURS_PER_DAY, Estimate, Models
@@ -191,9 +190,8 @@ def _tiers(leaf):
 
 
 def _non_time(leaf):
-    """The leaf's non-time est: as text ("2.5 pr"), or None."""
-    value = classify_est(leaf.meta.get("est"))
-    return f"{value.number:g} {value.unit}" if value.kind == "non_time" else None
+    """The leaf's non-time est: as text ("2.5 pr"), or None (render.non_time_text, #38)."""
+    return render.non_time_text(leaf.meta.get("est"))
 
 
 def _prio_mark(leaf):
