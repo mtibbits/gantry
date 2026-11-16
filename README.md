@@ -240,6 +240,13 @@ on fail. An installation depends on:
 - the tools it runs on: raising a stated oldest supported version of a tool
   under [Supported versions](#supported-versions) is a break.
 
+One exception covers both the private files and `gantry fires`: a fires
+list change that reports a line it did not report before, so a list that
+read `read` now reads `read_with_problems` and `gantry fires` exits 1.
+Reporting more lines is how the fires list fails closed, so reporting more
+lines is not a break
+([which lines are reported](docs/fires-list.md#entry-like-lines)).
+
 A release with a break says, in its CHANGELOG section, what broke and what
 an operator changes.
 

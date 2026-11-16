@@ -25,10 +25,25 @@ LABEL = "the fires list"
 
 # Whitespace here is space and tab only: never split(), strip() or
 # splitlines() with no argument, \s or \d, which also match U+2028, U+0085,
-# a lone CR or non-ASCII digits. Every pattern is linear on a long line.
+# a lone CR or non-ASCII digits. The one deliberate \w is the entry-like
+# mark class: \w is Unicode there, so a letter or digit in any script ends
+# the marks, and "_" (a \w character) is listed as a mark on its own.
+# Every pattern is linear on a long line.
 THEMATIC_RE = re.compile(r" {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*")  # fullmatch
 TOP_ITEM_RE = re.compile(r"(?P<indent> {0,3})[-*+][ \t]+(?P<text>.*)")  # fullmatch; "- " alone has empty text
-ENTRY_LIKE_RE = re.compile(r"[ \t]*(?:(?:[-*+]|[0-9]+[.)])[ \t]*)?(?P<text>(?:\[.\]|[0-9]{4}-).*)")  # fullmatch
+ATX_HEADING_RE = re.compile(r" {0,3}#{1,6}(?:[ \t].*)?")  # fullmatch; a heading stays prose
+# [ and ] around zero or more characters, counted only before a blank, the end of the line or a
+# date attempt ("[]2026-10-24": two typos at once must not read as prose)
+_BOX_LIKE = r"\[(?P<glyph>[^\]]*+)\](?=[ \t]|\Z|[0-9]{4}-)"
+BOX_LIKE_RE = re.compile(_BOX_LIKE)  # match; tried after BOX_RE
+_ENTRY_START = r"(?:\[.\]|" + _BOX_LIKE + r"|[0-9]{4}-)"  # a box, a box-like pair or a date attempt
+ENTRY_START_RE = re.compile(_ENTRY_START)  # match, at the start of the text
+# fullmatch. The lead blanks are possessive, and the marks (characters that are not a letter or
+# digit in the Unicode sense, a space, a tab or "[") are at most eight, with blanks between free:
+# linear on a long line. "[" is not a mark, so a link's text is never searched. The mark run is
+# lazy, so the text starts at the earliest box, box-like pair or date.
+ENTRY_LIKE_RE = re.compile(r"[ \t]*+(?:[0-9]++[.)])?(?:[ \t]*+(?:_|[^\w \t\[])){0,8}?[ \t]*+"
+                           r"(?P<text>" + _ENTRY_START + r".*)")
 BOX_RE = re.compile(r"\[(?P<glyph>.)\]")  # match, at the start of the text
 DATE_TRY_RE = re.compile(r"[0-9]{4}-")  # match, at the start of a token
 _BLANKS = " \t"
@@ -86,14 +101,18 @@ def _blank(text):
 
 
 def _holds_nothing(text):
-    """Empty, only spaces and tabs, or a box shape then only spaces and tabs."""
+    """Empty, only spaces and tabs, or the exact one-character box then only
+    spaces and tabs. A box-like pair ([], [xx]) holds something: it is
+    reported, never skipped."""
     if BOX_RE.match(text):
         text = text[3:]
     return _blank(text)
 
 
 def _starts_entry_shape(text):
-    return BOX_RE.match(text) is not None or DATE_TRY_RE.match(text) is not None
+    """A box, a box-like pair or a date attempt at the very start. Marks are
+    left out, so "  - > [ ] ..." under an entry stays a note."""
+    return ENTRY_START_RE.match(text) is not None
 
 
 def _opens_fence(line):
@@ -113,9 +132,11 @@ def _classify(line, chain):
         text = m["text"]
         if _holds_nothing(text):
             return "empty", None
-        if len(m["indent"]) >= 2 and not _starts_entry_shape(text) and chain:
+        if chain and len(m["indent"]) >= 2 and not _starts_entry_shape(text):
             return "note", None
         return "entry", text
+    if ATX_HEADING_RE.fullmatch(line):
+        return "prose", None
     m = ENTRY_LIKE_RE.fullmatch(line)
     if m is not None:
         text = m["text"]
@@ -126,7 +147,8 @@ def _classify(line, chain):
 
 
 def _shaped_in_fence(line):
-    """Whether a fenced line, read alone, is a marker line holding a box or a date."""
+    """Whether a fenced line, read alone, is entry-shaped: an entry-like line,
+    or a top-level item starting with a box, a box-like pair or a date."""
     kind, text = _classify(line, False)
     return kind == "entry_like" or (kind == "entry" and _starts_entry_shape(text))
 
@@ -177,7 +199,9 @@ def _read_entry(number, raw, text, entry_like, names):
     failures = [NOT_TOP_LEVEL] if entry_like else []
     cur = _Cursor(text)
     state, ended = None, False
-    box = BOX_RE.match(text)
+    # A box-like pair ([], [xx]) is a box that did not parse: its glyph is
+    # empty or longer than one character, so it has no state.
+    box = BOX_RE.match(text) or BOX_LIKE_RE.match(text)
     if box is None:
         failures.append("no state box")
     else:
@@ -186,7 +210,7 @@ def _read_entry(number, raw, text, entry_like, names):
         if state is None:
             failures.append(f"state box [{shown(glyph)}] is not [ ], [x] or [>]")
         ended = state in ("resolved", "promoted")
-        cur.pos = 3
+        cur.pos = box.end()
         if cur.pos < len(text) and text[cur.pos] not in _BLANKS:
             failures.append("no space after the state box")
         cur.skip_blanks()
