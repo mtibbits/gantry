@@ -5,9 +5,11 @@ at run time, never typed as escapes in source or held in a fixture file.
 """
 
 import random
+import re
 import time as clock
 from dataclasses import replace
 import datetime as dt
+import itertools
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
@@ -623,6 +625,252 @@ def test_bad_reference_raises_whatever_the_file_holds(tmp_path):
                 fl.parse_fires_list(text, ["harbor"], bad)
         with pytest.raises(ValueError, match="not a naive datetime"):
             fl.read_fires_list(directory_roots([tmp_path]), None, [], bad)
+
+
+
+# --- wider entry-like lines (#152) ----------------------------------------------------
+
+
+def as_tuple(result):
+    """A parse result as plain values: what FIXTURE_GOLDEN holds."""
+    return (result.status,
+            tuple((e.line, e.state, e.ended, e.date, e.time, e.site, e.reason) for e in result.entries),
+            tuple((e.line, e.kind, e.message) for e in result.report),
+            result.skipped_empty, result.skipped_in_fences)
+
+
+def sample_result():
+    """samples/fires.md, read the way test_sample_reads_clean reads it."""
+    from gantry.build import site_list
+    from gantry.sites import config_roots
+
+    config = load_config(GANTRY_SAMPLE)
+    roots = config_roots(config, purpose="check")
+    sites, _ = site_list(config, roots)
+    reference = fl.fires_reference(config, datetime(2030, 6, 1, 12, 0))
+    return fl.read_fires_list(roots, config.fires_list, [s.name for s in sites], reference)
+
+
+# Captured once on the unfixed tree (d712992), before #152 widened the
+# entry-like rule: every fixture and the sample read exactly so.
+FIXTURE_GOLDEN = {
+    'bad_entries.md': (
+        'read_with_problems',
+        (
+            (1, 'unreadable', False, date(2026, 10, 24), None, 'harbor', 'no state box'),
+            (2, 'unreadable', False, date(2026, 10, 24), None, 'harbor', 'a question box'),
+            (3, 'unreadable', False, date(2026, 10, 24), None, 'harbor', 'a dash box'),
+            (4, 'unreadable', False, date(2026, 10, 24), None, 'harbor', 'a slash box'),
+            (5, 'unreadable', False, date(2026, 10, 24), None, 'harbor', 'no space after the box'),
+            (6, 'unreadable', False, None, None, 'harbor', 'no date'),
+            (7, 'unreadable', False, None, None, 'harbor', 'not a real day'),
+            (8, 'unreadable', False, date(2026, 10, 24), None, 'harbor', 'an hour past 23'),
+            (9, 'unreadable', False, date(2026, 10, 24), None, 'harbor', 'a minute past 59'),
+            (10, 'unreadable', False, date(2026, 10, 24), None, None, 'a bare at'),
+            (11, 'unreadable', False, date(2026, 10, 24), None, None, None),
+            (12, 'unreadable', False, date(2026, 10, 24), None, 'harbor', None),
+        ),
+        (
+            (1, 'fires_bad_entry', 'no state box'),
+            (2, 'fires_bad_entry', 'state box [?] is not [ ], [x] or [>]'),
+            (3, 'fires_bad_entry', 'state box [-] is not [ ], [x] or [>]'),
+            (4, 'fires_bad_entry', 'state box [/] is not [ ], [x] or [>]'),
+            (5, 'fires_bad_entry', 'no space after the state box'),
+            (6, 'fires_bad_entry', 'no date'),
+            (7, 'fires_bad_entry', 'date 2026-02-30 is not a real YYYY-MM-DD date'),
+            (8, 'fires_bad_entry', 'time 25:00 is not a time from 0:00 to 23:59'),
+            (9, 'fires_bad_entry', 'time 12:60 is not a time from 0:00 to 23:59'),
+            (10, 'fires_bad_entry', 'an empty @ names no site'),
+            (11, 'fires_bad_entry', 'no reason'),
+            (12, 'fires_bad_entry', 'no reason'),
+        ),
+        0, 0,
+    ),
+    'empty.md': (
+        'read',
+        (),
+        (),
+        0, 0,
+    ),
+    'empty_items.md': (
+        'read',
+        (
+            (3, 'open', False, date(2026, 10, 24), None, 'harbor', 'a real one'),
+        ),
+        (),
+        2, 0,
+    ),
+    'ended_only.md': (
+        'read',
+        (
+            (3, 'resolved', True, date(2026, 10, 20), None, 'quarry', 'a disk alert on the backup host'),
+            (4, 'promoted', True, date(2026, 10, 21), None, 'harbor', 'a flaky deploy, now a leaf'),
+        ),
+        (),
+        0, 0,
+    ),
+    'entry_like.md': (
+        'read_with_problems',
+        (
+            (3, 'unreadable', False, date(2026, 10, 24), None, 'harbor', 'numbered'),
+            (4, 'unreadable', False, date(2026, 10, 24), None, 'harbor', 'no space after the marker'),
+            (5, 'unreadable', False, date(2026, 10, 24), None, 'harbor', 'four spaces'),
+            (6, 'unreadable', False, date(2026, 10, 24), None, 'harbor', 'a bare box'),
+            (7, 'unreadable', False, date(2026, 10, 24), None, None, 'a bare date'),
+        ),
+        (
+            (3, 'fires_bad_entry', 'not a top-level `- ` item'),
+            (4, 'fires_bad_entry', 'not a top-level `- ` item'),
+            (5, 'fires_bad_entry', 'not a top-level `- ` item'),
+            (6, 'fires_bad_entry', 'not a top-level `- ` item'),
+            (7, 'fires_bad_entry', 'not a top-level `- ` item; no state box'),
+        ),
+        0, 0,
+    ),
+    'fences.md': (
+        'read',
+        (
+            (11, 'open', False, date(2026, 10, 25), None, 'harbor', 'outside every fence'),
+        ),
+        (),
+        0, 2,
+    ),
+    'notes.md': (
+        'read_with_problems',
+        (
+            (1, 'unreadable', False, None, None, None, 'reran it, first in the file'),
+            (4, 'unreadable', False, None, None, None, 'after a heading'),
+            (6, 'open', False, date(2026, 10, 24), None, 'harbor', 'the release build is red'),
+            (10, 'open', False, date(2026, 10, 25), None, 'harbor', 'a nested box is an entry'),
+            (12, 'unreadable', False, None, None, None, 'call the supplier back'),
+        ),
+        (
+            (1, 'fires_bad_entry', 'no state box; no date'),
+            (4, 'fires_bad_entry', 'no state box; no date'),
+            (12, 'fires_bad_entry', 'no state box; no date'),
+        ),
+        0, 0,
+    ),
+    'sites.md': (
+        'read_with_problems',
+        (
+            (1, 'open', False, date(2026, 10, 24), None, 'nowhere', 'an open fire at no site'),
+            (2, 'unreadable', False, date(2026, 10, 24), None, 'nowhere', 'an unreadable fire at no site'),
+            (3, 'open', False, date(2026, 10, 24), None, 'Harbor', 'a name that differs in case'),
+            (4, 'open', False, date(2026, 10, 24), None, 'marsh', 'a site that is listed but not built'),
+            (5, 'resolved', True, date(2026, 10, 20), None, 'nowhere', 'resolved, so not checked'),
+            (6, 'resolved', True, date(2026, 12, 1), None, 'harbor', 'resolved, dated after the reference'),
+        ),
+        (
+            (1, 'fires_unknown_site', '@nowhere names no site in this installation'),
+            (2, 'fires_bad_entry', 'state box [?] is not [ ], [x] or [>]'),
+            (2, 'fires_unknown_site', '@nowhere names no site in this installation'),
+            (3, 'fires_unknown_site', '@Harbor names no site in this installation'),
+        ),
+        0, 0,
+    ),
+    'stray_fence.md': (
+        'read',
+        (
+            (3, 'open', False, date(2026, 10, 24), None, 'harbor', 'outside the fence'),
+        ),
+        (),
+        0, 1,
+    ),
+    'unclosed_fence.md': (
+        'read_with_problems',
+        (
+            (3, 'open', False, date(2026, 10, 24), None, 'harbor', 'before the fence'),
+            (5, 'open', False, date(2026, 10, 25), None, 'harbor', 'after the stray opener'),
+        ),
+        (
+            (4, 'fires_unclosed_fence', 'a fence opened here is never closed; the lines after it are still read'),
+        ),
+        0, 0,
+    ),
+    'well_formed.md': (
+        'read',
+        (
+            (5, 'open', False, date(2026, 10, 24), None, 'harbor', 'the release build has been red since morning'),
+            (6, 'open', False, date(2026, 10, 24), time(9, 40), None, 'an escalation that is not a leaf yet'),
+            (7, 'resolved', True, date(2026, 10, 20), None, 'quarry', 'a disk alert on the backup host'),
+            (8, 'promoted', True, date(2026, 10, 21), None, 'harbor', 'a flaky deploy, now a leaf'),
+        ),
+        (),
+        0, 0,
+    ),
+    'sample': (
+        'read',
+        (
+            (6, 'open', False, date(2026, 1, 19), None, 'harbor', 'the east crane failed its morning check'),
+            (8, 'open', False, date(2026, 1, 18), None, None, "return the surveyor's call about the boundary"),
+            (9, 'open', False, date(2026, 1, 12), None, 'quarry', 'the weighbridge has read low since last week'),
+            (10, 'open', False, date(2026, 1, 19), time(16, 30), None, 'a delivery arrived with no paperwork'),
+            (11, 'resolved', True, date(2026, 1, 15), None, 'orchard', 'frost alarm in the north block'),
+            (12, 'promoted', True, date(2026, 1, 16), None, 'harbor',
+             'a loose mooring ring on the west quay, now a leaf'),
+        ),
+        (),
+        0, 0,
+    ),
+}
+
+
+def test_fixtures_read_as_before():
+    assert set(FIXTURE_GOLDEN) == set(EXPECTED) - {"not_utf8.md"} | {"sample"}
+    for name, expected in FIXTURE_GOLDEN.items():
+        result = sample_result() if name == "sample" else parse_fixture(name)
+        assert as_tuple(result) == expected, name
+
+
+# HEAD d712992's rule, kept verbatim as the reference the widened rule must cover.
+OLD_ENTRY_LIKE_RE = re.compile(r"[ \t]*(?:(?:[-*+]|[0-9]+[.)])[ \t]*)?(?P<text>(?:\[.\]|[0-9]{4}-).*)")
+
+
+def _old_starts_entry_shape(text):
+    return fl.BOX_RE.match(text) is not None or fl.DATE_TRY_RE.match(text) is not None
+
+
+def _old_classify(line, chain):
+    """A frozen copy of d712992's _classify, the oracle for the differential."""
+    if line.strip(" " + chr(9)) == "":
+        return "blank", None
+    if fl.THEMATIC_RE.fullmatch(line):
+        return "break", None
+    m = fl.TOP_ITEM_RE.fullmatch(line)
+    if m is not None:
+        text = m["text"]
+        if fl._holds_nothing(text):
+            return "empty", None
+        if len(m["indent"]) >= 2 and not _old_starts_entry_shape(text) and chain:
+            return "note", None
+        return "entry", text
+    m = OLD_ENTRY_LIKE_RE.fullmatch(line)
+    if m is not None:
+        text = m["text"]
+        if fl._holds_nothing(text):
+            return "empty", None
+        return "entry_like", text
+    return "prose", None
+
+
+def test_widening_keeps_every_old_catch():
+    alphabet = [" ", chr(9), "-", "*", "+", "1", ".", ")", ">", "#", "[", "]", "a", chr(0xA0), chr(0x2022)]
+    tails = ["[ ] 2026-10-24 @harbor x", "[x] 2026-10-20 x", "[] x", "[xx] x", "2026-10-24 x", "call back", ""]
+    prefixes = ["".join(p) for n in range(4) for p in itertools.product(alphabet, repeat=n)]
+    cases = [(p + t, False) for p in prefixes for t in tails]
+    cases += [(lead + t, True) for lead in ("  - ", "   - ") for t in tails]
+    assert len(cases) == 25326
+    notes = 0
+    for line, chain in cases:
+        old, _ = _old_classify(line, chain)
+        new, _ = fl._classify(line, chain)
+        notes += old == "note"
+        if old != "prose":
+            assert new != "prose", repr(line)
+        if old in ("entry", "empty", "blank", "break"):
+            assert new == old, repr(line)
+    assert notes > 0
 
 
 
