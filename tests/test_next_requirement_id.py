@@ -218,7 +218,8 @@ def fail(rc, err=b""):
 
 
 class FakeRunner:
-    """Scripted results (or exceptions) keyed by argv; any other argv fails the test."""
+    """Scripted results (or exceptions) keyed by argv, a list giving one per call in
+    order; any other argv fails the test."""
 
     def __init__(self, script):
         self.script = dict(script)
@@ -230,6 +231,8 @@ class FakeRunner:
             result = self.script[tuple(argv)]
         except KeyError:
             raise AssertionError(f"unscripted argv: {argv}") from None
+        if isinstance(result, list):
+            result = result.pop(0)
         if isinstance(result, BaseException):
             raise result
         return result
@@ -327,6 +330,13 @@ def test_origin_main_behind(capsys, tmp_path):
     refused(capsys, ["FR"], runner, tree(tmp_path),
             f"origin/main: at {SHA[:12]}, but origin's main is at {OTHER[:12]}; run git fetch")
     assert list(CAT) not in runner.calls
+
+
+def test_default_runner_runs_the_program(tmp_path):
+    program = "import sys; sys.stdout.write('out'); sys.stderr.write('err'); sys.exit(3)"
+    assert nri.run([sys.executable, "-c", program], tmp_path) == nri.Result(3, b"out", b"err")
+    with pytest.raises(FileNotFoundError):
+        nri.run(["next-requirement-id-no-such-program"], tmp_path)
 
 
 def test_ls_remote_tail_ref_is_not_main(capsys, tmp_path):
@@ -646,6 +656,27 @@ def test_tie_stderr_names_earlier(capsys, tmp_path):
     assert err.splitlines()[-1] == f"{P}FR-{K + 2}: the highest FR number, {K + 1}, is in open issue #4"
 
 
+def test_merge_during_run_refuses(capsys, tmp_path):
+    # A pull request that merges while the listings are read is in neither them nor
+    # the origin/main already read, so origin's main is compared again afterwards.
+    script = online(f"- FR-{K}: x\n")
+    script[LS] = [ok(f"{SHA}\trefs/heads/main\n"), ok(f"{OTHER}\trefs/heads/main\n")]
+    runner = FakeRunner(script)
+    refused(capsys, ["FR"], runner, tree(tmp_path),
+            f"origin/main: at {SHA[:12]}, but origin's main is at {OTHER[:12]}; run git fetch")
+    ls = [i for i, argv in enumerate(runner.calls) if argv[:2] == ["git", "ls-remote"]]
+    graphql = [i for i, argv in enumerate(runner.calls) if argv[:3] == ["gh", "api", "graphql"]]
+    assert len(ls) == 2 and ls[0] < graphql[0] and graphql[-1] < ls[1]
+
+
+def test_online_stderr_summary_singular(capsys, tmp_path):
+    runner = FakeRunner(online(issues=[inode(1, "OWNER", "")], pulls=[pnode(6, "OWNER", H)], files={H: ""}))
+    rc, _, err = run_main(capsys, ["FR"], runner, tree(tmp_path))
+    assert rc == 0
+    assert err.splitlines()[0].endswith(f"{NWO}'s 1 open issue and 1 open pull request "
+                                        "(1 and 1 by the owner, a member or a collaborator)")
+
+
 def test_online_stderr_summary(capsys, tmp_path):
     h2 = "d4" * 20
     runner = FakeRunner(online(issues=[inode(1, "OWNER", ""), inode(2, "NONE", ""), inode(5, "MEMBER", "")],
@@ -727,7 +758,7 @@ def test_online_path_writes_nothing(capsys, tmp_path, monkeypatch, k):
     rc, out, err = run_main(capsys, ["FR"], runner, None)
     assert (rc, out) == (0, f"FR-{k + 6}\n"), err
     assert err.splitlines()[-1].endswith(f"is in open pull request #{PR}")
-    assert len(runner.ran("ls-remote")) == 1
+    assert len(runner.ran("ls-remote")) == 2  # before and after the listings
     assert snapshot(repo) == before
 
 

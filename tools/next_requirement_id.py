@@ -7,8 +7,10 @@ tool prints `<code>-<n>` on stdout, where <n> is one more than the highest
 <code> number mentioned in, in this order:
 
 1. docs/requirements.md at origin/main, once `git ls-remote` (which writes
-   nothing) shows that origin/main is origin's main; when they differ it
-   refuses, saying "run git fetch", and --offline skips the comparison;
+   nothing) shows that origin/main is origin's main, both before and after
+   the open issues and pull requests are read (a pull request that merged in
+   between would be in neither); when they differ it refuses, saying "run git
+   fetch", and --offline skips the comparison;
 2. the working tree's docs/requirements.md, so a number this branch took counts;
 3. the bodies of the repository's open issues;
 4. the docs/requirements.md of its open pull requests, at their heads.
@@ -31,7 +33,8 @@ cat-file`, read-only `gh api graphql` queries and `gh api` GETs, and writes
 nothing.
 
 Exit 0 printed an ID; 1 refused: stdout is empty, and stderr names the source
-it could not read or the check that failed, and the remedy; 2 a usage error.
+it could not read or the check that failed, and the remedy where there is
+one; 2 a usage error.
 Exit 1 covers retryable refusals (a stale origin/main, a listing that changed
 while it was read) and permanent ones (an unknown author association, a pull
 request with no docs/requirements.md, an ID past nine digits) alike, told
@@ -93,7 +96,7 @@ CONTENTS = "repos/{owner}/{repo}/contents/" + FILE + "?ref="  # gh fills {owner}
 OFFLINE_REMEDY = "or run --offline (which reads no open issues or pull requests)"
 EPILOG = """exit status:
   Exit 0 printed an ID; 1 refused (stdout is empty; stderr names the source
-  and the remedy); 2 a usage error. 1 covers retryable and permanent refusals
+  and any remedy); 2 a usage error. 1 covers retryable and permanent refusals
   alike, and is provisional for machine consumers."""
 
 
@@ -312,6 +315,10 @@ def pull_text(runner, root, node) -> str:
     return decoded(result.stdout, where)
 
 
+def plural(n, noun) -> str:
+    return f"{n} {noun}" + ("" if n == 1 else "s")
+
+
 def read_github(runner, root):
     """(sources, summary) for the open issues and pull requests.
 
@@ -324,7 +331,7 @@ def read_github(runner, root):
     sources += [Source("pull", node["number"], node["authorAssociation"], pull_text(runner, root, node))
                 for node in mine]
     counted_issues = sum(node["authorAssociation"] in COUNTED for node in issues)
-    return sources, (f"{name}'s {len(issues)} open issues and {len(pulls)} open pull requests "
+    return sources, (f"{name}'s {plural(len(issues), 'open issue')} and {plural(len(pulls), 'open pull request')} "
                      f"({counted_issues} and {len(mine)} by the owner, a member or a collaborator)")
 
 
@@ -371,6 +378,7 @@ def next_id(args, runner, root):
                  "tree; open issues and pull requests were not read"]
     else:
         github, summary = read_github(runner, root)
+        compare_with_remote(runner, root, sha)  # a pull request merged since the first check is in neither
         sources += github
         lines = [f"read origin/main at {sha[:12]}, the working tree, and {summary}"]
     code = args.code
