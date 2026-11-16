@@ -464,3 +464,60 @@ def test_predicates_match_versioning_test(text):
                          (changelog.RELEASE_HEADING, versioning.RELEASE_HEADING)):
         a, b = ours.fullmatch(text), theirs.fullmatch(text)
         assert (a and a.groups()) == (b and b.groups())
+
+
+# --- refusals change nothing --------------------------------------------------------
+
+RELEASE_REFUSALS = {
+    # case: (CHANGELOG text, entry files, argv after `release`, stderr after each `changelog: `)
+    "existing-section": (FIXTURE_CHANGELOG, FIXTURE_FILES, ["0.1.0", "2026-12-01"], [
+        "CHANGELOG.md already has a section for 0.1.0; add to it with --fold, "
+        "or release a new version"]),
+    "undated-section": (planted(FIXTURE_CHANGELOG, "## [0.1.0]", "## [9.9.9]\n\n## [0.1.0]"),
+                        FIXTURE_FILES, ["9.9.9", "2026-12-01"], [R1_999]),
+    **{f"version-{v}": (FIXTURE_CHANGELOG, FIXTURE_FILES, [v, "2026-12-01"], [shown])
+       for v, shown in [
+           ("9.9", "'9.9' is not a plain X.Y.Z version"),
+           ("v9.9.9", "'v9.9.9' is not a plain X.Y.Z version"),
+           ("09.9.9", "'09.9.9' is not a plain X.Y.Z version"),
+           ("9.9.9-rc.1", "'9.9.9-rc.1' is not a plain X.Y.Z version"),
+           ("9.9.9.0", "'9.9.9.0' is not a plain X.Y.Z version"),
+           ("1٢.0.0", "'1٢.0.0' is not a plain X.Y.Z version")]},
+    **{f"date-{d}": (FIXTURE_CHANGELOG, FIXTURE_FILES, ["9.9.9", d], [shown])
+       for d, shown in [
+           ("2026-12-1", "'2026-12-1' is not a YYYY-MM-DD date"),
+           ("20261201", "'20261201' is not a YYYY-MM-DD date"),
+           ("2026-13-01", "'2026-13-01' is not a YYYY-MM-DD date"),
+           ("2026-02-30", "'2026-02-30' is not a YYYY-MM-DD date"),
+           ("2026-W48-2", "'2026-W48-2' is not a YYYY-MM-DD date")]},
+    "nothing-waiting": (BARE_CHANGELOG, None, ["9.9.9", "2026-12-01"], [
+        "nothing is waiting: no entry files in changelog.d/ and no items under ## [Unreleased]"]),
+    "bad-file": (FIXTURE_CHANGELOG, {**FIXTURE_FILES, "079.added.md": "- x\n"},
+                 ["9.9.9", "2026-12-01"], [
+        f"{F}079.added.md: the issue number '079' must be positive with no leading zero",
+        "release refused: fix the changelog.d/ problems above"]),
+    **{case: (PREVIEW_REFUSALS[case][0], FIXTURE_FILES, ["9.9.9", "2026-12-01"],
+              PREVIEW_REFUSALS[case][2])
+       for case in ("prose", "unknown-heading", "item-no-heading", "no-unreleased")},
+}
+
+
+@pytest.mark.parametrize("case", RELEASE_REFUSALS)
+def test_release_refuses(tmp_path, capsys, case):
+    text, files, argv, lines = RELEASE_REFUSALS[case]
+    root = make_tree(tmp_path / "t", text, files)
+    before = snapshot(root)
+    assert run(capsys, root, "release", *argv) == (1, "", "".join(f"changelog: {x}\n" for x in lines))
+    assert snapshot(root) == before
+
+
+@pytest.mark.parametrize("argv", [
+    ["release", "9.9.9"], ["release", "9.9.9", "2026-12-01", "--fold"], ["release"],
+    ["release", "9.9.9", "--fol"], ["bogus"]], ids=" ".join)
+def test_release_usage_error(tmp_path, capsys, argv):
+    root = make_tree(tmp_path / "t", FIXTURE_CHANGELOG, FIXTURE_FILES)
+    before = snapshot(root)
+    with pytest.raises(SystemExit) as e:
+        changelog.main(argv, root=root)
+    assert e.value.code == 2
+    assert snapshot(root) == before
