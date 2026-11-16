@@ -11,15 +11,15 @@ from dataclasses import asdict
 from datetime import date
 from fractions import Fraction
 
-from gantry import render
+from gantry import planner, render
 from gantry.links import leaf_href
 from gantry.render import Markup, embed_json, esc, fill, hours_text, hundredths, unestimated_text
 from gantry.sites import shown
-from gantry.views.worksite import DOT, _script
+from gantry.views.worksite import DOT, _count_line, _script
 
 PAGE = "week.html"
-LINK = ("Week view", PAGE)
 TITLE = "Week view"
+LINK = (TITLE, PAGE)
 
 WEEKDAY_NAMES = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 DAY_HEAD = "{weekday} {date}"
@@ -75,7 +75,7 @@ SHARE_HEAD = "share on {weekday} {date}"
 CHARGED = "{charged} charged, {target} target"
 NO_PLAN = "no week plan: {reason}"
 
-BEYOND_HORIZON = "beyond_horizon"
+BEYOND_HORIZON = planner.BEYOND_HORIZON
 
 
 def rate_text(r) -> str:
@@ -96,14 +96,9 @@ def share_text(share) -> str:
     return hundredths(share) + "%"
 
 
-def _day_name(text):
-    """("Monday", "2026-01-19") for a YYYY-MM-DD date."""
-    return WEEKDAY_NAMES[date.fromisoformat(text).weekday()], text
-
-
 def _named(fmt, text, **kw):
-    weekday, day = _day_name(text)
-    return fmt.format(weekday=weekday, date=day, **kw)
+    """fmt with {weekday} and {date} filled from a YYYY-MM-DD date."""
+    return fmt.format(weekday=WEEKDAY_NAMES[date.fromisoformat(text).weekday()], date=text, **kw)
 
 
 class _Page:
@@ -143,10 +138,7 @@ def _placements(plan):
     """{(site, key): [date, ...]}, one per placement in page order."""
     found = {}
     for day in plan.days:
-        for blk in day["blocks"]:
-            for entry in blk["leaves"]:
-                found.setdefault((entry["site"], entry["key"]), []).append(day["date"])
-        for entry in day["lanes_row"]:
+        for entry in [*(e for blk in day["blocks"] for e in blk["leaves"]), *day["lanes_row"]]:
             found.setdefault((entry["site"], entry["key"]), []).append(day["date"])
     return found
 
@@ -161,9 +153,9 @@ def _leaf_line(page, entry, cont):
         parts.append(_span("unest", unestimated_text(leaf.meta.get("est") if leaf is not None else None)))
     if state != "pending":
         parts.append(_span("state", STATE_TEXTS.get(state, state)))
-    if tier == "p0":
+    if tier == planner.TIER_P0:
         parts.append(_span("tier", P0_MARK))
-    elif tier not in render.TIER_CLASSES:
+    elif tier not in planner.TIERS:
         parts.append(_span("tier", tier))
     if record["need"] is None:
         parts.append(_span("need", RATE.format(rate=rate_text(record["rate"]), tag=tag)))
@@ -178,18 +170,18 @@ def _leaf_line(page, entry, cont):
 
 
 def _conts(plan, records, placements):
-    """{(site, key): [continues text or None, ...]}, per placement."""
+    """{(site, key): an iterator of continues text or None, one per placement in page order."""
     last_day = plan.horizon_days[-1] if plan.horizon_days else None
     out = {}
     for node, dates in placements.items():
         texts = [_named(CONTINUES, nxt) for nxt in dates[1:]]
         after = records[node]["hours_after_horizon"]
         left = _named(CONTINUES_AFTER, last_day, hours=hours_text(after)) if after > 0 and last_day else None
-        out[node] = texts + [left]
+        out[node] = iter(texts + [left])
     return out
 
 
-def _day(page, day, conts, seen):
+def _day(page, day, conts):
     date_text = day["date"]
     later = date_text not in page.plan.planned_week
     today = date_text == page.plan.as_of
@@ -206,9 +198,7 @@ def _day(page, day, conts, seen):
         head.append(_p("reserved", text))
 
     def line(entry):
-        node = (entry["site"], entry["key"])
-        i = seen[node] = seen.get(node, -1) + 1
-        return _leaf_line(page, entry, conts[node][i])
+        return _leaf_line(page, entry, next(conts[(entry["site"], entry["key"])]))
 
     body = []
     for blk in day["blocks"]:
@@ -237,8 +227,7 @@ def _lines(page):
     plan = page.plan
     out = []
     if plan.as_of not in plan.horizon_days and plan.horizon_days:
-        weekday, first = _day_name(plan.horizon_days[0])
-        out.append(_p("not-working", NOT_WORKING.format(as_of=plan.as_of, weekday=weekday, date=first)))
+        out.append(_p("not-working", _named(NOT_WORKING, plan.horizon_days[0], as_of=plan.as_of)))
     binding = plan.binding
     if binding["pool"] is None:
         text = NO_BINDING
@@ -254,12 +243,11 @@ def _lines(page):
     out.append(_p("capacity", CAPACITY.format(parts="; ".join(f"{p['name']}: {p['capacity_source']}"
                                                               for p in plan.pools))))
     n = plan.unestimated_planned
-    count = "" if not n else COUNT_ONE if n == 1 else COUNT.format(n=n)
+    count = _count_line(n, COUNT, COUNT_ONE) if n else ""
     out.append(f'<p data-unestimated="{n}">{esc(count)}</p>')
     shareless = [s for s in plan.sites if s["shareless_days"]]
     if shareless:
-        n = len(shareless)
-        out.append(_p("shareless", SHARELESS_ONE if n == 1 else SHARELESS.format(n=n)))
+        out.append(_p("shareless", _count_line(len(shareless), SHARELESS, SHARELESS_ONE)))
         items = []
         for s in shareless:
             if s["shareless_days"] == plan.horizon_days:
@@ -293,7 +281,7 @@ def _unplanned(page):
         body = [f"<h3>{esc(name)}</h3>"]
         if beyond:
             n = len(beyond)
-            body.append(f'<p data-beyond="{n}">{esc(BEYOND_ONE if n == 1 else BEYOND.format(n=n))}</p>')
+            body.append(f'<p data-beyond="{n}">{esc(_count_line(n, BEYOND, BEYOND_ONE))}</p>')
             items = "".join(f'<li class="{render.reason_class(BEYOND_HORIZON)}" data-unplanned="{BEYOND_HORIZON}" '
                             f'data-site="{esc(name)}" data-leaf="{esc(e["key"])}">{page.link(name, e["key"])}</li>'
                             for e in beyond)
@@ -347,8 +335,7 @@ def _body(page):
         return f'<p id="no-plan">{esc(NO_PLAN.format(reason=plan.reason))}</p>'
     placements = _placements(plan)
     conts = _conts(plan, page.records, placements)
-    seen = {}
-    days = "".join(_day(page, day, conts, seen) for day in plan.days)
+    days = "".join(_day(page, day, conts) for day in plan.days)
     lines = _lines(page)
     buttons = "".join(f'<button class="gone" data-control="days" data-value="{value}" '
                       f'aria-pressed="{"true" if value == "5" else "false"}">{esc(label)}</button>'

@@ -189,11 +189,6 @@ def _tiers(leaf):
     return found if any(found) else None
 
 
-def _non_time(leaf):
-    """The leaf's non-time est: as text ("2.5 pr"), or None (render.non_time_text, #38)."""
-    return render.non_time_text(leaf.meta.get("est"))
-
-
 def _prio_mark(leaf):
     """The schedule's marker class for the leaf's own priority as written."""
     own = priority.rank(leaf.priority)
@@ -528,7 +523,7 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None, built
             "hours": hours[k][0], "lo": spans[k][0], "hi": spans[k][1], "unestimated": hours[k][1],
             "source": leaf.estimate.source if leaf.estimate is not None else "default",
             "effort": leaf.estimate.effort if leaf.estimate is not None else None,
-            "non_time": _non_time(leaf), "linked": linked,
+            "non_time": render.non_time_text(leaf.meta.get("est")), "linked": linked,
             "slack": net.slack[k] if linked else None,
             "sclass": slack_class(net.slack[k]) if linked else None,
             "es": net.es[k] if linked else 0 if k in foreign_only else None, "wave_full": wave_full,

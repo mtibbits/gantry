@@ -747,7 +747,8 @@ def test_beyond_control(node, tmp_path):
 
 def test_static_page_hides_only_controls(tmp_path):
     plan, result, _ = forty_beyond()
-    for html in (demo(tmp_path / "demo")[1], render_week(plan, result, STAMP)):
+    demo_html = demo(tmp_path / "demo")[1]
+    for html in (demo_html, render_week(plan, result, STAMP)):
         t = tree(html)
         assert ".gone { display: none; }" in texts(t, "style")[0]
         controls = with_attr(t, "data-control")
@@ -755,7 +756,7 @@ def test_static_page_hides_only_controls(tmp_path):
         assert all(t.elements[i]["tag"] == "button" for i in controls)
         hidden = [i for i in find(t, classes=["gone"]) if i not in controls]
         assert hidden == []
-    t = tree(demo(tmp_path / "demo2")[1])
+    t = tree(demo_html)
     assert sorted(attr(t, i, "data-value") for i in with_attr(t, "data-control", "days")) == ["10", "5"]
 
 

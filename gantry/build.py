@@ -100,19 +100,16 @@ def clashes(sites) -> dict[str, str]:
     return found
 
 
-def _error_parts(e: Exception, roots) -> tuple[str, str]:
-    """(the error's type name, its one-line message naming no root by its path)."""
+def render_reason(e: Exception, roots, forms=(RENDER_ERROR, RENDER_ERROR_BARE)) -> str:
+    """A render error's one-line reason, naming no root by its path. forms are
+    the (with message, bare) templates; the week view passes its own (#38)."""
     message = error_reason(e) if isinstance(e, OSError) else str(e)
     # The labels go in before ascii(), so a Windows path still matches.
-    return type(e).__name__, ascii(public_text(message, roots))[1:-1]
-
-
-def render_reason(e: Exception, roots) -> str:
-    """A render error's one-line reason, naming no root by its path."""
-    name, message = _error_parts(e, roots)
+    message = ascii(public_text(message, roots))[1:-1]
+    with_message, bare = forms
     if not message:
-        return RENDER_ERROR_BARE.format(type=name)
-    return RENDER_ERROR.format(type=name, message=message)
+        return bare.format(type=type(e).__name__)
+    return with_message.format(type=type(e).__name__, message=message)
 
 
 def _write_week(result, out):
@@ -122,9 +119,7 @@ def _write_week(result, out):
     try:
         text = week.render_week(result.plan, result, result.stamp)
     except Exception as e:
-        name, message = _error_parts(e, roots)
-        why = (WEEK_RENDER_ERROR.format(type=name, message=message) if message
-               else WEEK_RENDER_ERROR_BARE.format(type=name))
+        why = render_reason(e, roots, (WEEK_RENDER_ERROR, WEEK_RENDER_ERROR_BARE))
         return replace(result, week_error=why), None
     try:
         write_page(roots, out, "week", text)
