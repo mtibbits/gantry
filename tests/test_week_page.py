@@ -19,7 +19,8 @@ from gantry.render import STATE_CLASSES, STATE_FALLBACK, WEEK_CLASSES
 from gantry.views import week
 from gantry.views.week import render_week
 from helpers_config import sample_build
-from page_safety import RULES, assert_no_external_resources, assert_page_safe
+from page_safety import HOSTILE, RULES, assert_no_external_resources, assert_page_safe
+from page_script.harness import Planted, open_page
 from test_plan_file import shape_errors
 from test_planner import FIXTURE_NAMES, NO_PLAN_CASES, install, leaf, portfolio_md, wbs_md
 from test_worksite_page import find, text_of, tree, visible_text
@@ -669,10 +670,11 @@ def test_data_block_covers_named_leaves(tmp_path):
                                  ["marsh", "WBS.md is not valid UTF-8 at byte 88"]]
 
 
-@pytest.mark.parametrize("name", ["demo", "forty-beyond"])
+@pytest.mark.parametrize("name", ["demo", "forty-beyond", "hostile"])
 def test_week_classes_come_from_fixed_sets(tmp_path, name):
     plan, result, _ = forty_beyond()
-    page = demo(tmp_path)[1] if name == "demo" else render_week(plan, result, STAMP)
+    page = {"demo": lambda: demo(tmp_path)[1], "forty-beyond": lambda: render_week(plan, result, STAMP),
+            "hostile": lambda: render_week(*hostile_plan_and_result(), STAMP)}[name]()
     used = {c for el in tree(page).elements for c in el["classes"]}
     assert used - ALLOWED_CLASSES == set()
 
@@ -680,3 +682,130 @@ def test_week_classes_come_from_fixed_sets(tmp_path, name):
 def test_visible_text_has_no_record_markup(tmp_path):
     # Titles are text: a demo page shows no raw angle bracket from a record.
     assert "<script" not in visible_text(demo(tmp_path)[1])
+
+
+# --- the page script: 5 or 10 days, the beyond lists (AC 6, AC 9; D3) ------------------------
+
+
+def write(tmp_path, page, name="week.html"):
+    path = tmp_path / name
+    path.write_bytes(page.encode("utf-8"))
+    return path
+
+
+def shown_days(page):
+    return [("gone" not in d.classes) for d in page.query("[data-day]")]
+
+
+def pressed(page):
+    return {b.attrs["data-value"]: b.attrs.get("aria-pressed") for b in page.query("button[data-control]")
+            if b.attrs["data-control"] == "days"}
+
+
+def test_days_control_on_demo(node, tmp_path):
+    _, html = demo(tmp_path / "demo")
+    with open_page(write(tmp_path, html)) as page:
+        assert shown_days(page) == [True] * 5 + [False] * 5
+        assert pressed(page) == {"5": "true", "10": "false"}
+        first = [(e.tag, e.attrs) for e in page.query("[data-block], li[data-leaf]")]
+        page.drive("days", "10")
+        assert shown_days(page) == [True] * 10
+        assert pressed(page) == {"5": "false", "10": "true"}
+        page.drive("days", "5")
+        assert shown_days(page) == [True] * 5 + [False] * 5
+        assert pressed(page) == {"5": "true", "10": "false"}
+        assert [(e.tag, e.attrs) for e in page.query("[data-block], li[data-leaf]")] == first
+        assert all("gone" not in b.classes for b in page.query("button[data-control]"))
+
+
+def test_count_line_unchanged_by_control(node, tmp_path):
+    _, html = demo(tmp_path / "demo")
+    with open_page(write(tmp_path, html)) as page:
+        before = page.query("[data-unestimated]")
+        page.drive("days", "10")
+        assert page.query("[data-unestimated]") == before
+        assert len(before) == 1
+
+
+def test_beyond_control(node, tmp_path):
+    plan, result, _ = forty_beyond()
+    with open_page(write(tmp_path, render_week(plan, result, STAMP))) as page:
+        (listed,) = page.query("#beyond-1")
+        assert "gone" in listed.classes
+        (button,) = [b for b in page.query("button[data-control]") if b.attrs["data-control"] == "beyond-1"]
+        assert (button.attrs["aria-expanded"], button.text) == ("false", "show or hide")
+        page.drive("beyond-1", "toggle")
+        (listed,) = page.query("#beyond-1")
+        assert "gone" not in listed.classes and len(page.query("#beyond-1 li")) == 40
+        assert [b.attrs["aria-expanded"] for b in page.query("button[data-control]")
+                if b.attrs["data-control"] == "beyond-1"] == ["true"]
+        page.drive("beyond-1", "toggle")
+        assert "gone" in page.query("#beyond-1")[0].classes
+        assert [b.attrs["aria-expanded"] for b in page.query("button[data-control]")
+                if b.attrs["data-control"] == "beyond-1"] == ["false"]
+
+
+def test_static_page_hides_only_controls(tmp_path):
+    plan, result, _ = forty_beyond()
+    for html in (demo(tmp_path / "demo")[1], render_week(plan, result, STAMP)):
+        t = tree(html)
+        assert ".gone { display: none; }" in texts(t, "style")[0]
+        controls = with_attr(t, "data-control")
+        assert controls and all("gone" in t.elements[i]["classes"] for i in controls)
+        assert all(t.elements[i]["tag"] == "button" for i in controls)
+        hidden = [i for i in find(t, classes=["gone"]) if i not in controls]
+        assert hidden == []
+    t = tree(demo(tmp_path / "demo2")[1])
+    assert sorted(attr(t, i, "data-value") for i in with_attr(t, "data-control", "days")) == ["10", "5"]
+
+
+# --- hostile values (AC 14) ------------------------------------------------------------------
+
+
+def hostile_plan_and_result():
+    """One plan and result planting HOSTILE by index: est [0] (in no other
+    plant); title and note [1]; key and mapping.rejected [2]; site name and a
+    beyond title [3]; reserved label and a waits_on_unplanned title [4];
+    unknown reason [5], tag [6], state [7], tier [8]; basis [9]; pool name [10]."""
+    h = HOSTILE
+    site, key = h[3], h[2]
+    assert not any(h[0] in other for other in h[1:])
+    plan = make_plan(
+        mapping={"values": [0.0, 0.1, 0.25, 0.5, 1.0], "source": "default", "rejected": h[2]},
+        pools=[{"name": h[10], "capacity_source": "portfolio file", "days_run_out": [HORIZON[0]]},
+               {"name": LANES, "capacity_source": "portfolio file", "days_run_out": []}],
+        binding={"pool": h[10], "first_day": HORIZON[0], "text": h[10]},
+        notes=[{"kind": "no_allocation", "date": HORIZON[0], "projects": [], "text": h[1]}],
+        days=[day(HORIZON[0], [block(1, site, [(key, 1.0)])],
+                  reserved=[{"start": "09:00", "hours": 1.0, "label": h[4]}])],
+        leaves=[leaf_record(site, key, tag=h[6], state=h[7], tier=h[8], basis=h[9], unestimated=True)],
+        sites=[site_record(site, unplanned=[("Issue-B", "beyond_horizon"), ("Issue-W", "waits_on_unplanned"),
+                                            ("Issue-U", h[5])])],
+        unestimated_planned=1)
+    result = make_result([(site, key, h[1], h[0]), (site, "Issue-B", h[3], None), (site, "Issue-W", h[4], None)],
+                         pages=(site,))
+    return plan, result
+
+
+def test_week_hostile(node, tmp_path):
+    plan, result = hostile_plan_and_result()
+    html = render_week(plan, result, STAMP)
+    assert_page_safe(html, HOSTILE)
+    assert_no_external_resources(html)
+    t = tree(html)
+    assert texts(t, "span", ["reason"]).count("not planned: " + HOSTILE[5]) == 1
+    (line,) = leaf_lines(t)
+    assert {"tag-other", "st-other", "tier-other"} <= set(t.elements[line]["classes"])
+    assert texts(t, "span", ["unest"], line) == ["unestimated"]
+    with open_page(write(tmp_path, html)) as page:
+        page.drive("days", "10")
+        page.drive("beyond-1", "toggle")
+        assert page.planted_nodes(HOSTILE) == Planted([], [], [HOSTILE[0]])
+
+
+def test_week_hostile_no_plan(node, tmp_path):
+    plan = make_plan(status="no_plan", reason=HOSTILE[5], horizon_days=[], planned_week=[])
+    html = render_week(plan, make_result(), STAMP)
+    assert_page_safe(html, [HOSTILE[5]])
+    with open_page(write(tmp_path, html)) as page:
+        assert page.planted_nodes([HOSTILE[5]]) == Planted([], [], [])

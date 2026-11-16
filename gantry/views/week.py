@@ -15,7 +15,7 @@ from gantry import render
 from gantry.links import leaf_href
 from gantry.render import Markup, embed_json, esc, fill, hours_text, hundredths, unestimated_text
 from gantry.sites import shown
-from gantry.views.worksite import DOT
+from gantry.views.worksite import DOT, _script
 
 PAGE = "week.html"
 LINK = ("Week view", PAGE)
@@ -59,6 +59,7 @@ UNPLANNED_HEAD = "Unplanned leaves"
 BEYOND = "{n} leaves beyond the 10 days"
 BEYOND_ONE = "1 leaf beyond the 10 days"
 BEYOND_BUTTON = "show or hide"
+DAYS_BUTTONS = (("5", "5 days"), ("10", "10 days"))
 NOTHING_UNPLANNED = "no unplanned leaves"
 REASON_TEXTS = {"blocked_externally": "blocked externally", "parked": "parked",
                 "waits_on_cycle": "waits on a cycle", "cross_site_cycle": "part of a cycle across sites",
@@ -296,6 +297,8 @@ def _unplanned(page):
             items = "".join(f'<li class="{render.reason_class(BEYOND_HORIZON)}" data-unplanned="{BEYOND_HORIZON}" '
                             f'data-site="{esc(name)}" data-leaf="{esc(e["key"])}">{page.link(name, e["key"])}</li>'
                             for e in beyond)
+            body.append(f'<button class="gone" data-control="beyond-{i}" data-value="toggle" aria-expanded="false">'
+                        f'{esc(BEYOND_BUTTON)}</button>')
             body.append(f'<ul class="beyond-list" id="beyond-{i}">{items}</ul>')
         if others:
             items = []
@@ -347,7 +350,10 @@ def _body(page):
     seen = {}
     days = "".join(_day(page, day, conts, seen) for day in plan.days)
     lines = _lines(page)
-    return f'{lines}<div id="days">{days}</div>{_unplanned(page)}{_per_site(page)}'
+    buttons = "".join(f'<button class="gone" data-control="days" data-value="{value}" '
+                      f'aria-pressed="{"true" if value == "5" else "false"}">{esc(label)}</button>'
+                      for value, label in DAYS_BUTTONS)
+    return f'{lines}<div>{buttons}</div><div id="days">{days}</div>{_unplanned(page)}{_per_site(page)}'
 
 
 def render_week(plan, result, stamp) -> str:
@@ -357,4 +363,4 @@ def render_week(plan, result, stamp) -> str:
     data = {"stamp": stamp, "plan": asdict(plan), "leaves": list(page.named.values()),
             "not_built": [[s.name, s.reason] for s in _not_built(result)]}
     return fill(render.asset("templates/week.html"), TITLE=TITLE, STAMP=render.stamp_html(stamp),
-                BODY=Markup(body), DATA=embed_json(data))
+                BODY=Markup(body), DATA=embed_json(data), PAGE_JS=_script("static/week.js"))
