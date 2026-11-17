@@ -832,3 +832,23 @@ def test_doc_names_every_token():
     assert [t for t in tokens if f"`{t}`" not in text] == []
     assert "the-page" not in [line[3:].lower().replace(" ", "-") for line in text.splitlines()
                               if line.startswith("## ")]
+
+
+# Lines that hide a P0 while every status reads `read`: the parser neither
+# reads their priority nor reports them. The doc names them as examples, not
+# as a complete list.
+BLIND_P0_LINES = ("- [ ] Fix the crane {priority: P0} today", "- [ ] Fix the crane {Priority: P0}",
+                  "* [ ] Fix the crane {priority: P0}", "1. [ ] Fix the crane {priority: P0}")
+
+
+@pytest.mark.parametrize("line", BLIND_P0_LINES)
+def test_doc_p0_blind_shapes_are_examples(line):
+    from gantry.wbs_stopgap import parse_wbs
+    from test_samples import ROOT
+
+    data = parse_wbs(f"- [ ] Pour the slab {{issue: Issue-1}}\n{line}\n", "harbor")
+    report = collect(fake_result(site("harbor", data=data)), {"harbor": site_records()})
+    assert (report.fires, report.confirmed_none) == ((), True)
+    text = " ".join((ROOT / "docs" / "daily-screen.md").read_bytes().decode("utf-8").split())
+    assert f"`{line}`" in text
+    assert "One P0 shape is still not seen" not in text

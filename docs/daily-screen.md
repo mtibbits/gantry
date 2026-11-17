@@ -142,8 +142,13 @@ it, and so does a report with no status at all. For each source:
   and an invalid site name included. It is `read_with_problems` when the
   parser reported a `WBS.md` line it did not read as a leaf (a
   `bad_priority` or `skipped_line` entry), since a mistyped P0 may hide
-  there. One P0 shape is still not seen: a leaf written with a `*` bullet,
-  `* [ ] … {priority: P0}`, which the parser skips without a report.
+  there. The parser reports only some mistyped lines, so a P0 can still be
+  missed with every status `read`: on a line it neither reads as a leaf nor
+  reports, or in metadata it does not read. Examples, not a complete list:
+  `- [ ] Fix the crane {priority: P0} today` (text after the braces, so no
+  metadata is read), `- [ ] Fix the crane {Priority: P0}` (the key is
+  case-sensitive), `* [ ] Fix the crane {priority: P0}` and
+  `1. [ ] Fix the crane {priority: P0}` (not a `- ` bullet, so not a node).
 - A site's STUCK status is `not_read` when it has no planning directory, or
   its planning directory or its records could not be read. It is `read_with_problems`
   when a STUCK fire's marker could not be read, failed closed as
