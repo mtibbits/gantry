@@ -229,6 +229,51 @@ def test_header_ends_at_a_non_table_line(tmp_path):
     assert read(path).rows == {}
 
 
+@pytest.mark.parametrize("text", [
+    "Notes only, no table.\n",
+    "| id | effort | hours |\n|---|---|---|\n| #3 | S | 1 |\n",
+    "",
+    "  | # | effort | hours |\n  |---|---|---|\n  | #3 | S | 1 |\n",
+    "> | # | effort | hours |\n> |---|---|---|\n> | #3 | S | 1 |\n",
+], ids=["prose", "id-table", "empty", "indented", "quoted"])
+def test_no_hash_table_reported(tmp_path, text):
+    # A table starts only where a line's first column is `|`, so an indented or
+    # quoted `#` table is no table to the reader (#108).
+    path = tmp_path / "e.md"
+    path.write_bytes(text.encode("utf-8"))
+    got = read(path)
+    assert got.rows == {}
+    assert [(e.kind, e.line, e.message) for e in got.report] == [(
+        "estimates_no_table", None,
+        "estimates file 'e.md' has no line that starts a table whose first header cell is '#', "
+        "so no rows were read",
+    )]
+
+
+def test_hash_header_without_rows_reads_clean(tmp_path):
+    """A `#` table seen with zero rows is not "no table" (#108). A `#` table
+    whose rows all have bad ids is a separate case, not tracked here
+    (imPlan-potentialFutureEnhancements.md)."""
+    path = tmp_path / "e.md"
+    path.write_bytes(b"| # | effort | hours | thinking | checking | flags |\n")
+    got = read(path)
+    assert got.rows == {}
+    assert got.report == ()
+
+
+def test_tableless_winner_does_not_fall_back(tmp_path):
+    # A later-dated file with no `#` table still wins discovery (#108).
+    folder = site_dir(tmp_path, "estimates-2026-01-15.md")
+    (folder / "estimates-2026-03-01-notes.md").write_bytes(b"Notes only.\n")
+    found = find(folder)
+    assert found.name == "estimates-2026-03-01-notes.md"
+    assert kinds(found.report) == ["estimates_ignored"]
+    assert found.report[0].message.endswith("'estimates-2026-03-01-notes.md' is later")
+    got = read(found.path)
+    assert got.rows == {}
+    assert kinds(got.report) == ["estimates_no_table"]
+
+
 def test_reads_harbor_sample_file():
     path = next((SAMPLES / BUSY).glob("estimates-*.md"))
     got = read(path)

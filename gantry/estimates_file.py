@@ -36,6 +36,8 @@ MESSAGES = {
     "unlisted": "the planning directory cannot be listed: {reason}",
     "cannot_read": "estimates file {name!r} cannot be read: {reason}",
     "not_utf8": "estimates file {name!r} is not valid UTF-8 at byte {at}",
+    "no_table": "estimates file {name!r} has no line that starts a table whose first header cell is '#', "
+                "so no rows were read",
     "column_missing": "estimates file {name!r}: a table has no {column!r} column (first on line {line})",
     "cell_bad": "estimates file {name!r} line {line}: hours {cell!r} is not a number or a range above 0; "
                 "#{n} gives no hours",
@@ -169,6 +171,7 @@ def read_estimates_file(roots, path, site: str, name: str, *, key="estimates fil
     text = text.removeprefix("\ufeff")
     rows, report, missing = {}, [], set()
     columns = None  # {column: index} while inside a # table
+    seen_table = False  # whether any line started a # table
     # Split on "\n" only: str.splitlines() would also split inside a cell (U2).
     for number, line in enumerate(text.split("\n"), 1):
         line = line.removesuffix("\r")
@@ -177,6 +180,7 @@ def read_estimates_file(roots, path, site: str, name: str, *, key="estimates fil
             continue
         cells = _cells(line)
         if cells[0] == "#":
+            seen_table = True
             columns = {}
             for i, c in enumerate(cells):
                 columns.setdefault(c, i)
@@ -208,4 +212,6 @@ def read_estimates_file(roots, path, site: str, name: str, *, key="estimates fil
                     name=name, line=number, cell=cell("hours") or "", n=n)))
         lo, hi = hours if hours is not None else (None, None)
         rows[key] = EstimatesRow(number, cell("effort"), lo, hi, cell("thinking"), cell("checking"), cell("flags"))
+    if not seen_table:
+        report.append(_entry(site, "estimates_no_table", MESSAGES["no_table"].format(name=name)))
     return EstimatesFile(rows, tuple(report))

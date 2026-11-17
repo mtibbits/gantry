@@ -190,6 +190,7 @@ in this table's order.
 | `no_estimates_file` | the site has no estimates file, or its `estimates` key is `false` | reads hours and tiers from `est:` and the default unit only |
 | `estimates_ignored` | a discovered `estimates-*.md` file is not the one read: an earlier date, the same date and an earlier name, or no date | lists the file and why |
 | `estimates_unreadable` | the configured file does not exist, or the file cannot be opened, is not valid UTF-8, or leads outside the configured roots | continues as if the site had no estimates file |
+| `estimates_no_table` | no line of the file read starts a table whose first header cell is `#` (prose only, other tables only, empty, or a `#` table that is indented or quoted) | reads no rows and continues as if the site had no estimates file; the header names no file |
 | `estimates_column_missing` | an estimates table has no `#`-table column Gantry reads (once per file and column) | reads the rest of the table |
 | `estimates_cell_bad` | a row's `hours` cell is empty or not a number or range above 0 | the row gives no hours; its other cells are still read |
 | `estimates_row_unmatched` | a row `#N` names no `WBS.md` line | lists the row |
@@ -259,8 +260,14 @@ table line: its outer pipes are dropped, it is split on `|` (a `\|` is not
 an escape) and each cell is trimmed. A table whose first header cell is `#`
 is read until the first line that does not start with `|`; only its `#`,
 `effort`, `hours`, `thinking`, `checking` and `flags` columns are read, so
-`P`, `tier` (a checklist tier, not a model tier) and the rest are not. A row
-whose first cell is `#N` joins the leaf whose key is `Issue-N`:
+`P`, `tier` (a checklist tier, not a model tier) and the rest are not. A
+table's lines must start at the line's first column: an indented or quoted
+table is not read. A file with no such table is `estimates_no_table`,
+`estimates file {name!r} has no line that starts a table whose first header cell is '#', so no rows were read`,
+and the site continues as if it had no file; the file still wins discovery
+by its date, so a notes file named `estimates-<date>*.md` must be renamed or
+moved out of the planning directory. A row whose first cell is `#N` joins
+the leaf whose key is `Issue-N`:
 
 - a row naming a row with children or a finished leaf is ignored;
 - a row naming no `WBS.md` line is `estimates_row_unmatched`;

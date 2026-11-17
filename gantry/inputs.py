@@ -20,6 +20,8 @@ from gantry.estimates_file import find_estimates_file, read_estimates_file
 from gantry.model import Estimate, Leaf, Models, ReportEntry, SiteData, Totals, report_order
 
 NO_TIERS = "no per-leaf model tiers recorded"
+# A file with one of these report kinds is not read: no rows, no header line.
+NOT_READ = ("estimates_unreadable", "estimates_no_table")
 UNEST_WHAT = {"absent": "no est:", "placeholder": "a placeholder est:", "non_time": "a non-time est:",
               "unparseable": "an unparseable est:"}
 MESSAGES = {
@@ -43,7 +45,7 @@ class EstimatesSource:
 class Inputs:
     data: SiteData
     totals: Totals
-    estimates: EstimatesSource | None  # None: no estimates file was read
+    estimates: EstimatesSource | None  # None: no file was read, or it held no # table
 
 
 def scheduled(data) -> list[Leaf]:
@@ -86,7 +88,7 @@ def apply_inputs(roots, site, data, config) -> Inputs:
     if found.path is not None:
         read = read_estimates_file(roots, found.path, site.name, found.name, key=found.key)
         report += read.report
-        if not any(e.kind == "estimates_unreadable" for e in read.report):
+        if not any(e.kind in NOT_READ for e in read.report):
             rows, source = read.rows, EstimatesSource(found.name, found.date)
     unit = config.default_unit_hours
 

@@ -749,6 +749,23 @@ def test_estimates_line_names_file_and_date(tmp_path):
     assert quarry["notes"]["estimates"] is None
 
 
+def test_no_table_file_has_no_estimates_line(tmp_path):
+    # A file with no `#` table is not read, so the header names no file (#108).
+    (tmp_path / "notes.md").write_bytes(b"Notes only.\n")
+    text = (INPUTS / "all-estimated.md").read_bytes().decode("utf-8")
+    inputs = inputs_for(tmp_path / "prose", text, estimates=tmp_path / "notes.md")
+    m = model_with(inputs)
+    assert inputs.estimates is None
+    assert m["notes"]["estimates"] is None
+    assert m["estimates"] is None
+    assert "Estimates read from" not in visible_text(page_with(inputs))
+    assert [line for line in m["panel"] if "estimates-2026-01-01.md" in line] == [
+        "estimates file 'estimates-2026-01-01.md' has no line that starts a table whose first header cell is '#', "
+        "so no rows were read",
+    ]
+    assert "no estimates file" not in m["panel"]
+
+
 def test_non_time_line(tmp_path):
     assert "Not in any hour figure: 50.5 pr (2 leaves)" in visible_text(page_with(est_inputs(tmp_path)))
     assert "Not in any hour figure" not in visible_text(page_with(sample_inputs(UNESTIMATED), UNESTIMATED))
@@ -1308,6 +1325,14 @@ def test_doc_states_page_texts():
     }
     for rel, text in stale.items():
         assert text not in (ROOT / rel).read_bytes().decode("utf-8"), rel
+
+
+def test_doc_states_estimates_messages():
+    # The templates are read from the modules, never copied here (#108).
+    from gantry import estimates_file
+    templates = [estimates_file.MESSAGES["no_table"]]
+    doc = " ".join((ROOT / "docs" / "worksite-page.md").read_bytes().decode("utf-8").split())
+    assert [t for t in templates if f"`{t}`" not in doc] == []
 
 
 # --- final-review fixes --------------------------------------------------------------
