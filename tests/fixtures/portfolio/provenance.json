@@ -1,0 +1,22 @@
+{
+  "pin": "devagent--v3.0.0",
+  "devagent_version": "3.0.0",
+  "schema_version": "1.1",
+  "generated_at": "2026-01-12T09:30:00Z",
+  "sources": {
+    "cycle": "tests/fixtures/wbs/cycle.md",
+    "empty": "tests/fixtures/wbs/empty.md",
+    "fences": "tests/fixtures/wbs/fences.md",
+    "ids": "tests/fixtures/wbs/ids.md",
+    "nesting": "tests/fixtures/wbs/nesting.md",
+    "not_utf8": "tests/fixtures/wbs/not_utf8.md",
+    "page": "tests/fixtures/wbs/page.md",
+    "priority": "tests/fixtures/wbs/priority.md",
+    "refs": "tests/fixtures/wbs/refs.md",
+    "rows": "tests/fixtures/wbs/rows.md",
+    "states": "tests/fixtures/wbs/states.md",
+    "est": "tests/fixtures/inputs/est.md",
+    "h_values": "tests/fixtures/attention/h_values.md",
+    "edges": "tests/fixtures/portfolio/edges.md"
+  }
+}
