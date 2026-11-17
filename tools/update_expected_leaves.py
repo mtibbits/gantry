@@ -234,13 +234,20 @@ def build_parser():
     return parser
 
 
-def main(argv=None):
+def parse_args(argv=None):
+    """The arguments; a usage error exits 2."""
     parser = build_parser()
     args = parser.parse_args(argv)
-    devagent = args.devagent or os.environ.get("GANTRY_DEVAGENT_DIR")
-    if not devagent:
+    # Read here, not at import: a test or a caller may set the variable later.
+    args.devagent = args.devagent or os.environ.get("GANTRY_DEVAGENT_DIR")
+    return parser, args
+
+
+def main(argv=None):
+    parser, args = parse_args(argv)
+    if not args.devagent:
         parser.error("--devagent is required when GANTRY_DEVAGENT_DIR is not set")
-    devagent = Path(os.path.abspath(devagent))
+    devagent = Path(os.path.abspath(args.devagent))
     try:
         if sample_portfolio.checkout_version(devagent) is None:
             raise Preflight(sample_portfolio.NOT_CHECKOUT)

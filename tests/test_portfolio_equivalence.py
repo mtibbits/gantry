@@ -11,6 +11,7 @@ variable, and fail under CI without it.
 import dataclasses
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -23,10 +24,12 @@ import helpers_devagent as hd
 import helpers_portfolio as hp
 import sample_portfolio as sp
 import update_expected_leaves as ue
+from gantry import portfolio_json as pj
 from gantry.portfolio_json import ProjectInput, map_document, read_portfolio
 from gantry.roots import directory_roots
 from gantry.wbs_stopgap import read_wbs
 from helpers_config import sample_projects, written_bytes
+from helpers_docs import heading_anchors, markdown_text, section
 from sample_roles import NO_WBS, READABLE, UNREADABLE
 from test_devagent_contract import fake_checkout
 from test_samples import ROOT, SAMPLES
@@ -624,3 +627,110 @@ def test_map_document_equals_read_portfolio_on_the_sample_document(sample_docume
 
 
 SAMPLE_SHOWN = 0  # each of the 12 sample entries is mapped or suppressed
+
+
+# --- the documentation (Task 7) ---------------------------------------------------------------
+
+WORKSITE_DOC = ROOT / "docs" / "worksite-page.md"
+FORMATS_DOC = ROOT / "docs" / "devagent-formats.md"
+READER_HEADING = "## Reading devagent's portfolio JSON"
+TOOL_ARGS = {"sample_portfolio.py": sp.parse_args, "update_expected_leaves.py": ue.parse_args}
+
+
+def tool_commands(text):
+    """Each `python3 tools/<tool> ...` line of a doc that runs one of this issue's tools, as words."""
+    found = []
+    for line in text.split("\n"):
+        if line.strip().startswith("python3 tools/"):
+            words = shlex.split(line.strip())
+            if Path(words[1]).name in TOOL_ARGS:
+                found.append(words)
+    return found
+
+
+def parses(words):
+    """Whether the tool's own argument rules take the command line."""
+    try:
+        TOOL_ARGS[Path(words[1]).name](words[2:])
+    except SystemExit:
+        return False
+    return True
+
+
+def test_doc_states_the_reader_rules(capsys):
+    # markdown_text: docs/ is CRLF in a Windows working tree.
+    text = markdown_text(WORKSITE_DOC)
+    part = section(text, READER_HEADING)
+    assert part is not None
+    flat = " ".join(part.split())  # a phrase may wrap
+    lines = text.split("\n")
+    assert lines.index("## The report") < lines.index(READER_HEADING) < lines.index("## The optional inputs")
+    assert "reading-devagents-portfolio-json" in heading_anchors(text)
+    for name in ("tools/sample_portfolio.py", "tools/update_expected_leaves.py", "tests/devagent.pin",
+                 "GANTRY_DEVAGENT_DIR", "known_differences.json", "tests/fixtures/expected_leaves/",
+                 "tests/fixtures/portfolio/written.json", "`ParsedValue`", "`read_portfolio(roots, path)`",
+                 "`map_document(doc)`", "`PortfolioLoadError`", "`devagent_report`", "`meta`",
+                 "devagent-formats.md#fixtures-and-the-contract-test", "#12"):
+        assert name in flat, name
+    for devagent_kind, gantry_kind in pj.MAPPED.items():
+        assert f"`{devagent_kind}`" in part and f"`{gantry_kind}`" in part, devagent_kind
+    for kind in pj.SUPPRESSED_ALWAYS + pj.SUPPRESSED_BY_RULE + ("site_unreadable",):
+        assert f"`{kind}`" in part, kind
+    for kind in ("unreadable", "not_json", "version", "schema"):
+        assert f"`{kind}`" in part, kind
+    for status in pj.STATUSES:
+        assert f"`{status}`" in part, status
+    # devagent's behaviour is stated at the pin, including what it does not emit.
+    assert "At the release `tests/devagent.pin` names, devagent emits no warning about" in flat
+    assert all(f"`{key}`" in flat for key in ("priority", "satisfies:", "objective:"))
+    # Every command line parses with its tool's own argument rules, and both tools and both modes appear.
+    commands = tool_commands(part)
+    assert all(parses(words) for words in commands), [w for w in commands if not parses(w)]
+    assert {(Path(w[1]).name, "--check" in w, "--fixtures" in w) for w in commands} == {
+        ("sample_portfolio.py", False, False), ("sample_portfolio.py", False, True),
+        ("sample_portfolio.py", True, True), ("update_expected_leaves.py", False, False),
+        ("update_expected_leaves.py", True, False)}
+    # The planted control: a line the tool refuses does not parse.
+    assert not parses(shlex.split("python3 tools/sample_portfolio.py --check --devagent x"))
+    assert not parses(shlex.split("python3 tools/update_expected_leaves.py --fixtures"))
+    capsys.readouterr()
+    # The doc's count of known differences is the list's.
+    assert len(known("samples")) + len(known("fixtures")) == 10 and "Today it holds ten entries" in flat
+    # The skipped_line row says how devagent's reader differs.
+    (row,) = [line for line in lines if line.startswith("| `skipped_line` |")]
+    assert "known_differences.json" in row and "#12" in row
+
+
+def test_pin_move_recipe_names_the_new_tools_and_files(capsys):
+    text = markdown_text(FORMATS_DOC)
+    part = section(text, "## Fixtures and the contract test")
+    assert part is not None
+    commands = tool_commands(part)
+    assert all(parses(words) for words in commands)
+    assert {(Path(w[1]).name, "--check" in w) for w in commands} == {
+        ("sample_portfolio.py", False), ("sample_portfolio.py", True),
+        ("update_expected_leaves.py", False), ("update_expected_leaves.py", True)}
+    assert all("--fixtures" in w for w in commands if Path(w[1]).name == "sample_portfolio.py")
+    capsys.readouterr()
+    for name in ("tests/fixtures/portfolio/written.json", "tests/fixtures/portfolio/provenance.json",
+                 "tests/fixtures/expected_leaves/", "known_differences.json",
+                 "tests/fixtures/devagent_records/written/"):
+        assert name in part, name
+    # This issue moved no pin, and reading projects[].issues is #12's alone.
+    assert "#83" not in text
+    assert "Gantry reads that JSON (#12)" in " ".join(text.split())
+
+
+def test_readmes_cover_the_portfolio_tests():
+    readme = " ".join(markdown_text(ROOT / "README.md").split())
+    assert "tests/test_portfolio_json.py" in readme or "portfolio tests" in readme
+    assert "the `WBS.md` and config formats are not yet tested against it" not in readme
+    assert "the config format is not yet tested against it" in readme
+    samples = " ".join(markdown_text(SAMPLES / "README.md").split())
+    assert "`devagent/out/`" in samples and "tools/sample_portfolio.py" in samples and "git-ignored" in samples
+
+
+def test_changelog_entry_points_at_the_section():
+    entry = markdown_text(ROOT / "changelog.d" / "83.added.md")
+    assert "gantry/portfolio_json.py" in entry and "`gantry build` does not use it yet" in " ".join(entry.split())
+    assert "docs/worksite-page.md#reading-devagents-portfolio-json" in entry

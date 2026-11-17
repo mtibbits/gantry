@@ -184,7 +184,7 @@ in this table's order.
 | `bad_priority` | a node's `priority:` is not `P0`–`P4` | treats it as P3 and lists the value |
 | `cycle` | open leaves depend on each other in a loop | lists the members |
 | `waits_on_cycle` | an open leaf is in, or waits on, a cycle | shows the leaf as held out, with no effective priority |
-| `skipped_line` | `- [X] text`, `- [] text`, `- [ ]`, `- [ ] ` or `- [x]text`: a node-shaped line that is not a node (`- [xx] text`, `-[x] text`, `* [ ] text` and a link item with two or more characters of text are not reported; `- [1](url)` is) | lists the line |
+| `skipped_line` | `- [X] text`, `- [] text`, `- [ ]`, `- [ ] ` or `- [x]text`: a node-shaped line that is not a node (`- [xx] text`, `-[x] text`, `* [ ] text` and a link item with two or more characters of text are not reported; `- [1](url)` is). Once the build reads devagent's portfolio JSON (#12), devagent's rule decides instead: `- [xx] text`, `-[x] text`, `* [ ] text`, `+ [ ] text` and every link item are reported, and a `- [X] text` line indented with no-break spaces is not ([Reading devagent's portfolio JSON](#reading-devagents-portfolio-json); `tests/fixtures/expected_leaves/known_differences.json` lists each difference) | lists the line |
 | `no_nodes` | the file has no node lines | shows an empty site |
 | `site_unreadable` | `WBS.md` cannot be opened, read or decoded as UTF-8 | shows the site as unreadable, with the reason |
 | `no_estimates_file` | the site has no estimates file, or its `estimates` key is `false` | reads hours and tiers from `est:` and the default unit only |
@@ -199,6 +199,201 @@ in this table's order.
 | `no_priority` | open leaves have no `priority:` (one entry for the file) | counts them as P3 |
 | `no_model_tiers` | no scheduled leaf has a model tier | shows "no per-leaf model tiers recorded" |
 | `bad_h` | a node's `h:` is not one digit from 0 to 4 written as a scalar, or is on a row with children; any state, finished leaves included | lists the value; the leaf's attention need comes from its next source ([week-plan.md](week-plan.md#attention-need)) |
+
+## Reading devagent's portfolio JSON
+
+devagent writes one JSON document over every configured project's `WBS.md`
+(`/devagent:portfolio`, its `scripts/portfolio.sh`; schema 1.1 at the release
+`tests/devagent.pin` names). `gantry/portfolio_json.py` reads that document
+into the parsed data the sections above describe. `gantry build` does not
+use it yet: the build still reads each `WBS.md` itself, and #12 switches it.
+Until then tests hold the two readers equal ([The snapshots](#the-snapshots)).
+
+### What the reader returns
+
+`read_portfolio(roots, path)` reads the file under the run's roots
+([config.md](config.md#where-a-build-may-read-and-write)).
+`map_document(doc)` takes a document that is already parsed. Both return one
+`PortfolioInput`:
+
+- `projects`: one entry per project, in the document's order. Each holds the
+  project's name, its status and reason as devagent wrote them, and the
+  site's data: leaves, rows, links, held-out keys and a report of Gantry's
+  kinds only.
+- `devagent_report`: the entries of devagent's own report that Gantry shows
+  as devagent wrote them, each with devagent's project, line, kind and
+  message. They never enter a site's report. So a devagent kind Gantry does
+  not know, and one that shares a Gantry name, cannot collide with a Gantry
+  kind.
+- `generated_at`, the document's time in UTC, and `schema_version` as
+  written.
+
+The document is never changed. Both signatures are provisional until #12 or
+#84 calls them.
+
+### Load errors
+
+Neither function raises anything but `PortfolioLoadError`. Its message
+starts with the path, and its `kind` is one of four:
+
+| `kind` | When | What the message says |
+|---|---|---|
+| `unreadable` | the file does not exist | to run devagent's aggregator first (`/devagent:portfolio`) |
+| `unreadable` | the file is outside the configured roots | to add its folder to the installation's roots |
+| `unreadable` | any other failed read | the system's reason |
+| `not_json` | the bytes are not UTF-8, or not JSON: a syntax error, `NaN` or `Infinity`, a number that is too long, or nesting that is too deep | the cause, in one fixed text each, and to run the aggregator again |
+| `version` | `schema_version` names another major than 1 | both versions: the document's, and `major 1 (schema 1.1)` |
+| `schema` | the document breaks a rule below | the place, such as `$.projects[0].nodes[2].source_line`, and the first problem |
+
+Any minor of major 1 is read, older or newer, and a field the reader does
+not use is ignored. The reader first checks shapes, in document order: the
+schema id, the version, the time (RFC 3339, UTC), each project's name,
+status and reason, each node's id, parent, text, glyph, state, source line,
+issue and `meta`, and each report entry. A key used twice in one JSON
+object, a project name or node id used twice, and a source line used twice
+in one project are refused. Then it checks parent links: a parent is a node
+of the same project on an earlier line, and no node nests deeper than 64
+levels. A parent cycle always breaks the earlier-line rule, so no document
+makes the reader loop.
+
+### Names and metadata
+
+A node's outline position comes from the document's parent links and source
+lines. Top-level nodes count from 1 in line order; a child is its parent's
+position, a dot, and its place among that parent's children. Node ids and
+the order of the `nodes` array decide nothing, because neither is stable
+across runs. A node with a child is a row; any other is a leaf. Keys follow
+[Identity](#identity): the first node holding an `issue:` id is keyed by it,
+every other node by its outline position, with `~<line>` and
+`key_collision` when that position equals an `issue:` id.
+
+The reader takes each node's `meta` from the document. It does not read the
+typed `satisfies`, `h`, `depends_on` and `est` fields that schema 1.1 also
+carries: Gantry keeps its own reading of `priority:` (P0 included),
+`depends_on`, `est:`, `h:`, `satisfies:` and `objective:`.
+
+devagent has already parsed each `meta` value into a string or a list of
+strings. The reader stores each string as a `ParsedValue`, a `str` subclass
+in `gantry/model.py`, and each list as a list of them, in the document's key
+order. `meta_value`, `meta_scalar` and `meta_values` return those shapes as
+they are and read no quote or bracket a second time. A plain `str`, which
+only Gantry's own `WBS.md` reader stores, still gets the raw-text reading.
+The tag is on the value, so every consumer works unchanged on leaves from
+either reader.
+
+### Report sources
+
+Every entry of devagent's report gets exactly one of three outcomes. It is
+**mapped** onto a Gantry kind in the site's report, **suppressed** because a
+Gantry pass reports the same thing about the same node, or **shown** as
+devagent wrote it in `devagent_report`. Nothing is dropped.
+
+| devagent's kind | What the reader does with it |
+|---|---|
+| `leaf_no_issue` | Mapped to `no_issue`, in Gantry's words, when its line holds a leaf with no `issue:` id. |
+| `duplicate_issue` | Mapped to `duplicate_issue`, in Gantry's words, when its node holds an id whose first holder is another node. |
+| `dep_unresolved` | About a local entry that names nothing: mapped to `unresolved_ref`, in Gantry's words. About an entry Gantry classes as foreign or malformed: suppressed, since Gantry's `foreign_site_absent`, `foreign_unresolved` or `malformed_ref` reports it. The entry it is about is the longest `depends_on` entry of the node that its message opens with. |
+| `near_miss_line` | Mapped to `skipped_line` when no node is on its line. The message is `WBS.md line N: ` and devagent's own text, because Gantry's reason needs the line's text and the document does not carry it. |
+| `est_unparseable` | Suppressed on an open leaf whose `est:` Gantry cannot classify either: Gantry's `est_unparseable` lists it. Shown on a row or a finished leaf, which Gantry's pass skips. |
+| `h_malformed` | Suppressed on a node that holds `h:`: Gantry's `bad_h` reports every one. |
+| `dep_cycle` | Suppressed when its members' lines are the lines of one cycle Gantry finds among the project's open leaves, and no member belongs to another project: Gantry's `cycle` reports it. |
+| `parser_warning` | Suppressed when its message is about `priority` or `h` on a node holding that key, `depends_on` on an open leaf holding it, or `satisfies` or `objective` on a leaf holding it. |
+| any other kind | Shown as written. So is a kind added by a later devagent release. |
+
+An entry above whose condition does not hold is shown as written. So is an
+entry with no line, and an entry about a project that the document lacks or
+that was not read.
+
+The `parser_warning` rule is a defence. At the release `tests/devagent.pin`
+names, devagent emits no warning about `priority`, `satisfies:` or
+`objective:`, and reports a bad `h:` only as `h_malformed`; its one parser
+warning is about a code fence that never closes. The rule keeps a later
+release from showing a P0 leaf as a problem, since Gantry reads P0 as a
+legal priority and checks the other keys itself.
+
+Gantry's own entries about the reader's nodes are unchanged: `key_collision`,
+`bad_priority`, `no_nodes`, `malformed_ref`, `cycle` and `waits_on_cycle`
+from the reader, and the foreign kinds, the estimates kinds and `bad_h` from
+the passes that run after it ([The report](#the-report)).
+
+### Statuses
+
+Each project's status is returned as devagent wrote it: `read`, `no_wbs`,
+`no_devdoc_dir` or `unreadable`, with devagent's reason for the last three.
+Only a `read` project has nodes. An `unreadable` project gets one
+`site_unreadable` entry carrying devagent's reason as written; the sample
+site whose `WBS.md` is not UTF-8 has that status. Comparing these statuses
+with Gantry's own site list is #12's.
+
+### The snapshots
+
+An expected-leaves snapshot records what the reader returns for one site and
+what each consumer reads from it: every node's key, issue, outline position,
+title, state, priority, epic or parent, its `meta` through the accessors,
+its classified `depends_on`, rank, `est:` class, `h:` score and
+`satisfies:` and `objective:` IDs, then the site's links, held-out keys,
+report and shown devagent entries. `tests/fixtures/expected_leaves/` holds
+two sets:
+
+- `<site>.json` for each of the six sample sites, read from the document
+  the pinned devagent release writes over `samples/`;
+- `fixture/<project>.json` for each of the 14 projects of
+  `tests/fixtures/portfolio/written.json`. That file is the same release's
+  document over the `WBS.md` texts Gantry's own reader is tested with, plus
+  one text of shapes where the two readers differ.
+
+Three tests in `tests/test_portfolio_equivalence.py` stand on them:
+
+1. The reader against the 14 fixture snapshots, byte for byte. It needs no
+   devagent checkout, so it runs on every CI leg.
+2. Gantry's own `WBS.md` reader against the snapshots, on the five sample
+   sites it can read and on the 14 fixture projects. Every difference must
+   be an entry of `known_differences.json` in the same folder, and every
+   entry must still occur. This test goes when #12 deletes that reader.
+3. The reader against the six sample snapshots, on a document made during
+   the test. It needs a devagent checkout (below).
+
+`known_differences.json` is kept by hand. Today it holds ten entries, all
+report texts; no node, link or held-out key differs. devagent words an
+unreadable `WBS.md`, and a near-miss line, in its own text. And the two
+readers disagree on which lines are near misses: devagent's reader reports
+`- [xx] text`, `-[x] text`, `* [ ] text`, `+ [ ] text` and every link item,
+and does not report a `- [X] text` line indented with no-break spaces.
+devagent's reading wins, so the `skipped_line` row of
+[The report](#the-report) changes when #12 switches the build.
+
+### The tools and the pin
+
+Two tools make the test data from a devagent checkout at the pin:
+
+```
+python3 tools/sample_portfolio.py --devagent <checkout>
+python3 tools/sample_portfolio.py --fixtures --devagent <checkout>
+python3 tools/sample_portfolio.py --fixtures --check --devagent <checkout>
+python3 tools/update_expected_leaves.py --devagent <checkout>
+python3 tools/update_expected_leaves.py --check --devagent <checkout>
+```
+
+`tools/sample_portfolio.py` runs devagent's aggregator offline. With no
+flag but `--devagent` it writes the sample document,
+`samples/devagent/out/portfolio/portfolio.json`: it rebuilds the git-ignored
+`samples/devagent/out/` as a devagent home holding a copy of
+`samples/devagent/config.toml`, and runs the aggregator from
+`samples/devagent/`, so devagent and Gantry resolve a relative `devdoc_dir`
+alike. `--fixtures` writes `tests/fixtures/portfolio/written.json` and its
+`provenance.json`. `tools/update_expected_leaves.py` writes both snapshot
+sets; for the sample set it runs the aggregator on a temporary copy of
+`samples/`. Each `--check` writes nothing and prints one line per file that
+differs, is missing or is extra. `--devagent` defaults to
+`GANTRY_DEVAGENT_DIR`.
+
+The pin is `tests/devagent.pin`, the one devagent release Gantry's fixtures
+are written at. The tests that run the aggregator take the checkout from
+`GANTRY_DEVAGENT_DIR` and follow the contract test's rule: without a
+checkout they skip, except under `CI`, where they fail; a checkout at
+another version warns, and fails under `CI`; on Windows they always skip
+([devagent-formats.md](devagent-formats.md#fixtures-and-the-contract-test),
+which also lists what a pin move regenerates).
 
 ## The optional inputs
 
