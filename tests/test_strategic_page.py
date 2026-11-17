@@ -1,0 +1,378 @@
+"""The strategic page (#23): its groups and panels, figures and sources, the
+report panel, page safety and repeatability. The model's values are in
+tests/test_strategic.py."""
+
+import subprocess
+import sys
+
+from commit_check import path_form_hits
+from gantry.build import build_all
+from gantry.config import load_config
+from gantry.portfolio_file import format_entry
+from gantry.strategic import strategic_model
+from gantry.views.strategic import pct, render_strategic
+from helpers_config import append_bytes, copy_samples, replace_bytes, sample_projects, toml_key, write_site_tree
+from helpers_strategic import page_data, placement_line, placement_problems
+from page_safety import HOSTILE, assert_no_external_resources, assert_page_safe
+from sample_roles import BUSY, NO_WBS, OWN_UNIT, SMALL, UNESTIMATED, UNREADABLE
+from test_samples import ROOT
+from test_worksite_page import by_id, find, text_of, tree
+
+SAMPLE_SHARES = "shares = { harbor = 50, orchard = 30, quarry = 20 }"  # the 2026-01-05 allocation
+BR_TEXTS = ["Keep the harbor safe to work in, all year round.", "Keep the market supplied every week.",
+            "Bring in a full harvest each autumn."]
+NO_WBS_REASON = "no WBS.md in the planning directory"
+UNREADABLE_REASON = "WBS.md is not valid UTF-8 at byte 88"
+SECTION_LABELS = {None: "the portfolio file", "business requirements": "business requirements",
+                  "settings": "settings"}
+
+
+def samples(tmp_path, shares=None):
+    copy = copy_samples(tmp_path)
+    if shares is not None:
+        replace_bytes(copy / "portfolio.md", SAMPLE_SHARES, f"shares = {{ {shares} }}")
+    return copy
+
+
+def page(copy):
+    """(strategic page text, BuildResult) for a samples copy."""
+    result = build_all(load_config(copy / "gantry.sample.toml"), samples=copy)
+    model = strategic_model(result, result.portfolio, result.portfolio_entries, result.config.as_of)
+    return render_strategic(result, model), result
+
+
+def demo(tmp_path):
+    return page(samples(tmp_path))
+
+
+def figures(t, kind, within=None):
+    return [i for i in find(t, "span", within=within) if t.elements[i]["attrs"].get("data-figure") == kind]
+
+
+def panels(t, within=None):
+    """[(shown site name, li index)] for every panel, in page order."""
+    return [(text_of(t, find(t, None, ("name",), within=li)[0]), li) for li in find(t, "li", ("panel",), within)]
+
+
+def panel_of(t, site):
+    """The index of the site's first panel."""
+    return next(li for name, li in panels(t) if name == site)
+
+
+def sections(t):
+    return find(t, "section", ("group",))
+
+
+# --- groups and placement (AC1, AC11) --------------------------------------------------
+
+
+def test_demo_groups(tmp_path):
+    text, _ = demo(tmp_path)
+    data = page_data(text)
+    groups = [(g["kind"], g["id"], g["sites"]) for g in data["groups"]]
+    assert groups == [("br", "life:BR-1", [BUSY]), ("br", "life:BR-2", [BUSY]), ("br", "life:BR-3", [OWN_UNIT]),
+                      ("no_requirement", None, [UNESTIMATED]), ("no_share", None, [SMALL]),
+                      ("not_built", None, [NO_WBS, UNREADABLE])]
+    assert [g["text"] for g in data["groups"][:3]] == BR_TEXTS
+    assert all(set(g) == {"kind", "id", "text", "sites"} for g in data["groups"])  # no threshold, no objective
+    reasons = {p["site"]: p["reason"] for p in data["panels"]}
+    assert (reasons[NO_WBS], reasons[UNREADABLE]) == (NO_WBS_REASON, UNREADABLE_REASON)
+    # The page shows what the data says.
+    t = tree(text)
+    found = sections(t)
+    assert [t.elements[s]["classes"] for s in found] == [["group", "g-br"]] * 3 + [
+        ["group", "g-no-requirement"], ["group", "g-no-share"], ["group", "g-not-built"]]
+    headings = [text_of(t, find(t, "h2", within=s)[0]) for s in found]
+    for heading, (rid, br_text) in zip(headings, zip(["life:BR-1", "life:BR-2", "life:BR-3"], BR_TEXTS)):
+        assert heading.startswith(f"{rid}: {br_text} ")
+    assert [h.split(" ", 4)[:4] for h in headings[3:]] == [
+        ["Serves", "no", "listed", "requirement"], ["No", "intended", "share", "set"], ["Not", "built", "nothing", "to"]]
+    assert [[name for name, _ in panels(t, s)] for s in found] == [g[2] for g in groups]
+    not_built = found[-1]
+    assert text_of(t, find(t, "span", ("reason",), within=panel_of(t, NO_WBS))[0]) == f"not built: {NO_WBS_REASON}"
+    assert f"not built: {UNREADABLE_REASON}" in text_of(t, not_built)
+    assert placement_problems(data) == [] and len(data["projects"]) == 6
+
+
+PLACED = {
+    "projects": ["a", "b", "c"],
+    "groups": [{"kind": "br", "id": "x:BR-1", "text": "t", "sites": ["a"]},
+               {"kind": "br", "id": "x:BR-2", "text": "u", "sites": ["a"]},
+               {"kind": "no_share", "id": None, "text": None, "sites": ["b"]},
+               {"kind": "not_built", "id": None, "text": None, "sites": ["c"]}],
+    "panels": [{"site": "a", "status": "built", "reason": None}, {"site": "b", "status": "built", "reason": None},
+               {"site": "c", "status": "not_built", "reason": "no WBS.md in the planning directory"}],
+}
+
+
+def planted(change):
+    import copy
+
+    data = copy.deepcopy(PLACED)
+    change(data)
+    return data
+
+
+def test_placement_problems_controls():
+    assert placement_problems(PLACED) == []
+    bad = {
+        "br and other": lambda d: d["groups"][2]["sites"].append("a"),
+        "two others": lambda d: d["groups"][3]["sites"].append("b"),
+        "none": lambda d: d["groups"][2]["sites"].remove("b"),
+        "no reason": lambda d: d["panels"][2].update(reason=""),
+    }
+    for name, change in bad.items():
+        assert placement_problems(planted(change)) != [], name
+
+
+def test_placement_projects_match_config(tmp_path):
+    text, _ = demo(tmp_path)
+    assert page_data(text)["projects"] == sample_projects()
+
+
+ONE_LINER = ("import sys; sys.path.insert(0, 'tests'); from helpers_strategic import placement_line; "
+             "print(placement_line(sys.argv[1]))")
+
+
+def test_placement_line_subprocess(tmp_path):
+    text, _ = demo(tmp_path)
+    path = tmp_path / "strategic.html"
+    path.write_bytes(text.encode("utf-8"))
+    ran = subprocess.run([sys.executable, "-c", ONE_LINER, str(path)], cwd=ROOT, capture_output=True, check=True)
+    assert ran.stdout.decode("utf-8") == "6 configured projects, 6 placed\n"
+    assert placement_line(path) == "6 configured projects, 6 placed"
+
+
+# --- panels (AC2, AC6) -------------------------------------------------------------------
+
+
+def test_not_built_with_share_and_serves(tmp_path):
+    copy = samples(tmp_path, "harbor = 40, orchard = 30, quarry = 20, bakery = 10")
+    replace_bytes(copy / "portfolio.md", 'serves = ["BR-3"]\n', 'serves = ["BR-3"]\n\n[site.bakery]\nserves = ["BR-1"]\n')
+    text, _ = page(copy)
+    data = page_data(text)
+    assert [g["kind"] for g in data["groups"] if NO_WBS in g["sites"]] == ["not_built"]
+    t = tree(text)
+    assert [name for name, _ in panels(t)].count(NO_WBS) == 1
+    li = panel_of(t, NO_WBS)
+    body = text_of(t, li)
+    for wanted in ("intended 10% (allocation from 2026-01-05)", "names life:BR-1 in serves",
+                   "no page, so no open work counted"):
+        assert wanted in body, wanted
+    assert [len(figures(t, kind, li)) for kind in ("intended", "backlog", "gap", "hours")] == [1, 0, 0, 0]
+
+
+def test_intended_names_allocation_and_no_portfolio(tmp_path):
+    text, _ = demo(tmp_path / "demo")
+    t = tree(text)
+    assert "intended 50% (allocation from 2026-01-05)" in text_of(t, panel_of(t, BUSY))
+    copy = samples(tmp_path / "bare")
+    replace_bytes(copy / "gantry.sample.toml", 'portfolio_file = "portfolio.md"\n', "")
+    text, _ = page(copy)
+    t = tree(text)
+    assert text_of(t, by_id(t, "notes")) == "no portfolio file configured"
+    found = panels(t)
+    assert len(found) == 6
+    assert all("no intended share set" in text_of(t, li) for _, li in found)
+    assert figures(t, "intended") == [] and figures(t, "gap") == []
+
+
+# --- figures (AC7) -----------------------------------------------------------------------
+
+
+def test_figures_found_by_kind(tmp_path):
+    text, _ = demo(tmp_path)
+    t = tree(text)
+    counts = {kind: len(figures(t, kind)) for kind in ("hours", "backlog", "intended", "gap", "total", "group-sum",
+                                                       "headline", "index-share")}
+    assert counts == {"hours": 5, "backlog": 5, "intended": 4, "gap": 4, "total": 1, "group-sum": 6,
+                      "headline": 0, "index-share": 0}
+    for kind in counts:
+        for i in figures(t, kind):
+            attrs = t.elements[i]["attrs"]
+            assert attrs["data-source"], (kind, i)
+            source = t.elements[i + 1]
+            assert source["tag"] == "span" and source["classes"] == ["source"], (kind, i)
+            assert "".join(source["text"]) == attrs["data-source"]
+            assert ("data-unestimated" in attrs) == (kind in ("hours", "backlog", "total", "group-sum")), (kind, i)
+    (quarry_hours,) = figures(t, "hours", panel_of(t, UNESTIMATED))
+    assert t.elements[quarry_hours]["attrs"]["data-unestimated"] == "5"
+    assert text_of(t, by_id(t, "plans-only")) == "plans and estimates only"
+
+
+# --- the report panel (AC8) ------------------------------------------------------------
+
+
+def test_report_panel_lists_entries(tmp_path):
+    copy = samples(tmp_path, "harbor = 45, orchard = 30, quarry = 20, ferry = 5")
+    replace_bytes(copy / "portfolio.md", "- BR-3: Bring in a full harvest each autumn.\n",
+                  "- BR-3: Bring in a full harvest each autumn.\n- BR-2: Keep the market supplied twice a week.\n")
+    replace_bytes(copy / "portfolio.md", 'issue = "Issue-5"', 'issue = "Issue-99"')
+    text, result = page(copy)
+    entries = result.portfolio_entries
+    assert len(entries) >= 3
+    assert {"duplicate_id", "unknown_project", "milestone_no_leaf"} <= {e.kind for e in entries}
+    t = tree(text)
+    report = by_id(t, "report")
+    lines = [text_of(t, li) for li in find(t, "li", within=report)]
+    assert lines == [f"{SECTION_LABELS[e.section]}: {format_entry(e)}" for e in entries]
+    assert text_of(t, find(t, "h2", within=report)[0]) == "missing or unreadable"
+    data = page_data(text)
+    strings = [text, *strings_of(data)]
+    for s in strings:
+        assert path_form_hits(s) == [], s[:80]
+        assert str(tmp_path) not in s and tmp_path.as_posix() not in s
+
+
+def strings_of(node):
+    if isinstance(node, dict):
+        for key, value in node.items():
+            yield key
+            yield from strings_of(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from strings_of(value)
+    elif isinstance(node, str):
+        yield node
+
+
+def test_report_panel_empty(tmp_path):
+    text, _ = demo(tmp_path)
+    t = tree(text)
+    assert [text_of(t, li) for li in find(t, "li", within=by_id(t, "report"))] == ["nothing missing or unreadable"]
+
+
+# --- page safety (AC9) -------------------------------------------------------------------
+
+ODD_ESTIMATES = 'estimates-2026-01-15-"<b>odd.md'
+ESTIMATES_TABLE = "| # | title | effort | hours |\n|---|---|---|---|\n| #6 | Lay the drip lines | M | 8-16 |\n"
+
+
+def test_strategic_hostile(tmp_path):
+    copy = samples(tmp_path, f"harbor = 40, orchard = 30, quarry = 20, {toml_key(HOSTILE[7])} = 5, "
+                             f"{toml_key(HOSTILE[10])} = 5")
+    replace_bytes(copy / "portfolio.md", "- BR-3: Bring in a full harvest each autumn.\n",
+                  f"- BR-3: Bring in a full harvest each autumn.\n- BR-4: {HOSTILE[0]}\n")
+    append_bytes(copy / "devagent" / "config.toml", f'\n[project.{toml_key(HOSTILE[3])}]\ndevdoc_dir = "../ghost"\n')
+    planted_values = [HOSTILE[0], HOSTILE[3], HOSTILE[7], HOSTILE[10]]
+    try:
+        (copy / OWN_UNIT / ODD_ESTIMATES).write_bytes(ESTIMATES_TABLE.encode("utf-8"))
+        planted_values.append(ODD_ESTIMATES)
+    except OSError:
+        pass  # a file system that refuses the name: the attribute leg is skipped there (S6)
+    text, result = page(copy)
+    unknown = [e.message for e in result.portfolio_entries if e.kind == "unknown_project"]
+    assert len(unknown) == 2
+    data = assert_page_safe(text, planted_values + unknown)
+    assert_no_external_resources(text)
+    assert HOSTILE[3] in data["projects"]
+    if ODD_ESTIMATES in planted_values:
+        t = tree(text)
+        (hours,) = figures(t, "hours", panel_of(t, OWN_UNIT))
+        assert t.elements[hours]["attrs"]["data-source"] == f"WBS.md and {ODD_ESTIMATES}"
+
+
+def test_no_page_script(tmp_path):
+    text, _ = demo(tmp_path)
+    assert text.count("<script") == 1
+    assert '<script type="application/json" id="gantry-data">' in text
+
+
+def test_strategic_repeatable(tmp_path):
+    first, _ = demo(tmp_path / "one")
+    second, _ = demo(tmp_path / "two")
+    assert first.encode("utf-8") == second.encode("utf-8")
+    t = tree(first)
+    (stamp,) = find(t, "p", ("stamp",))
+    assert text_of(t, stamp) == "sample data as of 2026-01-20"
+
+
+# --- texts (B4, B5, B6) ------------------------------------------------------------------
+
+
+def built_page(tmp_path, sites, tail=""):
+    """The strategic page of a write_site_tree installation: (tree, page text)."""
+    result = build_all(load_config(write_site_tree(tmp_path, sites, tail=tail)))
+    model = strategic_model(result, result.portfolio, result.portfolio_entries, result.config.as_of)
+    text = render_strategic(result, model)
+    return tree(text), text
+
+
+def test_pct_half_up(tmp_path):
+    assert (pct(12.5), pct(30.66), pct(0), pct(99.5)) == ("13%", "31%", "0%", "100%")
+    t, _ = built_page(tmp_path, {"a": b"- [ ] Only {issue: Issue-1, est: 130.25h}\n"})
+    (hours,) = figures(t, "hours")
+    assert text_of(t, hours) == "1 open leaf, 130.3 h"
+
+
+def test_non_time_texts(tmp_path):
+    text, _ = demo(tmp_path / "demo")
+    t = tree(text)
+    wanted = ("also 13 pt in this site's own unit, left out of totals across sites; 2 leaves, 2 of them at the "
+              "default unit (counted as unestimated)")
+    assert wanted in [text_of(t, p) for p in find(t, "p", within=panel_of(t, OWN_UNIT))]
+    copy = samples(tmp_path / "row")
+    (copy / OWN_UNIT / "estimates-2026-01-15-x.md").write_bytes(ESTIMATES_TABLE.encode("utf-8"))
+    text, _ = page(copy)
+    t = tree(text)
+    lines = [text_of(t, p) for p in find(t, "p", within=panel_of(t, OWN_UNIT))]
+    assert any(line.endswith("2 leaves, 1 of them at the default unit (counted as unestimated), "
+                             "1 at estimates-file hours") for line in lines), lines
+
+
+def test_rendered_texts(tmp_path):
+    gaps_note = "Gaps compare each intended share rescaled over built sites."
+    # The off-page line (AC4's fixture) and the gaps note.
+    text, _ = page(samples(tmp_path / "off", "harbor = 35, orchard = 30, quarry = 20, bakery = 10, ferry = 5"))
+    t = tree(text)
+    assert text_of(t, by_id(t, "off-page")) == (
+        "Intended share outside the gap comparison: 10% on projects not built and 5% on projects not in "
+        "devagent's config. " + gaps_note)
+    # The demo: the gap, the total and a group with nothing to sum.
+    text, result = demo(tmp_path / "demo")
+    t = tree(text)
+    assert text_of(t, by_id(t, "off-page")) == gaps_note
+    (gap,) = figures(t, "gap", panel_of(t, BUSY))
+    assert text_of(t, gap) == "gap 19 points against intended 50% rescaled over built sites"
+    unestimated = sum(s.unestimated_count for s in result.summaries if s.status == "built")
+    (total,) = figures(t, "total")
+    assert text_of(t, total) == f"Open work across built sites: 424 h, includes {unestimated} unestimated leaves"
+    assert text_of(t, by_id(t, "totals")).endswith(" Site-only units are left out of totals across sites.")
+    (not_built_sum,) = figures(t, "group-sum", sections(t)[-1])
+    assert text_of(t, not_built_sum) == "nothing to sum"
+    (br1_sum,) = figures(t, "group-sum", sections(t)[0])
+    assert text_of(t, br1_sum) == "intended 50% as given; backlog share 31%"
+    # A requirement no built site serves.
+    copy = samples(tmp_path / "unserved")
+    replace_bytes(copy / "portfolio.md", "- BR-3: Bring in a full harvest each autumn.\n",
+                  "- BR-3: Bring in a full harvest each autumn.\n- BR-4: Mend the nets.\n")
+    text, _ = page(copy)
+    t = tree(text)
+    br4 = sections(t)[3]
+    assert "no built site serves this requirement" in text_of(t, br4)
+    assert [text_of(t, i) for i in figures(t, "group-sum", br4)] == ["nothing to sum"]
+    # No open work anywhere; leaves held out by a cycle; the singulars.
+    done = b"- [x] Done {issue: Issue-1}\n"
+    held = b"- [ ] A {issue: Issue-1, depends_on: [Issue-2]}\n- [ ] B {issue: Issue-2, depends_on: [Issue-1]}\n"
+    t, _ = built_page(tmp_path / "held", {"done": done, "held": held})
+    assert "no open work" in text_of(t, panel_of(t, "held"))
+    assert figures(t, "backlog") == []
+    (hours,) = figures(t, "hours", panel_of(t, "held"))
+    assert text_of(t, hours) == "2 open leaves, 0 h; 2 held out by a cycle, not in hours"
+    t, _ = built_page(tmp_path / "one", {"a": b"- [ ] Only {issue: Issue-1, est: 3pt}\n"})
+    li = panel_of(t, "a")
+    (hours,) = figures(t, "hours", li)
+    assert text_of(t, hours) == "1 open leaf, 6 h, includes 1 unestimated leaf"
+    assert ("also 3 pt in this site's own unit, left out of totals across sites; 1 leaf, 1 of them at the default "
+            "unit (counted as unestimated)") in [text_of(t, p) for p in find(t, "p", within=li)]
+
+
+def test_hours_source_no_file_read(tmp_path):
+    copy = samples(tmp_path)
+    (copy / OWN_UNIT / "estimates-2026-01-15-x.md").write_bytes(b"| # | hours |\n| #6 | \xff |\n")
+    text, _ = page(copy)
+    t = tree(text)
+    (orchard,) = figures(t, "hours", panel_of(t, OWN_UNIT))
+    assert t.elements[orchard]["attrs"]["data-source"] == "WBS.md, no estimates file read"
+    harbor = figures(t, "hours", panel_of(t, BUSY))[0]
+    assert t.elements[harbor]["attrs"]["data-source"] == "WBS.md and estimates-2026-01-15-effort-and-model-tiers.md"
