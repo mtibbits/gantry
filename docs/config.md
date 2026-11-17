@@ -310,7 +310,7 @@ pages, the index, the reasons and the errors. The page's durations use
 
 | Code | Meaning |
 |---|---|
-| 0 | the strategic page and the index were written and at least one site page was written (sites not built and warnings do not change it), or `--site` wrote its page |
+| 0 | the week view, the strategic page and the index were written and at least one site page was written (sites not built and warnings do not change it), or `--site` wrote its page |
 | 1 | a config error: the installation config or devagent's config is missing, unreadable, invalid or refused; no site page was written (the index is still written); the index or the output folder cannot be written; the week page cannot be rendered or written; the plan file cannot be written; strategic.html cannot be made or written; or, with `--site`, a site that is not configured, clashes in case with an earlier site or cannot be built, a render error, or a page that cannot be written |
 | 2 | a usage error, such as a missing `--config` |
 

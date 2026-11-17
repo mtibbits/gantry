@@ -1149,7 +1149,7 @@ path. Six more lines can follow on stderr:
 
 | Exit | When |
 |---|---|
-| 0 | the strategic page and the index were written and at least one site page was written (sites not built and warnings do not change it); with `--site`, its page was written |
+| 0 | the week view, the strategic page and the index were written and at least one site page was written (sites not built and warnings do not change it); with `--site`, its page was written |
 | 1 | a config error; no site page was written (the index is still written); the index or the output folder cannot be written; the week page cannot be rendered or written; the plan file cannot be written; strategic.html cannot be made or written; with `--site`, any of the errors below |
 | 2 | a usage error, such as a missing `--config` |
 

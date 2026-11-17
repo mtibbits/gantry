@@ -698,6 +698,21 @@ def test_strategic_error_prints_between_plan_and_index(tmp_path):
                                                        f"cannot write {out / 'index.html'}"]
 
 
+def test_every_output_failing_prints_in_order(tmp_path):
+    """The week view (#38) and the strategic page (#23) both fail with the plan file and the index:
+    one line each, week, plan file, strategic, index, and exit 1."""
+    copy = plan_install(tmp_path)
+    out = copy / "out"
+    for name in ("week.html", "strategic.html", "index.html", "week-plan.json"):
+        (out / name).mkdir(parents=True)
+    code, stdout, stderr = run_main("--config", str(copy / "gantry.toml"))
+    assert code == 1
+    assert [line.split(": ")[2] for line in stderr.splitlines()] == [
+        "cannot write week.html", "cannot write week-plan.json", "cannot write strategic.html",
+        f"cannot write {out / 'index.html'}"]
+    assert stdout.splitlines() == [str(out / "sites" / "a.html"), str(out / "sites" / "b.html")]
+
+
 def test_full_build_hands_same_plan_to_views_and_writes_it(tmp_path, monkeypatch):
     from gantry import cli
     from gantry.planner import WeekPlan, plan_to_json

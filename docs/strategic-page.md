@@ -86,8 +86,8 @@ A built site's panel links its page and shows:
   it, or any site when no allocation applies, shows
   `no intended share set`.
 - **Backlog share**: `backlog share, not effort: {pct}{inc}`. When no built
-  site has open work, it shows `no open work` instead, and no share is shown
-  anywhere on the page.
+  site has open work, it shows `no open work` instead, and no backlog share
+  is shown anywhere on the page.
 - **Gap**: `gap {points} points against intended {comparable} rescaled over built sites`,
   when the site has both a backlog share and a comparable intended share
   ([The gap](#the-backlog-share-and-the-gap)).
@@ -144,7 +144,8 @@ Above the groups:
 
 ## The index
 
-The strategic page fills the index's three slots
+The strategic page fills the index's headline and line slots and adds its
+link to the view links
 ([worksite-page.md](worksite-page.md#the-index)), from the same model the
 page is written from, made once per build:
 
@@ -223,10 +224,10 @@ The model, the render and the write are one step. If any of them fails, the
 build prints `gantry: error: cannot write strategic.html: <reason>` on
 stderr (a fault making or rendering the page reads
 `render error: {type}: {message}`), writes the index without the page's
-headline, shares or link,
-and exits 1 ([worksite-page.md](worksite-page.md#every-site-and-the-index)).
-An older `strategic.html` from an earlier run stays in the output folder,
-unlinked, with its old stamp, until the output folder is replaced.
+headline, shares or link, and exits 1
+([worksite-page.md](worksite-page.md#every-site-and-the-index)). An older
+`strategic.html` from an earlier run stays in the output folder, unlinked,
+with its old stamp, until the next build that writes the page replaces it.
 
 ## Checking placement on an installation
 

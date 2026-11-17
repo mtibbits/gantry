@@ -365,7 +365,8 @@ def write_all(result):
     written turns its site into a not-built one in the returned result,
     which the week view, the strategic page and the index are rendered from.
     A strategic page that cannot be made or written sets the returned
-    result's `strategic_error` and leaves the index's slots empty. When the output
+    result's `strategic_error`, and the index gets no headline, shares or
+    strategic link. When the output
     folder itself cannot be made, nothing is written, the index error says
     why and the returned result's `wrote_nothing` is set; when only
     sites/ cannot be, each page fails on its own and the index is written.
@@ -414,8 +415,8 @@ def _write_strategic(result, roots, out):
     pages are written so "built" means what the index says (#23).
 
     Returns (the index's slots, None), or ({}, why) when the model, the
-    render or the write failed: the index then keeps #11's empty slots, so
-    it never links a page that was not written.
+    render or the write failed: the index then gets no headline, shares or
+    strategic link, so it never links a page that was not written.
     """
     try:
         model = strategic.strategic_model(result)

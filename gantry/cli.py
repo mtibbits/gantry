@@ -14,9 +14,9 @@ checks the fires list, without building (#30). There is no default
 config location: `--config` is required, and nothing here reads the
 environment or the home folder to find one. Exit codes:
 
-- 0: the full build wrote the strategic page, the index and at least one
-  site page; `--site`
-  wrote its page; `portfolio` found no report entry;
+- 0: the full build wrote the week view, the strategic page, the index and
+  at least one site page; `--site` wrote its page; `portfolio` found no
+  report entry;
 - 1: a config error; the full build wrote no site page (the index is still
   written) or cannot write the index or the output folder, the week page
   cannot be rendered or written, the plan file cannot be written, or
@@ -197,7 +197,7 @@ def _build_all(config):
     if plan_error is not None:
         print(f"gantry: error: cannot write {PLAN_FILE}: {plan_error}", file=sys.stderr)
     if result.strategic_error is not None:
-        # One form for a model, render or write failure; the index then has #11's empty slots (#23).
+        # One form for a model, render or write failure; the index then has no headline, shares or link (#23).
         print(f"gantry: error: cannot write {STRATEGIC_FILE}: {result.strategic_error}", file=sys.stderr)
     if index_error is not None:
         # The index, or the output folder itself, cannot be written.
