@@ -1,10 +1,11 @@
 """The gantry command line: `gantry build --config FILE [--site NAME]`,
 `gantry portfolio --config FILE` and `gantry fires --config FILE`.
 
-`gantry build` builds every configured site's page, the strategic page
+`gantry build` builds every configured site's page, the week view
+(<output_dir>/week.html, #38), the strategic page
 (<output_dir>/strategic.html, #23) and the index, plans the week and writes
 the plan to <output_dir>/week-plan.json (#61); with
-`--site` it builds that one page, no strategic page, no index and no plan, reading that site's
+`--site` it builds that one page, no week view, no strategic page, no index and no plan, reading that site's
 WBS.md and inputs, every requirements file and the portfolio file. Both
 print each written file's path, then a `trace <site>:` line for each written
 page whose site is in the trace or whose trace report has an entry (#20). `gantry portfolio` checks the
@@ -17,9 +18,9 @@ environment or the home folder to find one. Exit codes:
   site page; `--site`
   wrote its page; `portfolio` found no report entry;
 - 1: a config error; the full build wrote no site page (the index is still
-  written) or cannot write the index or the output folder, the plan file
-  cannot be written, or strategic.html cannot be made or written; `--site`
-  names no
+  written) or cannot write the index or the output folder, the week page
+  cannot be rendered or written, the plan file cannot be written, or
+  strategic.html cannot be made or written; `--site` names no
   site, a case clash, a site that cannot be built, a render error or a page
   that cannot be written; `portfolio` found an entry (an advisory one
   included), or the config sets no portfolio_file; `fires` read the fires
@@ -62,18 +63,19 @@ def _parser():
     commands = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
     build = commands.add_parser(
         "build",
-        help="build every site's worksite page, the strategic page and the index, or one site's page",
+        help="build every site's worksite page, the week view, the strategic page and the index, or one site's page",
         description="Build every site an installation config names: each site's page to "
-        "<output_dir>/sites/<name>.html, then <output_dir>/strategic.html, then <output_dir>/index.html, "
-        "then the week plan to <output_dir>/week-plan.json. A site that cannot be built is listed on the "
-        "index and the strategic page with its reason. With --site, build only that site's page: no "
+        "<output_dir>/sites/<name>.html, then the week view to <output_dir>/week.html, then "
+        "<output_dir>/strategic.html, then <output_dir>/index.html, then the week plan to "
+        "<output_dir>/week-plan.json. A site that cannot be built is listed on the index and the "
+        "strategic page with its reason. With --site, build only that site's page: no week view, no "
         "strategic page, no index and no plan.",
     )
     _add_config(build)
     build.add_argument(
         "--site",
         metavar="NAME",
-        help="build only that site's worksite page, and no strategic page, no index and no plan",
+        help="build only that site's worksite page, and no week view, no strategic page, no index and no plan",
     )
     portfolio = commands.add_parser(
         "portfolio",
@@ -190,6 +192,8 @@ def _build_all(config):
     for s in result.summaries:
         if s.status != "built":
             print(f"gantry: warning: site {shown(s.name)} is not built: {s.reason}", file=sys.stderr)
+    if result.week_error is not None:
+        print(f"gantry: error: {result.week_error}", file=sys.stderr)
     if plan_error is not None:
         print(f"gantry: error: cannot write {PLAN_FILE}: {plan_error}", file=sys.stderr)
     if result.strategic_error is not None:
@@ -202,7 +206,7 @@ def _build_all(config):
     if not result.pages:
         print("gantry: error: no site page was written", file=sys.stderr)
         return 1
-    return 0 if plan_error is None and result.strategic_error is None else 1
+    return 0 if plan_error is None and result.week_error is None and result.strategic_error is None else 1
 
 
 def _build(args):

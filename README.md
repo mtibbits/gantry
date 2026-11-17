@@ -19,7 +19,7 @@ Every number on those pages comes from records already kept.
 - **Daily screen**: for your phone, anything on fire first, then today's
   tasks to start warming up on (planned).
 - **Week view**: the week plan as a page, laid out over the operator's
-  attention (planned).
+  attention. See [The week view page](docs/week-plan.md#the-week-view-page).
 - **Requirements trace**: an overlay on worksite pages linking each leaf to
   the requirements it satisfies. See
   [Reading the trace](docs/worksite-page.md#reading-the-trace).
@@ -110,8 +110,8 @@ claude --plugin-dir <clone>
 What a run does (`gantry` here is `python3 -m gantry` when you run in place):
 
 - `gantry build --config <file>` builds every site's worksite page, the
-  strategic page (`strategic.html`) and the index that links them, and
-  writes the week plan to `week-plan.json`
+  week view `week.html`, the strategic page (`strategic.html`) and the
+  index that links them, and writes the week plan to `week-plan.json`
   ([docs/week-plan.md](docs/week-plan.md)); `--site <name>` builds one
   site's page.
 - `gantry portfolio --config <file>` checks the installation's portfolio
@@ -236,7 +236,7 @@ on fail. An installation depends on:
   such as `WBS.md` and the estimates file, follow devagent's
   compatibility, not this rule;
 - the output folder: its page paths (`index.html`, `strategic.html`,
-  `sites/<name>.html`), and
+  `sites/<name>.html`, `week.html`), and
   `week-plan.json`, where a change that bumps `plan_version` is a break
   ([its version rule](docs/week-plan.md#the-version-rule));
 - a command's contract: `gantry build`, `gantry portfolio`, `gantry fires`

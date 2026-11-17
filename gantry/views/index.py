@@ -3,11 +3,12 @@
 render_index reads the BuildResult every view reads. A built site's line
 links its page and gives its open leaves, its finish at the default lanes
 and its report count; a site that was not built gives its reason. The index
-has three slots that the strategic page fills (#23, views/strategic.py's
-index_slots): a headline, a per-site slot on each line, after a separator,
-and a list of links to other views. Rendered with nothing supplied, as when
-the strategic page was not written, the slots stay empty. There is no page
-script. docs/worksite-page.md describes the index.
+has three slots. The strategic page fills two (#23, views/strategic.py's
+index_slots): a headline and a per-site slot on each line, after a
+separator. The list of links to other views holds the week view, week.html
+(#38), and the strategic page, each when the build wrote it. Rendered with
+nothing supplied, as when neither was written, the slots stay empty. There
+is no page script. docs/worksite-page.md describes the index.
 """
 
 from gantry import render

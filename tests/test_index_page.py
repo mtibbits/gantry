@@ -173,7 +173,7 @@ def test_demo_index_strategic_slots(tmp_path, monkeypatch):
     assert text_of(t, headline) == HEADLINE
     assert attrs["data-source"] and attrs["data-unestimated"] == "0"
     assert headline_and_links((out / "index.html").read_bytes().decode("utf-8"))[1] == [
-        ("Strategic page", "strategic.html")]
+        ("Week view", "week.html"), ("Strategic page", "strategic.html")]
     page = tree((out / "strategic.html").read_bytes().decode("utf-8"))
     lines = site_lines(t)
     for name in sorted(READABLE):
@@ -373,3 +373,34 @@ def test_index_counts_cross_site_entries(tmp_path):
     for site, added in ((OWN_UNIT, 4), (UNESTIMATED, 1)):
         assert counts[site] == before[site] + added, site
         assert counts[site] == len(model_of(with_foreign, site)["panel"]), site
+
+
+# --- the week view link (#38) -------------------------------------------------------------
+
+
+def index_view_links(out):
+    t = tree((out / "index.html").read_bytes().decode("utf-8"))
+    return [(text_of(t, i), t.elements[i]["attrs"]["href"]) for i in find(t, "a", within=by_id(t, "view-links"))]
+
+
+def test_demo_index_links_week_view(tmp_path, monkeypatch):
+    from helpers_config import demo_build, lands
+
+    code, out, _, stderr = demo_build(tmp_path, monkeypatch)
+    assert code == 0, stderr
+    assert index_view_links(out) == [("Week view", "week.html"), ("Strategic page", "strategic.html")]
+    assert lands(out, "index.html", "week.html")
+
+
+def test_no_plan_index_still_links_week(tmp_path):
+    from helpers_config import lands, run_main
+    from test_planner import install
+
+    copy = install(tmp_path, "binds_lanes", config={"portfolio_file": None})
+    code, _, stderr = run_main("--config", str(copy / "gantry.toml"))
+    assert code == 0, stderr
+    out = copy / "out"
+    assert index_view_links(out) == [("Week view", "week.html"), ("Strategic page", "strategic.html")]
+    assert lands(out, "index.html", "week.html")
+    t = tree((out / "week.html").read_bytes().decode("utf-8"))
+    assert text_of(t, by_id(t, "no-plan")) == "no week plan: no portfolio_file is configured"

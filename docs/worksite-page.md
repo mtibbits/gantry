@@ -1059,12 +1059,15 @@ the as-of date is working day 1, even on a weekend; so a plan that ends in
 day 3 from Tuesday 2026-01-20 finishes on Thursday 2026-01-22.
 
 A site that was not built shows its name and `not built: {reason}` instead,
-and has no link. The index has three slots, which the strategic page fills
+and has no link. The index has three slots. The strategic page fills two
 ([strategic-page.md](strategic-page.md#the-index)): a headline at the top
-(`#headline`), one `span.extra` on each site's line, after a ` · `
-separator when it is filled, and a list of links to other views
-(`#view-links`), where it links itself. When `strategic.html` was not
-written, the slots stay empty. The index has no
+(`#headline`) and one `span.extra` on each site's line, after a ` · `
+separator when it is filled. Its list of links to other views
+(`#view-links`) holds "Week view", to `week.html`
+([the week view page](week-plan.md#the-week-view-page)), and "Strategic
+page", to `strategic.html`, each when the build wrote it. When
+`strategic.html` was not written, the headline and line slots stay empty.
+The index has no
 script; its data block holds the stamp, the as-of date, each site's
 summary and the warnings, as shown.
 
@@ -1075,13 +1078,14 @@ its config order. It first reads every site, then resolves the foreign
 entries across them ([Foreign entries](#foreign-entries)), then renders each
 site it read, each in its own `try`; after a render failure it re-resolves
 and re-renders the pages that wait on or link to the failed site, and writes `<output_dir>/sites/<name>.html` for
-each, then the strategic page, `<output_dir>/strategic.html`
-([strategic-page.md](strategic-page.md)), then
+each, then the week view, `<output_dir>/week.html`
+([week-plan.md](week-plan.md#the-week-view-page)), then the strategic page,
+`<output_dir>/strategic.html` ([strategic-page.md](strategic-page.md)), then
 `<output_dir>/index.html` ([The index](#the-index)). It then
 writes the week plan to `<output_dir>/week-plan.json`
 ([week-plan.md](week-plan.md#the-plan-file)). It prints
-one absolute path per file it wrote: the pages in config order, then the
-strategic page, then the index, then the plan file. Then, for each page it wrote whose site is in the trace or whose
+one absolute path per file it wrote: the pages in config order, then
+`week.html`, then the strategic page, then the index, then the plan file. Then, for each page it wrote whose site is in the trace or whose
 trace report has an item, in config order, one line
 `trace <site>: unreadable N, malformed N, duplicate N, misplaced N, cycle N, undefined N, unserved N, untraced N`,
 every category in that order, zeros included; a site not in the trace
@@ -1115,12 +1119,21 @@ index with its reason and on stderr as
   then fails on its own and the index is still written.
 
 A reason names the site and a config key or file kind, never an absolute
-path. Four more lines can follow on stderr:
+path. Six more lines can follow on stderr:
 
 - `gantry: error: cannot write <index path>: <reason>`: the index cannot be
   written. When the output folder itself cannot be made, this is the only
   error line (the not-built lines still come first), and nothing is written;
   when `output_dir` is a file, the reason is `output_dir is not a folder`;
+- `gantry: error: cannot render week.html: <type>: <message>`, or
+  `gantry: error: cannot render week.html: <type>` when the message is
+  empty: the week view (#38) cannot be rendered;
+- `gantry: error: cannot write week.html: <reason>`: the week view cannot be
+  written. Either week line names no path, comes after the not-built lines
+  and before the plan file's line, and is not attempted when the output
+  folder itself cannot be made. The index is still written, without its
+  "Week view" link, and the plan file still is; a `week.html` left by an
+  earlier build is not deleted, so the index's missing link is the signal;
 - `gantry: error: cannot write week-plan.json: <reason>`: the plan file
   cannot be written. It comes before the index's line, names no path, and
   is not attempted when the output folder itself cannot be made; when only
@@ -1129,15 +1142,15 @@ path. Four more lines can follow on stderr:
   cannot be made or written (a fault making or rendering it reads
   `render error: {type}: {message}`). It comes after the plan file's line
   and before the index's, names no path, and is not attempted when the
-  output folder itself cannot be made. The index is then written with its
-  slots empty, so it never links the page, and an older `strategic.html`
+  output folder itself cannot be made. The index is then written without
+  the page's headline, shares or link, and an older `strategic.html`
   stays in place, unlinked, with its old stamp;
 - `gantry: error: no site page was written`.
 
 | Exit | When |
 |---|---|
 | 0 | the strategic page and the index were written and at least one site page was written (sites not built and warnings do not change it); with `--site`, its page was written |
-| 1 | a config error; no site page was written (the index is still written); the index or the output folder cannot be written; the plan file cannot be written; strategic.html cannot be made or written; with `--site`, any of the errors below |
+| 1 | a config error; no site page was written (the index is still written); the index or the output folder cannot be written; the week page cannot be rendered or written; the plan file cannot be written; strategic.html cannot be made or written; with `--site`, any of the errors below |
 | 2 | a usage error, such as a missing `--config` |
 
 ### One site: `--site`

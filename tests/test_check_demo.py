@@ -312,7 +312,7 @@ def test_expected_list_is_well_formed():
         ("overlay", f"sites/{SMALL}.html", "served-elsewhere", 21, "required"),
         ("view", "strategic.html", None, 23, "required"),
         ("view", "daily.html", None, 34, "pending"),
-        ("view", "week.html", None, 38, "pending"),
+        ("view", "week.html", None, 38, "required"),
         ("data", "week-plan.json", None, 61, "required"),
     ]
 

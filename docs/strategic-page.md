@@ -8,7 +8,7 @@ share. The index carries its answer without opening it: one headline, and
 each built site's backlog share on its line.
 
 Every full `gantry build` writes it to `<output_dir>/strategic.html`, after
-the site pages and before the index ([worksite-page.md](worksite-page.md#every-site-and-the-index)).
+the site pages and the week view and before the index ([worksite-page.md](worksite-page.md#every-site-and-the-index)).
 A `--site` build does not. The page is titled `Strategic page`. A line at
 the top says `plans and estimates only`: every figure comes from the plans
 and their estimates, and actual effort joins later (#25).
@@ -161,10 +161,12 @@ page is written from, made once per build:
   `backlog share {pct}`, then ` (includes M unestimated leaves)` when M is
   above 0, or `no open work` when no built site has open work. It is the
   same figure the site's panel shows. A not-built line gets nothing.
-- **The view links** gain `Strategic page`, to `strategic.html`.
+- **The view links** gain `Strategic page`, to `strategic.html`, after
+  `Week view` when the build wrote the week view.
 
-When `strategic.html` was not written, the index keeps the slots empty, so
-it never links a page that is not there.
+When `strategic.html` was not written, the index has no headline, no share
+on any line and no `Strategic page` link, so it never links a page that is
+not there.
 
 ## Figures and their sources
 
@@ -218,7 +220,8 @@ The file is always named "the portfolio file", never by its path.
 The model, the render and the write are one step. If any of them fails, the
 build prints `gantry: error: cannot write strategic.html: <reason>` on
 stderr (a fault making or rendering the page reads
-`render error: {type}: {message}`), writes the index with its slots empty,
+`render error: {type}: {message}`), writes the index without the page's
+headline, shares or link,
 and exits 1 ([worksite-page.md](worksite-page.md#every-site-and-the-index)).
 An older `strategic.html` from an earlier run stays in the output folder,
 unlinked, with its old stamp, until the output folder is replaced.
