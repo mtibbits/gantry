@@ -32,6 +32,7 @@ import sys
 from datetime import datetime
 
 from gantry.build import (
+    FIRES_STEP,
     build_all,
     clashes,
     read_site,
@@ -190,6 +191,12 @@ def _build_all(config):
             print(s.trace_line)
     # Last, the fires line (#32): counts only, whether or not anything was written.
     print(FIRES_LINE.format(n=len(result.fires.fires), m=result.fires.not_fully_read))
+    # A source that could not be read at all is named here: the line's counts alone cannot tell it from a
+    # healthy build with no fires list (#32).
+    for s in result.fires.sources:
+        if s.site is None and s.status == "not_read":
+            what = "fires not collected" if s.source == FIRES_STEP else f"fires source {s.source} is not read"
+            print(f"gantry: warning: {what}: {s.reason}", file=sys.stderr)
     for s in result.summaries:
         if s.status != "built":
             print(f"gantry: warning: site {shown(s.name)} is not built: {s.reason}", file=sys.stderr)

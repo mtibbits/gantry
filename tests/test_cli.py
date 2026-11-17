@@ -137,7 +137,7 @@ def test_write_site_tree_builds_sites(tmp_path, capsys):
     out = tmp_path / "out"
     assert capsys.readouterr().out.splitlines() == [
         str(out / "sites" / "alpha.html"), str(out / "sites" / "beta.html"), str(out / "index.html"),
-        str(out / "week-plan.json"), "fires: 0; sources not fully read: 1"]
+        str(out / "week-plan.json"), "fires: 0; sources not fully read: 2"]  # no fires_list; beta has no node line
     assert "14 open leaves" in (out / "index.html").read_bytes().decode("utf-8")
     assert NO_LEAVES in (out / "sites" / "beta.html").read_bytes().decode("utf-8")
 
@@ -294,8 +294,11 @@ def test_unread_keys_leave_pages_and_trace_inputs_change_them(tmp_path, monkeypa
     plain = written_bytes(out)
     assert len(plain) == 6  # four pages, the index and week-plan.json (#61)
     replace_bytes(config, 'fires_list = "fires.md"', 'fires_list = "nope.md"')
-    code, out, nope_out, err = demo_build(tmp_path, monkeypatch, copy=copy)
-    assert code == 0 and err == plain_err
+    code, out, nope_out, nope_err = demo_build(tmp_path, monkeypatch, copy=copy)
+    assert code == 0
+    # A configured fires list that is not read is named on stderr (#32); fires_list stays nope.md below.
+    assert nope_err == ("gantry: warning: fires source fires_list is not read: fires_list: the fires list does "
+                        "not exist\n" + plain_err)
     assert written_bytes(out) == plain
     # Only the fires line differs: the fires list's four fires are gone and it is not read.
     assert plain_out.splitlines()[:-1] == nope_out.splitlines()[:-1]
@@ -308,7 +311,7 @@ def test_unread_keys_leave_pages_and_trace_inputs_change_them(tmp_path, monkeypa
     # lighthouse's Issue-7 names life:BR-1, which no readable portfolio file defines now.
     point_portfolio_file_elsewhere(config)
     code, out, _, err = demo_build(tmp_path, monkeypatch, copy=copy)
-    assert code == 0 and err == plain_err
+    assert code == 0 and err == nope_err
     moved = written_bytes(out)
     # The week plan reads the portfolio file's capacity (#61): with no settings there is no plan.
     assert {k for k in plain if moved[k] != plain[k]} == {f"sites/{SMALL}.html", "week-plan.json"}
@@ -317,7 +320,7 @@ def test_unread_keys_leave_pages_and_trace_inputs_change_them(tmp_path, monkeypa
 
     add_site_key(config, BUSY, 'requirements = "req.md"\n')
     code, out, _, err = demo_build(tmp_path, monkeypatch, copy=copy)
-    assert code == 0 and err == plain_err
+    assert code == 0 and err == nope_err
     traced = written_bytes(out)
     assert {k for k in moved if traced[k] != moved[k]} == {f"sites/{BUSY}.html"}
     busy = trace(traced, BUSY)

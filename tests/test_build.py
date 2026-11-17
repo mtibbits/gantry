@@ -805,7 +805,9 @@ def test_full_build_reads_fires_and_records_once(tmp_path, monkeypatch):
     from gantry.fires import naive_reference
 
     lists = spy_on(monkeypatch, build, "read_fires_list")
-    records = spy_on(monkeypatch, build, "read_site_records")
+    sites_named = []
+    records = spy_on(monkeypatch, build, "read_site_records",
+                     before=lambda roots, planning_dir, *, site=None: sites_named.append(site))
     collected = spy_on(monkeypatch, build, "collect_fires")
     result = sample_build(tmp_path)
     assert len(lists) == 1 and len(collected) == 1
@@ -813,12 +815,8 @@ def test_full_build_reads_fires_and_records_once(tmp_path, monkeypatch):
     assert lists[0][0][3] == naive_reference(collected[0][0][4])
     with_planning = [s.name for s in result.sites if s.planning_dir is not None]
     assert len(with_planning) == 6
-    assert sorted(kw_site(call) for call in records) == sorted(with_planning)
-
-
-def kw_site(call):
-    args, _ = call
-    return args[1].name
+    assert len(records) == len(with_planning)
+    assert sorted(sites_named) == sorted(with_planning)
 
 
 def written(out):
@@ -880,9 +878,24 @@ def test_build_fires_fault_degrades(tmp_path, monkeypatch):
     assert code == 0, stderr
     assert written(out) == written(out2)
     assert stdout.splitlines()[-1] == "fires: 0; sources not fully read: 1"
+    assert "gantry: warning: fires not collected: fires step failed: RuntimeError" in stderr.splitlines()
     result = build_all(load_config(faulty / "gantry.sample.toml"), samples=faulty)
-    assert result.fires.sources == (SourceStatus("fires", None, "not_read", "collector failed: RuntimeError"),)
+    assert result.fires.sources == (SourceStatus("fires", None, "not_read", "fires step failed: RuntimeError"),)
     assert result.fires.fires == ()
+
+
+def test_fires_step_fault_before_any_read(tmp_path, monkeypatch):
+    def fail(*args, **kwargs):
+        raise RuntimeError("fires list")
+
+    monkeypatch.setattr(build, "read_fires_list", fail)
+    code, _, stdout, stderr = demo_build(tmp_path, monkeypatch)
+    assert code == 0, stderr
+    assert stdout.splitlines()[-1] == "fires: 0; sources not fully read: 1"
+    assert "gantry: warning: fires not collected: fires step failed: RuntimeError" in stderr.splitlines()
+    result = sample_build(tmp_path / "again")
+    assert (result.fires_list, result.records) == (None, {})
+    assert [s.reason for s in result.fires.sources] == ["fires step failed: RuntimeError"]
 
 
 def test_no_home_defers_to_32():

@@ -77,7 +77,8 @@ class BuildResult:
     plan: WeekPlan | None = None
     # Set by write_all when the output folder could not be made: nothing was written.
     wrote_nothing: bool = False
-    # The full build's fires (#32), each read once per run; a --site build fills none.
+    # The full build's fires (#32), each read once per run; a --site build fills none, and
+    # neither does a full build whose fires step failed before reading them (fires names it).
     # The fires list as the run read it: #34 reads its report from fires_list.report.
     fires_list: FiresList | None = None
     # {site: its devagent issue records}, every site with a planning directory, in config order.
@@ -321,10 +322,14 @@ def read_records(roots, sites) -> dict:
     return found
 
 
+FIRES_STEP = "fires"  # the source name of the one status a failed fires step leaves
+
+
 def collect_build_fires(result, config, sites, now):
     """`result` with its fires list, records and fires (#32), read once. A
-    fault anywhere in the fires step degrades to a report with one not_read
-    status: it never stops the index or the pages."""
+    fault the sources do not isolate degrades to a report with one not_read
+    status, and to fires_list None and records {} when it came before they
+    were read: it never stops the index or the pages."""
     fires_list, records = None, {}
     try:
         reference = fire_reference(config, now)
@@ -333,7 +338,7 @@ def collect_build_fires(result, config, sites, now):
         records = read_records(result.roots, sites)
         fires = collect_fires(result, config, fires_list, records, reference)
     except Exception as e:
-        fires = FireReport((), (SourceStatus("fires", None, "not_read", source_failed(e, "collector")),))
+        fires = FireReport((), (SourceStatus(FIRES_STEP, None, "not_read", source_failed(e, "fires step")),))
     return replace(result, fires_list=fires_list, records=records, fires=fires)
 
 

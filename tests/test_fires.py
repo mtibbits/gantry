@@ -439,6 +439,49 @@ def test_every_marker_has_exactly_one_outcome():
     assert fired | parked | no_leaf == set(markers)
 
 
+def test_wbs_with_no_node_lines_fails_closed():
+    from gantry.wbs_stopgap import parse_wbs
+
+    data = parse_wbs("* [ ] Fix the crane {issue: Issue-7}\n", "harbor")
+    assert [e.kind for e in data.report] == ["no_nodes"]
+    report = all_sources(fake_result(site("harbor", data=data)), {"harbor": site_records(folder("Issue-7"))})
+    assert report.fires == ()
+    assert by_source(report, "p0_leaf") == [("harbor", "read_with_problems", "WBS.md lines not read as leaves: 1")]
+    assert by_source(report, "stuck") == [
+        ("harbor", "read_with_problems", "markers with no open leaf while WBS.md lines were not read: 1")]
+    assert report.confirmed_none is False
+
+
+@pytest.mark.parametrize("line", ["- [ ]Fix the crane {issue: Issue-7}", "- [X] Fix the crane {issue: Issue-7}"])
+def test_stuck_marker_behind_an_unread_line_fails_closed(line):
+    from gantry.wbs_stopgap import parse_wbs
+
+    data = parse_wbs(f"- [ ] Pour the slab {{issue: Issue-1}}\n{line}\n", "harbor")
+    assert [e.kind for e in data.report] == ["skipped_line"]
+    report = stuck(fake_result(site("harbor", data=data)), {"harbor": site_records(folder("Issue-7"))})
+    assert report.stuck_no_open_leaf == {"harbor": ("Issue-7",)}
+    assert by_source(report, "stuck") == [
+        ("harbor", "read_with_problems", "markers with no open leaf while WBS.md lines were not read: 1")]
+
+
+def test_unread_line_without_a_stray_marker_keeps_stuck_read():
+    from gantry.wbs_stopgap import parse_wbs
+
+    data = parse_wbs("- [ ] Pour the slab {issue: Issue-1}\n- [ ]Fix the crane\n", "harbor")
+    report = stuck(fake_result(site("harbor", data=data)), {"harbor": site_records(folder("Issue-1"))})
+    assert len(report.fires) == 1 and by_source(report, "stuck") == [("harbor", "read", None)]
+
+
+def test_stuck_marker_on_a_parent_row_has_no_open_leaf():
+    from gantry.wbs_stopgap import parse_wbs
+
+    data = parse_wbs("- [ ] Rebuild the quay {issue: Issue-5}\n  - [ ] Pour the slab {issue: Issue-1}\n", "harbor")
+    assert [lf.issue for lf in data.leaves] == ["Issue-1"]
+    report = stuck(fake_result(site("harbor", data=data)), {"harbor": site_records(folder("Issue-5"))})
+    assert report.fires == () and report.stuck_no_open_leaf == {"harbor": ("Issue-5",)}
+    assert by_source(report, "stuck") == [("harbor", "read", None)]
+
+
 def test_stuck_unreadable_marker():
     result = fake_result(site("harbor", [leaf("Issue-1")]))
     report = stuck(result, {"harbor": site_records(folder("Issue-50", UNREAD_STUCK))})

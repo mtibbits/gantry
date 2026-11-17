@@ -141,8 +141,9 @@ def _age(since, reference):
 
 # --- sites --------------------------------------------------------------------------------
 
-# A WBS.md line the parser did not read as a leaf: a mistyped P0 may hide there (fail closed).
-UNREAD_LINE_KINDS = ("bad_priority", "skipped_line")
+# WBS.md lines the parser did not read as leaves: a mistyped P0, or the leaf a STUCK marker names, may hide
+# there (fail closed). no_nodes is a WBS.md with no node line at all.
+UNREAD_LINE_KINDS = ("bad_priority", "skipped_line", "no_nodes")
 
 
 @dataclass(frozen=True)
@@ -343,6 +344,8 @@ class StuckSource(PerSiteSource):
             problems.append(f"stuck fires not fully read: {partly}")
         if records.skipped:
             problems.append(f"linked issue folders not read: {len(records.skipped)}")
+        if no_leaf and view.unread_lines:
+            problems.append(f"markers with no open leaf while WBS.md lines were not read: {len(no_leaf)}")
         if problems:
             status = self.status(context, name, "read_with_problems", "; ".join(problems))
         else:

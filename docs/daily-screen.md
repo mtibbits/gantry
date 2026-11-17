@@ -15,15 +15,17 @@ A **fire** is something that needs the operator now. Every full build
 across every site, into one ordered report with a read status for every
 source it read. A `--site` build collects none. Collecting reads the fires
 list and every site's devagent issue folders once, and it never changes a
-page, the plan file or the exit status: a fault anywhere in it gives a
-report with no fires and one `not_read` status, and the build goes on.
+page, the plan file or the exit status. A source, or one site of a source,
+that fails gets a `not_read` status and the others keep their fires; a
+fault outside the sources gives a report with no fires and one `not_read`
+status from the source `fires`. Either way the build goes on.
 
 ### What is a fire
 
 A fire comes from one of three sources, in this order:
 
 - `fires_list`: every entry of the [fires list](fires-list.md) that has not
-  ended (its box is not `[x]` or `[>]`), unreadable entries included. A
+  ended (its box is not `[x]`, `[X]` or `[>]`), unreadable entries included. A
   fires-list fire carries the entry's reason as written, or, for an
   unreadable entry, the whole line as written. It is flagged "still a
   fire?" exactly as `gantry fires` flags it
@@ -60,7 +62,9 @@ Each marker has exactly one outcome, tested in this order:
    it does not assume it is finished.
 2. Unless an earlier one applies: when the site has no `WBS.md`, no leaf
    names the folder, or that leaf is `done` or `skipped`, the marker is
-   counted in `stuck_no_open_leaf`, not a fire.
+   counted in `stuck_no_open_leaf`, not a fire. A parent row is not a leaf,
+   so a marker in an epic's folder is counted here even while its children
+   are open.
 3. Unless an earlier one applies: when that leaf is `parked`, or the
    folder's `checklist.md` shows a parked step, the marker is counted in
    `stuck_parked`, not a fire.
@@ -119,7 +123,14 @@ and pulled in. Set `as_of` for builds that must agree.
 ### Statuses and "nothing on fire"
 
 Every source gives a status: the fires list one for the file, and the P0
-and STUCK sources one per site, in config order.
+and STUCK sources one per site, in config order. A source that could not
+be read at all gives one `not_read` status with no site instead, and so
+does a fires step that failed outside the sources (the source `fires`);
+the build names each such status on stderr, as
+`gantry: warning: fires source <name> is not read: <reason>` or
+`gantry: warning: fires not collected: <reason>`. After that failure
+`BuildResult.fires_list` is `None` and `BuildResult.records` is empty when
+it came before they were read.
 
 | Status | Meaning |
 |---|---|
@@ -143,20 +154,28 @@ it, and so does a report with no status at all. For each source:
   has none, and `not_read` (with the site's reason) otherwise, a case clash
   and an invalid site name included. It is `read_with_problems` when the
   parser reported a `WBS.md` line it did not read as a leaf (a
-  `bad_priority` or `skipped_line` entry), since a mistyped P0 may hide
-  there. The parser reports only some mistyped lines, so a P0 can still be
+  `bad_priority` or `skipped_line` entry), or a `WBS.md` with no node line
+  at all (a `no_nodes` entry), since a mistyped P0 may hide there. The
+  parser reports only some mistyped lines, so a P0 can still be
   missed with every status `read`: on a line it neither reads as a leaf nor
   reports, or in metadata it does not read. Examples, not a complete list:
   `- [ ] Fix the crane {priority: P0} today` (text after the braces, so no
   metadata is read), `- [ ] Fix the crane {Priority: P0}` (the key is
   case-sensitive), `* [ ] Fix the crane {priority: P0}` and
   `1. [ ] Fix the crane {priority: P0}` (not a `- ` bullet, so not a node).
+  The same shapes hide a STUCK fire: when the leaf a marker names is on
+  such a line, or its `issue:` is not read, the marker is counted in
+  `stuck_no_open_leaf` with every status `read`.
 - A site's STUCK status is `not_read` when it has no planning directory, or
   its planning directory or its records could not be read. It is `read_with_problems`
   when a STUCK fire's marker could not be read, failed closed as
   `parked_unknown` or has no readable time, or when the planning directory
   holds a linked issue folder: Gantry never follows a link, so a linked
-  folder is never read. The reason gives counts only, never a folder name.
+  folder is never read. It is also `read_with_problems` when a marker is
+  counted in `stuck_no_open_leaf` while the site's P0 status is
+  `read_with_problems` for its `WBS.md` lines, since the marker's leaf may
+  be the line that was not read. The reason gives counts only, never a
+  folder name.
 
 ### The stdout line
 
@@ -182,9 +201,11 @@ harbor's two STUCK markers, with marsh's unreadable `WBS.md` as the one
 source not fully read.
 
 To find which source is behind a non-zero M, read the report's statuses
-(`BuildResult.fires.sources`, each with a reason that names no path), or run
-`gantry fires` for the fires list. A script that read the last stdout line
-of `gantry build` reads this line now.
+(`BuildResult.fires.sources`; a reason never names a path), or run
+`gantry fires` for the fires list. Its own `fires: N, ended: M` line
+counts the fires list alone, so its N can be smaller than the build's. A
+script that read the last stdout line of `gantry build` reads this line
+now.
 
 ### The report
 
@@ -203,7 +224,10 @@ escaping happens where a page shows it.
 The sources are an ordered registry, `gantry.fires.SOURCES`. A source is a
 `FireSource` with a `name` and a `collect(context)` that returns a
 `SourceResult` of fires and statuses; the context holds the build's result,
-config, fires list, issue records and reference time. A source that raises
+config, fires list, issue records and reference time. A source that
+raises, returns something that is not a `SourceResult`, or gives no status
 gets one `not_read` status and loses its fires; the others still run. Its
-fires follow the STUCK fires. This interface is provisional until a second
+fires follow the STUCK fires. The order and the P0 and STUCK merge key on
+the names `fires_list`, `p0_leaf` and `stuck`, so a new source takes a
+name of its own. This interface is provisional until a second
 source outside `gantry/fires.py` binds to it.

@@ -192,11 +192,11 @@ def test_nul_devdoc_dir_is_a_site_problem_not_a_crash(tmp_path, capsys):
     assert sites[1].problem is None
     capsys.readouterr()
     assert main(["build", "--config", str(p)]) == 0
-    # The page, the index, the plan file, then the fires line (#32): no fires_list, and the
-    # NUL site's P0 and STUCK sources are not read.
+    # The page, the index, the plan file, then the fires line (#32): no fires_list, the
+    # NUL site's P0 and STUCK sources are not read, and alpha's WBS.md has no node line.
     lines = capsys.readouterr().out.splitlines()
     assert len(lines) == 4
-    assert lines[-1] == "fires: 0; sources not fully read: 3"
+    assert lines[-1] == "fires: 0; sources not fully read: 4"
 
 
 @pytest.mark.parametrize("target,error,expected", [
