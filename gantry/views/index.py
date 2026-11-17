@@ -3,8 +3,9 @@
 render_index reads the BuildResult every view reads. A built site's line
 links its page and gives its open leaves, its finish at the default lanes
 and its report count; a site that was not built gives its reason. The index
-leaves three slots empty for later views: a headline, a per-site slot on each
-line, and a list of links to other views. There is no page script.
+leaves two slots empty for later views, a headline and a per-site slot on each
+line; its list of links to other views holds the week view, week.html (#38),
+when the build wrote it. There is no page script.
 docs/worksite-page.md describes the index.
 """
 

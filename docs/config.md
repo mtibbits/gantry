@@ -286,7 +286,8 @@ empty one, is an error: a build with no sites almost always means
 a wrong path.
 
 `gantry build` builds every site: each site's worksite page to
-`<output_dir>/sites/<name>.html`, then `<output_dir>/index.html`, which
+`<output_dir>/sites/<name>.html`, then the week view,
+`<output_dir>/week.html`, then `<output_dir>/index.html`, which
 lists every site with its open leaves, finish and report count, or why it
 was not built, then the week plan, `<output_dir>/week-plan.json`
 ([week-plan.md](week-plan.md#the-plan-file)). It prints one absolute path
@@ -310,7 +311,7 @@ pages, the index, the reasons and the errors. The page's durations use
 | Code | Meaning |
 |---|---|
 | 0 | the index was written and at least one site page was written (sites not built and warnings do not change it), or `--site` wrote its page |
-| 1 | a config error: the installation config or devagent's config is missing, unreadable, invalid or refused; no site page was written (the index is still written); the index or the output folder cannot be written; the plan file cannot be written; or, with `--site`, a site that is not configured, clashes in case with an earlier site or cannot be built, a render error, or a page that cannot be written |
+| 1 | a config error: the installation config or devagent's config is missing, unreadable, invalid or refused; no site page was written (the index is still written); the index or the output folder cannot be written; the week page cannot be rendered or written; the plan file cannot be written; or, with `--site`, a site that is not configured, clashes in case with an earlier site or cannot be built, a render error, or a page that cannot be written |
 | 2 | a usage error, such as a missing `--config` |
 
 ## Supported platforms

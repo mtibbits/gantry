@@ -88,18 +88,19 @@ SAMPLE_FIRES_LINE = "fires: 7; sources not fully read: 1"  # the demo's fires (#
 
 def check_written(stdout_bytes, out_dir):
     """The full build's stdout: one absolute path per written file, the pages in
-    config order, then the index, then the plan file (#61), then the trace
-    line, then the fires line (#32)."""
+    config order, then the week view (#38), then the index, then the plan file
+    (#61), then the trace line, then the fires line (#32)."""
     assert b"\r" not in stdout_bytes
     lines = stdout_bytes.decode("utf-8").splitlines()
     pages = [name for name in sample_projects() if name in READABLE]
     # Then the one sample site in the trace prints its trace line (#20), and the fires line is last.
-    assert len(lines) == len(pages) + 4 == 8
-    assert lines[6:] == [SAMPLE_TRACE_LINE, SAMPLE_FIRES_LINE]
-    lines = lines[:6]
+    assert len(lines) == len(pages) + 5 == 9
+    assert lines[7:] == [SAMPLE_TRACE_LINE, SAMPLE_FIRES_LINE]
+    lines = lines[:7]
     assert all(os.path.isabs(line) for line in lines), lines
     for line, name in zip(lines, pages):
         assert os.path.samefile(line, out_dir / "sites" / f"{name}.html"), (line, name)
+    assert os.path.samefile(lines[-3], out_dir / "week.html")
     assert os.path.samefile(lines[-2], out_dir / "index.html")
     assert os.path.samefile(lines[-1], out_dir / "week-plan.json")
 
@@ -136,8 +137,9 @@ def test_write_site_tree_builds_sites(tmp_path, capsys):
     assert main(["build", "--config", str(config)]) == 0
     out = tmp_path / "out"
     assert capsys.readouterr().out.splitlines() == [
-        str(out / "sites" / "alpha.html"), str(out / "sites" / "beta.html"), str(out / "index.html"),
-        str(out / "week-plan.json"), "fires: 0; sources not fully read: 2"]  # no fires_list; beta has no node line
+        str(out / "sites" / "alpha.html"), str(out / "sites" / "beta.html"), str(out / "week.html"),
+        str(out / "index.html"), str(out / "week-plan.json"),
+        "fires: 0; sources not fully read: 2"]  # no fires_list; beta has no node line
     assert "14 open leaves" in (out / "index.html").read_bytes().decode("utf-8")
     assert NO_LEAVES in (out / "sites" / "beta.html").read_bytes().decode("utf-8")
 
@@ -292,7 +294,7 @@ def test_unread_keys_leave_pages_and_trace_inputs_change_them(tmp_path, monkeypa
     code, out, plain_out, plain_err = demo_build(tmp_path, monkeypatch, copy=copy)
     assert code == 0
     plain = written_bytes(out)
-    assert len(plain) == 6  # four pages, the index and week-plan.json (#61)
+    assert len(plain) == 7  # four pages, week.html (#38), the index and week-plan.json (#61)
     replace_bytes(config, 'fires_list = "fires.md"', 'fires_list = "nope.md"')
     code, out, nope_out, nope_err = demo_build(tmp_path, monkeypatch, copy=copy)
     assert code == 0
@@ -313,8 +315,9 @@ def test_unread_keys_leave_pages_and_trace_inputs_change_them(tmp_path, monkeypa
     code, out, _, err = demo_build(tmp_path, monkeypatch, copy=copy)
     assert code == 0 and err == nope_err
     moved = written_bytes(out)
-    # The week plan reads the portfolio file's capacity (#61): with no settings there is no plan.
-    assert {k for k in plain if moved[k] != plain[k]} == {f"sites/{SMALL}.html", "week-plan.json"}
+    # The week plan reads the portfolio file's capacity (#61): with no settings there is no
+    # plan, and the week view (#38) says so.
+    assert {k for k in plain if moved[k] != plain[k]} == {f"sites/{SMALL}.html", "week-plan.json", "week.html"}
     undefined = dict(trace(moved, SMALL)["report"])["undefined"]
     assert len(undefined) == 2 and "life:BR-1 names no requirement" in undefined[0][2]
 

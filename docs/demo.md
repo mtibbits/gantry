@@ -117,7 +117,7 @@ should hold, with the issue that owns it:
 | `sites/lighthouse.html`, element `served-elsewhere` | #21 | `required` |
 | `strategic.html` | #23 | `pending` |
 | `daily.html` | #34 | `pending` |
-| `week.html` | #38 | `pending` |
+| `week.html` | #38 | `required` |
 | `week-plan.json` | #61 | `required` |
 
 `required` means the build at this commit writes it: missing is a finding.

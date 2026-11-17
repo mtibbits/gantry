@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<title>{{TITLE}}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+/* The index's sheet, widened for the days. */
+:root {
+  --bg: #f3f4f6; --sheet: #ffffff; --ink: #18202c; --muted: #5d6878; --rule: #d6dbe3; --link: #3a55c9;
+  --block: #eef1f8; --lane: #f2f6ee; --today: #c9821d;
+  --f-display: "Arial Narrow", "Segoe UI", system-ui, sans-serif;
+  --f-body: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --f-mono: ui-monospace, "Cascadia Mono", Consolas, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0f131a; --sheet: #161c25; --ink: #e5e9ef; --muted: #98a3b3; --rule: #2b3442; --link: #8fa3ff;
+          --block: #1d2533; --lane: #1c2a20; --today: #e0a54a; }
+}
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--f-body); }
+.wrap { max-width: 80rem; margin: 0 auto; padding: 2rem 1.25rem 3rem; background: var(--sheet); min-height: 100vh; }
+h1 { font: 600 2rem/1.2 var(--f-display); margin: .25rem 0 1rem; }
+h2 { font: 600 1.15rem/1.3 var(--f-display); margin: .5rem 0 .25rem; }
+h3 { font-size: .9rem; font-weight: 600; margin: .25rem 0; }
+.label { color: var(--muted); font-size: .85rem; margin: .25rem 0; }
+a { color: var(--link); }
+ul { padding-left: 1.25rem; margin: .25rem 0; }
+#lines p, #lines li { margin: .2rem 0; }
+#lines .rule, #lines .mapping, #lines .capacity, #notes li { color: var(--muted); font-size: .9rem; }
+#days { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: .75rem; margin: 1rem 0; }
+.day { border: 1px solid var(--rule); border-radius: 4px; padding: .5rem .6rem; overflow-wrap: anywhere; }
+.day[data-today] { border-color: var(--today); }
+.day .today { color: var(--today); font-weight: 600; margin: 0; }
+.day .hours, .day .reserved, .day .left, .day .none { color: var(--muted); font-size: .85rem; margin: .2rem 0; }
+.block { background: var(--block); border-radius: 3px; padding: .3rem .4rem; margin: .4rem 0; }
+.lanes { background: var(--lane); border-radius: 3px; padding: .3rem .4rem; margin: .4rem 0; }
+.leaf { margin: .3rem 0; font-size: .9rem; }
+.leaf > span { display: block; color: var(--muted); font-size: .8rem; }
+.leaf > .unest, .leaf > .state, .leaf > .tier { color: var(--ink); }
+.leaf > .cont { font-style: italic; }
+.site-unplanned { margin: .5rem 0; }
+.reason { color: var(--muted); }
+#not-built li { color: var(--muted); }
+table { border-collapse: collapse; margin: .5rem 0; }
+th, td { border-bottom: 1px solid var(--rule); padding: .25rem .6rem; text-align: left; font-size: .9rem; }
+button { font: inherit; font-size: .85rem; margin: .25rem .25rem .25rem 0; }
+.gone { display: none; }
+</style>
+</head>
+<body>
+<main class="wrap">
+  {{STAMP}}
+  <h1>{{TITLE}}</h1>
+  {{BODY}}
+</main>
+<script type="application/json" id="gantry-data">{{DATA}}</script>
+<script id="gantry-page">{{PAGE_JS}}</script>
+</body>
+</html>
