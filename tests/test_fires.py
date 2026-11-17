@@ -90,7 +90,7 @@ def test_vocabularies():
 def a_fire(**kw):
     values = dict(kinds=("fires_list",), site=None, site_as_written=None, issue=None, leaf_key=None, title=None,
                   why=("a reason",), unreadable=False, fail_closed=None, since=None, date_only=False, age=None,
-                  still_a_fire=False, this_machine=False)
+                  still_a_fire=False)
     values.update(kw)
     return Fire(**values)
 

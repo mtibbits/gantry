@@ -19,7 +19,7 @@ from gantry.attention import check_h
 from gantry.config import Config, error_reason
 from gantry.crosssite import resolve_foreign
 from gantry.devagent_records import NOT_READ, SiteRecords, read_site_records
-from gantry.fires import FireReport, SourceStatus, collect_fires, fire_reference, naive_reference
+from gantry.fires import FireReport, SourceStatus, collect_fires, fire_reference, naive_reference, source_failed
 from gantry.fires_list import FiresList, read_fires_list
 from gantry.inputs import Inputs, apply_inputs
 from gantry.model import ForeignOutcome
@@ -317,7 +317,7 @@ def read_records(roots, sites) -> dict:
         try:
             found[site.name] = read_site_records(roots, site.planning_dir, site=site.name)
         except Exception as e:
-            found[site.name] = SiteRecords(NOT_READ, f"records read failed: {type(e).__name__}", {}, {})
+            found[site.name] = SiteRecords(NOT_READ, source_failed(e, "records read"), {}, {})
     return found
 
 
@@ -333,7 +333,7 @@ def collect_build_fires(result, config, sites, now):
         records = read_records(result.roots, sites)
         fires = collect_fires(result, config, fires_list, records, reference)
     except Exception as e:
-        fires = FireReport((), (SourceStatus("fires", None, "not_read", f"collector failed: {type(e).__name__}"),))
+        fires = FireReport((), (SourceStatus("fires", None, "not_read", source_failed(e, "collector")),))
     return replace(result, fires_list=fires_list, records=records, fires=fires)
 
 

@@ -34,19 +34,23 @@ FAIL_CLOSED = ("leaf_unknown", "parked_unknown")
 @dataclass(frozen=True)
 class Fire:
     kinds: tuple[str, ...]  # source names, in registry order
-    site: str | None  # a configured site name
-    site_as_written: str | None  # a fires-list @name that is not a site
-    issue: str | None  # the leaf's issue: or the folder name
-    leaf_key: str | None
-    title: str | None
     why: tuple[str, ...]  # one per kind, parallel to kinds
-    unreadable: bool
-    fail_closed: str | None  # None, "leaf_unknown" or "parked_unknown"
-    since: datetime | None  # aware; in the reference's zone when read from a naive time
-    date_only: bool
-    age: timedelta | None  # never below 0; None exactly when since is None
-    still_a_fire: bool | None  # None unless "fires_list" is in kinds
-    this_machine: bool  # true exactly when "stuck" is in kinds: STUCK markers are this machine's
+    site: str | None = None  # a configured site name
+    site_as_written: str | None = None  # a fires-list @name that is not a site
+    issue: str | None = None  # the leaf's issue: or the folder name
+    leaf_key: str | None = None
+    title: str | None = None
+    unreadable: bool = False
+    fail_closed: str | None = None  # None, "leaf_unknown" or "parked_unknown"
+    since: datetime | None = None  # aware; in the reference's zone when read from a naive time
+    date_only: bool = False
+    age: timedelta | None = None  # never below 0; None exactly when since is None
+    still_a_fire: bool | None = None  # None unless "fires_list" is in kinds
+
+    @property
+    def this_machine(self) -> bool:
+        """STUCK markers are this machine's."""
+        return "stuck" in self.kinds
 
 
 @dataclass(frozen=True)
@@ -113,7 +117,7 @@ def fire_reference(config, now, local=None) -> datetime:
     (None: the system zone). The rule itself is gantry.fires_list's."""
     if not _aware(now):
         raise ValueError("the build time must be timezone-aware")
-    here = now.astimezone(local) if local is not None else now.astimezone()
+    here = now.astimezone(local)
     naive = fires_list.fires_reference(config, here.replace(tzinfo=None))
     zone = timezone.utc if config.as_of_pinned else timezone(here.utcoffset())
     return naive.replace(tzinfo=zone)
@@ -183,8 +187,8 @@ class FireSource:  # provisional
         raise NotImplementedError
 
 
-def source_failed(e: Exception) -> str:
-    return f"source failed: {type(e).__name__}"
+def source_failed(e: Exception, what="source") -> str:
+    return f"{what} failed: {type(e).__name__}"
 
 
 class PerSiteSource(FireSource):
@@ -231,16 +235,14 @@ class FiresListSource(FireSource):
             unreadable = entry.state == "unreadable"
             found.append(Fire(
                 kinds=(self.name,),
+                why=(entry.raw if unreadable else entry.reason,),
                 site=entry.site if entry.site_known else None,
                 site_as_written=None if entry.site_known else entry.site,
-                issue=None, leaf_key=None, title=None,
-                why=(entry.raw if unreadable else entry.reason,),
-                unreadable=unreadable, fail_closed=None,
+                unreadable=unreadable,
                 since=_in_zone(fires_list.entry_since(entry), reference),
                 date_only=entry.date is not None and entry.time is None,
                 age=fires_list.entry_age(entry, naive),
                 still_a_fire=fires_list.still_a_fire(entry, naive, context.config.fires_check_days),
-                this_machine=False,
             ))
         reason = listed.reason
         if listed.status == "read_with_problems":
@@ -258,12 +260,10 @@ class P0Source(PerSiteSource):
     name = "p0_leaf"
 
     def collect_site(self, context, entry, view) -> SourceResult:
-        found = tuple(Fire(
-            kinds=(self.name,), site=view.name, site_as_written=None, issue=leaf.issue, leaf_key=leaf.key,
-            title=leaf.title, why=("P0 leaf",), unreadable=False, fail_closed=None, since=None, date_only=False,
-            age=None, still_a_fire=None, this_machine=False,
-        ) for leaf in view.leaves if priority.rank(leaf.priority) == 0 and in_open_state(leaf))
-        if view.wbs == "read" and view.unread_lines:
+        found = tuple(Fire(kinds=(self.name,), why=("P0 leaf",), site=view.name, issue=leaf.issue, leaf_key=leaf.key,
+                           title=leaf.title)
+                      for leaf in view.leaves if priority.rank(leaf.priority) == 0 and in_open_state(leaf))
+        if view.unread_lines:  # only a read WBS.md has unread lines
             status = self.status(context, view.name, "read_with_problems",
                                  f"WBS.md lines not read as leaves: {view.unread_lines}")
         else:
@@ -358,10 +358,10 @@ class StuckSource(PerSiteSource):
         if closed_why is not None:
             why = f"{closed_why}; {why}"
         return Fire(
-            kinds=(self.name,), site=site, site_as_written=None, issue=issue,
+            kinds=(self.name,), why=(why,), site=site, issue=issue,
             leaf_key=None if leaf is None else leaf.key, title=None if leaf is None else leaf.title,
-            why=(why,), unreadable=record.status != PRESENT, fail_closed=fail_closed, since=since,
-            date_only=False, age=_age(since, context.reference), still_a_fire=None, this_machine=True,
+            unreadable=record.status != PRESENT, fail_closed=fail_closed, since=since,
+            age=_age(since, context.reference),
         )
 
 
@@ -383,8 +383,7 @@ def _merge(p0_fires, stuck_fires):
             continue
         p = merged[i]
         merged[i] = replace(p, kinds=p.kinds + fire.kinds, why=p.why + fire.why, since=fire.since, age=fire.age,
-                            unreadable=fire.unreadable, fail_closed=fire.fail_closed,
-                            this_machine=fire.this_machine)
+                            unreadable=fire.unreadable, fail_closed=fire.fail_closed)
     return merged, left
 
 
@@ -430,15 +429,13 @@ def collect_fires(result, config, fires_list, records, reference) -> FireReport:
         except Exception as e:
             got = SourceResult((), (SourceStatus(source.name, None, "not_read", source_failed(e)),))
         collected.append((source.name, got))
-    groups = [[name, list(got.fires)] for name, got in collected]
-    p0_group = next((g for g in groups if g[0] == "p0_leaf"), None)
-    stuck_group = next((g for g in groups if g[0] == "stuck"), None)
-    if p0_group is not None and stuck_group is not None:
-        p0_group[1], stuck_group[1] = _merge(p0_group[1], stuck_group[1])
+    groups = {name: list(got.fires) for name, got in collected}
+    if "p0_leaf" in groups and "stuck" in groups:
+        groups["p0_leaf"], groups["stuck"] = _merge(groups["p0_leaf"], groups["stuck"])
     site_order = {entry.name: i for i, entry in enumerate(result.sites)}
     parked, no_leaf = {}, {}
     for _, got in collected:
         parked.update(got.stuck_parked)
         no_leaf.update(got.stuck_no_open_leaf)
-    return FireReport(tuple(order_fires(groups, site_order)), tuple(s for _, got in collected for s in got.statuses),
+    return FireReport(tuple(order_fires(groups.items(), site_order)), tuple(s for _, got in collected for s in got.statuses),
                       parked, no_leaf)
