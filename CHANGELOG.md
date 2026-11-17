@@ -12,6 +12,8 @@ into its section here.
 
 New entries are files in changelog.d/; README's "Versioning & releases" says how.
 
+## [0.1.1] — 2026-11-17
+
 ### Added
 
 - The fires list: a private Markdown file of fires that are not leaves yet,
@@ -37,13 +39,38 @@ New entries are files in changelog.d/; README's "Versioning & releases" says how
   contract test against devagent 3.0.0 (`tests/devagent.pin`) on the Ubuntu
   CI legs; the harbor sample gains seven issue folders
   (docs/devagent-formats.md).
-
 - The "Served from other sites" panel on a worksite page (#21): in a full
   build, each leaf on another site whose `satisfies:` names one of this
   site's requirements, linked to its leaf on that site's page and lit when
   its requirement is selected; requirement IDs of another built site link
   to its page; the trace report gains `sites_not_read` and
   `undefined_foreign` (docs/worksite-page.md, docs/requirements-format.md).
+- Every full build collects the installation's fires across sites (the
+  fires list, open P0 leaves and devagent STUCK markers), with a read
+  status for every source, and prints `fires: N; sources not fully read: M`
+  as its last stdout line (docs/daily-screen.md#fires); a script that read
+  the last stdout line of `gantry build` now reads that line. The line
+  prints even when the build exits 1 after collecting, such as when the
+  output folder cannot be made, so stdout is no longer empty there. A fires
+  source that cannot be read at all is named on stderr. Reading every issue
+  folder's records makes a full build slower on a large installation
+  (mtibbits/gantry#171 follows up).
+- The week view page: every full build writes `week.html` beside the
+  index, and the index links it as "Week view". It shows the week plan's
+  10 working days (5 at first, with a control for all 10), each day's
+  blocks, lanes row and what was left, each leaf's hours, need or rate,
+  tag and basis, the binding pool, the allocation rule, the mapping, the
+  unestimated count, share-less sites, P0 leaves, each site's unplanned
+  leaves by reason and the per-site shares and charges; it computes
+  nothing itself (docs/week-plan.md#the-week-view-page).
+- The fires list also reports lines that look like entries but miss the
+  marker rule, such as `[] 2026-10-24 ...`, `1. [xx] ...` or
+  `> - [ ] ...`, as unreadable entries
+  (docs/fires-list.md#entry-like-lines).
+- `python3 tools/next_requirement_id.py <code>` prints the next free
+  requirement ID for a layer, counting `main`, the working tree, and open
+  issues and pull requests by the owner, a member or a collaborator; it
+  writes nothing and refuses rather than guess.
 
 ### Changed
 
@@ -67,6 +94,22 @@ New entries are files in changelog.d/; README's "Versioning & releases" says how
 - A break now includes raising the oldest supported version of a tool, and
   a release with a break says in its CHANGELOG section what to change
   (README.md).
+- `gantry build` prints the path of `week.html` between the site pages and
+  `index.html`, and exits 1 with `gantry: error: cannot render week.html:
+  ...` or `gantry: error: cannot write week.html: ...` when the week view
+  cannot be rendered or written; the index is then written without its
+  "Week view" link and the plan file is still written
+  (docs/worksite-page.md#every-site-and-the-index).
+- Changelog entries are files: a change adds
+  `changelog.d/<key>.<kind>.md` instead of a line under `## [Unreleased]`,
+  and `python3 tools/changelog.py release <version> <date>` compiles the
+  waiting files into the release's section; `check` and `preview` report
+  and show what is waiting (README.md).
+- `docs/requirements.md` now says to take a new requirement's ID from
+  `tools/next_requirement_id.py`, claim it in the issue's body, and that the
+  pull request merging second renumbers; IDs are never renumbered or reused
+  once they are on `main`. `docs/requirements-format.md` defines a number as
+  used once it is on the file's default branch.
 
 ## [0.1.0] — 2026-11-14
 

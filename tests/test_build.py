@@ -921,7 +921,8 @@ def test_no_home_defers_to_32():
         text = " ".join((ROOT / rel).read_bytes().decode("utf-8").split())
         assert "fires:" in text, rel
     # The changelog names both stdout changes: a new last line, and a line on a failed build.
-    entry = " ".join((ROOT / "changelog.d" / "32.added.md").read_bytes().decode("utf-8").split())
+    # Read CHANGELOG.md: a release compiles changelog.d/32.added.md into it and deletes the file.
+    entry = " ".join((ROOT / "CHANGELOG.md").read_bytes().decode("utf-8").split())
     assert "last stdout line" in entry and "even when the build exits 1" in entry
 
 
