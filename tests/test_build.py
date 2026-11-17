@@ -300,6 +300,21 @@ def test_page_write_error_lists_site(tmp_path):
     index = (tmp_path / "out" / "index.html").read_bytes().decode("utf-8")
     assert "not built: cannot write sites/beta.html: " in index
     assert str(tmp_path) not in index
+    # The strategic page agrees (I2): beta is not built there either, and its hours are in no total.
+    from helpers_strategic import page_data
+    from test_index_page import figure_of, site_lines
+    from test_worksite_page import find, text_of, tree
+
+    data = page_data((tmp_path / "out" / "strategic.html").read_bytes().decode("utf-8"))
+    assert [(g["kind"], g["sites"]) for g in data["groups"]] == [("no_share", ["alpha"]), ("not_built", ["beta"])]
+    panels = {p["site"]: p for p in data["panels"]}
+    assert panels["beta"]["reason"].startswith("cannot write sites/beta.html: ")
+    assert panels["beta"]["hours"] is None and panels["alpha"]["hours"] > 0
+    assert data["totals"]["hours"] == panels["alpha"]["hours"]
+    t = tree(index)
+    lines = site_lines(t)
+    assert text_of(t, figure_of(t, "index-share", lines["alpha"][0])) == "backlog share 100% (includes 14 unestimated leaves)"
+    assert [text_of(t, i) for i in find(t, "span", ("extra",), within=lines["beta"][0])] == [""]
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX file modes only")
@@ -790,6 +805,8 @@ def test_build_homes_name_the_plan_file(capsys):
         text = " ".join((ROOT / rel).read_bytes().decode("utf-8").split())
         assert "plan file cannot be written" in text, rel
         assert "strategic.html cannot be made or written" in text, rel
+    readme = " ".join((ROOT / "README.md").read_bytes().decode("utf-8").split())
+    assert "its page paths (`index.html`, `strategic.html`, `sites/<name>.html`)" in readme
     doc = " ".join((ROOT / "docs" / "worksite-page.md").read_bytes().decode("utf-8").split())
     assert "Four more lines can follow on stderr" in doc
     assert "not attempted when the output folder itself cannot be made" in doc

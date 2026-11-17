@@ -138,7 +138,8 @@ def test_placement_line_subprocess(tmp_path):
     page(copy)
     path = copy / "out" / "strategic.html"
     ran = subprocess.run([sys.executable, "-c", ONE_LINER, str(path)], cwd=ROOT, capture_output=True, check=True)
-    assert ran.stdout.decode("utf-8") == "6 configured projects, 6 placed\n"
+    # splitlines: a Windows child writes CRLF on its text stdout.
+    assert ran.stdout.decode("utf-8").splitlines() == ["6 configured projects, 6 placed"]
     assert placement_line(path) == "6 configured projects, 6 placed"
 
 
@@ -392,3 +393,26 @@ def test_strategic_doc_states_texts():
     for name in ("`data-figure`", "`data-source`", "`data-unestimated`", "`strategic.html`", ONE_LINER):
         assert name in doc, name
     assert SERVING in " ".join(doc.split())
+
+
+def test_render_failed_site_counts_as_not_built(tmp_path, monkeypatch):
+    """A site read but not rendered is not built (I2): its hours leave every share."""
+    from gantry.views import worksite
+
+    render_model = worksite.render_model
+
+    def failing(m, **kw):
+        if m["site"] == SMALL:
+            raise ValueError("forced")
+        return render_model(m, **kw)
+
+    monkeypatch.setattr(worksite, "render_model", failing)
+    text, _ = demo(tmp_path)
+    t = tree(text)
+    assert [g["sites"] for g in page_data(text)["groups"] if g["kind"] == "not_built"] == [[SMALL, NO_WBS, UNREADABLE]]
+    (total,) = figures(t, "total")
+    assert text_of(t, total).startswith("Open work across built sites: 250 h, ")  # harbor 130, orchard 90, quarry 30
+    shares = {site: text_of(t, figures(t, "backlog", panel_of(t, site))[0]) for site in (BUSY, OWN_UNIT, UNESTIMATED)}
+    assert shares == {BUSY: "backlog share, not effort: 52%",
+                      OWN_UNIT: "backlog share, not effort: 36%, includes 5 unestimated leaves",
+                      UNESTIMATED: "backlog share, not effort: 12%, includes 5 unestimated leaves"}

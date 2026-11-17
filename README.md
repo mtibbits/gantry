@@ -235,7 +235,8 @@ on fail. An installation depends on:
   [fires list](docs/fires-list.md). Files in devagent's formats,
   such as `WBS.md` and the estimates file, follow devagent's
   compatibility, not this rule;
-- the output folder: its page paths (`index.html`, `sites/<name>.html`), and
+- the output folder: its page paths (`index.html`, `strategic.html`,
+  `sites/<name>.html`), and
   `week-plan.json`, where a change that bumps `plan_version` is a break
   ([its version rule](docs/week-plan.md#the-version-rule));
 - a command's contract: `gantry build`, `gantry portfolio`, `gantry fires`
