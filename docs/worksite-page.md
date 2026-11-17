@@ -214,7 +214,8 @@ a build, and each is a report entry.
 2. Else the leaf's row in the estimates file, if its `hours` cell reads
    (`estimates_file`).
 3. Else the default unit, `default_unit_hours` (`default`): the leaf is
-   **unestimated** and listed in the panel.
+   **unestimated** and counted in the panel's unestimated line, which names
+   at most the first 20 of its class.
 
 A placeholder, non-time or unparseable `est:` does not stop the row from
 applying. Model tiers, the effort bucket and flags come from the leaf's row
@@ -510,7 +511,9 @@ two changes:
   them: `{n} leaves with {what} and no estimates-file hours are unestimated: {keys}`,
   or `1 leaf with {what} and no estimates-file hours is unestimated: {keys}`,
   where `{what}` is `no est:`, `a placeholder est:`, `a non-time est:` or
-  `an unparseable est:`.
+  `an unparseable est:`. `{keys}` lists at most 20 keys, in report order.
+  A longer list is cut to its first 20 and reads `{keys} and {more} more`,
+  where `{more}` counts the keys left out; `{n}` stays the class's total.
   It is left out of the network and the schedule, and the rest of the page
   renders.
 

@@ -797,6 +797,26 @@ def test_panel_groups_unestimated_by_class(tmp_path):
     assert not [line for line in panel if "scheduled at the default unit" in line]
 
 
+@pytest.mark.parametrize("n", [20, 21, 160])
+def test_unestimated_line_capped(tmp_path, n):
+    # At most 20 keys, in report order, then "and N more"; {n} stays the total (#108).
+    text = "".join(f"- [ ] L{i} {{issue: Issue-{i}}}\n" for i in range(1, n + 1))
+    inputs = inputs_for(tmp_path / "many", text)
+    lines = [line for line in model_with(inputs)["panel"] if " and no estimates-file hours " in line]
+    assert len(lines) == 1
+    (line,) = lines
+    assert line.startswith(f"{n} leaves with no est: and no estimates-file hours are unestimated: ")
+    assert line.count("Issue-") == min(n, 20)
+    tails = {20: "Issue-19, Issue-20", 21: "Issue-19, Issue-20 and 1 more", 160: "Issue-20 and 140 more"}
+    assert line.endswith(tails[n])
+    if n <= 20:
+        assert " more" not in line
+    keys = ", ".join(f"Issue-{i}" for i in range(1, min(n, 20) + 1))
+    if n > 20:
+        keys = worksite.UNESTIMATED_MORE.format(keys=keys, more=n - 20)
+    assert line == worksite.UNESTIMATED_LINE.format(n=n, what="no est:", keys=keys)
+
+
 def test_inherit_tier_is_text_with_fallback(tmp_path):
     t = tree(page_with(est_inputs(tmp_path)))
     (node,) = [i for i in find(t, "g", ["node"]) if t.elements[i]["attrs"]["data-item"] == "Issue-21"]
@@ -1322,7 +1342,7 @@ PAGE_TEXTS = [getattr(worksite, name) for name in (
     "SUMMARY_NO_CHAIN_XSITE", "LIMITS_CAPTION_NO_CHAIN_XSITE", "NO_CHAIN_XSITE", "HOURS_NOTE_NONE",
     "HOURS_NOTE_NONE_XSITE",
     # An estimates file's edges (#108).
-    "ESTIMATES_BAD_DATE")] + list(worksite.STATE_MARKS.values()) + list(worksite.FBOX_LINE.values())
+    "ESTIMATES_BAD_DATE", "UNESTIMATED_MORE")] + list(worksite.STATE_MARKS.values()) + list(worksite.FBOX_LINE.values())
 
 
 def test_doc_states_page_texts():
@@ -1350,6 +1370,14 @@ def test_doc_states_estimates_messages():
                  inputs.MESSAGES["unmatched_zero"]]
     doc = " ".join((ROOT / "docs" / "worksite-page.md").read_bytes().decode("utf-8").split())
     assert [t for t in templates if f"`{t}`" not in doc] == []
+
+
+def test_doc_states_unestimated_cap():
+    doc = (ROOT / "docs" / "worksite-page.md").read_bytes().decode("utf-8")
+    section = doc.split("### Missing or unreadable", 1)[1].split("\n### ", 1)[0]
+    assert worksite.UNESTIMATED_CAP == 20
+    assert f"at most {worksite.UNESTIMATED_CAP} keys" in " ".join(section.split())
+    assert "listed in the panel" not in " ".join(doc.split())
 
 
 # --- final-review fixes --------------------------------------------------------------
