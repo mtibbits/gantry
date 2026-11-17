@@ -32,7 +32,7 @@ from helpers_config import sample_projects, written_bytes
 from helpers_docs import heading_anchors, markdown_text, section
 from sample_roles import NO_WBS, READABLE, UNREADABLE
 from test_devagent_contract import fake_checkout
-from test_samples import ROOT, SAMPLES
+from test_samples import ROOT, SAMPLES, git_work_tree, needs_git
 
 # U1: what devagent says of the sample site whose WBS.md is not UTF-8.
 MARSH_REASON = "WBS.md could not be read: UnicodeDecodeError: invalid continuation byte at byte 88"
@@ -175,9 +175,12 @@ def test_existing_out_is_deleted_only_when_git_ignores_it(tmp_path, monkeypatch)
     assert (out / "kept.txt").read_bytes() == b"x"
 
 
+@needs_git
 def test_real_sample_home_passes_the_guard():
     # .gitignore's out/ rule covers samples/devagent/out, and nothing in it is tracked.
-    sp.guard_out(SAMPLES)
+    if not git_work_tree(ROOT):
+        pytest.skip("the gantry root is not a git work tree")
+    assert sp.guard_out(SAMPLES) == SAMPLES / "devagent" / "out"
 
 
 def test_aggregator_failure_is_reported(tmp_path):
