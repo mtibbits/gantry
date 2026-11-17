@@ -33,6 +33,7 @@ DATES = "dates include {n} unestimated leaves"
 DATES_ONE = "dates include 1 unestimated leaf"
 ESTIMATES_LINE = "Estimates read from {name}, dated {date}."
 ESTIMATES_UNDATED = "Estimates read from {name} (no date)."
+ESTIMATES_BAD_DATE = "Estimates read from {name} (its name's date {date} is not a valid date)."
 NON_TIME_LINE = "Not in any hour figure: {parts}"
 UNESTIMATED_LINE = "{n} leaves with {what} and no estimates-file hours are unestimated: {keys}"
 UNESTIMATED_LINE_ONE = "1 leaf with {what} and no estimates-file hours is unestimated: {keys}"
@@ -598,6 +599,8 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None, built
         traced = {**trace, "requirements": [recorded(r) for r in trace["requirements"]]}
     if source is None:
         estimates_line = None
+    elif source.bad_date is not None:
+        estimates_line = ESTIMATES_BAD_DATE.format(name=source.name, date=source.bad_date)
     elif source.date is None:
         estimates_line = ESTIMATES_UNDATED.format(name=source.name)
     else:

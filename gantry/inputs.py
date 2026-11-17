@@ -39,6 +39,7 @@ MESSAGES = {
 class EstimatesSource:
     name: str
     date: date | None
+    bad_date: str | None = None  # the name's date text when it is not a valid date
 
 
 @dataclass(frozen=True)
@@ -89,7 +90,7 @@ def apply_inputs(roots, site, data, config) -> Inputs:
         read = read_estimates_file(roots, found.path, site.name, found.name, key=found.key)
         report += read.report
         if not any(e.kind in NOT_READ for e in read.report):
-            rows, source = read.rows, EstimatesSource(found.name, found.date)
+            rows, source = read.rows, EstimatesSource(found.name, found.date, found.bad_date)
     unit = config.default_unit_hours
 
     holders = {node.key: node for node in (*data.rows, *data.leaves)}

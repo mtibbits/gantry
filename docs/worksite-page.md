@@ -188,7 +188,7 @@ in this table's order.
 | `no_nodes` | the file has no node lines | shows an empty site |
 | `site_unreadable` | `WBS.md` cannot be opened, read or decoded as UTF-8 | shows the site as unreadable, with the reason |
 | `no_estimates_file` | the site has no estimates file, or its `estimates` key is `false` | reads hours and tiers from `est:` and the default unit only |
-| `estimates_ignored` | a discovered `estimates-*.md` file is not the one read: an earlier date, the same date and an earlier name, or no date | lists the file and why |
+| `estimates_ignored` | a discovered `estimates-*.md` file is not the one read: an earlier date, the same date and an earlier name, no date, or a date that is not a valid date | lists the file and why |
 | `estimates_unreadable` | the configured file does not exist, or the file cannot be opened, is not valid UTF-8, or leads outside the configured roots | continues as if the site had no estimates file |
 | `estimates_no_table` | no line of the file read starts a table whose first header cell is `#` (prose only, other tables only, empty, or a `#` table that is indented or quoted) | reads no rows and continues as if the site had no estimates file; the header names no file |
 | `estimates_column_missing` | an estimates table has no `#`-table column Gantry reads (once per file and column) | reads the rest of the table |
@@ -247,7 +247,10 @@ directory (never below it) for regular files whose names match
 outside the configured roots is kept too, so its read reports the refusal. The latest date is read; among
 files of that date, the name that sorts last. Every other match, and every
 `estimates-*.md` whose name holds no valid date, is listed as
-`estimates_ignored`. With none, the panel says `no estimates file`.
+`estimates_ignored`, with the reason `its name has no date` or, for a date
+that is not a valid date such as `estimates-2026-02-30.md`,
+`its name's date {date} is not a valid date`. With none, the panel says
+`no estimates file`.
 
 A configured path that does not exist, a file that cannot be opened, and one
 that is not valid UTF-8 are each `estimates_unreadable`, naming the config
@@ -486,8 +489,9 @@ when N is above 0:
 
 The header names the estimates file read, `Estimates read from {name}, dated {date}.`
 or `Estimates read from {name} (no date).` for a configured file whose name
-has no date, then the site's non-time quantities,
-`Not in any hour figure: {parts}`, where each part is
+has no date, or `Estimates read from {name} (its name's date {date} is not a valid date).`
+for a configured file whose name's date is not a valid date, then the
+site's non-time quantities, `Not in any hour figure: {parts}`, where each part is
 `{quantity} {unit} ({n} leaves)` and parts are joined with `; `.
 
 ### Missing or unreadable

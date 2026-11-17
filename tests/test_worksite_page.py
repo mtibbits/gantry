@@ -749,6 +749,20 @@ def test_estimates_line_names_file_and_date(tmp_path):
     assert quarry["notes"]["estimates"] is None
 
 
+def test_estimates_line_names_invalid_date(tmp_path):
+    # Driven end to end, so a dropped bad_date pass-through reddens (#108).
+    folder = tmp_path / "bad-date"
+    folder.mkdir()
+    shutil.copyfile(INPUTS / "estimates.md", folder / "estimates-2026-02-30.md")
+    text = (INPUTS / "all-estimated.md").read_bytes().decode("utf-8")
+    inputs = inputs_for(folder, text, configured=folder / "estimates-2026-02-30.md")
+    assert inputs.estimates == EstimatesSource("estimates-2026-02-30.md", None, "2026-02-30")
+    page = visible_text(page_with(inputs))
+    assert "Estimates read from estimates-2026-02-30.md (its name's date 2026-02-30 is not a valid date)." in page
+    assert "(no date)" not in page
+    assert model_with(inputs)["estimates"] == {"name": "estimates-2026-02-30.md", "date": None}
+
+
 def test_no_table_file_has_no_estimates_line(tmp_path):
     # A file with no `#` table is not read, so the header names no file (#108).
     (tmp_path / "notes.md").write_bytes(b"Notes only.\n")
@@ -1306,7 +1320,9 @@ PAGE_TEXTS = [getattr(worksite, name) for name in (
     # A full build's foreign entries (#68).
     "FLAG", "FOREIGN_OPEN", "FOREIGN_ABSENT", "FOREIGN_UNRESOLVED", "SLACK_NONE", "FBOX_LEGEND", "FBOX_TIP",
     "SUMMARY_NO_CHAIN_XSITE", "LIMITS_CAPTION_NO_CHAIN_XSITE", "NO_CHAIN_XSITE", "HOURS_NOTE_NONE",
-    "HOURS_NOTE_NONE_XSITE")] + list(worksite.STATE_MARKS.values()) + list(worksite.FBOX_LINE.values())
+    "HOURS_NOTE_NONE_XSITE",
+    # An estimates file's edges (#108).
+    "ESTIMATES_BAD_DATE")] + list(worksite.STATE_MARKS.values()) + list(worksite.FBOX_LINE.values())
 
 
 def test_doc_states_page_texts():
@@ -1330,7 +1346,7 @@ def test_doc_states_page_texts():
 def test_doc_states_estimates_messages():
     # The templates are read from the modules, never copied here (#108).
     from gantry import estimates_file
-    templates = [estimates_file.MESSAGES["no_table"]]
+    templates = [estimates_file.MESSAGES["no_table"], estimates_file.MESSAGES["bad_date"]]
     doc = " ".join((ROOT / "docs" / "worksite-page.md").read_bytes().decode("utf-8").split())
     assert [t for t in templates if f"`{t}`" not in doc] == []
 

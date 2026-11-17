@@ -32,6 +32,7 @@ MESSAGES = {
     "later": "{read!r} is later",
     "same_date": "{read!r} has the same date and sorts later",
     "undated": "its name has no date",
+    "bad_date": "its name's date {date} is not a valid date",
     "missing": "site.{site}.estimates: the file does not exist",
     "unlisted": "the planning directory cannot be listed: {reason}",
     "cannot_read": "estimates file {name!r} cannot be read: {reason}",
@@ -52,6 +53,7 @@ class Found:
     date: date | None  # from the name; None when it has none
     report: tuple[ReportEntry, ...]
     key: str = "estimates file"  # how a refusal names it: a configured file by its key
+    bad_date: str | None = None  # the name's date text when it is not a valid date
 
 
 @dataclass(frozen=True)
@@ -86,6 +88,12 @@ def _name_date(name):
         return None
 
 
+def _bad_date(name):
+    """The date text of a dated-looking name whose date is not valid, or None."""
+    m = DATED_RE.fullmatch(name)
+    return m.group("date") if m and _name_date(name) is None else None
+
+
 def find_estimates_file(roots, site, config) -> Found:
     """The estimates file a site reads under `roots`, with its report entries."""
     override = config.sites.get(site.name)
@@ -102,7 +110,7 @@ def find_estimates_file(roots, site, config) -> Found:
                 _entry(site.name, "estimates_unreadable", MESSAGES["missing"].format(site=site.name)),))
         except (OSError, ValueError, OutsideRoots):
             pass  # read_estimates_file reports why it cannot be opened
-        return Found(path, path.name, _name_date(path.name), (), key)
+        return Found(path, path.name, _name_date(path.name), (), key, _bad_date(path.name))
     if site.planning_dir is None:
         return Found(None, None, None, ())
     try:
@@ -121,7 +129,8 @@ def find_estimates_file(roots, site, config) -> Found:
         if read is not None and n == read[1]:
             continue
         if d is None:
-            why = MESSAGES["undated"]
+            bad = _bad_date(n)
+            why = MESSAGES["bad_date"].format(date=bad) if bad is not None else MESSAGES["undated"]
         elif d < read[0]:
             why = MESSAGES["later"].format(read=read[1])
         else:

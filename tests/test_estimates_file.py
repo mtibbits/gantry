@@ -72,7 +72,7 @@ def test_undated_listed_ignored(tmp_path):
     found = find(folder)
     assert found.name == "estimates-2026-01-01.md"
     assert [e.message for e in found.report] == [
-        "estimates file 'estimates-2026-02-30.md' is ignored: its name has no date",
+        "estimates file 'estimates-2026-02-30.md' is ignored: its name's date 2026-02-30 is not a valid date",
         "estimates file 'estimates-latest.md' is ignored: its name has no date",
     ]
 
@@ -81,6 +81,13 @@ def test_only_undated_is_no_file(tmp_path):
     found = find(site_dir(tmp_path, "estimates-latest.md"))
     assert found.path is None
     assert kinds(found.report) == ["estimates_ignored", "no_estimates_file"]
+
+
+def test_only_invalid_date_is_no_file(tmp_path):
+    found = find(site_dir(tmp_path, "estimates-2026-02-30.md"))
+    assert found.path is None
+    assert kinds(found.report) == ["estimates_ignored", "no_estimates_file"]
+    assert found.report[0].message.endswith("its name's date 2026-02-30 is not a valid date")
 
 
 def test_names_compared_case_sensitively(tmp_path):
@@ -108,6 +115,15 @@ def test_configured_overrides_discovery(tmp_path):
     found = find(folder, folder / "my-estimates.md")
     assert (found.path, found.name, found.date) == (folder / "my-estimates.md", "my-estimates.md", None)
     assert found.report == ()
+
+
+def test_configured_invalid_date_is_kept(tmp_path):
+    # A configured file is read whatever its name; the bad date is carried (#108).
+    folder = site_dir(tmp_path, "estimates-2026-02-30.md", "my-estimates.md")
+    found = find(folder, folder / "estimates-2026-02-30.md")
+    assert (found.path, found.name, found.date, found.bad_date, found.report) == (
+        folder / "estimates-2026-02-30.md", "estimates-2026-02-30.md", None, "2026-02-30", ())
+    assert find(folder, folder / "my-estimates.md").bad_date is None
 
 
 def test_configured_dated_name_keeps_its_date(tmp_path):
