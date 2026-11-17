@@ -422,6 +422,13 @@ def test_rooted_devdoc_is_site_problem_on_windows(tmp_path, capsys):
 # --- docs/config.md lists every registry key ---------------------------------------
 
 
+def test_config_doc_unit_hours_refuses_huge_int():
+    # #117: an int too large to convert to a float is refused, not raised.
+    text = (ROOT / "docs" / "config.md").read_text(encoding="utf-8")
+    (row,) = [row for table in md_tables(text) for row in table.rows if row[0] == "`default_unit_hours`"]
+    assert "too large to convert to a float" in row[1]
+
+
 def test_docs_list_every_key():
     text = (ROOT / "docs" / "config.md").read_text(encoding="utf-8")
     rows = [row for table in md_tables(text) for row in table.rows]

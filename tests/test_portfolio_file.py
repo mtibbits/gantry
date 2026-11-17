@@ -1039,6 +1039,11 @@ def doc_text(path):
     return path.read_bytes().decode("utf-8")
 
 
+def test_doc_states_huge_int_not_finite():
+    # #117: a 400-digit setting is refused like inf and nan.
+    assert "too large to convert to a float" in " ".join(doc_text(PORTFOLIO_DOC).split())
+
+
 def test_doc_rows_match_registry():
     (table,) = [t for t in md_tables(doc_text(PORTFOLIO_DOC)) if t.heading == "Settings keys"]
     assert table.header == ["Key", "Type and rule", "Default", "Read by"]

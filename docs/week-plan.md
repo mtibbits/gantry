@@ -115,6 +115,9 @@ in use, with one of these reasons:
   finite";
 - "the portfolio file's attention_mapping holds a value above 24".
 
+An integer too large to convert to a float counts as not finite, so it gives
+the second reason, not the third.
+
 A portfolio file that does not set the key gives the default with no
 reason. So does one whose settings cannot be read at all; the portfolio
 file's own report says why. The mapping in use, its source (`default` or

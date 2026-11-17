@@ -518,6 +518,7 @@ def test_week_plan_doc_states_rules():
         f"`MAX_RATE`, is {MAX_RATE}", f"`{default_mapping_text()}`", f"`{TOP_TIER}`",
         "only from the estimates file", "#14", "Gantry's", "capacity.attention_mapping",
         "worksite-page.md", "`measured=`", "`declared=`", "#38", "#39", "#40",
+        "too large to convert to a float",
     ]
     assert [w for w in wanted if w not in text] == []
     assert default_mapping_text() == "0, 0.1, 0.25, 0.5, 1.0"
