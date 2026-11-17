@@ -23,8 +23,10 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 
+from gantry import deps
 from gantry.config import error_reason
-from gantry.deps import refs, resolve
+from gantry.deps import classify, find_cycles, refs, resolve
+from gantry.est_rules import classify_est
 from gantry.model import (
     FINISHED_GLYPHS,
     STATE_GLYPHS,
@@ -33,6 +35,7 @@ from gantry.model import (
     ReportEntry,
     Row,
     SiteData,
+    meta_values,
     report_order,
 )
 from gantry.priority import is_valid
@@ -82,6 +85,24 @@ MESSAGES = {
     "duplicate_issue": "WBS.md line {line}: issue {issue!r} is also on line {first}; "
                        "references resolve to line {first}, and this node is named {key!r}",
 }
+
+# devagent's report entries (its `parse_report`). Each gets one disposition:
+# mapped onto a Gantry kind, suppressed because a Gantry pass reports the same
+# thing, or shown as devagent wrote it. MAPPED is devagent's kind -> Gantry's.
+MAPPED = {"leaf_no_issue": "no_issue", "duplicate_issue": "duplicate_issue", "near_miss_line": "skipped_line",
+          "dep_unresolved": "unresolved_ref"}
+# Suppressed on every node that holds the key: gantry.attention.check_h reports each.
+SUPPRESSED_ALWAYS = ("h_malformed",)
+# Suppressed only where the rule in _dispose finds Gantry's own entry or check.
+SUPPRESSED_BY_RULE = ("dep_unresolved", "est_unparseable", "dep_cycle", "parser_warning")
+MAPPED_ENTRY, SUPPRESSED, SHOWN = "mapped", "suppressed", "shown"
+# A mapped near miss: Gantry's own reason needs the line's text, which the document does not carry.
+SKIPPED_LINE = "WBS.md line {line}: {message}"
+# One member of devagent's dep_cycle message: `<issue> (line N)`, with `<project>:` before another project's.
+CYCLE_MEMBER_RE = re.compile(r"(?:^|, |: )(?:(?P<project>[A-Za-z0-9][A-Za-z0-9_.-]*):)?(?P<key>[^ ,()]+) "
+                             r"\(line (?P<line>[0-9]{1,9})\)")
+# The key a parser warning is about, in the forms devagent's parser words them (used with match).
+WARNED_KEY_RE = re.compile(r"(?:line [0-9]{1,9}: )?(priority|depends_on|satisfies|objective|h) ")
 
 
 class PortfolioLoadError(Exception):
@@ -355,7 +376,7 @@ class _Node:
 class _Site:
     """A read project's nodes and Gantry's own findings about them."""
 
-    __slots__ = ("name", "nodes", "first", "leaves", "rows", "links", "held_out", "report")
+    __slots__ = ("name", "nodes", "by_line", "first", "leaves", "rows", "links", "held_out", "report", "cycles")
 
 
 def _scan(raw_nodes):
@@ -433,8 +454,9 @@ def _build(site):
 def _read_site(name, raw_nodes):
     """A read project's nodes, named and built, with Gantry's own report entries."""
     site = _Site()
-    site.name, site.report = name, []
+    site.name, site.report, site.cycles = name, [], None
     site.nodes = _scan(raw_nodes)
+    site.by_line = {node.line: node for node in site.nodes}
     _name(site)
     _build(site)
     if not site.nodes:
@@ -450,6 +472,92 @@ def _site_data(site):
     return SiteData(site.leaves, site.rows, site.links, site.held_out, tuple(sorted(site.report, key=report_order)))
 
 
+# --- devagent's report entries ----------------------------------------------------------------
+
+
+def _cycle_lines(site):
+    """The member lines, sorted, of each cycle Gantry finds among the site's open leaves."""
+    if site.cycles is None:
+        line_of = {leaf.key: leaf.line for leaf in site.leaves}
+        keys = [leaf.key for leaf in site.leaves if leaf.open]
+        site.cycles = [sorted(line_of[key] for key in cycle) for cycle in find_cycles(keys, site.links)]
+    return site.cycles
+
+
+def _named_entry(node, message):
+    """The depends_on entry a dep_unresolved message is about: the longest one it opens with."""
+    found = None
+    for entry in meta_values(node.meta.get("depends_on")):
+        if message.startswith(f"depends_on '{entry}' ") and (found is None or len(entry) > len(found)):
+            found = entry
+    return found
+
+
+def _dispose(site, entry):
+    """One devagent report entry's disposition, with Gantry's entry when mapped.
+
+    `site` is the entry's project when the document holds it and it was read,
+    else None. Every entry leaves here as exactly one of MAPPED_ENTRY,
+    SUPPRESSED or SHOWN, and nothing is suppressed unless a Gantry pass
+    reports the same thing about the same node: gantry.deps (cycle,
+    malformed_ref), gantry.crosssite (the foreign kinds), gantry.inputs
+    (est_unparseable), gantry.attention (bad_h), gantry.trace (satisfies,
+    objective) or this module (bad_priority).
+    """
+    kind, line, message = entry["kind"], entry["source_line"], entry["message"]
+    named = kind in MAPPED or kind in SUPPRESSED_ALWAYS or kind in SUPPRESSED_BY_RULE
+    if site is None or line is None or not named:
+        return SHOWN, None
+    node = site.by_line.get(line)
+    if kind == "near_miss_line":
+        # A near miss is not a node: one on a node's line is not what Gantry would report.
+        if node is None:
+            return MAPPED_ENTRY, ReportEntry(site.name, line, MAPPED[kind], SKIPPED_LINE.format(line=line,
+                                                                                                 message=message))
+        return SHOWN, None
+    if node is None:
+        return SHOWN, None
+    is_leaf = not node.children
+    is_open = node.glyph not in FINISHED_GLYPHS
+    if kind == "leaf_no_issue":
+        if is_leaf and node.issue is None:
+            return MAPPED_ENTRY, ReportEntry(site.name, line, MAPPED[kind], MESSAGES["no_issue"].format(
+                line=line, key=node.key))
+    elif kind == "duplicate_issue":
+        if node.issue is not None and site.first[node.issue] is not node:
+            return MAPPED_ENTRY, ReportEntry(site.name, line, MAPPED[kind], MESSAGES["duplicate_issue"].format(
+                line=line, issue=node.issue, first=site.first[node.issue].line, key=node.key))
+    elif kind == "dep_unresolved":
+        about = _named_entry(node, message)
+        if about is not None:
+            ref = classify(about, site.name)
+            if ref.kind != "local":
+                return SUPPRESSED, None  # foreign or malformed: Gantry classifies and reports those itself
+            if ref.issue not in site.first:
+                return MAPPED_ENTRY, ReportEntry(site.name, line, MAPPED[kind], deps.MESSAGES["unresolved_ref"].format(
+                    line=line, entry=about))
+    elif kind == "est_unparseable":
+        if is_leaf and is_open and classify_est(node.meta.get("est")).kind == "unparseable":
+            return SUPPRESSED, None
+    elif kind in SUPPRESSED_ALWAYS:
+        if "h" in node.meta:
+            return SUPPRESSED, None
+    elif kind == "dep_cycle":
+        members = list(CYCLE_MEMBER_RE.finditer(message))
+        # A member of another project makes it a cross-project cycle, which is no cycle of this file.
+        if members and not any(m.group("project") for m in members):
+            if sorted(int(m.group("line")) for m in members) in _cycle_lines(site):
+                return SUPPRESSED, None
+    elif kind == "parser_warning":
+        # A defence: no devagent release words a warning about these keys today.
+        match = WARNED_KEY_RE.match(message)
+        key = match.group(1) if match else None
+        if key in node.meta and (key in ("priority", "h") or (key == "depends_on" and is_leaf and is_open)
+                                 or (key in ("satisfies", "objective") and is_leaf)):
+            return SUPPRESSED, None
+    return SHOWN, None
+
+
 def map_document(doc, *, source=DEFAULT_SOURCE) -> PortfolioInput:
     """A parsed portfolio document as a PortfolioInput. `doc` is never changed;
     `source` names it in an error."""
@@ -458,14 +566,24 @@ def map_document(doc, *, source=DEFAULT_SOURCE) -> PortfolioInput:
         _check_parents(doc)
     except _Problem as e:
         raise _error("schema", source, where=e.where, problem=e.problem) from None
+    sites = {raw["project"]: _read_site(raw["project"], raw["nodes"])
+             for raw in doc["projects"] if raw["status"] == "read"}
+    shown = []
+    for entry in doc["parse_report"]:
+        site = sites.get(entry["project"])
+        disposition, mapped = _dispose(site, entry)
+        if disposition == MAPPED_ENTRY:
+            site.report.append(mapped)
+        elif disposition == SHOWN:
+            shown.append(DevagentEntry(entry["project"], entry["source_line"], entry["kind"], entry["message"]))
     projects = []
     for raw in doc["projects"]:
         name, status, reason = raw["project"], raw["status"], raw["status_reason"]
         if status == "read":
-            data = _site_data(_read_site(name, raw["nodes"]))
+            data = _site_data(sites[name])
         else:
+            # devagent's reason, as written.
             report = (ReportEntry(name, None, "site_unreadable", reason),) if status == "unreadable" else ()
             data = SiteData((), (), (), (), report)
         projects.append(ProjectInput(name, status, reason, data))
-    shown = tuple(DevagentEntry(e["project"], e["source_line"], e["kind"], e["message"]) for e in doc["parse_report"])
-    return PortfolioInput(tuple(projects), shown, generated, doc["schema_version"])
+    return PortfolioInput(tuple(projects), tuple(shown), generated, doc["schema_version"])

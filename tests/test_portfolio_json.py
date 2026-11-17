@@ -17,9 +17,11 @@ from types import SimpleNamespace
 
 import pytest
 
+import helpers_devagent as hd
 import helpers_portfolio as hp
+from gantry import crosssite, deps, inputs
 from gantry import portfolio_json as pj
-from gantry.attention import read_h
+from gantry.attention import check_h, read_h
 from gantry.deps import refs
 from gantry.est_rules import classify_est
 from gantry import wbs_stopgap
@@ -29,7 +31,9 @@ from gantry.portfolio_json import (DevagentEntry, PortfolioInput, PortfolioLoadE
                                    read_portfolio)
 from gantry.priority import rank
 from gantry.roots import directory_roots
+from gantry.sites import SiteEntry
 from gantry.wbs_stopgap import parse_wbs
+from page_safety import HOSTILE
 
 # --- ParsedValue and the accessors (Task 1) --------------------------------------------------
 
@@ -688,3 +692,383 @@ def test_copied_messages_equal_the_stopgaps():
     imported = {n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
     imported |= {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
     assert "gantry.deps" in imported and not any("stopgap" in name for name in imported)
+
+
+# --- one disposition per devagent report entry (Task 5) -------------------------------------
+
+MAPPED_KINDS = ("no_issue", "duplicate_issue", "skipped_line", "unresolved_ref")
+
+
+def entry(project_name, line, kind, message):
+    return {"project": project_name, "source_line": line, "kind": kind, "message": message}
+
+
+def with_entries(*entries, change=None):
+    """written.json with report entries added (and `change` applied), then mapped."""
+    doc = hp.written_doc()
+    if change is not None:
+        change(doc)
+    doc["parse_report"] += [dict(e) for e in entries]
+    return map_document(doc)
+
+
+def shown_at(got, name, line):
+    return [(e.kind, e.message) for e in got.devagent_report if e.project == name and e.line == line]
+
+
+def as_shown(raw):
+    return DevagentEntry(raw["project"], raw["source_line"], raw["kind"], raw["message"])
+
+
+def mapped_counts(got, names):
+    return {kind: sum(e.kind == kind for p in got.projects if p.name in names for e in p.data.report)
+            for kind in MAPPED_KINDS}
+
+
+def test_disposition_constants():
+    assert pj.MAPPED == {"leaf_no_issue": "no_issue", "duplicate_issue": "duplicate_issue",
+                         "near_miss_line": "skipped_line", "dep_unresolved": "unresolved_ref"}
+    assert tuple(pj.MAPPED.values()) == MAPPED_KINDS
+    assert pj.SUPPRESSED_ALWAYS == ("h_malformed",)
+    assert pj.CYCLE_MEMBER_RE.pattern == (r"(?:^|, |: )(?:(?P<project>[A-Za-z0-9][A-Za-z0-9_.-]*):)?(?P<key>[^ ,()]+) "
+                                          r"\(line (?P<line>[0-9]{1,9})\)")
+    assert pj.WARNED_KEY_RE.pattern == r"(?:line [0-9]{1,9}: )?(priority|depends_on|satisfies|objective|h) "
+    members = [(m.group("project"), m.group("key"), m.group("line")) for m in pj.CYCLE_MEMBER_RE.finditer(
+        "dependency cycle: Issue-1 (line 2), beta:Issue-1 (line 4), 1.3 (line 12)")]
+    assert members == [(None, "Issue-1", "2"), ("beta", "Issue-1", "4"), (None, "1.3", "12")]
+
+
+def test_every_entry_has_one_disposition():
+    doc = hp.written_doc()
+    got = map_document(doc)
+    names = [p["project"] for p in doc["projects"]]
+    earlier = [n for n in names if n != "edges"]
+    # devagent_report is a sub-sequence of parse_report, unchanged and in document order.
+    written = [as_shown(raw) for raw in doc["parse_report"]]
+    assert list(got.devagent_report) == [e for e in written if e in set(got.devagent_report)]
+
+    def partition(projects):
+        total = sum(raw["project"] in projects for raw in doc["parse_report"])
+        shown = sum(e.project in projects for e in got.devagent_report)
+        mapped = sum(mapped_counts(got, projects).values())
+        return total, mapped, total - mapped - shown, shown
+
+    # Before `edges`: 47 = 13 mapped + 29 suppressed + 5 shown.
+    assert partition(earlier) == (47, 13, 29, 5)
+    assert mapped_counts(got, earlier) == {"no_issue": 6, "duplicate_issue": 1, "skipped_line": 2, "unresolved_ref": 4}
+    assert [(e.project, e.line, e.kind) for e in got.devagent_report if e.project != "edges"] == [
+        ("cycle", 7, "dep_cycle"), ("fences", 17, "parser_warning"), ("nesting", 10, "unknown_meta_key"),
+        ("rows", 9, "dep_cycle"), ("rows", 13, "parent_done_leaf_pending")]
+    # With `edges`: five more near misses mapped, two est_unparseable shown.
+    assert partition(names) == (54, 18, 29, 7)
+    assert partition(["edges"]) == (7, 5, 0, 2)
+    # What is suppressed, by devagent's kind: each is an entry Gantry's own passes report.
+    gone = {}
+    kept = set(got.devagent_report)
+    mapped_from = {"leaf_no_issue", "duplicate_issue", "near_miss_line"}
+    for raw in doc["parse_report"]:
+        if as_shown(raw) not in kept and raw["kind"] not in mapped_from:
+            gone[raw["kind"]] = gone.get(raw["kind"], 0) + 1
+    assert gone == {"h_malformed": 14, "est_unparseable": 2, "dep_cycle": 2, "dep_unresolved": 15}
+    assert gone["dep_unresolved"] - mapped_counts(got, names)["unresolved_ref"] == 11  # foreign or malformed
+    assert 14 + 2 + 2 + 11 == 29
+
+
+def test_mapped_entries_take_gantrys_texts():
+    got = mapped()
+    ids = project(got, "ids").data
+    assert [e.message for e in at(ids, 4, "duplicate_issue")] == [
+        "WBS.md line 4: issue 'Issue-Fork-2' is also on line 3; references resolve to line 3, and this node is "
+        "named '1.2'"]
+    assert [e.message for e in at(ids, 5, "no_issue")] == ["WBS.md line 5: leaf has no issue: id; it is named '1.3~5'"]
+    assert [e.message for e in at(ids, 6, "no_issue")] == ["WBS.md line 6: leaf has no issue: id; it is named '1.4'"]
+    assert [e.message for e in at(ids, 9, "unresolved_ref")] == [
+        "WBS.md line 9: depends_on entry '1.4' names no issue: id in this file",
+        "WBS.md line 9: depends_on entry 'Issue-99' names no issue: id in this file"]
+    assert [e.message for e in at(ids, 10)] == ["WBS.md line 10: looks like a node but is not one: - [X] Unknown glyph"]
+    assert [(e.kind, e.message) for e in at(ids, 11)] == [
+        ("skipped_line", "WBS.md line 11: looks like a node but is not one: - [ ]")]
+    assert shown_at(got, "ids", 4) == shown_at(got, "ids", 9) == shown_at(got, "ids", 10) == []
+    # The stopgap gives the same texts for the three kinds Gantry holds every field of.
+    stopgap = parse_wbs((hp.sp.ROOT / hp.sp.FIXTURE_SOURCES["ids"]).read_bytes().decode("utf-8"), "ids")
+    for kind in ("no_issue", "duplicate_issue", "unresolved_ref"):
+        assert [e for e in ids.report if e.kind == kind] == [e for e in stopgap.report if e.kind == kind], kind
+
+
+def test_foreign_entry_yields_only_gantrys_entry():
+    doc = hp.written_doc()
+    assert sum(e["project"] == "refs" and e["source_line"] == 3 and e["kind"] == "dep_unresolved"
+               for e in doc["parse_report"]) == 3
+    got = map_document(doc)
+    data = project(got, "refs").data
+    resolved, _ = crosssite.resolve_foreign([SiteEntry("refs", None, None)], {"refs": inputs.Inputs(data, None, None)}, {})
+    on_line = [e for e in resolved["refs"].data.report if e.line == 3]
+    assert [e.kind for e in on_line] == ["foreign_site_absent"] * 3
+    assert sorted(e.message for e in on_line) == sorted(
+        crosssite.MESSAGES["foreign_site_absent"].format(line=3, entry=raw)
+        for raw in ("alpha:Issue-1", "beta:Issue-1", "Alpha:Issue-1"))
+    assert shown_at(got, "refs", 3) == []
+    assert [e for e in got.devagent_report if e.project == "refs"] == []
+
+
+def apply(tmp_path, got, name):
+    """gantry.inputs.apply_inputs over a mapped project, with no estimates file (as tests/test_inputs.py runs it)."""
+    folder = tmp_path / name
+    folder.mkdir()
+    config = SimpleNamespace(sites={}, default_unit_hours=6)
+    return apply_inputs_of(folder, name, project(got, name).data, config)
+
+
+def apply_inputs_of(folder, name, data, config):
+    return inputs.apply_inputs(directory_roots([folder]), SiteEntry(name, folder, None), data, config).data
+
+
+def test_unparsed_est_appears_once(tmp_path):
+    got = mapped()
+    est = apply(tmp_path, got, "est")
+    (once,) = at(est, 7, "est_unparseable")
+    assert once.message == inputs.MESSAGES["est_unparseable"].format(line=7, raw="2-3d", key="Issue-5")
+    assert len(at(est, 16, "est_unparseable")) == 1
+    assert shown_at(got, "est", 7) == shown_at(got, "est", 16) == []
+    # A finished leaf and a row: Gantry's pass reports neither, so devagent's entry stays.
+    edges = apply(tmp_path, got, "edges")
+    assert [e for e in edges.report if e.kind == "est_unparseable"] == []
+    text = 'est "2-3d" is not a time, non-time or placeholder estimate'
+    assert shown_at(got, "edges", 8) == shown_at(got, "edges", 9) == [("est_unparseable", text)]
+    nodes = nodes_by_line(project(got, "edges").data)
+    assert isinstance(nodes[8], Leaf) and not nodes[8].open and isinstance(nodes[9], Row)
+
+
+def _cycle_through_a_row(doc):
+    """`empty` gets a cycle of its own over lines 2 and 4, through the row on line 3."""
+    one, row, two = bare_node(2, name="k"), bare_node(3, name="k"), bare_node(4, parent="k3", name="k")
+    for node, issue, wants in ((one, "Issue-1", ["Issue-9"]), (row, "Issue-9", None), (two, "Issue-2", ["Issue-1"])):
+        node["issue"] = issue
+        node["meta"] = {"issue": issue, **({"depends_on": wants} if wants else {})}
+    doc["projects"][EMPTY]["nodes"] = [one, row, two]
+
+
+def test_cross_project_cycle_is_shown():
+    own = entry("empty", 2, "dep_cycle", "dependency cycle: Issue-1 (line 2), Issue-2 (line 4)")
+    crossing = entry("empty", 2, "dep_cycle", "dependency cycle: Issue-1 (line 2), beta:Issue-1 (line 4)")
+    got = with_entries(own, crossing, change=_cycle_through_a_row)
+    data = project(got, "empty").data
+    assert [e.message for e in at(data, 2, "cycle")] == ["WBS.md line 2: dependency cycle among 'Issue-1', 'Issue-2'"]
+    assert data.held_out == ("Issue-1", "Issue-2")
+    # The same lines, but one member is another project's: no local cycle, so it is shown as written.
+    assert shown_at(got, "empty", 2) == [("dep_cycle", crossing["message"])]
+
+
+def test_edge_entries_are_shown():
+    def no_wbs(doc):
+        doc["projects"][EMPTY].update(status="no_wbs", status_reason="the devdoc dir has no WBS.md")
+
+    edge = (
+        entry("ids", None, "leaf_no_issue", "leaf 'Unnamed leaf' has no issue"),
+        entry("ids", None, "near_miss_line", "looks like a node but is not one: - [q] no line"),
+        entry("ids", 3, "near_miss_line", "looks like a node but is not one: - [ ] Dock"),
+        entry("empty", 4, "duplicate_issue", "issue 'Issue-1' also appears at line 2"),
+        entry("gone", 2, "leaf_no_issue", "leaf 'Elsewhere' has no issue"),
+        entry("not_utf8", 2, "h_malformed", 'h "9" is not one digit 0-4; h reads as null'),
+        entry("ids", None, "h_malformed", 'h "9" is not one digit 0-4; h reads as null'),
+        entry("ids", 12, "h_malformed", 'h "9" is not one digit 0-4; h reads as null'),
+        entry("ids", 3, "h_malformed", 'h "9" is not one digit 0-4; h reads as null'),
+        entry("ids", 12, "dep_unresolved", "depends_on 'Issue-99' matches no issue in this project"),
+        entry("ids", 2, "leaf_no_issue", "leaf 'Ferry works' has no issue"),
+        entry("ids", 3, "leaf_no_issue", "leaf 'Dock' has no issue"),
+    )
+    plain = mapped()
+    got = with_entries(*edge, change=no_wbs)
+    assert list(got.devagent_report[len(plain.devagent_report):]) == [as_shown(e) for e in edge]
+    assert got.devagent_report[:len(plain.devagent_report)] == plain.devagent_report
+    # Nothing was mapped from them: every site's own report is as it was.
+    for before in plain.projects:
+        if before.name != "empty":
+            assert project(got, before.name).data == before.data
+    assert project(got, "empty").data == SiteData((), (), (), (), ())
+
+
+def test_bad_priority_and_malformed_entry_appear_once():
+    got = mapped()
+    h_values = project(got, "h_values").data
+    assert len(at(h_values, 11, "bad_priority")) == 1
+    assert shown_at(got, "h_values", 11) == []
+    refs_data = project(got, "refs").data
+    malformed = [e.message for e in at(refs_data, 4)]
+    assert [e.kind for e in at(refs_data, 4)] == ["malformed_ref"] * 4
+    assert malformed.count(deps.MESSAGES["malformed_ref"].format(line=4, entry=":Issue-1")) == 1
+    assert shown_at(got, "refs", 4) == []
+    # Line 5 holds one of each: a local entry naming nothing (mapped) and a malformed one (Gantry's).
+    assert [(e.kind, e.message) for e in at(refs_data, 5) if e.kind != "bad_priority"] == [
+        ("unresolved_ref", "WBS.md line 5: depends_on entry 'Issue-99' names no issue: id in this file"),
+        ("malformed_ref", "WBS.md line 5: depends_on entry 'a:b:c' is not an id or <site>:<id>")]
+    assert shown_at(got, "refs", 5) == []
+
+
+def test_dep_unresolved_is_matched_to_its_entry():
+    def longer(doc):
+        horns = doc["projects"][IDS]["nodes"][7]
+        assert horns["source_line"] == 9
+        horns["meta"]["depends_on"] = ["Issue-3", "Issue-99", "Issue-99' x"]
+
+    named = entry("ids", 9, "dep_unresolved", "depends_on 'Issue-99' x' matches no issue in this project")
+    absent = entry("ids", 9, "dep_unresolved", "depends_on 'Issue-98' matches no issue in this project")
+    resolves = entry("ids", 9, "dep_unresolved", "depends_on 'Issue-3' matches no issue in this project")
+    no_key = entry("ids", 3, "dep_unresolved", "depends_on 'Issue-99' matches no issue in this project")
+    got = with_entries(named, absent, resolves, no_key, change=longer)
+    data = project(got, "ids").data
+    # The longest entry the message opens with is the one it is about.
+    assert [e.message for e in at(data, 9, "unresolved_ref")] == [
+        "WBS.md line 9: depends_on entry 'Issue-99' names no issue: id in this file",
+        "WBS.md line 9: depends_on entry \"Issue-99' x\" names no issue: id in this file"]
+    # An entry the node no longer holds, another it never held, one that Gantry resolves: each shown.
+    assert shown_at(got, "ids", 9) == [
+        ("dep_unresolved", "depends_on '1.4' matches no issue in this project"),
+        ("dep_unresolved", absent["message"]), ("dep_unresolved", resolves["message"])]
+    # And so is one on a node with no depends_on.
+    assert shown_at(got, "ids", 3) == [("dep_unresolved", no_key["message"])]
+
+
+P0_WARNING = "line 9: priority 'P0' is not P1, P2, P3 or P4; ignored"
+
+
+def test_p0_priority_warning_is_not_shown():
+    got = with_entries(entry("est", 9, "parser_warning", P0_WARNING))
+    est = project(got, "est").data
+    assert nodes_by_line(est)[9].priority == "P0"
+    assert at(est, 9) == [] and shown_at(got, "est", 9) == []
+    assert got == mapped()
+    # The same warning on a node with no priority names nothing Gantry checks there: shown.
+    assert "priority" not in nodes_by_line(est)[10].meta
+    moved = with_entries(entry("est", 10, "parser_warning", P0_WARNING))
+    assert shown_at(moved, "est", 10) == [("parser_warning", P0_WARNING)]
+    # A warning with no line, or on a line with no node, is shown too.
+    for line in (None, 2):
+        loose = with_entries(entry("est", line, "parser_warning", P0_WARNING))
+        assert shown_at(loose, "est", line) == [("parser_warning", P0_WARNING)]
+
+
+def _objective_on_brace(doc):
+    brace = doc["projects"][NESTING]["nodes"][8]
+    assert brace["source_line"] == 10 and brace["meta"]["satisfies"] == "a:X"
+    brace["meta"]["objective"] = ["a:X"]
+
+
+def test_satisfies_objective_and_h_warnings_are_not_shown_but_bad_h_is():
+    satisfies = "line 10: satisfies entry 'x' is not <namespace>:<id>"
+    objective = "line 10: objective entry 'x' is not <namespace>:<id>"
+    bad_h = "line 8: h 'high' is not an integer from 0 to 4"
+    plain = with_entries(change=_objective_on_brace)
+    got = with_entries(entry("nesting", 10, "parser_warning", satisfies),
+                       entry("nesting", 10, "parser_warning", objective),
+                       entry("h_values", 8, "parser_warning", bad_h), change=_objective_on_brace)
+    assert got == plain
+    assert shown_at(got, "nesting", 10) == [("unknown_meta_key", "unknown metadata key 'a'")]
+    # The 14 real h_malformed entries are not shown; Gantry's own pass reports each, and the row on line 18.
+    doc = hp.written_doc()
+    malformed = [e["source_line"] for e in doc["parse_report"] if e["kind"] == "h_malformed"]
+    assert len(malformed) == 14 and all(e["project"] == "h_values" for e in doc["parse_report"]
+                                         if e["kind"] == "h_malformed")
+    assert not any(e.kind == "h_malformed" for e in got.devagent_report)
+    assert shown_at(got, "h_values", 8) == []
+    checked = check_h(project(got, "h_values").data, "h_values")
+    assert [e.line for e in checked.report if e.kind == "bad_h"] == sorted(malformed + [18])
+    assert not any(e.kind == "bad_h" for e in project(got, "h_values").data.report)
+    # Each warning on a node that does not hold its key is shown: Gantry reports nothing there.
+    moved = with_entries(entry("nesting", 9, "parser_warning", satisfies),
+                         entry("nesting", 9, "parser_warning", objective),
+                         entry("h_values", 2, "parser_warning", bad_h))
+    assert shown_at(moved, "nesting", 9) == [("parser_warning", satisfies), ("parser_warning", objective)]
+    assert shown_at(moved, "h_values", 2) == [("parser_warning", bad_h)]
+    # satisfies and objective are read on leaves only, depends_on on open leaves only.
+    on_rows = with_entries(entry("rows", 13, "parser_warning", "depends_on entry 'x' is odd"),
+                           entry("rows", 4, "parser_warning", "depends_on entry 'x' is odd"),
+                           entry("rows", 6, "parser_warning", "depends_on entry 'x' is odd"))
+    assert shown_at(on_rows, "rows", 13)[-1] == ("parser_warning", "depends_on entry 'x' is odd")
+    assert shown_at(on_rows, "rows", 4) == [("parser_warning", "depends_on entry 'x' is odd")]
+    assert shown_at(on_rows, "rows", 6) == []
+
+
+def test_matched_dep_cycle_appears_once_and_unmatched_as_written():
+    got = mapped()
+    cycle, est, rows = (project(got, name).data for name in ("cycle", "est", "rows"))
+    # devagent and Gantry agree on these two: Gantry's `cycle` entry is the one shown.
+    assert [e.message for e in at(cycle, 2, "cycle")] == ["WBS.md line 2: dependency cycle among 'Issue-1', 'Issue-2'"]
+    assert [e.message for e in at(est, 22, "cycle")] == ["WBS.md line 22: dependency cycle among 'Issue-30', 'Issue-31'"]
+    assert shown_at(got, "cycle", 2) == shown_at(got, "est", 22) == []
+    # A cycle through a finished leaf, and a leaf under a row that waits on it: devagent's alone.
+    assert at(cycle, 7, "cycle") == [] and at(rows, 9, "cycle") == []
+    assert shown_at(got, "cycle", 7) == [("dep_cycle", "dependency cycle: Issue-6 (line 7), Issue-7 (line 8)")]
+    assert shown_at(got, "rows", 9) == [("dep_cycle", "dependency cycle: Issue-21 (line 9)")]
+    # The same members on other lines match no cycle of Gantry's.
+    other = with_entries(entry("cycle", 2, "dep_cycle", "dependency cycle: Issue-1 (line 2), Issue-2 (line 4)"),
+                         entry("cycle", 2, "dep_cycle", "a cycle with no member list"))
+    assert shown_at(other, "cycle", 2) == [("dep_cycle", "dependency cycle: Issue-1 (line 2), Issue-2 (line 4)"),
+                                           ("dep_cycle", "a cycle with no member list")]
+
+
+def test_unnamed_and_colliding_kinds_are_shown_as_written():
+    later = entry("ids", 3, "kind_from_a_later_release", "something new about this node")
+    collides = entry("ids", 3, "duplicate_issue", "issue 'Issue-Fork-2' also appears at line 3")
+    est = entry("ids", 3, "est_unparseable", 'est "soon" is not a time, non-time or placeholder estimate')
+    whole = entry("ids", None, "checklist_unreadable", "Issue-3/checklist.md could not be read")
+    gantrys = entry("ids", 3, "bad_priority", "a devagent kind that shares a Gantry name")
+    got = with_entries(later, collides, est, whole, gantrys)
+    assert shown_at(got, "ids", 3) == [(e["kind"], e["message"]) for e in (later, collides, est, gantrys)]
+    assert shown_at(got, "ids", None) == [("checklist_unreadable", whole["message"])]
+    assert project(got, "ids").data == project(mapped(), "ids").data
+    for site in got.projects:
+        assert all(e.kind in REPORT_KINDS for e in site.data.report)
+        assert sorted(site.data.report, key=report_order) == list(site.data.report)
+    assert {e.kind for e in got.devagent_report} - set(REPORT_KINDS) >= {"kind_from_a_later_release", "dep_cycle"}
+
+
+def test_hostile_strings_are_returned_unchanged(tmp_path):
+    assert len(HOSTILE) == 11
+    for text in HOSTILE:
+        doc = hp.written_doc()
+        doc["projects"][NOT_UTF8]["status_reason"] = text
+        doc["projects"][EMPTY].update(status="no_wbs", status_reason=text)
+        doc["parse_report"] += [entry("ids", 3, "kind_from_a_later_release", text), entry("ids", 3, text, "as a kind"),
+                                entry(text, 3, text, text), entry("ids", 12, "near_miss_line", text)]
+        for got in (map_document(doc), hp.read_doc(tmp_path, doc)):
+            unreadable = project(got, "not_utf8")
+            assert unreadable.reason == text
+            assert unreadable.data.report == (ReportEntry("not_utf8", None, "site_unreadable", text),)
+            assert project(got, "empty").reason == text
+            assert shown_at(got, "ids", 3) == [("kind_from_a_later_release", text), (text, "as a kind")]
+            assert DevagentEntry(text, 3, text, text) in got.devagent_report
+            # A mapped near miss carries devagent's message, whole, after Gantry's line prefix.
+            assert [e.message for e in at(project(got, "ids").data, 12)] == [f"WBS.md line 12: {text}"]
+
+
+def _constants(path, names):
+    """Module-level string constants of a Python source, by name; nothing is executed."""
+    tree = ast.parse(path.read_bytes())
+    found = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            if node.targets[0].id in names and isinstance(node.value, ast.Constant):
+                found[node.targets[0].id] = node.value.value
+    return found
+
+
+def test_warned_key_re_matches_the_pinned_parser_texts():
+    checkout = hd.require_devagent()
+    texts = _constants(checkout / "scripts" / "lib" / "wbs-parser.py",
+                       ("PRIORITY_WARNING", "NAMESPACED_WARNING", "H_WARNING"))
+    assert sorted(texts) == ["H_WARNING", "NAMESPACED_WARNING", "PRIORITY_WARNING"]
+    cases = (
+        (texts["PRIORITY_WARNING"].format("P0"), "priority"),
+        (texts["NAMESPACED_WARNING"].format("satisfies", "x"), "satisfies"),
+        (texts["NAMESPACED_WARNING"].format("objective", "x"), "objective"),
+        (texts["H_WARNING"].format("high"), "h"),
+    )
+    for text, key in cases:
+        for message in (text, f"line 4: {text}"):
+            match = pj.WARNED_KEY_RE.match(message)
+            assert match is not None and match.group(1) == key, message
+    # The one warning the pinned parser does print is not about a key.
+    assert pj.WARNED_KEY_RE.match("wbs-parser: unclosed code fence at line 17 ignored; lines after it are parsed "
+                                  "as WBS nodes") is None
+    assert texts["PRIORITY_WARNING"].format("P0") == P0_WARNING.removeprefix("line 9: ")
