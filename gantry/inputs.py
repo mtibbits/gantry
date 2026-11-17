@@ -32,6 +32,8 @@ MESSAGES = {
     "no_priority": "{n} open leaves have no priority and count as P3",
     "no_priority_one": "1 open leaf has no priority and counts as P3",
     "unmatched": "estimates file {name!r} line {line}: #{n} names no WBS.md line",
+    "unmatched_zero": "estimates file {name!r} line {line}: #{n} names no WBS.md line; it has a leading zero, "
+                      "so it is read as Issue-{n}, not Issue-{bare}",
 }
 
 
@@ -96,8 +98,14 @@ def apply_inputs(roots, site, data, config) -> Inputs:
     holders = {node.key: node for node in (*data.rows, *data.leaves)}
     for key, row in rows.items():
         if key not in holders:
-            report.append(ReportEntry(site.name, None, "estimates_row_unmatched", MESSAGES["unmatched"].format(
-                name=found.name, line=row.line, n=key.removeprefix("Issue-"))))
+            n = key.removeprefix("Issue-")
+            # The zero is kept: #012 joins only Issue-012, so say so (#108).
+            if len(n) > 1 and n.startswith("0"):
+                message = MESSAGES["unmatched_zero"].format(name=found.name, line=row.line, n=n,
+                                                            bare=n.lstrip("0") or "0")
+            else:
+                message = MESSAGES["unmatched"].format(name=found.name, line=row.line, n=n)
+            report.append(ReportEntry(site.name, None, "estimates_row_unmatched", message))
 
     held = set(data.held_out)
     leaves = []

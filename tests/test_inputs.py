@@ -4,6 +4,8 @@ import shutil
 from dataclasses import fields
 from types import SimpleNamespace
 
+import pytest
+
 from gantry.config import SiteOverride
 from gantry.inputs import NO_TIERS, apply_inputs, has_tiers, scheduled, site_totals
 from gantry.model import REPORT_KINDS, Estimate, Models, Totals
@@ -137,6 +139,35 @@ def test_unmatched_row_reported(tmp_path):
     assert [e.message for e in entries(got, "estimates_row_unmatched")] == [
         f"estimates file 'estimates-2026-01-01.md' line {at}: #99 names no WBS.md line",
     ]
+
+
+def zero_row(tmp_path, cell):
+    """An estimates file whose one row, on line 3, has `cell` as its id."""
+    path = tmp_path / "e.md"
+    path.write_bytes(("| # | effort | hours | thinking | checking | flags |\n|---|---|---|---|---|---|\n"
+                      f"| {cell} | S | 2 | | | |\n").encode("utf-8"))
+    return path
+
+
+@pytest.mark.parametrize("cell, expected", [
+    ("#012", "estimates file 'estimates-2026-01-01.md' line 3: #012 names no WBS.md line; it has a leading zero, "
+             "so it is read as Issue-012, not Issue-12"),
+    ("#00", "estimates file 'estimates-2026-01-01.md' line 3: #00 names no WBS.md line; it has a leading zero, "
+            "so it is read as Issue-00, not Issue-0"),
+    ("#0", "estimates file 'estimates-2026-01-01.md' line 3: #0 names no WBS.md line"),
+], ids=["#012", "#00", "#0"])
+def test_leading_zero_unmatched_names_the_zero(tmp_path, cell, expected):
+    # The zero is kept, never normalised away; one digit is not a leading zero (#108).
+    got = run(tmp_path, "- [ ] A {issue: Issue-12}\n", estimates=zero_row(tmp_path, cell))
+    assert [e.message for e in entries(got, "estimates_row_unmatched")] == [expected]
+    assert leaf(got, "Issue-12").estimate.source == "default"
+
+
+def test_leading_zero_row_joins_literal_issue(tmp_path):
+    got = run(tmp_path, "- [ ] B {issue: Issue-012}\n", estimates=zero_row(tmp_path, "#012"))
+    assert entries(got, "estimates_row_unmatched") == []
+    est = leaf(got, "Issue-012").estimate
+    assert (est.lo_h, est.hi_h, est.source) == (2, 2, "estimates_file")
 
 
 def test_configured_missing_every_leaf_default(tmp_path):

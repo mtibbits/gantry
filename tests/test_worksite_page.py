@@ -1345,8 +1345,9 @@ def test_doc_states_page_texts():
 
 def test_doc_states_estimates_messages():
     # The templates are read from the modules, never copied here (#108).
-    from gantry import estimates_file
-    templates = [estimates_file.MESSAGES["no_table"], estimates_file.MESSAGES["bad_date"]]
+    from gantry import estimates_file, inputs
+    templates = [estimates_file.MESSAGES["no_table"], estimates_file.MESSAGES["bad_date"],
+                 inputs.MESSAGES["unmatched_zero"]]
     doc = " ".join((ROOT / "docs" / "worksite-page.md").read_bytes().decode("utf-8").split())
     assert [t for t in templates if f"`{t}`" not in doc] == []
 

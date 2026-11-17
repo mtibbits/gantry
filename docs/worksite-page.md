@@ -193,7 +193,7 @@ in this table's order.
 | `estimates_no_table` | no line of the file read starts a table whose first header cell is `#` (prose only, other tables only, empty, or a `#` table that is indented or quoted) | reads no rows and continues as if the site had no estimates file; the header names no file |
 | `estimates_column_missing` | an estimates table has no `#`-table column Gantry reads (once per file and column) | reads the rest of the table |
 | `estimates_cell_bad` | a row's `hours` cell is empty or not a number or range above 0 | the row gives no hours; its other cells are still read |
-| `estimates_row_unmatched` | a row `#N` names no `WBS.md` line | lists the row |
+| `estimates_row_unmatched` | a row `#N` names no `WBS.md` line | lists the row; a `#N` with a leading zero is read with the zero kept, and its message says so |
 | `estimates_row_duplicate` | a second row names the same `#N` | uses the first row |
 | `est_unparseable` | an open leaf's `est:` is in none of the other classes | lists it; the leaf may still get hours from its estimates-file row |
 | `unestimated` | a scheduled leaf has no time `est:` and no estimates-file hours | schedules it at the default unit and labels every figure that counts it |
@@ -273,7 +273,10 @@ moved out of the planning directory. A row whose first cell is `#N` joins
 the leaf whose key is `Issue-N`:
 
 - a row naming a row with children or a finished leaf is ignored;
-- a row naming no `WBS.md` line is `estimates_row_unmatched`;
+- a row naming no `WBS.md` line is `estimates_row_unmatched`; a `#N` with a
+  leading zero joins only a leaf whose `issue:` keeps the zero (`#012` joins
+  `Issue-012`, never `Issue-12`), and when it names no line its message is
+  `estimates file {name!r} line {line}: #{n} names no WBS.md line; it has a leading zero, so it is read as Issue-{n}, not Issue-{bare}`;
 - a second row for the same `#N` is `estimates_row_duplicate`, and the
   first is used;
 - a read column missing from a table is `estimates_column_missing`, once
