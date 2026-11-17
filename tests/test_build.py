@@ -858,6 +858,7 @@ def test_collector_failure_is_isolated(tmp_path, monkeypatch):
     monkeypatch.setattr(build, "read_site_records", refuse)
     code, _, stdout, stderr = demo_build(tmp_path, monkeypatch)
     assert code == 0, stderr
+    assert stdout.splitlines()[-1] == "fires: 5; sources not fully read: 2"  # DEMO_FIRES_LINE less BUSY's STUCK fires
     result = sample_build(tmp_path / "again")
     (status,) = [s for s in result.fires.sources if s.source == "stuck" and s.site == BUSY]
     assert (status.status, status.reason) == ("not_read", "records read failed: RuntimeError")

@@ -271,7 +271,7 @@ class P0Source(PerSiteSource):
         return SourceResult(found, (status,))
 
 
-LEAF_UNKNOWN_WHY = "leaf unknown: WBS.md could not be read"
+LEAF_UNKNOWN_WHY = "leaf unknown: WBS.md was not read into the build"
 PARKED_UNKNOWN_WHY = "parked unknown: checklist.md could not be read"
 MARKER_UNKNOWN_WHY = "step and reason unknown: STUCK could not be read"
 RECORDS_NOT_READ = "records not read"
@@ -422,20 +422,34 @@ def collect_fires(result, config, fires_list, records, reference) -> FireReport:
     if not _aware(reference):
         raise ValueError("the reference time must be timezone-aware")
     context = FireContext(result, config, fires_list, records, reference)
-    collected = []
-    for source in SOURCES:
-        try:
-            got = source.collect(context)
-        except Exception as e:
-            got = SourceResult((), (SourceStatus(source.name, None, "not_read", source_failed(e)),))
-        collected.append((source.name, got))
-    groups = {name: list(got.fires) for name, got in collected}
-    if "p0_leaf" in groups and "stuck" in groups:
-        groups["p0_leaf"], groups["stuck"] = _merge(groups["p0_leaf"], groups["stuck"])
+    collected = [(source.name, _run(source, context)) for source in SOURCES]
+    # A list, not a dict keyed by name: a second source with a taken name must not drop the first one's fires.
+    groups = [[name, list(got.fires)] for name, got in collected]
+    first = {}
+    for group in groups:
+        first.setdefault(group[0], group)
+    if "p0_leaf" in first and "stuck" in first:
+        p0_group, stuck_group = first["p0_leaf"], first["stuck"]
+        p0_group[1], stuck_group[1] = _merge(p0_group[1], stuck_group[1])
     site_order = {entry.name: i for i, entry in enumerate(result.sites)}
     parked, no_leaf = {}, {}
     for _, got in collected:
         parked.update(got.stuck_parked)
         no_leaf.update(got.stuck_no_open_leaf)
-    return FireReport(tuple(order_fires(groups.items(), site_order)), tuple(s for _, got in collected for s in got.statuses),
+    return FireReport(tuple(order_fires(groups, site_order)), tuple(s for _, got in collected for s in got.statuses),
                       parked, no_leaf)
+
+
+def _run(source, context) -> SourceResult:
+    """The source's result, read whole inside the `try` so a malformed one is
+    isolated like a raise; a source that gives no status gets a not_read one
+    (fail closed)."""
+    try:
+        got = source.collect(context)
+        got = SourceResult(tuple(got.fires), tuple(got.statuses), dict(got.stuck_parked),
+                           dict(got.stuck_no_open_leaf))
+    except Exception as e:
+        return SourceResult((), (SourceStatus(source.name, None, "not_read", source_failed(e)),))
+    if not got.statuses:
+        return replace(got, statuses=(SourceStatus(source.name, None, "not_read", "source gave no status"),))
+    return got

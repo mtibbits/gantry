@@ -29,7 +29,8 @@ A fire comes from one of three sources, in this order:
   fire?" exactly as `gantry fires` flags it
   ([Still a fire?](fires-list.md#still-a-fire)).
 - `p0_leaf`: every open leaf whose own `priority:` is P0. A leaf that is P0
-  only because an open P0 leaf waits on it is not a fire. P0 is Gantry's
+  only because an open P0 leaf waits on it is not a fire, and neither is a
+  parent row (an epic) marked P0: only its open leaves can be. P0 is Gantry's
   rule ([Priority](worksite-page.md#priority)): the value read as
   devagent reads metadata, then exactly `P0`; so `"P0"` is P0 and `p0`,
   `P00` and `[P0]` are not. Gantry keeps its own rule until devagent states
@@ -77,7 +78,8 @@ folder that could not be listed holds an unreadable one.
 
 A STUCK fire's reason reads `step N name: reason`, with `step unknown` or
 `reason unknown` for what the marker does not say, after
-`leaf unknown: WBS.md could not be read` or
+`leaf unknown: WBS.md was not read into the build` (it could not be read,
+or its site failed after the read) or
 `parked unknown: checklist.md could not be read` when it failed closed.
 
 Every STUCK fire has `this_machine` set: STUCK markers are read from this

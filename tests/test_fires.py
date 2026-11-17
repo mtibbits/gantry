@@ -417,7 +417,7 @@ def test_stuck_outcomes():
                                        ("parked unknown: checklist.md could not be read; step 2 draft: waiting",)]
     marsh = report.fires[3]
     assert (marsh.leaf_key, marsh.title) == (None, None)
-    assert marsh.why == ("leaf unknown: WBS.md could not be read; step 2 draft: waiting",)
+    assert marsh.why == ("leaf unknown: WBS.md was not read into the build; step 2 draft: waiting",)
     assert report.stuck_parked == {"harbor": ("Issue-4", "Issue-5")}
     assert report.stuck_no_open_leaf == {"harbor": ("Issue-50", "Issue-6", "Issue-7", "Issue-8", "Issue-9"),
                                          "bakery": ("Issue-1",)}
@@ -698,6 +698,39 @@ def test_source_that_raises_as_a_whole(monkeypatch):
     assert len(report.fires) == 14
     assert all(f.kinds != ("fake",) for f in report.fires)
     assert report.sources[-1] == SourceStatus("fake", None, "not_read", "source failed: RuntimeError")
+
+
+class ReturnsSource(fires.FireSource):
+    def __init__(self, name, returns):
+        self.name, self.returns = name, returns
+
+    def collect(self, context):
+        return self.returns
+
+
+def test_duplicate_source_name_keeps_every_fire(monkeypatch):
+    empty = fires.SourceResult((), (SourceStatus("stuck", None, "read", None),))
+    monkeypatch.setattr(fires, "SOURCES", (*fires.SOURCES, ReturnsSource("stuck", empty)))
+    result, records, listed = every_kind()
+    report = collect(result, records, listed)
+    assert len(report.fires) == 14
+    assert sum("stuck" in f.kinds for f in report.fires) > 0
+
+
+def test_malformed_source_result_is_isolated(monkeypatch):
+    monkeypatch.setattr(fires, "SOURCES", (*fires.SOURCES, ReturnsSource("fake", None)))
+    result, records, listed = every_kind()
+    report = collect(result, records, listed)
+    assert len(report.fires) == 14
+    assert report.sources[-1] == SourceStatus("fake", None, "not_read", "source failed: AttributeError")
+
+
+def test_source_with_no_status_fails_closed(monkeypatch):
+    monkeypatch.setattr(fires, "SOURCES", (*fires.SOURCES, ReturnsSource("fake", fires.SourceResult((), ()))))
+    result, records, listed = every_kind()
+    report = collect(result, records, listed)
+    assert report.sources[-1] == SourceStatus("fake", None, "not_read", "source gave no status")
+    assert not report.all_read
 
 
 class Boom:
