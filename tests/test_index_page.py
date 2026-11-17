@@ -163,6 +163,8 @@ PERCENT_RE = re.compile(r"([0-9]+)%")
 
 
 def test_demo_index_strategic_slots(tmp_path, monkeypatch):
+    from test_strategic_page import panel_of
+
     code, out, _, stderr = demo_build(tmp_path, monkeypatch)
     assert code == 0, stderr
     t = tree((out / "index.html").read_bytes().decode("utf-8"))
@@ -176,9 +178,7 @@ def test_demo_index_strategic_slots(tmp_path, monkeypatch):
     lines = site_lines(t)
     for name in sorted(READABLE):
         share = figure_of(t, "index-share", lines[name][0])
-        (panel,) = [li for li in find(page, "li", ("panel",))
-                    if text_of(page, find(page, None, ("name",), within=li)[0]) == name][:1]
-        backlog = figure_of(page, "backlog", panel)
+        backlog = figure_of(page, "backlog", panel_of(page, name))
         assert PERCENT_RE.findall(text_of(t, share)) == PERCENT_RE.findall(text_of(page, backlog))[:1], name
         assert t.elements[share]["attrs"]["data-unestimated"] == page.elements[backlog]["attrs"]["data-unestimated"]
         assert t.elements[share]["attrs"]["data-source"], name
@@ -229,9 +229,10 @@ def test_headline_gives_share_as_given_and_unestimated(tmp_path):
     """AC4's fixture through write_all: the built shares sum to 85, so the
     comparable share differs from the share as given. Gaps: harbor 10.52,
     orchard 14.07, quarry 16.45 (|7.08 - 23.53|)."""
-    copy = copy_samples(tmp_path)
-    replace_bytes(copy / "portfolio.md", "shares = { harbor = 50, orchard = 30, quarry = 20 }",
-                  "shares = { harbor = 35, orchard = 30, quarry = 20, bakery = 10, ferry = 5 }")
+    from test_strategic import samples
+    from test_strategic_page import panel_of
+
+    copy = samples(tmp_path, "harbor = 35, orchard = 30, quarry = 20, bakery = 10, ferry = 5")
     result, _, error = write_all(build_all(load_config(copy / "gantry.sample.toml"), samples=copy))
     assert error is None and result.strategic_error is None
     t = tree((copy / "out" / "index.html").read_bytes().decode("utf-8"))
@@ -240,8 +241,7 @@ def test_headline_gives_share_as_given_and_unestimated(tmp_path):
                                     "leaves (backlog share, not effort)")
     assert t.elements[headline]["attrs"]["data-unestimated"] == "5"
     page = tree((copy / "out" / "strategic.html").read_bytes().decode("utf-8"))
-    (harbor,) = [li for li in find(page, "li", ("panel",))
-                 if text_of(page, find(page, None, ("name",), within=li)[0]) == BUSY][:1]
+    harbor = panel_of(page, BUSY)
     assert text_of(page, figure_of(page, "intended", harbor)) == "intended 35% (allocation from 2026-01-05)"
     assert text_of(page, figure_of(page, "gap", harbor)) == "gap 11 points against intended 41% rescaled over built sites"
 

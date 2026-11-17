@@ -364,7 +364,7 @@ def write_all(result):
     result = replace(result, pages=pages, summaries=summaries)
     slots, strategic_error = _write_strategic(result, roots, out)
     if strategic_error is None:
-        written.append(out / "strategic.html")
+        written.append(out / views_strategic.STRATEGIC_FILE)
     result = replace(result, strategic_error=strategic_error)
     try:
         write_page(roots, out, "index", render_index(result, **slots))
@@ -382,13 +382,13 @@ def _write_strategic(result, roots, out):
     it never links a page that was not written.
     """
     try:
-        model = strategic.strategic_model(result, result.portfolio, result.portfolio_entries, result.config.as_of)
+        model = strategic.strategic_model(result)
         text = views_strategic.render_strategic(result, model)
         slots = views_strategic.index_slots(model)
     except Exception as e:
         return {}, render_reason(e, roots)
     try:
-        write_page(roots, out, "strategic", text)
+        write_page(roots, out, views_strategic.STRATEGIC_PAGE, text)
     except (OSError, OutsideRoots) as e:
         return {}, why_not_written(e, roots)
     return slots, None

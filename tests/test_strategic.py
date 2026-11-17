@@ -29,11 +29,6 @@ def samples(tmp_path, shares=None):
     return copy
 
 
-def model_of(result, as_of=None):
-    return strategic_model(result, result.portfolio, result.portfolio_entries,
-                           as_of if as_of is not None else result.config.as_of)
-
-
 def groups_of(model):
     return [(g.kind, g.br_id, g.sites) for g in model.groups]
 
@@ -56,7 +51,7 @@ def test_backlog_share_is_hours_over_built_sum(tmp_path):
 
 def test_site_counted_once(tmp_path):
     result = build(samples(tmp_path))
-    model = model_of(result)
+    model = strategic_model(result)
     assert sum(BUSY in sites for _, _, sites in groups_of(model)) == 2
     assert math.isclose(model.total_hours, TOTAL)
     assert math.isclose(model.total_hours, sum(s.hours for s in result.summaries if s.status == "built"))
@@ -106,7 +101,7 @@ def test_default_unit_hours_moves_both_shares(tmp_path):
 
 def test_off_page_share_and_comparable_gap(tmp_path):
     result = build(samples(tmp_path, "harbor = 35, orchard = 30, quarry = 20, bakery = 10, ferry = 5"))
-    model = model_of(result)
+    model = strategic_model(result)
     assert math.isclose(model.off_not_built, 10) and math.isclose(model.off_not_in_config, 5)
     given = {BUSY: 35, OWN_UNIT: 30, UNESTIMATED: 20}
     assert set(gaps(model)) == set(given)
@@ -119,7 +114,7 @@ def test_off_page_share_and_comparable_gap(tmp_path):
 
 
 def test_zero_share_places_and_competes(tmp_path):
-    model = model_of(build(samples(tmp_path, "harbor = 31, orchard = 21, quarry = 0, lighthouse = 48")))
+    model = strategic_model(build(samples(tmp_path, "harbor = 31, orchard = 21, quarry = 0, lighthouse = 48")))
     (placed,) = [sites for kind, _, sites in groups_of(model) if kind == "no_requirement"]
     assert placed == (UNESTIMATED, SMALL)
     assert model.headline.site == UNESTIMATED and model.headline.intended == 0
@@ -157,16 +152,16 @@ FINISHED = "# S\n\n- [x] Done {issue: Issue-1}\n"
 
 
 def test_headline_tie_by_config_order(tmp_path):
-    model = model_of(planner_install(tmp_path, "a = 50, b = 50", {"a": SAME, "b": SAME}))
+    model = strategic_model(planner_install(tmp_path, "a = 50, b = 50", {"a": SAME, "b": SAME}))
     assert gaps(model) == {"a": 0, "b": 0}
     assert model.headline.site == "a"
 
 
 def test_allocation_by_as_of(tmp_path):
     result = build(samples(tmp_path))
-    assert model_of(result, date(2026, 1, 20)).allocation.from_date == date(2026, 1, 5)
-    assert model_of(result, date(2026, 3, 2)).allocation.from_date == date(2026, 3, 2)
-    early = model_of(result, date(2025, 11, 30))
+    assert strategic_model(result, date(2026, 1, 20)).allocation.from_date == date(2026, 1, 5)
+    assert strategic_model(result, date(2026, 3, 2)).allocation.from_date == date(2026, 3, 2)
+    early = strategic_model(result, date(2025, 11, 30))
     assert early.allocation is None and early.headline is None
     assert all(p.intended is None and p.comparable is None for p in early.panels.values())
 
@@ -174,7 +169,7 @@ def test_allocation_by_as_of(tmp_path):
 def test_no_portfolio_file(tmp_path):
     copy = samples(tmp_path)
     replace_bytes(copy / "gantry.sample.toml", 'portfolio_file = "portfolio.md"\n', "")
-    model = model_of(build(copy))
+    model = strategic_model(build(copy))
     assert model.configured is False and model.allocation is None and model.report == ()
     assert groups_of(model) == [("no_share", None, (BUSY, OWN_UNIT, UNESTIMATED, SMALL)),
                                 ("not_built", None, (NO_WBS, UNREADABLE))]
@@ -182,22 +177,22 @@ def test_no_portfolio_file(tmp_path):
 
 def test_extremes(tmp_path):
     # Every leaf finished: no backlog share, so no gap and no headline.
-    model = model_of(planner_install(tmp_path, "a = 50, b = 50", {"a": FINISHED, "b": FINISHED}))
+    model = strategic_model(planner_install(tmp_path, "a = 50, b = 50", {"a": FINISHED, "b": FINISHED}))
     assert all(b.share is None for b in model.backlog.values()) and len(model.backlog) == 2
     assert gaps(model) == {} and model.headline is None
     # Shares only on names that are unknown or not built: nothing comparable.
-    model = model_of(build(samples(tmp_path / "off", "bakery = 50, ferry = 50")))
+    model = strategic_model(build(samples(tmp_path / "off", "bakery = 50, ferry = 50")))
     assert all(p.comparable is None for p in model.panels.values())
     assert model.headline is None
     # Explicit zero shares on every built site: the built sum is 0 (B5).
-    model = model_of(planner_install(tmp_path, "a = 0, b = 0, ghost = 100", {"a": SAME, "b": SAME}))
+    model = strategic_model(planner_install(tmp_path, "a = 0, b = 0, ghost = 100", {"a": SAME, "b": SAME}))
     assert [p.comparable for p in model.panels.values()] == [None, None]
     assert [p.intended for p in model.panels.values()] == [0, 0]
     assert model.headline is None
     # Leaves held out by a cycle are open but not in hours (B5).
     done = b"- [x] Done {issue: Issue-1}\n"
     held = b"- [ ] A {issue: Issue-1, depends_on: [Issue-2]}\n- [ ] B {issue: Issue-2, depends_on: [Issue-1]}\n"
-    model = model_of(build_all(load_config(write_site_tree(tmp_path / "held", {"done": done, "held": held}))))
+    model = strategic_model(build_all(load_config(write_site_tree(tmp_path / "held", {"done": done, "held": held}))))
     panel = model.panels["held"]
     assert (panel.open_leaves, panel.held_out, panel.backlog.hours) == (2, 2, 0)
     assert [b.share for b in model.backlog.values()] == [None, None]

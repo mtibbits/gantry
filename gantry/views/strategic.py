@@ -16,7 +16,7 @@ from gantry import render
 from gantry.portfolio_file import PORTFOLIO_LABEL, format_entry
 from gantry.render import Markup, embed_json, esc, fill
 from gantry.sites import shown
-from gantry.views.index import NOT_BUILT, OPEN_LEAVES, OPEN_LEAVES_ONE, REPORT_NONE
+from gantry.views.index import NOT_BUILT, OPEN_LEAVES, OPEN_LEAVES_ONE, REPORT_NONE, _part
 from gantry.views.worksite import DOT, _count_line, _includes, _num1, _round
 
 TITLE = "Strategic page"
@@ -57,7 +57,9 @@ HEADLINE_NO_SHARES = "no intended shares set"
 HEADLINE_NO_GAP = ("Largest share gap: none, no built site has both a backlog share and a comparable intended share "
                    "(backlog share, not effort)")
 INDEX_SHARE = "backlog share {pct}"
-VIEW_LINK = ("Strategic page", "strategic.html")
+STRATEGIC_PAGE = "strategic"
+STRATEGIC_FILE = f"{STRATEGIC_PAGE}.html"
+VIEW_LINK = ("Strategic page", STRATEGIC_FILE)
 
 SOURCE_HOURS = "WBS.md and {name}"
 SOURCE_HOURS_NO_FILE = "WBS.md, no estimates file read"
@@ -160,8 +162,8 @@ def _panel(model, panel) -> str:
             rows.append(_p(figure("gap", GAP.format(points=_round(panel.gap), comparable=pct(panel.comparable)),
                                   SOURCE_COMPUTED)))
     else:
-        rows.append(f'<span class="name">{esc(shown(panel.site))}</span>{esc(DOT)}'
-                    f'<span class="reason">{esc(NOT_BUILT.format(reason=panel.reason))}</span>')
+        rows.append(f'{_part("name", shown(panel.site))}{esc(DOT)}'
+                    f'{_part("reason", NOT_BUILT.format(reason=panel.reason))}')
         rows.append(_p(_intended(model, panel)))
         if panel.serves:
             rows.append(_p(NOT_BUILT_SERVES.format(ids=", ".join(panel.serves))))
@@ -219,7 +221,8 @@ def off_page_text(model) -> str | None:
 
 
 def _off_page(model) -> str:
-    lines = [off_page_text(model)] if off_page_text(model) is not None else []
+    off = off_page_text(model)
+    lines = [off] if off is not None else []
     if model.allocation is not None:
         lines.append(GAPS_NOTE)
     return esc(" ".join(lines))

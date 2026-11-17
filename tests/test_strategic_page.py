@@ -10,27 +10,21 @@ from gantry.build import build_all, write_all
 from gantry.config import load_config
 from gantry.portfolio_file import format_entry
 from gantry.views.strategic import pct
-from helpers_config import append_bytes, copy_samples, replace_bytes, sample_projects, toml_key, write_site_tree
+from helpers_config import append_bytes, replace_bytes, sample_projects, toml_key, write_site_tree
 from helpers_strategic import page_data, placement_line, placement_problems
 from page_safety import HOSTILE, assert_no_external_resources, assert_page_safe
 from sample_roles import BUSY, NO_WBS, OWN_UNIT, SMALL, UNESTIMATED, UNREADABLE
+from test_index_page import data_strings
 from test_samples import ROOT
+from test_strategic import ESTIMATES_ROW, samples, with_estimates_row
 from test_worksite_page import by_id, find, text_of, tree
 
-SAMPLE_SHARES = "shares = { harbor = 50, orchard = 30, quarry = 20 }"  # the 2026-01-05 allocation
 BR_TEXTS = ["Keep the harbor safe to work in, all year round.", "Keep the market supplied every week.",
             "Bring in a full harvest each autumn."]
 NO_WBS_REASON = "no WBS.md in the planning directory"
 UNREADABLE_REASON = "WBS.md is not valid UTF-8 at byte 88"
 SECTION_LABELS = {None: "the portfolio file", "business requirements": "business requirements",
                   "settings": "settings"}
-
-
-def samples(tmp_path, shares=None):
-    copy = copy_samples(tmp_path)
-    if shares is not None:
-        replace_bytes(copy / "portfolio.md", SAMPLE_SHARES, f"shares = {{ {shares} }}")
-    return copy
 
 
 def page(copy):
@@ -218,22 +212,10 @@ def test_report_panel_lists_entries(tmp_path):
     assert lines == [f"{SECTION_LABELS[e.section]}: {format_entry(e)}" for e in entries]
     assert text_of(t, find(t, "h2", within=report)[0]) == "missing or unreadable"
     data = page_data(text)
-    strings = [text, *strings_of(data)]
+    strings = [text, *data_strings(data)]
     for s in strings:
         assert path_form_hits(s) == [], s[:80]
         assert str(tmp_path) not in s and tmp_path.as_posix() not in s
-
-
-def strings_of(node):
-    if isinstance(node, dict):
-        for key, value in node.items():
-            yield key
-            yield from strings_of(value)
-    elif isinstance(node, list):
-        for value in node:
-            yield from strings_of(value)
-    elif isinstance(node, str):
-        yield node
 
 
 def test_report_panel_empty(tmp_path):
@@ -245,7 +227,6 @@ def test_report_panel_empty(tmp_path):
 # --- page safety (AC9) -------------------------------------------------------------------
 
 ODD_ESTIMATES = 'estimates-2026-01-15-"<b>odd.md'
-ESTIMATES_TABLE = "| # | title | effort | hours |\n|---|---|---|---|\n| #6 | Lay the drip lines | M | 8-16 |\n"
 
 
 def test_strategic_hostile(tmp_path):
@@ -256,7 +237,7 @@ def test_strategic_hostile(tmp_path):
     append_bytes(copy / "devagent" / "config.toml", f'\n[project.{toml_key(HOSTILE[3])}]\ndevdoc_dir = "../ghost"\n')
     planted_values = [HOSTILE[0], HOSTILE[3], HOSTILE[7], HOSTILE[10]]
     try:
-        (copy / OWN_UNIT / ODD_ESTIMATES).write_bytes(ESTIMATES_TABLE.encode("utf-8"))
+        (copy / OWN_UNIT / ODD_ESTIMATES).write_bytes(ESTIMATES_ROW.encode("utf-8"))
         planted_values.append(ODD_ESTIMATES)
     except OSError:
         pass  # a file system that refuses the name: the attribute leg is skipped there (S6)
@@ -311,9 +292,7 @@ def test_non_time_texts(tmp_path):
     wanted = ("also 13 pt in this site's own unit, left out of totals across sites; 2 leaves, 2 of them at the "
               "default unit (counted as unestimated)")
     assert wanted in [text_of(t, p) for p in find(t, "p", within=panel_of(t, OWN_UNIT))]
-    copy = samples(tmp_path / "row")
-    (copy / OWN_UNIT / "estimates-2026-01-15-x.md").write_bytes(ESTIMATES_TABLE.encode("utf-8"))
-    text, _ = page(copy)
+    text, _ = page(with_estimates_row(tmp_path / "row"))
     t = tree(text)
     lines = [text_of(t, p) for p in find(t, "p", within=panel_of(t, OWN_UNIT))]
     assert any(line.endswith("2 leaves, 1 of them at the default unit (counted as unestimated), "

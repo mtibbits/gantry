@@ -71,7 +71,6 @@ class StrategicModel:
     as_of: object  # the build's as-of date
     configured: bool  # whether the config names a portfolio file
     allocation: object  # the Allocation that applies on as_of, or None
-    projects: tuple[str, ...]
     panels: dict  # {site: Panel}, config order
     groups: tuple[Group, ...]
     total_hours: float
@@ -80,7 +79,15 @@ class StrategicModel:
     off_not_in_config: int | float  # intended share on names that are not sites
     headline: Panel | None  # the built site with the largest gap; the first in config order on a tie
     report: tuple  # the build's portfolio entries, in report order
-    backlog: dict  # {built site: SiteBacklog}
+
+    @property
+    def projects(self) -> tuple[str, ...]:
+        return tuple(self.panels)
+
+    @property
+    def backlog(self) -> dict:
+        """{built site: SiteBacklog}, config order."""
+        return {name: p.backlog for name, p in self.panels.items() if p.built}
 
 
 def _split(data) -> dict:
@@ -125,40 +132,40 @@ def _panel(result, summary, backlog, shares, built_sum, portfolio) -> Panel:
                  inputs.estimates.name if inputs.estimates is not None else None, intended, comparable, gap, serves)
 
 
-def _group(kind, br_id, text, sites, panels, shares_apply, shares_shown) -> Group:
+def _group(kind, br_id, text, sites, panels) -> Group:
     given = [panels[s].intended for s in sites if panels[s].intended is not None]
     built = [panels[s].backlog for s in sites if panels[s].built]
-    return Group(kind, br_id, text, tuple(sites),
-                 sum(given) if shares_apply and given else None,
-                 sum(b.share for b in built) if shares_shown and built else None,
-                 sum(b.unestimated_count for b in built))
+    # A built site's share is None only when no built site has open hours, so all of them are or none are.
+    site_shares = [b.share for b in built if b.share is not None]
+    return Group(kind, br_id, text, tuple(sites), sum(given) if given else None,
+                 sum(site_shares) if site_shares else None, sum(b.unestimated_count for b in built))
 
 
-def strategic_model(result, portfolio, portfolio_entries, as_of) -> StrategicModel:
-    """The strategic page's model for a BuildResult: `portfolio` is the
-    build's one read of the portfolio file (None when not configured) and
-    `portfolio_entries` its report entries."""
+def strategic_model(result, as_of=None) -> StrategicModel:
+    """The strategic page's model for a BuildResult, from the build's one
+    read of the portfolio file and its report entries, at `as_of` (the
+    config's as-of date when None)."""
+    portfolio = result.portfolio
+    as_of = as_of if as_of is not None else result.config.as_of
     projects = tuple(s.name for s in result.summaries)
-    built = built_sites(result)
     backlog = backlog_shares(result)
+    built = tuple(backlog)
     allocation = intended_shares(portfolio, as_of) if portfolio is not None else None
     shares = allocation.shares if allocation is not None else {}
     built_sum = sum(shares[name] for name in built if name in shares)
     panels = {s.name: _panel(result, s, backlog, shares, built_sum, portfolio) for s in result.summaries}
 
-    shares_shown = any(b.share is not None for b in backlog.values())
     groups, placed = [], set()
     if portfolio is not None:
         for key, req in portfolio.brs.requirements.items():
             sites = [name for name in built if key in panels[name].serves]
             placed.update(sites)
-            groups.append(_group("br", key, req.text, sites, panels, allocation is not None, shares_shown))
+            groups.append(_group("br", key, req.text, sites, panels))
     unplaced = [name for name in built if name not in placed]
     fixed = (("no_requirement", [name for name in unplaced if name in shares]),
              ("no_share", [name for name in unplaced if name not in shares]),
              ("not_built", [name for name in projects if name not in built]))
-    groups += [_group(kind, None, None, sites, panels, allocation is not None, shares_shown)
-               for kind, sites in fixed if sites]
+    groups += [_group(kind, None, None, sites, panels) for kind, sites in fixed if sites]
 
     headline = None
     for name in built:
@@ -166,9 +173,9 @@ def strategic_model(result, portfolio, portfolio_entries, as_of) -> StrategicMod
         if gap is not None and (headline is None or gap > headline.gap):
             headline = panels[name]
     return StrategicModel(
-        as_of=as_of, configured=portfolio is not None, allocation=allocation, projects=projects, panels=panels,
+        as_of=as_of, configured=portfolio is not None, allocation=allocation, panels=panels,
         groups=tuple(groups), total_hours=sum(b.hours for b in backlog.values()),
         total_unestimated=sum(b.unestimated_count for b in backlog.values()),
         off_not_built=sum(v for name, v in shares.items() if name in projects and name not in built),
         off_not_in_config=sum(v for name, v in shares.items() if name not in projects),
-        headline=headline, report=tuple(portfolio_entries), backlog=backlog)
+        headline=headline, report=tuple(result.portfolio_entries))

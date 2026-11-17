@@ -51,8 +51,7 @@ from gantry.roots import OutsideRoots
 from gantry.sites import config_roots, shown
 from gantry.stamp import stamp_text
 from gantry.trace import counts_line, load_catalog
-
-STRATEGIC_FILE = "strategic.html"
+from gantry.views.strategic import STRATEGIC_FILE
 
 
 def _parser():
