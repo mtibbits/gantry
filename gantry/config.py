@@ -220,12 +220,7 @@ def _kind_ok(kind: str, value) -> bool:
     if kind == "date":
         return isinstance(value, date) and not isinstance(value, datetime)
     if kind == "positive_number":
-        return (
-            isinstance(value, (int, float))
-            and not isinstance(value, bool)
-            and math.isfinite(value)
-            and value > 0
-        )
+        return finite_number(value) and value > 0
     if kind == "path_or_false":
         return value is False or (isinstance(value, str) and value != "")
     if kind == "table":
@@ -288,8 +283,11 @@ def read_toml(roots, path, name: str, subject: str, *, key) -> dict:
         raise ConfigError(f"{file}: {subject}starts with a UTF-8 byte-order mark; save it without one")
     try:
         return tomllib.loads(data.decode("utf-8"))
-    except ValueError as e:
-        # TOMLDecodeError, UnicodeDecodeError and the integer-digit limit.
+    except (ValueError, RecursionError) as e:
+        # ValueError: TOMLDecodeError, UnicodeDecodeError and the integer-digit
+        # limit. RecursionError: valid TOML nested deeper than Python's
+        # recursion limit; refused with the same message as the portfolio
+        # reader's (portfolio_file._load_settings).
         raise ConfigError(f"{file}: {subject}is not valid TOML: {e}") from None
 
 

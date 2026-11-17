@@ -76,6 +76,22 @@ def test_versions_agree():
     assert plugin["name"] == "gantry"
 
 
+@pytest.mark.parametrize(
+    "raw",
+    [{"default_unit_hours": "1" * 400}, {"x": "[" * 3000 + "]" * 3000}],
+    ids=["huge-int", "deep-nesting"],
+)
+def test_python_m_refuses_huge_and_deep_config(tmp_path, raw):
+    # One error line and exit 1, never a traceback (#117).
+    p = write_config(tmp_path, **raw)
+    result = run_module("build", "--config", str(p))
+    assert result.returncode == 1
+    assert b"Traceback" not in result.stderr
+    lines = result.stderr.decode("utf-8").splitlines()
+    assert len(lines) == 1, lines[:3]
+    assert lines[0].startswith(f"gantry: error: {p}: ")
+
+
 # --- build end to end on the sample ------------------------------------------
 
 SAMPLE_CONFIG = "samples/gantry.sample.toml"

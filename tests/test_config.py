@@ -218,6 +218,22 @@ def test_default_unit_hours_default_and_float(tmp_path):
     assert cfg.load_config(write_config(tmp_path / "b", default_unit_hours="2.5")).default_unit_hours == 2.5
 
 
+def test_huge_unit_hours_is_refused(tmp_path):
+    # An int too large to convert to a float is not a positive number (#117).
+    p = write_config(tmp_path, default_unit_hours="1" * 400)
+    with pytest.raises(cfg.ConfigError) as e:
+        cfg.load_config(p)
+    assert str(e.value) == f"{p}: key 'default_unit_hours' must be a positive number, not a very large integer"
+
+
+def test_deeply_nested_toml_is_refused(tmp_path):
+    # Valid TOML, but deeper than Python's recursion limit (#117).
+    p = write_config(tmp_path, x="[" * 3000 + "]" * 3000)
+    with pytest.raises(cfg.ConfigError) as e:
+        cfg.load_config(p)
+    assert str(e.value).startswith(f"{p}: is not valid TOML: ")
+
+
 @pytest.mark.skipif(os.name == "nt", reason="a drive-letter path is absolute on Windows")
 def test_other_os_output_dir_is_error_on_linux(tmp_path, capsys):
     p = write_config(tmp_path, output_dir='"' + DRIVE + "/" + "out" + '"')
@@ -326,6 +342,7 @@ DEVAGENT_ERRORS = {
     "project-not-table": (_devagent_text(b"project = 3\n"), ["[project]"]),
     "empty-project": (_devagent_text(b"[project]\n"), ["[project]"]),
     "bom": (_devagent_text(b"\xef\xbb\xbf[project.p]\ndevdoc_dir = \"p\"\n"), ["byte-order mark"]),
+    "deep-nesting": (_devagent_text(b"x = " + b"[" * 3000 + b"]" * 3000 + b"\n"), ["not valid TOML"]),
 }
 
 
