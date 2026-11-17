@@ -13,6 +13,7 @@ made from a BuildResult and the portfolio file the build read once.
 docs/strategic-page.md states the rules.
 """
 
+import math
 from dataclasses import dataclass
 
 from gantry.est_rules import classify_est
@@ -170,7 +171,9 @@ def strategic_model(result, as_of=None) -> StrategicModel:
     headline = None
     for name in built:
         gap = panels[name].gap
-        if gap is not None and (headline is None or gap > headline.gap):
+        # Gaps a float hair apart are a tie (two built sites always tie), and a tie keeps config order.
+        if gap is not None and (headline is None or (gap > headline.gap and not math.isclose(
+                gap, headline.gap, rel_tol=1e-9, abs_tol=1e-9))):
             headline = panels[name]
     return StrategicModel(
         as_of=as_of, configured=portfolio is not None, allocation=allocation, panels=panels,

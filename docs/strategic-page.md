@@ -152,6 +152,8 @@ page is written from, made once per build:
   `Largest share gap: {site}, intended {intended}, backlog share {backlog}{inc} (backlog share, not effort)`.
   The site is the built site with the largest gap, comparing unrounded
   gaps, a share of 0 included; on a tie the first in config order wins.
+  Gaps that differ only by floating-point error are a tie: with two built
+  sites that both hold a share, the two gaps are always equal.
   `{intended}` is its intended share as given, and `{inc}` its unestimated
   count as above. With no applying allocation (or no portfolio file) it
   reads `no intended shares set`; when an allocation applies but no built

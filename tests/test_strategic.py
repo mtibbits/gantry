@@ -157,6 +157,24 @@ def test_headline_tie_by_config_order(tmp_path):
     assert model.headline.site == "a"
 
 
+def test_headline_two_site_tie_is_not_float_noise(tmp_path):
+    """Two built sites with shares always tie: 1 h and 2 h against 10 and 90
+    give both a gap of 23 1/3, which floats compute a hair apart."""
+    one = "# S\n\n- [ ] Only {issue: Issue-1, est: 1h, h: 1}\n"
+    two = "# S\n\n- [ ] Only {issue: Issue-1, est: 2h, h: 1}\n"
+    model = strategic_model(planner_install(tmp_path, "a = 10, b = 90", {"a": one, "b": two}))
+    assert math.isclose(gaps(model)["a"], gaps(model)["b"])
+    assert model.headline.site == "a"
+
+
+def test_headline_ranks_unrounded_gaps(tmp_path):
+    """Two gaps that both show as 7 points: the larger unrounded one wins, though it is later in config order."""
+    model = strategic_model(build(samples(tmp_path, "harbor = 31, orchard = 21, quarry = 14, lighthouse = 34")))
+    shown = {name: round(gap) for name, gap in gaps(model).items()}
+    assert shown[SMALL] == max(shown.values()) == 7 and list(shown.values()).count(7) == 2
+    assert model.headline.site == SMALL
+
+
 def test_allocation_by_as_of(tmp_path):
     result = build(samples(tmp_path))
     assert strategic_model(result, date(2026, 1, 20)).allocation.from_date == date(2026, 1, 5)
