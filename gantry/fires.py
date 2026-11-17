@@ -248,7 +248,7 @@ class FiresListSource(FireSource):
         return SourceResult(tuple(found), (SourceStatus(self.name, None, listed.status, reason),))
 
 
-def is_open(leaf) -> bool:
+def in_open_state(leaf) -> bool:
     return leaf.state in OPEN_STATES
 
 
@@ -262,7 +262,7 @@ class P0Source(PerSiteSource):
             kinds=(self.name,), site=view.name, site_as_written=None, issue=leaf.issue, leaf_key=leaf.key,
             title=leaf.title, why=("P0 leaf",), unreadable=False, fail_closed=None, since=None, date_only=False,
             age=None, still_a_fire=None, this_machine=False,
-        ) for leaf in view.leaves if priority.rank(leaf.priority) == 0 and is_open(leaf))
+        ) for leaf in view.leaves if priority.rank(leaf.priority) == 0 and in_open_state(leaf))
         if view.wbs == "read" and view.unread_lines:
             status = self.status(context, view.name, "read_with_problems",
                                  f"WBS.md lines not read as leaves: {view.unread_lines}")
