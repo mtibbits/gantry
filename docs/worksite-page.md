@@ -1072,11 +1072,12 @@ its config order. It first reads every site, then resolves the foreign
 entries across them ([Foreign entries](#foreign-entries)), then renders each
 site it read, each in its own `try`; after a render failure it re-resolves
 and re-renders the pages that wait on or link to the failed site, and writes `<output_dir>/sites/<name>.html` for
-each, then `<output_dir>/index.html` ([The index](#the-index)). It then
+each, then the strategic page, `<output_dir>/strategic.html` (#23), then
+`<output_dir>/index.html` ([The index](#the-index)). It then
 writes the week plan to `<output_dir>/week-plan.json`
 ([week-plan.md](week-plan.md#the-plan-file)). It prints
 one absolute path per file it wrote: the pages in config order, then the
-index, then the plan file. Then, for each page it wrote whose site is in the trace or whose
+strategic page, then the index, then the plan file. Then, for each page it wrote whose site is in the trace or whose
 trace report has an item, in config order, one line
 `trace <site>: unreadable N, malformed N, duplicate N, misplaced N, cycle N, undefined N, unserved N, untraced N`,
 every category in that order, zeros included; a site not in the trace
@@ -1110,7 +1111,7 @@ index with its reason and on stderr as
   then fails on its own and the index is still written.
 
 A reason names the site and a config key or file kind, never an absolute
-path. Three more lines can follow on stderr:
+path. Four more lines can follow on stderr:
 
 - `gantry: error: cannot write <index path>: <reason>`: the index cannot be
   written. When the output folder itself cannot be made, this is the only
@@ -1120,12 +1121,19 @@ path. Three more lines can follow on stderr:
   cannot be written. It comes before the index's line, names no path, and
   is not attempted when the output folder itself cannot be made; when only
   the index cannot be written, the plan file still is;
+- `gantry: error: cannot write strategic.html: <reason>`: strategic.html
+  cannot be made or written (a fault making or rendering it reads
+  `render error: {type}: {message}`). It comes after the plan file's line
+  and before the index's, names no path, and is not attempted when the
+  output folder itself cannot be made. The index is then written with its
+  slots empty, so it never links the page, and an older `strategic.html`
+  stays in place, unlinked, with its old stamp;
 - `gantry: error: no site page was written`.
 
 | Exit | When |
 |---|---|
-| 0 | the index was written and at least one site page was written (sites not built and warnings do not change it); with `--site`, its page was written |
-| 1 | a config error; no site page was written (the index is still written); the index or the output folder cannot be written; the plan file cannot be written; with `--site`, any of the errors below |
+| 0 | the strategic page and the index were written and at least one site page was written (sites not built and warnings do not change it); with `--site`, its page was written |
+| 1 | a config error; no site page was written (the index is still written); the index or the output folder cannot be written; the plan file cannot be written; strategic.html cannot be made or written; with `--site`, any of the errors below |
 | 2 | a usage error, such as a missing `--config` |
 
 ### One site: `--site`

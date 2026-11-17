@@ -6,11 +6,10 @@ import subprocess
 import sys
 
 from commit_check import path_form_hits
-from gantry.build import build_all
+from gantry.build import build_all, write_all
 from gantry.config import load_config
 from gantry.portfolio_file import format_entry
-from gantry.strategic import strategic_model
-from gantry.views.strategic import pct, render_strategic
+from gantry.views.strategic import pct
 from helpers_config import append_bytes, copy_samples, replace_bytes, sample_projects, toml_key, write_site_tree
 from helpers_strategic import page_data, placement_line, placement_problems
 from page_safety import HOSTILE, assert_no_external_resources, assert_page_safe
@@ -35,10 +34,10 @@ def samples(tmp_path, shares=None):
 
 
 def page(copy):
-    """(strategic page text, BuildResult) for a samples copy."""
-    result = build_all(load_config(copy / "gantry.sample.toml"), samples=copy)
-    model = strategic_model(result, result.portfolio, result.portfolio_entries, result.config.as_of)
-    return render_strategic(result, model), result
+    """(the written strategic.html's text, the BuildResult write_all returned) for a samples copy."""
+    result, _, error = write_all(build_all(load_config(copy / "gantry.sample.toml"), samples=copy))
+    assert error is None and result.strategic_error is None
+    return (copy / "out" / "strategic.html").read_bytes().decode("utf-8"), result
 
 
 def demo(tmp_path):
@@ -135,9 +134,9 @@ ONE_LINER = ("import sys; sys.path.insert(0, 'tests'); from helpers_strategic im
 
 
 def test_placement_line_subprocess(tmp_path):
-    text, _ = demo(tmp_path)
-    path = tmp_path / "strategic.html"
-    path.write_bytes(text.encode("utf-8"))
+    copy = samples(tmp_path)
+    page(copy)
+    path = copy / "out" / "strategic.html"
     ran = subprocess.run([sys.executable, "-c", ONE_LINER, str(path)], cwd=ROOT, capture_output=True, check=True)
     assert ran.stdout.decode("utf-8") == "6 configured projects, 6 placed\n"
     assert placement_line(path) == "6 configured projects, 6 placed"
@@ -291,10 +290,10 @@ def test_strategic_repeatable(tmp_path):
 
 
 def built_page(tmp_path, sites, tail=""):
-    """The strategic page of a write_site_tree installation: (tree, page text)."""
-    result = build_all(load_config(write_site_tree(tmp_path, sites, tail=tail)))
-    model = strategic_model(result, result.portfolio, result.portfolio_entries, result.config.as_of)
-    text = render_strategic(result, model)
+    """The written strategic page of a write_site_tree installation: (tree, page text)."""
+    result, _, error = write_all(build_all(load_config(write_site_tree(tmp_path, sites, tail=tail))))
+    assert error is None and result.strategic_error is None
+    text = (tmp_path / "out" / "strategic.html").read_bytes().decode("utf-8")
     return tree(text), text
 
 

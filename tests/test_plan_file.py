@@ -380,7 +380,8 @@ def test_plan_written_only_in_output_folder(tmp_path):
     after = snapshot(folder)
     assert {rel: stamp for rel, stamp in after.items() if rel != "out" and not rel.startswith("out/")} == before
     assert sorted(rel for rel in after if rel.endswith(".json")) == [f"out/{PLAN_FILE}"]
-    assert sorted(written_bytes(folder / "out")) == ["index.html", "sites/a.html", "sites/b.html", PLAN_FILE]
+    assert sorted(written_bytes(folder / "out")) == ["index.html", "sites/a.html", "sites/b.html", "strategic.html",
+                                                    PLAN_FILE]
 
 
 def test_write_failure_exits_1(tmp_path, monkeypatch):
@@ -392,9 +393,9 @@ def test_write_failure_exits_1(tmp_path, monkeypatch):
     seen = []
     real = build.render_index
 
-    def render_index(result):
+    def render_index(result, **slots):
         seen.append(result.plan)
-        return real(result)
+        return real(result, **slots)
 
     monkeypatch.setattr(build, "render_index", render_index)
     code, stdout, stderr = run_main("--config", str(folder / "gantry.toml"))
@@ -404,10 +405,10 @@ def test_write_failure_exits_1(tmp_path, monkeypatch):
     assert len(line) > len("gantry: error: cannot write week-plan.json: ")
     assert str(tmp_path) not in line and "/" not in line
     # No partial or temporary file; the pages and the index are written and printed.
-    assert sorted(p.name for p in out.iterdir()) == ["index.html", "sites", PLAN_FILE]
+    assert sorted(p.name for p in out.iterdir()) == ["index.html", "sites", "strategic.html", PLAN_FILE]
     assert list((out / PLAN_FILE).iterdir()) == []
     assert stdout.splitlines() == [str(out / "sites" / "a.html"), str(out / "sites" / "b.html"),
-                                   str(out / "index.html")]
+                                   str(out / "strategic.html"), str(out / "index.html")]
     # The view still received the plan.
     assert len(seen) == 1 and isinstance(seen[0], planner.WeekPlan) and seen[0].status == "planned"
 

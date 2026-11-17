@@ -186,12 +186,14 @@ def written_files(out):
 def test_demo_build_writes_index_and_pages(tmp_path, monkeypatch):
     code, out, stdout, stderr = demo_build(tmp_path, monkeypatch)
     assert code == 0, stderr
-    assert written_files(out) == sorted(["index.html", "week-plan.json", *(f"sites/{s}.html" for s in READABLE)])
+    assert written_files(out) == sorted(["index.html", "strategic.html", "week-plan.json",
+                                         *(f"sites/{s}.html" for s in READABLE)])
     printed = stdout.splitlines()
     projects = [p for p in sample_projects() if p in READABLE]
-    # The paths (the plan file last, #61), then the in-trace sample site's trace line (#20).
+    # The paths (strategic.html before the index, #23; the plan file last, #61), then the in-trace
+    # sample site's trace line (#20).
     assert printed[:-1] == [str(out / "sites" / f"{s}.html") for s in projects] + [
-        str(out / "index.html"), str(out / "week-plan.json")]
+        str(out / "strategic.html"), str(out / "index.html"), str(out / "week-plan.json")]
     assert printed[-1].startswith("trace lighthouse: ")
     printed = printed[:-1]
     assert all(os.path.isabs(line) for line in printed)
@@ -200,8 +202,8 @@ def test_demo_build_writes_index_and_pages(tmp_path, monkeypatch):
 def test_index_links_every_written_page(tmp_path, monkeypatch):
     _, out, _, _ = demo_build(tmp_path, monkeypatch)
     links = set(page_links((out / "index.html").read_bytes().decode("utf-8")))
-    assert links == {f"sites/{p.name}" for p in (out / "sites").iterdir()}
-    assert len(links) == 4
+    assert links == {f"sites/{p.name}" for p in (out / "sites").iterdir()} | {"strategic.html"}
+    assert len(links) == 5
 
 
 def test_not_built_sites_listed_exit_0(tmp_path, monkeypatch):
@@ -221,7 +223,8 @@ def test_all_fail_writes_index_exit_1(tmp_path):
     assert code == 1
     assert (tmp_path / "out" / "index.html").is_file()
     assert not (tmp_path / "out" / "sites").exists() or not list((tmp_path / "out" / "sites").iterdir())
-    assert stdout.splitlines() == [str(tmp_path / "out" / "index.html"), str(tmp_path / "out" / "week-plan.json")]
+    assert stdout.splitlines() == [str(tmp_path / "out" / "strategic.html"), str(tmp_path / "out" / "index.html"),
+                                   str(tmp_path / "out" / "week-plan.json")]
     assert stderr.splitlines()[-1] == "gantry: error: no site page was written"
 
 
@@ -289,7 +292,8 @@ def test_page_write_error_lists_site(tmp_path):
     (tmp_path / "out" / "sites" / "beta.html").mkdir(parents=True)
     code, stdout, stderr = run_main("--config", str(config))
     assert code == 0
-    assert stdout.splitlines() == [str(tmp_path / "out" / "sites" / "alpha.html"), str(tmp_path / "out" / "index.html"),
+    assert stdout.splitlines() == [str(tmp_path / "out" / "sites" / "alpha.html"),
+                                   str(tmp_path / "out" / "strategic.html"), str(tmp_path / "out" / "index.html"),
                                    str(tmp_path / "out" / "week-plan.json")]
     (line,) = [line for line in stderr.splitlines() if "beta" in line]
     assert line.startswith("gantry: warning: site beta is not built: cannot write sites/beta.html: ")
@@ -337,11 +341,13 @@ def test_every_link_lands(tmp_path, monkeypatch):
         links = page_links(text)
         counts[rel] = len(links)
         assert all(lands(out, rel, href) for href in links), rel
-    # The subject set cannot quietly empty: the index links 4 pages, the
-    # worksite pages link their boxes on another site (#68), and the trace
-    # links across sites (#21): lighthouse its panel's quarry leaf, quarry
-    # its lighthouse:FR-2 row.
-    assert counts.pop("index.html") == 4
+    # The subject set cannot quietly empty: the index links 4 pages and the
+    # strategic page, the strategic page its 4 built sites' pages (harbor
+    # twice, #23), the worksite pages link their boxes on another site (#68),
+    # and the trace links across sites (#21): lighthouse its panel's quarry
+    # leaf, quarry its lighthouse:FR-2 row.
+    assert counts.pop("index.html") == 5
+    assert counts.pop("strategic.html") == 5
     assert counts == {f"sites/{UNESTIMATED}.html": 2, f"sites/{OWN_UNIT}.html": 4, f"sites/{BUSY}.html": 1,
                       f"sites/{SMALL}.html": 1}
 
@@ -369,7 +375,7 @@ def test_encoded_key_anchor_and_href_land(tmp_path):
 def test_demo_pages_load_nothing_external(tmp_path, monkeypatch):
     _, out, _, _ = demo_build(tmp_path, monkeypatch)
     pages = written_pages(out)
-    assert len(pages) == 5
+    assert len(pages) == 6
     for rel, text in pages.items():
         assert_no_external_resources(text)
         assert_page_safe(text, [])
@@ -381,6 +387,7 @@ STDERR_FORMS = (
     "gantry: warning: site <name> is not built: <reason>",
     "gantry: error: cannot write <index path>: <reason>",
     "gantry: error: cannot write week-plan.json: <reason>",
+    "gantry: error: cannot write strategic.html: <reason>",
     "gantry: error: no site page was written",
 )
 LISTING_TEXTS = {
@@ -439,7 +446,7 @@ def test_unwritable_sites_folder_still_writes_index(tmp_path, monkeypatch):
     (copy / "out").mkdir()
     (copy / "out" / "sites").write_bytes(b"a file, not a folder")
     code, out, stdout, stderr = demo_build(tmp_path, monkeypatch, copy=copy)
-    assert (code, stdout) == (1, f"{out / 'index.html'}\n{out / 'week-plan.json'}\n")
+    assert (code, stdout) == (1, f"{out / 'strategic.html'}\n{out / 'index.html'}\n{out / 'week-plan.json'}\n")
     lines = stderr.splitlines()
     for name in READABLE:
         assert f"gantry: warning: site {name} is not built: cannot write sites/{name}.html: sites/ is not a folder" in lines
@@ -604,6 +611,70 @@ def test_portfolio_entries_on_result(tmp_path, monkeypatch):
         ("milestone_no_leaf", f"site {SMALL} could not be read, so the milestone leaf cannot be found")]
 
 
+# --- the strategic page (#23) -------------------------------------------------------------
+
+
+def test_strategic_on_full_build_not_site(tmp_path):
+    copy = plan_install(tmp_path)
+    code, stdout, stderr = run_main("--config", str(copy / "gantry.toml"))
+    out = copy / "out"
+    assert code == 0, stderr
+    assert (out / "strategic.html").is_file()
+    assert stdout.splitlines() == [str(out / "sites" / "a.html"), str(out / "sites" / "b.html"),
+                                   str(out / "strategic.html"), str(out / "index.html"), str(out / "week-plan.json")]
+    single = plan_install(tmp_path)
+    assert run_main("--config", str(single / "gantry.toml"), "--site", "a")[0] == 0
+    assert written_files(single / "out") == ["sites/a.html"]
+
+
+def test_strategic_write_failure(tmp_path):
+    from test_index_page import headline_and_links
+
+    copy = plan_install(tmp_path)
+    out = copy / "out"
+    (out / "strategic.html").mkdir(parents=True)
+    code, stdout, stderr = run_main("--config", str(copy / "gantry.toml"))
+    assert code == 1
+    assert stderr.splitlines()[-1].startswith("gantry: error: cannot write strategic.html: ")
+    assert str(copy) not in stderr
+    assert stdout.splitlines() == [str(out / "sites" / "a.html"), str(out / "sites" / "b.html"),
+                                   str(out / "index.html"), str(out / "week-plan.json")]
+    # The index never links a page that was not written: #11's empty slots.
+    assert headline_and_links((out / "index.html").read_bytes().decode("utf-8")) == ("", [])
+    assert (out / "week-plan.json").is_file() and (out / "strategic.html").is_dir()
+
+
+def test_strategic_render_failure(tmp_path, monkeypatch):
+    from gantry import strategic
+
+    from test_index_page import headline_and_links
+
+    def broken(*args, **kwargs):
+        raise ValueError("x")
+
+    copy = plan_install(tmp_path)
+    monkeypatch.setattr(strategic, "strategic_model", broken)
+    result, written, error = build.write_all(build_all(load_config(copy / "gantry.toml")))
+    assert error is None and result.strategic_error == "render error: ValueError: x"
+    assert copy / "out" / "strategic.html" not in written and not (copy / "out" / "strategic.html").exists()
+    assert headline_and_links((copy / "out" / "index.html").read_bytes().decode("utf-8")) == ("", [])
+    code, _, stderr = run_main("--config", str(copy / "gantry.toml"))
+    assert code == 1
+    assert stderr.splitlines()[-1] == "gantry: error: cannot write strategic.html: render error: ValueError: x"
+
+
+def test_strategic_error_prints_between_plan_and_index(tmp_path):
+    copy = plan_install(tmp_path)
+    out = copy / "out"
+    for name in ("strategic.html", "index.html", "week-plan.json"):
+        (out / name).mkdir(parents=True)
+    code, _, stderr = run_main("--config", str(copy / "gantry.toml"))
+    assert code == 1
+    lines = stderr.splitlines()
+    assert [line.split(": ")[2] for line in lines] == ["cannot write week-plan.json", "cannot write strategic.html",
+                                                       f"cannot write {out / 'index.html'}"]
+
+
 def test_full_build_hands_same_plan_to_views_and_writes_it(tmp_path, monkeypatch):
     from gantry import cli
     from gantry.planner import WeekPlan, plan_to_json
@@ -614,7 +685,8 @@ def test_full_build_hands_same_plan_to_views_and_writes_it(tmp_path, monkeypatch
     built = spy_on(monkeypatch, cli, "build_all", after=lambda result: texts.append(plan_to_json(result.plan)))
     # A view that changes the plan it was handed cannot change the file: the
     # text is made before any view runs.
-    indexed = spy_on(monkeypatch, build, "render_index", before=lambda result: result.plan.leaves.append("view"))
+    indexed = spy_on(monkeypatch, build, "render_index",
+                     before=lambda result, **_: result.plan.leaves.append("view"))
     code, stdout, stderr = run_main("--config", str(copy / "gantry.toml"))
     assert code == 0, stderr
     (_, result), = built
@@ -625,7 +697,7 @@ def test_full_build_hands_same_plan_to_views_and_writes_it(tmp_path, monkeypatch
     assert result.plan.leaves[-1] == "view" and '"view"' not in texts[0]
     out = copy / "out"
     assert stdout.splitlines() == [str(out / "sites" / "a.html"), str(out / "sites" / "b.html"),
-                                   str(out / "index.html"), str(out / "week-plan.json")]
+                                   str(out / "strategic.html"), str(out / "index.html"), str(out / "week-plan.json")]
 
 
 def test_site_writes_no_plan_file(tmp_path):
@@ -667,7 +739,7 @@ def test_index_failure_still_writes_plan(tmp_path):
     assert code == 1
     # An older plan never stands in: the plan file is written though the index is not.
     assert stdout.splitlines() == [str(out / "sites" / "a.html"), str(out / "sites" / "b.html"),
-                                   str(out / "week-plan.json")]
+                                   str(out / "strategic.html"), str(out / "week-plan.json")]
     assert (out / "week-plan.json").read_bytes() == plan_to_json(
         build_all(load_config(copy / "gantry.toml")).plan).encode("utf-8")
     (line,) = stderr.splitlines()
@@ -709,14 +781,17 @@ BUILD_HOMES = ("docs/worksite-page.md", "docs/config.md", "commands/build.md", "
 
 def test_build_homes_name_the_plan_file(capsys):
     # Every place that says what the build writes, prints or exits 1 on names the plan file (#61).
+    # And the strategic page (#23).
     for rel in BUILD_HOMES:
         text = " ".join((ROOT / rel).read_bytes().decode("utf-8").split())
         assert "week-plan.json" in text, rel
+        assert "strategic.html" in text, rel
     for rel in ("docs/worksite-page.md", "docs/config.md", "commands/build.md", "gantry/cli.py"):
         text = " ".join((ROOT / rel).read_bytes().decode("utf-8").split())
         assert "plan file cannot be written" in text, rel
+        assert "strategic.html cannot be made or written" in text, rel
     doc = " ".join((ROOT / "docs" / "worksite-page.md").read_bytes().decode("utf-8").split())
-    assert "Three more lines can follow on stderr" in doc
+    assert "Four more lines can follow on stderr" in doc
     assert "not attempted when the output folder itself cannot be made" in doc
     # The sentence the output-folder case rests on stays as it was.
     assert ("When the output folder itself cannot be made, this is the only error line (the not-built lines "
@@ -725,7 +800,8 @@ def test_build_homes_name_the_plan_file(capsys):
 
     with pytest.raises(SystemExit):
         main(["build", "--help"])
-    assert "<output_dir>/week-plan.json" in " ".join(capsys.readouterr().out.split())
+    help_text = " ".join(capsys.readouterr().out.split())
+    assert "<output_dir>/week-plan.json" in help_text and "<output_dir>/strategic.html" in help_text
 
 
 def assert_no_stale(stale, paths):

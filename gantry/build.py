@@ -4,9 +4,9 @@ build_all reads each site in devagent's config order, traces each site it
 read and widens the traces to the installation (#21), then renders each
 traced site, each step per site in its own `try`, and returns one
 BuildResult that every view reads, with the week plan (#61) made from the
-built sites and the portfolio file the trace's catalog read. It writes
-nothing; write_all writes the pages
-and the index, and the command line writes the plan file. A site that cannot
+built sites, the portfolio file the trace's catalog read and its report
+entries (#23). It writes nothing; write_all writes the pages, the strategic
+page and the index, and the command line writes the plan file. A site that cannot
 be built gets a reason that names its config key or file kind, never an
 absolute path. docs/worksite-page.md states the build.
 """
@@ -28,6 +28,7 @@ from gantry.roots import OutsideRoots, Roots, mkdir_confined, stat_confined, wri
 from gantry.sites import SiteEntry, SiteWarning, config_roots, load_sites
 from gantry.stamp import public_text, stamp_text
 from gantry.trace import build_installation_trace, build_site_trace, counts_line, load_catalog, page_trace
+from gantry.views import strategic as views_strategic
 from gantry.views import worksite
 from gantry.views.index import render_index
 from gantry.wbs_stopgap import read_wbs
@@ -332,13 +333,15 @@ def why_not_written(e: Exception, roots, folder=None, what=None) -> str:
 
 
 def write_all(result):
-    """Write each page, then the index; delete nothing.
+    """Write each page, then strategic.html (#23), then the index; delete nothing.
 
     Returns (result, written paths, index error). A page that cannot be
     written turns its site into a not-built one in the returned result,
-    which the index is rendered from. When the output folder itself cannot
-    be made, nothing is written, the index error says why and the returned
-    result's `wrote_nothing` is set; when only
+    which the strategic page and the index are rendered from. A strategic
+    page that cannot be made or written sets the returned result's
+    `strategic_error` and leaves the index's slots empty. When the output
+    folder itself cannot be made, nothing is written, the index error says
+    why and the returned result's `wrote_nothing` is set; when only
     sites/ cannot be, each page fails on its own and the index is written.
     """
     roots = result.roots
@@ -359,11 +362,36 @@ def write_all(result):
         written.append(folder / f"{name}.html")
     summaries = tuple(not_built(s.name, failed[s.name]) if s.name in failed else s for s in result.summaries)
     result = replace(result, pages=pages, summaries=summaries)
+    slots, strategic_error = _write_strategic(result, roots, out)
+    if strategic_error is None:
+        written.append(out / "strategic.html")
+    result = replace(result, strategic_error=strategic_error)
     try:
-        write_page(roots, out, "index", render_index(result))
+        write_page(roots, out, "index", render_index(result, **slots))
     except (OSError, OutsideRoots) as e:
         return result, written, why_not_written(e, roots)
     return result, written + [out / "index.html"], None
+
+
+def _write_strategic(result, roots, out):
+    """Write strategic.html from one StrategicModel, made after the site
+    pages are written so "built" means what the index says (#23).
+
+    Returns (the index's slots, None), or ({}, why) when the model, the
+    render or the write failed: the index then keeps #11's empty slots, so
+    it never links a page that was not written.
+    """
+    try:
+        model = strategic.strategic_model(result, result.portfolio, result.portfolio_entries, result.config.as_of)
+        text = views_strategic.render_strategic(result, model)
+        slots = views_strategic.index_slots(model)
+    except Exception as e:
+        return {}, render_reason(e, roots)
+    try:
+        write_page(roots, out, "strategic", text)
+    except (OSError, OutsideRoots) as e:
+        return {}, why_not_written(e, roots)
+    return slots, None
 
 
 def write_page(roots, folder, name, text):

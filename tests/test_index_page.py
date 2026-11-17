@@ -1,11 +1,14 @@
-"""The index: one line per site, the warnings and the empty slots (#11).
+"""The index: one line per site, the warnings and the empty slots (#11), and
+the slots the strategic page fills (#23).
 
 Every literal is hand-derived from samples/ (see test_build's harbor note).
 """
 
 import dataclasses
 import json
+import re
 from datetime import date
+from pathlib import Path
 
 from commit_check import path_form_hits
 from gantry.build import build_all, write_all
@@ -23,10 +26,18 @@ from gantry.views.index import (
     render_index,
 )
 from gantry.views.worksite import INCLUDES, LANES_DEFAULT, SCHEDULE_LABEL
-from helpers_config import append_bytes, copy_samples, sample_build, toml_key, write_site_tree
+from helpers_config import (
+    append_bytes,
+    copy_samples,
+    demo_build,
+    replace_bytes,
+    sample_build,
+    toml_key,
+    write_site_tree,
+)
 from page_safety import HOSTILE, assert_no_external_resources, assert_page_safe
 from page_script.harness import open_page
-from sample_roles import BUSY, NO_WBS, OWN_UNIT, READABLE, UNESTIMATED, UNREADABLE
+from sample_roles import BUSY, NO_WBS, OWN_UNIT, READABLE, SMALL, UNESTIMATED, UNREADABLE
 from test_samples import ROOT
 from test_worksite_page import by_id, find, text_of, tree
 
@@ -40,6 +51,19 @@ def site_lines(t):
         (head,) = find(t, "a", within=li) or find(t, "span", ("name",), within=li)
         lines[text_of(t, head)] = (li, text_of(t, li))
     return lines
+
+
+def figure_of(t, kind, within):
+    """The one element under `within` whose data-figure is `kind`."""
+    (i,) = [i for i in find(t, "span", within=within) if t.elements[i]["attrs"].get("data-figure") == kind]
+    return i
+
+
+def headline_and_links(page):
+    """(the headline's text, [(label, href)] of the view links) on an index page."""
+    t = tree(page)
+    links = find(t, "a", within=by_id(t, "view-links"))
+    return text_of(t, by_id(t, "headline")), [(text_of(t, i), t.elements[i]["attrs"]["href"]) for i in links]
 
 
 def test_index_label(tmp_path):
@@ -102,6 +126,7 @@ def test_not_built_lines_show_reason(tmp_path):
 
 
 def test_slots_present_and_empty(tmp_path):
+    """render_index(result) with no strategic content supplied: #11's empty slots."""
     result = sample_build(tmp_path)
     t = tree(render_index(result))
     assert t.elements[by_id(t, "headline")]["text"] == []
@@ -129,6 +154,75 @@ def test_slots_filled(tmp_path):
         ("Week", "week.html"), ("Strategy", "strategy.html")]
     assert_no_external_resources(page)
     assert_page_safe(page, [])
+
+
+# --- the strategic page's slots (#23) -----------------------------------------------------
+
+HEADLINE = "Largest share gap: harbor, intended 50%, backlog share 31% (backlog share, not effort)"
+PERCENT_RE = re.compile(r"([0-9]+)%")
+
+
+def test_demo_index_strategic_slots(tmp_path, monkeypatch):
+    code, out, _, stderr = demo_build(tmp_path, monkeypatch)
+    assert code == 0, stderr
+    t = tree((out / "index.html").read_bytes().decode("utf-8"))
+    headline = figure_of(t, "headline", by_id(t, "headline"))
+    attrs = t.elements[headline]["attrs"]
+    assert text_of(t, headline) == HEADLINE
+    assert attrs["data-source"] and attrs["data-unestimated"] == "0"
+    assert headline_and_links((out / "index.html").read_bytes().decode("utf-8"))[1] == [
+        ("Strategic page", "strategic.html")]
+    page = tree((out / "strategic.html").read_bytes().decode("utf-8"))
+    lines = site_lines(t)
+    for name in sorted(READABLE):
+        share = figure_of(t, "index-share", lines[name][0])
+        (panel,) = [li for li in find(page, "li", ("panel",))
+                    if text_of(page, find(page, None, ("name",), within=li)[0]) == name][:1]
+        backlog = figure_of(page, "backlog", panel)
+        assert PERCENT_RE.findall(text_of(t, share)) == PERCENT_RE.findall(text_of(page, backlog))[:1], name
+        assert t.elements[share]["attrs"]["data-unestimated"] == page.elements[backlog]["attrs"]["data-unestimated"]
+        assert t.elements[share]["attrs"]["data-source"], name
+    unestimated = {name: t.elements[figure_of(t, "index-share", lines[name][0])]["attrs"]["data-unestimated"]
+                   for name in READABLE}
+    assert unestimated == {BUSY: "0", OWN_UNIT: "5", UNESTIMATED: "5", SMALL: "2"}
+    for name in (NO_WBS, UNREADABLE):
+        (extra,) = find(t, "span", ("extra",), within=lines[name][0])
+        assert text_of(t, extra) == ""
+
+
+def test_index_line_with_share(tmp_path, monkeypatch):
+    plain = site_lines(tree(render_index(sample_build(tmp_path / "plain"))))[BUSY][1]
+    _, out, _, _ = demo_build(tmp_path / "demo", monkeypatch)
+    filled = site_lines(tree((out / "index.html").read_bytes().decode("utf-8")))
+    assert filled[BUSY][1] == plain + worksite.DOT + "backlog share 31%"
+    assert filled[OWN_UNIT][1].endswith(worksite.DOT + "backlog share 21% (includes 5 unestimated leaves)")
+    assert filled[NO_WBS][1] == f"{NO_WBS}{worksite.DOT}not built: no WBS.md in the planning directory"
+
+
+def written_headline(config):
+    result, _, error = write_all(build_all(config))
+    assert error is None and result.strategic_error is None
+    t = tree(Path(result.config.output_dir, "index.html").read_bytes().decode("utf-8"))
+    headline = figure_of(t, "headline", by_id(t, "headline"))
+    assert t.elements[headline]["attrs"]["data-source"]
+    return text_of(t, headline)
+
+
+def test_headline_variants(tmp_path):
+    from test_strategic import ALLOCATION, FINISHED, SAME
+    from test_planner import install
+
+    early = copy_samples(tmp_path / "early")
+    replace_bytes(early / "gantry.sample.toml", "as_of = 2026-01-20", "as_of = 2025-11-30")
+    assert written_headline(load_config(early / "gantry.sample.toml")) == "no intended shares set"
+    bare = copy_samples(tmp_path / "bare")
+    replace_bytes(bare / "gantry.sample.toml", 'portfolio_file = "portfolio.md"\n', "")
+    assert written_headline(load_config(bare / "gantry.sample.toml")) == "no intended shares set"
+    no_gap = ("Largest share gap: none, no built site has both a backlog share and a comparable intended share "
+              "(backlog share, not effort)")
+    for shares, wbs in (("a = 50, b = 50", FINISHED), ("a = 0, b = 0, ghost = 100", SAME)):
+        copy = install(tmp_path, "states", wbs={"a": wbs, "b": wbs}, portfolio=ALLOCATION.format(shares=shares))
+        assert written_headline(load_config(copy / "gantry.toml")) == no_gap, shares
 
 
 def test_warnings_listed_at_top(tmp_path):
@@ -189,6 +283,7 @@ def test_index_hostile(node, tmp_path, monkeypatch):
     monkeypatch.setattr(worksite, "render_model", failing)
     result, _, error = write_all(build_all(config))
     assert error is None
+    assert result.strategic_error is None
     summaries = {s.name: s for s in result.summaries}
     reason = summaries["beta"].reason
     assert reason == "render error: ValueError: " + HOSTILE[10]

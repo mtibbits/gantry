@@ -107,8 +107,9 @@ claude --plugin-dir <clone>
 
 What a run does (`gantry` here is `python3 -m gantry` when you run in place):
 
-- `gantry build --config <file>` builds every site's worksite page and the
-  index that links them, and writes the week plan to `week-plan.json`
+- `gantry build --config <file>` builds every site's worksite page, the
+  strategic page (`strategic.html`) and the index that links them, and
+  writes the week plan to `week-plan.json`
   ([docs/week-plan.md](docs/week-plan.md)); `--site <name>` builds one
   site's page.
 - `gantry portfolio --config <file>` checks the installation's portfolio

@@ -3,9 +3,11 @@
 render_index reads the BuildResult every view reads. A built site's line
 links its page and gives its open leaves, its finish at the default lanes
 and its report count; a site that was not built gives its reason. The index
-leaves three slots empty for later views: a headline, a per-site slot on each
-line, and a list of links to other views. There is no page script.
-docs/worksite-page.md describes the index.
+has three slots that the strategic page fills (#23, views/strategic.py's
+index_slots): a headline, a per-site slot on each line, after a separator,
+and a list of links to other views. Rendered with nothing supplied, as when
+the strategic page was not written, the slots stay empty. There is no page
+script. docs/worksite-page.md describes the index.
 """
 
 from gantry import render
@@ -49,7 +51,8 @@ def _site_line(s, extra):
         report = REPORT.format(n=s.report_count) if s.report_count else REPORT_NONE
         parts = [f'<a href="{esc(page_href(s.name, from_top=True))}">{esc(s.name)}</a>',
                  _part("open", opened), _part("finish", _finish(s)), _part("report", report)]
-    return f"<li>{DOT.join(parts)}{_extra(extra)}</li>"
+    # A filled slot follows its own separator; an empty one adds nothing visible.
+    return f"<li>{DOT.join(parts)}{DOT if extra else ''}{_extra(extra)}</li>"
 
 
 def _data(result, warnings):

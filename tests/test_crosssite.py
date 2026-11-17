@@ -705,6 +705,7 @@ def test_sample_render_failure(tmp_path, monkeypatch):
     assert not any(f"{BUSY}.html" in href for page in result.pages.values() for href in page_links(page))
     written, paths, error = write_all(result)
     assert error is None
+    assert written.strategic_error is None
     out = result.config.output_dir
     for path in paths:
         rel = path.relative_to(out).as_posix()
