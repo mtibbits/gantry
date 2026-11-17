@@ -15,13 +15,14 @@ import stat
 from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
 
+from gantry import strategic
 from gantry.attention import check_h
 from gantry.config import Config, error_reason
 from gantry.crosssite import resolve_foreign
 from gantry.inputs import Inputs, apply_inputs
 from gantry.model import ForeignOutcome
 from gantry.planner import WeekPlan, plan_week
-from gantry.portfolio_file import Portfolio
+from gantry.portfolio_file import Portfolio, PortfolioEntry, report_entries
 from gantry.requirements import in_trace_sites
 from gantry.roots import OutsideRoots, Roots, mkdir_confined, stat_confined, write_confined
 from gantry.sites import SiteEntry, SiteWarning, config_roots, load_sites
@@ -69,11 +70,15 @@ class BuildResult:
     foreign: dict[str, tuple[ForeignOutcome, ...]] = field(default_factory=dict)
     # The portfolio file as the run read it, once (#61); None when portfolio_file is not set.
     portfolio: Portfolio | None = None
+    # report_entries over that one read, the milestone leaf included (#23); () without a portfolio file.
+    portfolio_entries: tuple[PortfolioEntry, ...] = ()
     # The week plan of this build (#61): every view rendered after build_all
     # gets this one object. A page that fails to write later does not re-plan.
     plan: WeekPlan | None = None
     # Set by write_all when the output folder could not be made: nothing was written.
     wrote_nothing: bool = False
+    # Set by write_all when strategic.html could not be made or written (#23): why, naming no path.
+    strategic_error: str | None = None
 
 
 def site_list(config, roots=None):
@@ -290,8 +295,24 @@ def build_all(config, *, now=None, samples=None) -> BuildResult:
                       else not_built(s.name, reasons[s.name]) for s in sites)
     result = BuildResult(config, tuple(sites), tuple(warnings), resolved, pages, summaries, stamp, roots, foreign,
                          portfolio=catalog.portfolio)
+    result = replace(result, portfolio_entries=_portfolio_entries(result))
     # The plan is made from the rendered sites: a worksite page does not get it.
     return replace(result, plan=plan_week(result, result.portfolio, config))
+
+
+def _portfolio_entries(result) -> tuple[PortfolioEntry, ...]:
+    """report_entries over the run's one read of the portfolio file (#23).
+
+    Each built site maps to its leaves' issue: values, finished leaves
+    included; every other site, one read but not rendered too, maps to None
+    ("could not be read").
+    """
+    if result.portfolio is None:
+        return ()
+    built = set(strategic.built_sites(result))
+    issues = {s.name: frozenset(leaf.issue for leaf in result.inputs[s.name].data.leaves if leaf.issue is not None)
+              if s.name in built else None for s in result.sites}
+    return tuple(report_entries(result.portfolio, [s.name for s in result.sites], issues))
 
 
 def _is_file_shaped(roots, folder) -> bool:

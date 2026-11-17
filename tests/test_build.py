@@ -539,28 +539,69 @@ def test_full_build_reads_portfolio_once(tmp_path, monkeypatch):
     assert (result.plan.status, result.plan.reason) == ("no_plan", NO_PLAN["no_portfolio"])
 
 
-def test_build_does_not_check_portfolio(tmp_path, monkeypatch):
+def _names(tree):
+    import ast
+
+    names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
+    names |= {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
+    return names | {a.name for n in ast.walk(tree) if isinstance(n, (ast.Import, ast.ImportFrom)) for a in n.names}
+
+
+LIGHTHOUSE_ISSUES = frozenset(f"Issue-{n}" for n in range(1, 13))  # samples/lighthouse/WBS.md, finished leaves too
+
+
+def test_build_checks_portfolio_once(tmp_path, monkeypatch):
     import ast
 
     from gantry import portfolio_file
 
+    calls = spy_on(monkeypatch, portfolio_file, "check_portfolio")
+    code, _, _, stderr = demo_build(tmp_path, monkeypatch)
+    assert code == 0, stderr
+    ((portfolio, site_names, issues), _), = calls
+    assert list(site_names) == sample_projects()
+    assert list(issues) == sample_projects()
+    assert {name for name, value in issues.items() if value is None} == {NO_WBS, UNREADABLE}
+    assert all(isinstance(issues[name], frozenset) for name in READABLE)
+    assert issues[SMALL] == LIGHTHOUSE_ISSUES
+    # The --site build checks nothing (I7).
+    del calls[:]
     copy = plan_install(tmp_path)
-    plain = run_main("--config", str(copy / "gantry.toml"))
-    assert plain[0] == 0
-
-    def refuse(*args, **kwargs):
-        raise AssertionError("the build called check_portfolio")
-
-    monkeypatch.setattr(portfolio_file, "check_portfolio", refuse)
-    assert run_main("--config", str(copy / "gantry.toml")) == plain
-    # No name in the build's modules reaches it either (#23 and #24 run the check where they show it).
-    for name in ("build.py", "cli.py", "planner.py"):
+    assert run_main("--config", str(copy / "gantry.toml"), "--site", "a")[0] == 0
+    assert calls == []
+    # No name in the planner or the --site build reaches the check; the full build runs report_entries.
+    for name in ("planner.py", "cli.py"):
         tree = ast.parse((ROOT / "gantry" / name).read_bytes().decode("utf-8"))
-        names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
-        names |= {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
-        names |= {a.name for n in ast.walk(tree) if isinstance(n, (ast.Import, ast.ImportFrom)) for a in n.names}
-        assert "check_portfolio" not in names, name
-        assert "plan_to_json" in names or "plan_week" in names or "leaf_attention" in names, name
+        if name == "cli.py":
+            tree = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "_build_site")
+        assert not {"check_portfolio", "report_entries"} & _names(tree), name
+    assert "report_entries" in _names(ast.parse((ROOT / "gantry" / "build.py").read_bytes().decode("utf-8")))
+
+
+def test_portfolio_entries_on_result(tmp_path, monkeypatch):
+    from helpers_config import copy_samples, replace_bytes
+
+    assert sample_build(tmp_path / "plain").portfolio_entries == ()
+    copy = copy_samples(tmp_path / "issue99")
+    replace_bytes(copy / "portfolio.md", 'issue = "Issue-5"', 'issue = "Issue-99"')
+    result = build_all(load_config(copy / "gantry.sample.toml"), samples=copy)
+    assert [(e.kind, e.message) for e in result.portfolio_entries] == [
+        ("milestone_no_leaf", "no leaf on lighthouse has issue 'Issue-99'")]
+    bare = plan_install(tmp_path, config={"portfolio_file": None})
+    result = build_all(load_config(bare / "gantry.toml"))
+    assert result.portfolio is None and result.portfolio_entries == ()
+    # A site read but not rendered counts as not read (D2): #22's "could not be read" text.
+    render_model = worksite.render_model
+
+    def failing(m, **kw):
+        if m["site"] == SMALL:
+            raise ValueError("x")
+        return render_model(m, **kw)
+
+    monkeypatch.setattr(worksite, "render_model", failing)
+    result = sample_build(tmp_path / "failed")
+    assert [(e.kind, e.message) for e in result.portfolio_entries] == [
+        ("milestone_no_leaf", f"site {SMALL} could not be read, so the milestone leaf cannot be found")]
 
 
 def test_full_build_hands_same_plan_to_views_and_writes_it(tmp_path, monkeypatch):

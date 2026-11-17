@@ -14,8 +14,9 @@ Today `gantry portfolio` checks the file, and the build reads its business
 requirements, which the trace resolves a leaf's `satisfies:` against (#20),
 and its capacity settings and allocations, for the week plan (#61, #37,
 [week-plan.md](week-plan.md#the-planner)). The build reads the file once
-and every view reuses that read. It runs neither these checks nor the
-milestone check: #23 adds both, reusing the build's read.
+and every view reuses that read. The build runs every check below, the
+milestone-leaf check included, once per build over that read, and shows the
+entries on the strategic page (#23).
 
 ## Checking the file
 
@@ -33,7 +34,7 @@ business requirements
   line 14: duplicate_id: life:BR-2 is also defined on line 12; the first definition is kept
 settings
   line 31: bad_value: capacity.agent_lanes: must be an integer, 0 or more, not a boolean; it is not set
-note: the milestone leaf is not checked here (this command reads no WBS.md), nor yet by the build
+note: the milestone leaf is not checked here (this command reads no WBS.md); a full gantry build checks it and lists the result on the strategic page
 2 entries
 ```
 
@@ -41,9 +42,9 @@ A line is `line N: ` (when the entry has a line), the kind (an advisory
 kind is marked ` (advisory)`), the key path (when the entry has one) and the
 message. An entry about the whole file is grouped under `the portfolio
 file`. The `note:` line is printed only when a milestone is set: the
-command reads no `WBS.md`, so it cannot look for the milestone's leaf. The
-note stays true until the build checks the milestone (#23), which rewords
-it.
+command reads no `WBS.md`, so it cannot look for the milestone's leaf. A
+full `gantry build` reads every site's `WBS.md`, checks the milestone leaf
+and lists the result on the strategic page (#23).
 
 It exits 0 when there are no entries and 1 when there is any entry, an
 advisory one included. It also exits 1 on a config error and when the config
@@ -251,11 +252,13 @@ first, and for the second each site's `issue:` values, which come from its
 
 ### For a view that reads the file
 
-A view reads `read_portfolio_file(path, br_namespace=...)` once per build and
-shows `report_entries(portfolio, site_names, issues_by_site)`, which merges
-`Portfolio.report` with `check_portfolio`'s entries in report order, and
-nothing else: `Portfolio.brs.report` holds the same business-requirements
-entries again. When `settings_read` is false, every setting is not set, the
+The build reads the file once, with `read_portfolio_file(path,
+br_namespace=...)`, and runs `report_entries(portfolio, site_names,
+issues_by_site)` once, which merges `Portfolio.report` with
+`check_portfolio`'s entries in report order. A view reads
+`BuildResult.portfolio` and `BuildResult.portfolio_entries` and never
+re-reads the file. It shows those entries and nothing else:
+`Portfolio.brs.report` holds the same business-requirements entries again. When `settings_read` is false, every setting is not set, the
 thresholds included; a view that needs a threshold then uses its default
 from `DEFAULTS`. `intended_shares(portfolio, day)` gives the allocation on a
 day.

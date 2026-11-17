@@ -540,7 +540,8 @@ def test_trace_warning_escapes_name(tmp_path, capsys):
 # --- gantry portfolio (#22) ----------------------------------------------------
 
 PORTFOLIO_FIXTURES = ROOT / "tests" / "fixtures" / "portfolio_file"
-MILESTONE_NOTE = "note: the milestone leaf is not checked here (this command reads no WBS.md), nor yet by the build"
+MILESTONE_NOTE = ("note: the milestone leaf is not checked here (this command reads no WBS.md); a full gantry build "
+                  "checks it and lists the result on the strategic page")
 
 
 def portfolio_run(capsys, config):

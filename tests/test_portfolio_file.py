@@ -1050,6 +1050,7 @@ def test_config_doc_portfolio_row():
     doc = doc_text(CONFIG_DOC)
     row = next(line for line in doc.splitlines() if line.startswith("| `portfolio_file` |"))
     assert "portfolio-file.md" in row and "gantry portfolio" in row
-    assert "its capacity settings and allocations, for the week plan" in row and "#23 adds the rest" in row
+    assert "its capacity settings and allocations, for the week plan" in row and "#23 adds the rest" not in row
+    assert "its allocations, `serves` lists and checks, for the strategic page (#23)" in row
     assert "#23 or " + "#61" not in doc and "only its business " + "requirements" not in doc
     assert "gantry portfolio --config <file>" in doc

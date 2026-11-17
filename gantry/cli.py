@@ -212,10 +212,11 @@ def _build(args):
     return _build_site(config, roots, sites, args.site)
 
 
-# The build reads the portfolio file's business requirements for the trace
-# (#20) and its capacity settings for the week plan (#61), but checks no
-# milestone yet (#23 adds that, and rewords this with docs/portfolio-file.md).
-MILESTONE_NOTE = "note: the milestone leaf is not checked here (this command reads no WBS.md), nor yet by the build"
+# This command reads no WBS.md, so it cannot find the milestone leaf; the full
+# build reads every site and runs report_entries with each site's issue:
+# values, and the strategic page lists the result (#23, docs/portfolio-file.md).
+MILESTONE_NOTE = ("note: the milestone leaf is not checked here (this command reads no WBS.md); a full gantry build "
+                  "checks it and lists the result on the strategic page")
 
 
 def _load_for_check(args):
