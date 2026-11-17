@@ -5,8 +5,8 @@ read and widens the traces to the installation (#21), then renders each
 traced site, each step per site in its own `try`, and returns one
 BuildResult that every view reads, with the week plan (#61) made from the
 built sites and the portfolio file the trace's catalog read. It writes
-nothing; write_all writes the pages
-and the index, and the command line writes the plan file. A site that cannot
+nothing; write_all writes the pages, the week view (week.html, #38) and the
+index, and the command line writes the plan file. A site that cannot
 be built gets a reason that names its config key or file kind, never an
 absolute path. docs/worksite-page.md states the build.
 """
@@ -27,7 +27,7 @@ from gantry.roots import OutsideRoots, Roots, mkdir_confined, stat_confined, wri
 from gantry.sites import SiteEntry, SiteWarning, config_roots, load_sites
 from gantry.stamp import public_text, stamp_text
 from gantry.trace import build_installation_trace, build_site_trace, counts_line, load_catalog, page_trace
-from gantry.views import worksite
+from gantry.views import week, worksite
 from gantry.views.index import render_index
 from gantry.wbs_stopgap import read_wbs
 
@@ -36,6 +36,9 @@ RENDER_ERROR = "render error: {type}: {message}"
 RENDER_ERROR_BARE = "render error: {type}"
 WRITE_ERROR = "cannot write sites/{name}.html: {why}"
 NOT_A_FOLDER = "{what} is not a folder"
+WEEK_WRITE_ERROR = "cannot write week.html: {why}"
+WEEK_RENDER_ERROR = "cannot render week.html: {type}: {message}"
+WEEK_RENDER_ERROR_BARE = "cannot render week.html: {type}"
 
 
 @dataclass(frozen=True)
@@ -74,6 +77,9 @@ class BuildResult:
     plan: WeekPlan | None = None
     # Set by write_all when the output folder could not be made: nothing was written.
     wrote_nothing: bool = False
+    # Set by write_all when the week view (#38) could not be rendered or written:
+    # the clause after "gantry: error: ". The index is then written without its link.
+    week_error: str | None = None
 
 
 def site_list(config, roots=None):
@@ -94,14 +100,32 @@ def clashes(sites) -> dict[str, str]:
     return found
 
 
-def render_reason(e: Exception, roots) -> str:
-    """A render error's one-line reason, naming no root by its path."""
+def render_reason(e: Exception, roots, forms=(RENDER_ERROR, RENDER_ERROR_BARE)) -> str:
+    """A render error's one-line reason, naming no root by its path. forms are
+    the (with message, bare) templates; the week view passes its own (#38)."""
     message = error_reason(e) if isinstance(e, OSError) else str(e)
     # The labels go in before ascii(), so a Windows path still matches.
     message = ascii(public_text(message, roots))[1:-1]
+    with_message, bare = forms
     if not message:
-        return RENDER_ERROR_BARE.format(type=type(e).__name__)
-    return RENDER_ERROR.format(type=type(e).__name__, message=message)
+        return bare.format(type=type(e).__name__)
+    return with_message.format(type=type(e).__name__, message=message)
+
+
+def _write_week(result, out):
+    """(result, the week page's path or None): the week view rendered and written,
+    or the result's week_error set. Any render exception is caught (#38)."""
+    roots = result.roots
+    try:
+        text = week.render_week(result.plan, result, result.stamp)
+    except Exception as e:
+        why = render_reason(e, roots, (WEEK_RENDER_ERROR, WEEK_RENDER_ERROR_BARE))
+        return replace(result, week_error=why), None
+    try:
+        write_page(roots, out, week.PAGE.removesuffix(".html"), text)
+    except (OSError, OutsideRoots) as e:
+        return replace(result, week_error=WEEK_WRITE_ERROR.format(why=why_not_written(e, roots))), None
+    return result, out / week.PAGE
 
 
 def site_data(roots, site):
@@ -311,14 +335,17 @@ def why_not_written(e: Exception, roots, folder=None, what=None) -> str:
 
 
 def write_all(result):
-    """Write each page, then the index; delete nothing.
+    """Write each page, then the week view, then the index; delete nothing.
 
     Returns (result, written paths, index error). A page that cannot be
     written turns its site into a not-built one in the returned result,
-    which the index is rendered from. When the output folder itself cannot
-    be made, nothing is written, the index error says why and the returned
-    result's `wrote_nothing` is set; when only
+    which the week view and the index are rendered from. When the output
+    folder itself cannot be made, nothing is written, the index error says
+    why and the returned result's `wrote_nothing` is set; when only
     sites/ cannot be, each page fails on its own and the index is written.
+    The week view (#38) is written when the result holds a plan; when it
+    cannot be rendered or written, the result's `week_error` says why and
+    the index is written without its "Week view" link.
     """
     roots = result.roots
     out = result.config.output_dir
@@ -338,8 +365,14 @@ def write_all(result):
         written.append(folder / f"{name}.html")
     summaries = tuple(not_built(s.name, failed[s.name]) if s.name in failed else s for s in result.summaries)
     result = replace(result, pages=pages, summaries=summaries)
+    view_links = []
+    if result.plan is not None:
+        result, path = _write_week(result, out)
+        if path is not None:
+            written.append(path)
+            view_links.append(week.LINK)
     try:
-        write_page(roots, out, "index", render_index(result))
+        write_page(roots, out, "index", render_index(result, view_links=view_links))
     except (OSError, OutsideRoots) as e:
         return result, written, why_not_written(e, roots)
     return result, written + [out / "index.html"], None

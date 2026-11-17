@@ -1,8 +1,9 @@
 """The gantry command line: `gantry build --config FILE [--site NAME]`,
 `gantry portfolio --config FILE` and `gantry fires --config FILE`.
 
-`gantry build` builds every configured site's page and the index, plans the
-week and writes the plan to <output_dir>/week-plan.json (#61); with
+`gantry build` builds every configured site's page, the week view
+(<output_dir>/week.html, #38) and the index, plans the week and writes the
+plan to <output_dir>/week-plan.json (#61); with
 `--site` it builds that one page, no index and no plan, reading that site's
 WBS.md and inputs, every requirements file and the portfolio file. Both
 print each written file's path, then a `trace <site>:` line for each written
@@ -15,8 +16,8 @@ environment or the home folder to find one. Exit codes:
 - 0: the full build wrote the index and at least one site page; `--site`
   wrote its page; `portfolio` found no report entry;
 - 1: a config error; the full build wrote no site page (the index is still
-  written) or cannot write the index or the output folder, or the plan file
-  cannot be written; `--site` names no
+  written) or cannot write the index or the output folder, the week page
+  cannot be rendered or written, or the plan file cannot be written; `--site` names no
   site, a case clash, a site that cannot be built, a render error or a page
   that cannot be written; `portfolio` found an entry (an advisory one
   included), or the config sets no portfolio_file; `fires` read the fires
@@ -61,8 +62,9 @@ def _parser():
         help="build every site's worksite page and the index, or one site's page",
         description="Build every site an installation config names: each site's page to "
         "<output_dir>/sites/<name>.html, then <output_dir>/index.html, then the week plan to "
-        "<output_dir>/week-plan.json. A site that cannot be built is listed on the index with "
-        "its reason. With --site, build only that site's page: no index and no plan.",
+        "<output_dir>/week-plan.json. The week view goes to <output_dir>/week.html, written "
+        "before the index. A site that cannot be built is listed on the index with its reason. "
+        "With --site, build only that site's page: no index, no week view and no plan.",
     )
     _add_config(build)
     build.add_argument(
@@ -185,6 +187,8 @@ def _build_all(config):
     for s in result.summaries:
         if s.status != "built":
             print(f"gantry: warning: site {shown(s.name)} is not built: {s.reason}", file=sys.stderr)
+    if result.week_error is not None:
+        print(f"gantry: error: {result.week_error}", file=sys.stderr)
     if plan_error is not None:
         print(f"gantry: error: cannot write {PLAN_FILE}: {plan_error}", file=sys.stderr)
     if index_error is not None:
@@ -194,7 +198,7 @@ def _build_all(config):
     if not result.pages:
         print("gantry: error: no site page was written", file=sys.stderr)
         return 1
-    return 0 if plan_error is None else 1
+    return 0 if plan_error is None and result.week_error is None else 1
 
 
 def _build(args):

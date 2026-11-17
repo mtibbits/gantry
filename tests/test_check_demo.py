@@ -277,7 +277,7 @@ def test_demo_output_passes(demo_out, capsys):
     assert check_demo.check(demo_out) == []
     assert check_demo.main([str(demo_out)]) == 0
     out = capsys.readouterr()
-    assert out.out.splitlines() == ["check_demo: ok: 5 pages, 4 site pages, 9 expected entries"]
+    assert out.out.splitlines() == ["check_demo: ok: 6 pages, 4 site pages, 9 expected entries"]
     assert out.err == ""
 
 
@@ -312,7 +312,7 @@ def test_expected_list_is_well_formed():
         ("overlay", f"sites/{SMALL}.html", "served-elsewhere", 21, "required"),
         ("view", "strategic.html", None, 23, "pending"),
         ("view", "daily.html", None, 34, "pending"),
-        ("view", "week.html", None, 38, "pending"),
+        ("view", "week.html", None, 38, "required"),
         ("data", "week-plan.json", None, 61, "required"),
     ]
 

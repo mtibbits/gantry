@@ -13,7 +13,6 @@ from typing import NamedTuple
 
 from gantry import network, priority, render, schedule
 from gantry.deps import open_sources, refs
-from gantry.est_rules import classify_est
 from gantry.inputs import NO_TIERS, UNEST_WHAT, has_tiers, scheduled, site_totals
 from gantry.links import id_href, leaf_anchor
 from gantry.model import HOURS_PER_DAY, Estimate, Models
@@ -188,12 +187,6 @@ def _tiers(leaf):
         raise TypeError(f"a leaf's models is a {type(models).__name__}, not Models")
     found = [t if isinstance(t, str) and t else None for t in (models.thinking, models.checking)]
     return found if any(found) else None
-
-
-def _non_time(leaf):
-    """The leaf's non-time est: as text ("2.5 pr"), or None."""
-    value = classify_est(leaf.meta.get("est"))
-    return f"{value.number:g} {value.unit}" if value.kind == "non_time" else None
 
 
 def _prio_mark(leaf):
@@ -530,7 +523,7 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None, built
             "hours": hours[k][0], "lo": spans[k][0], "hi": spans[k][1], "unestimated": hours[k][1],
             "source": leaf.estimate.source if leaf.estimate is not None else "default",
             "effort": leaf.estimate.effort if leaf.estimate is not None else None,
-            "non_time": _non_time(leaf), "linked": linked,
+            "non_time": render.non_time_text(leaf.meta.get("est")), "linked": linked,
             "slack": net.slack[k] if linked else None,
             "sclass": slack_class(net.slack[k]) if linked else None,
             "es": net.es[k] if linked else 0 if k in foreign_only else None, "wave_full": wave_full,
