@@ -197,6 +197,19 @@ def describe(value) -> str:
     return type(value).__name__
 
 
+def finite_number(value) -> bool:
+    """An int or a float, never a bool, that converts to a finite float.
+
+    Never raises: an int too large to convert to a float is not finite.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(float(value))
+    except OverflowError:
+        return False
+
+
 def _kind_ok(kind: str, value) -> bool:
     if kind == "int":
         return isinstance(value, int) and not isinstance(value, bool)

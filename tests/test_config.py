@@ -438,6 +438,40 @@ def test_id_token_re_has_one_home():
     assert gantry.cli.shown is gantry.sites.shown
 
 
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (0, True),
+        (6, True),
+        (2.5, True),
+        (10**308, True),
+        (1e308, True),
+        (10**400, False),
+        (-(10**400), False),
+        (float("inf"), False),
+        (float("-inf"), False),
+        (float("nan"), False),
+        (True, False),
+        (False, False),
+        ("1", False),
+        (None, False),
+        ([1], False),
+    ],
+    ids=repr,
+)
+def test_finite_number(value, expected):
+    # Never raises: an int too large to convert to a float is not finite (#117).
+    assert cfg.finite_number(value) is expected
+
+
+def test_finite_rule_has_one_home():
+    import gantry.attention
+    import gantry.portfolio_file
+
+    assert gantry.portfolio_file._finite is cfg.finite_number
+    assert gantry.attention.finite_number is cfg.finite_number
+
+
 def test_config_doc_estimates_key():
     doc = (ROOT / "docs" / "config.md").read_bytes().decode("utf-8")
     row = next(line for line in doc.splitlines() if line.startswith("| `estimates` |"))
