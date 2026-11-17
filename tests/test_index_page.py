@@ -199,13 +199,19 @@ def test_index_line_with_share(tmp_path, monkeypatch):
     assert filled[NO_WBS][1] == f"{NO_WBS}{worksite.DOT}not built: no WBS.md in the planning directory"
 
 
-def written_headline(config):
+def written_headline_and_source(config):
+    """(the written index's headline text, its data-source) for a full build of `config`."""
     result, _, error = write_all(build_all(config))
     assert error is None and result.strategic_error is None
     t = tree(Path(result.config.output_dir, "index.html").read_bytes().decode("utf-8"))
     headline = figure_of(t, "headline", by_id(t, "headline"))
-    assert t.elements[headline]["attrs"]["data-source"]
-    return text_of(t, headline)
+    return text_of(t, headline), t.elements[headline]["attrs"]["data-source"]
+
+
+def written_headline(config):
+    text, source = written_headline_and_source(config)
+    assert source
+    return text
 
 
 def test_headline_variants(tmp_path):
@@ -214,15 +220,18 @@ def test_headline_variants(tmp_path):
 
     early = copy_samples(tmp_path / "early")
     replace_bytes(early / "gantry.sample.toml", "as_of = 2026-01-20", "as_of = 2025-11-30")
-    assert written_headline(load_config(early / "gantry.sample.toml")) == "no intended shares set"
+    assert written_headline_and_source(load_config(early / "gantry.sample.toml")) == (
+        "no intended shares set", "the portfolio file")
     bare = copy_samples(tmp_path / "bare")
     replace_bytes(bare / "gantry.sample.toml", 'portfolio_file = "portfolio.md"\n', "")
-    assert written_headline(load_config(bare / "gantry.sample.toml")) == "no intended shares set"
+    assert written_headline_and_source(load_config(bare / "gantry.sample.toml")) == (
+        "no intended shares set", "no portfolio file configured")
     no_gap = ("Largest share gap: none, no built site has both a backlog share and a comparable intended share "
               "(backlog share, not effort)")
     for shares, wbs in (("a = 50, b = 50", FINISHED), ("a = 0, b = 0, ghost = 100", SAME)):
         copy = install(tmp_path, "states", wbs={"a": wbs, "b": wbs}, portfolio=ALLOCATION.format(shares=shares))
-        assert written_headline(load_config(copy / "gantry.toml")) == no_gap, shares
+        assert written_headline_and_source(load_config(copy / "gantry.toml")) == (
+            no_gap, "computed from open work and the portfolio file, allocation from 2026-01-01"), shares
 
 
 def test_headline_gives_share_as_given_and_unestimated(tmp_path):

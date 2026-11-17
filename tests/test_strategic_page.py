@@ -154,6 +154,10 @@ def test_not_built_with_share_and_serves(tmp_path):
                    "no page, so no open work counted"):
         assert wanted in body, wanted
     assert [len(figures(t, kind, li)) for kind in ("intended", "backlog", "gap", "hours")] == [1, 0, 0, 0]
+    # The Not built group sums the share as given; it has no backlog share to add.
+    (group_sum,) = figures(t, "group-sum", find(t, "section", ("g-not-built",))[0])
+    assert text_of(t, group_sum) == "intended 10% as given"
+    assert t.elements[group_sum]["attrs"]["data-source"] == "the portfolio file, allocation from 2026-01-05"
 
 
 def test_intended_names_allocation_and_no_portfolio(tmp_path):
@@ -192,6 +196,34 @@ def test_figures_found_by_kind(tmp_path):
     (quarry_hours,) = figures(t, "hours", panel_of(t, UNESTIMATED))
     assert t.elements[quarry_hours]["attrs"]["data-unestimated"] == "5"
     assert text_of(t, by_id(t, "plans-only")) == "plans and estimates only"
+
+
+
+def test_figure_sources_and_counts(tmp_path):
+    """Each kind's data-source as docs/strategic-page.md tables it, the
+    unestimated counts the total and each group sum carry, and the overlap note."""
+    text, _ = demo(tmp_path)
+    t = tree(text)
+    allocation, computed = "the portfolio file, allocation from 2026-01-05", "computed from open work"
+    for kind, wanted in (("intended", allocation), ("backlog", computed), ("gap", computed),
+                         ("total", "each built site's WBS.md and estimates file")):
+        assert {t.elements[i]["attrs"]["data-source"] for i in figures(t, kind)} == {wanted}, kind
+    hours = {name: int(t.elements[figures(t, "hours", li)[0]]["attrs"]["data-unestimated"])
+             for name, li in panels(t) if figures(t, "hours", li)}
+    (total,) = figures(t, "total")
+    assert t.elements[total]["attrs"]["data-unestimated"] == str(sum(hours.values())) == "12"
+    sections = find(t, "section", ("group",))
+    assert len(sections) == 6
+    for section in sections:
+        (group_sum,) = figures(t, "group-sum", find(t, "h2", within=section)[0])
+        attrs, parts = t.elements[group_sum]["attrs"], text_of(t, group_sum)
+        members = [name for name, _ in panels(t, section)]
+        assert attrs["data-unestimated"] == str(sum(hours.get(name, 0) for name in members)), members
+        joined = "; ".join(s for s, shown in ((allocation, "intended" in parts), (computed, "backlog share" in parts))
+                           if shown)
+        assert attrs["data-source"] == (joined or "no intended or backlog share in this group"), parts
+    notes = [text_of(t, li) for li in find(t, "li", within=by_id(t, "notes"))]
+    assert notes == ["Groups overlap when a site serves several requirements, so group sums do not add up to the total."]
 
 
 # --- the report panel (AC8) ------------------------------------------------------------
