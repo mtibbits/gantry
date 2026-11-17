@@ -47,4 +47,3 @@ def placement_line(path) -> str:
     projects = data["projects"]
     unplaced = set(_problems_by_project(data))
     return f"{len(projects)} configured projects, {sum(p not in unplaced for p in projects)} placed"
-
