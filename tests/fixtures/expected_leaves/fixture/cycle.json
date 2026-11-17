@@ -1,0 +1,366 @@
+{
+  "pin": "devagent--v3.0.0",
+  "schema_version": "1.1",
+  "site": "cycle",
+  "status": "read",
+  "reason": null,
+  "nodes": [
+    {
+      "line": 2,
+      "row": false,
+      "key": "Issue-1",
+      "issue": "Issue-1",
+      "outline": "1",
+      "title": "A",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": null,
+      "parent": null,
+      "meta": {
+        "issue": "Issue-1",
+        "depends_on": [
+          "Issue-2"
+        ]
+      },
+      "depends_on": [
+        [
+          "Issue-2",
+          "local",
+          "cycle",
+          "Issue-2"
+        ]
+      ],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 3,
+      "row": false,
+      "key": "Issue-2",
+      "issue": "Issue-2",
+      "outline": "2",
+      "title": "B",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": null,
+      "parent": null,
+      "meta": {
+        "issue": "Issue-2",
+        "depends_on": [
+          "Issue-1"
+        ]
+      },
+      "depends_on": [
+        [
+          "Issue-1",
+          "local",
+          "cycle",
+          "Issue-1"
+        ]
+      ],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 4,
+      "row": false,
+      "key": "Issue-3",
+      "issue": "Issue-3",
+      "outline": "3",
+      "title": "C",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": "P1",
+      "epic": null,
+      "parent": null,
+      "meta": {
+        "issue": "Issue-3",
+        "priority": "P1",
+        "depends_on": [
+          "Issue-2",
+          "Issue-9"
+        ]
+      },
+      "depends_on": [
+        [
+          "Issue-2",
+          "local",
+          "cycle",
+          "Issue-2"
+        ],
+        [
+          "Issue-9",
+          "local",
+          "cycle",
+          "Issue-9"
+        ]
+      ],
+      "rank": 1,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 5,
+      "row": false,
+      "key": "Issue-4",
+      "issue": "Issue-4",
+      "outline": "4",
+      "title": "D",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": "P1",
+      "epic": null,
+      "parent": null,
+      "meta": {
+        "issue": "Issue-4",
+        "priority": "P1",
+        "depends_on": [
+          "Issue-5"
+        ]
+      },
+      "depends_on": [
+        [
+          "Issue-5",
+          "local",
+          "cycle",
+          "Issue-5"
+        ]
+      ],
+      "rank": 1,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 6,
+      "row": false,
+      "key": "Issue-5",
+      "issue": "Issue-5",
+      "outline": "5",
+      "title": "E",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": null,
+      "parent": null,
+      "meta": {
+        "issue": "Issue-5"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 7,
+      "row": false,
+      "key": "Issue-6",
+      "issue": "Issue-6",
+      "outline": "6",
+      "title": "F",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": null,
+      "parent": null,
+      "meta": {
+        "issue": "Issue-6",
+        "depends_on": [
+          "Issue-7"
+        ]
+      },
+      "depends_on": [
+        [
+          "Issue-7",
+          "local",
+          "cycle",
+          "Issue-7"
+        ]
+      ],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 8,
+      "row": false,
+      "key": "Issue-7",
+      "issue": "Issue-7",
+      "outline": "7",
+      "title": "G",
+      "glyph": "x",
+      "state": "done",
+      "open": false,
+      "priority": null,
+      "epic": null,
+      "parent": null,
+      "meta": {
+        "issue": "Issue-7",
+        "depends_on": [
+          "Issue-6"
+        ]
+      },
+      "depends_on": [
+        [
+          "Issue-6",
+          "local",
+          "cycle",
+          "Issue-6"
+        ]
+      ],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 9,
+      "row": false,
+      "key": "Issue-9",
+      "issue": "Issue-9",
+      "outline": "8",
+      "title": "I",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": null,
+      "parent": null,
+      "meta": {
+        "issue": "Issue-9"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    }
+  ],
+  "links": [
+    [
+      "Issue-2",
+      "Issue-1"
+    ],
+    [
+      "Issue-1",
+      "Issue-2"
+    ],
+    [
+      "Issue-2",
+      "Issue-3"
+    ],
+    [
+      "Issue-9",
+      "Issue-3"
+    ],
+    [
+      "Issue-5",
+      "Issue-4"
+    ]
+  ],
+  "held_out": [
+    "Issue-1",
+    "Issue-2",
+    "Issue-3"
+  ],
+  "report": [
+    [
+      2,
+      "cycle",
+      "WBS.md line 2: dependency cycle among 'Issue-1', 'Issue-2'"
+    ],
+    [
+      2,
+      "waits_on_cycle",
+      "WBS.md line 2: 'Issue-1' is held out: it is in, or waits on, a dependency cycle"
+    ],
+    [
+      3,
+      "waits_on_cycle",
+      "WBS.md line 3: 'Issue-2' is held out: it is in, or waits on, a dependency cycle"
+    ],
+    [
+      4,
+      "waits_on_cycle",
+      "WBS.md line 4: 'Issue-3' is held out: it is in, or waits on, a dependency cycle"
+    ]
+  ],
+  "devagent": [
+    [
+      7,
+      "dep_cycle",
+      "dependency cycle: Issue-6 (line 7), Issue-7 (line 8)"
+    ]
+  ]
+}

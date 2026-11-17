@@ -1,0 +1,12 @@
+{
+  "pin": "devagent--v3.0.0",
+  "schema_version": "1.1",
+  "site": "bakery",
+  "status": "no_wbs",
+  "reason": "the devdoc dir has no WBS.md",
+  "nodes": [],
+  "links": [],
+  "held_out": [],
+  "report": [],
+  "devagent": []
+}

@@ -1,0 +1,508 @@
+{
+  "pin": "devagent--v3.0.0",
+  "schema_version": "1.1",
+  "site": "lighthouse",
+  "status": "read",
+  "reason": null,
+  "nodes": [
+    {
+      "line": 3,
+      "row": true,
+      "key": "1",
+      "issue": null,
+      "outline": "1",
+      "title": "Restore the lamp room",
+      "glyph": " ",
+      "state": "pending",
+      "open": null,
+      "priority": null,
+      "epic": null,
+      "parent": null,
+      "meta": {},
+      "depends_on": [],
+      "rank": null,
+      "est": null,
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 4,
+      "row": false,
+      "key": "Issue-1",
+      "issue": "Issue-1",
+      "outline": "1.1",
+      "title": "Strip the old paint",
+      "glyph": "x",
+      "state": "done",
+      "open": false,
+      "priority": null,
+      "epic": "1",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-1"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 5,
+      "row": false,
+      "key": "Issue-2",
+      "issue": "Issue-2",
+      "outline": "1.2",
+      "title": "Replace the glazing",
+      "glyph": "x",
+      "state": "done",
+      "open": false,
+      "priority": null,
+      "epic": "1",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-2"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 6,
+      "row": false,
+      "key": "Issue-3",
+      "issue": "Issue-3",
+      "outline": "1.3",
+      "title": "Rewire the lamp",
+      "glyph": "x",
+      "state": "done",
+      "open": false,
+      "priority": null,
+      "epic": "1",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-3",
+        "satisfies": "lighthouse:SR-1"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [
+        "lighthouse:SR-1"
+      ],
+      "objective": []
+    },
+    {
+      "line": 7,
+      "row": false,
+      "key": "Issue-4",
+      "issue": "Issue-4",
+      "outline": "1.4",
+      "title": "Render <b>this</b> & \"that\" as text",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": "1",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-4"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 8,
+      "row": false,
+      "key": "Issue-5",
+      "issue": "Issue-5",
+      "outline": "2",
+      "title": "Repaint the keeper's door",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": null,
+      "parent": null,
+      "meta": {
+        "issue": "Issue-5"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 9,
+      "row": true,
+      "key": "3",
+      "issue": null,
+      "outline": "3",
+      "title": "Keep the lamp log",
+      "glyph": " ",
+      "state": "pending",
+      "open": null,
+      "priority": null,
+      "epic": null,
+      "parent": null,
+      "meta": {},
+      "depends_on": [],
+      "rank": null,
+      "est": null,
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 10,
+      "row": false,
+      "key": "Issue-6",
+      "issue": "Issue-6",
+      "outline": "3.1",
+      "title": "Choose the logbook format",
+      "glyph": "x",
+      "state": "done",
+      "open": false,
+      "priority": null,
+      "epic": "3",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-6",
+        "satisfies": "lighthouse:FR-1"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [
+        "lighthouse:FR-1"
+      ],
+      "objective": []
+    },
+    {
+      "line": 11,
+      "row": false,
+      "key": "Issue-7",
+      "issue": "Issue-7",
+      "outline": "3.2",
+      "title": "Record a nightly check",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": "3",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-7",
+        "est": "3w",
+        "satisfies": [
+          "lighthouse:FR-1",
+          "life:BR-1",
+          "lighthouse:QA-1",
+          "lighthouse:UC-1"
+        ]
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "time",
+        90.0,
+        90.0,
+        3.0,
+        "w"
+      ],
+      "h": null,
+      "satisfies": [
+        "lighthouse:FR-1",
+        "life:BR-1",
+        "lighthouse:QA-1",
+        "lighthouse:UC-1"
+      ],
+      "objective": []
+    },
+    {
+      "line": 12,
+      "row": false,
+      "key": "Issue-8",
+      "issue": "Issue-8",
+      "outline": "3.3",
+      "title": "Bind the first logbook",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": "3",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-8",
+        "est": "1w",
+        "depends_on": [
+          "Issue-7"
+        ],
+        "satisfies": [
+          "lighthouse:SR-1",
+          "lighthouse:UC-3",
+          "lighthouse:FR-3"
+        ]
+      },
+      "depends_on": [
+        [
+          "Issue-7",
+          "local",
+          "lighthouse",
+          "Issue-7"
+        ]
+      ],
+      "rank": 3,
+      "est": [
+        "time",
+        30.0,
+        30.0,
+        1.0,
+        "w"
+      ],
+      "h": null,
+      "satisfies": [
+        "lighthouse:SR-1",
+        "lighthouse:UC-3",
+        "lighthouse:FR-3"
+      ],
+      "objective": []
+    },
+    {
+      "line": 13,
+      "row": false,
+      "key": "Issue-9",
+      "issue": "Issue-9",
+      "outline": "3.4",
+      "title": "Train the relief keeper",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": "3",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-9",
+        "est": "3d",
+        "depends_on": [
+          "Issue-8"
+        ],
+        "satisfies": "lighthouse:FR-90"
+      },
+      "depends_on": [
+        [
+          "Issue-8",
+          "local",
+          "lighthouse",
+          "Issue-8"
+        ]
+      ],
+      "rank": 3,
+      "est": [
+        "time",
+        18.0,
+        18.0,
+        3.0,
+        "d"
+      ],
+      "h": null,
+      "satisfies": [
+        "lighthouse:FR-90"
+      ],
+      "objective": []
+    },
+    {
+      "line": 14,
+      "row": false,
+      "key": "Issue-10",
+      "issue": "Issue-10",
+      "outline": "3.5",
+      "title": "Print the log pages",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": "3",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-10",
+        "est": "2d",
+        "depends_on": [
+          "Issue-7",
+          "Issue-12"
+        ],
+        "satisfies": "lighthouse:FR-1"
+      },
+      "depends_on": [
+        [
+          "Issue-7",
+          "local",
+          "lighthouse",
+          "Issue-7"
+        ],
+        [
+          "Issue-12",
+          "local",
+          "lighthouse",
+          "Issue-12"
+        ]
+      ],
+      "rank": 3,
+      "est": [
+        "time",
+        12.0,
+        12.0,
+        2.0,
+        "d"
+      ],
+      "h": null,
+      "satisfies": [
+        "lighthouse:FR-1"
+      ],
+      "objective": []
+    },
+    {
+      "line": 15,
+      "row": false,
+      "key": "Issue-11",
+      "issue": "Issue-11",
+      "outline": "3.6",
+      "title": "Shelve the old logbooks",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": "3",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-11",
+        "est": "1d",
+        "satisfies": [
+          "lighthouse:SR-1",
+          "lighthouse:FR-3"
+        ],
+        "objective": "lighthouse:FR-3"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "time",
+        6.0,
+        6.0,
+        1.0,
+        "d"
+      ],
+      "h": null,
+      "satisfies": [
+        "lighthouse:SR-1",
+        "lighthouse:FR-3"
+      ],
+      "objective": [
+        "lighthouse:FR-3"
+      ]
+    },
+    {
+      "line": 16,
+      "row": false,
+      "key": "Issue-12",
+      "issue": "Issue-12",
+      "outline": "3.7",
+      "title": "Order the blank pages",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": "3",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-12",
+        "est": "1d",
+        "satisfies": "lighthouse:QA-1"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "time",
+        6.0,
+        6.0,
+        1.0,
+        "d"
+      ],
+      "h": null,
+      "satisfies": [
+        "lighthouse:QA-1"
+      ],
+      "objective": []
+    }
+  ],
+  "links": [
+    [
+      "Issue-7",
+      "Issue-8"
+    ],
+    [
+      "Issue-8",
+      "Issue-9"
+    ],
+    [
+      "Issue-7",
+      "Issue-10"
+    ],
+    [
+      "Issue-12",
+      "Issue-10"
+    ]
+  ],
+  "held_out": [],
+  "report": [],
+  "devagent": []
+}

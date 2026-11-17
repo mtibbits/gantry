@@ -1,0 +1,680 @@
+{
+  "pin": "devagent--v3.0.0",
+  "schema_version": "1.1",
+  "site": "page",
+  "status": "read",
+  "reason": null,
+  "nodes": [
+    {
+      "line": 2,
+      "row": true,
+      "key": "Issue-1",
+      "issue": "Issue-1",
+      "outline": "1",
+      "title": "Ground works",
+      "glyph": " ",
+      "state": "pending",
+      "open": null,
+      "priority": null,
+      "epic": null,
+      "parent": null,
+      "meta": {
+        "issue": "Issue-1"
+      },
+      "depends_on": [],
+      "rank": null,
+      "est": null,
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 3,
+      "row": false,
+      "key": "Issue-2",
+      "issue": "Issue-2",
+      "outline": "1.1",
+      "title": "Survey",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": "Issue-1",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-2"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 4,
+      "row": false,
+      "key": "Issue-3",
+      "issue": "Issue-3",
+      "outline": "1.2",
+      "title": "Dig",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": "Issue-1",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-3",
+        "depends_on": [
+          "Issue-2"
+        ]
+      },
+      "depends_on": [
+        [
+          "Issue-2",
+          "local",
+          "page",
+          "Issue-2"
+        ]
+      ],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 5,
+      "row": false,
+      "key": "Issue-4",
+      "issue": "Issue-4",
+      "outline": "1.3",
+      "title": "Pour",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": "Issue-1",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-4",
+        "depends_on": [
+          "Issue-3",
+          "Issue-2"
+        ]
+      },
+      "depends_on": [
+        [
+          "Issue-3",
+          "local",
+          "page",
+          "Issue-3"
+        ],
+        [
+          "Issue-2",
+          "local",
+          "page",
+          "Issue-2"
+        ]
+      ],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 6,
+      "row": false,
+      "key": "Issue-5",
+      "issue": "Issue-5",
+      "outline": "1.4",
+      "title": "Cure",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": "Issue-1",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-5",
+        "depends_on": [
+          "Issue-4"
+        ]
+      },
+      "depends_on": [
+        [
+          "Issue-4",
+          "local",
+          "page",
+          "Issue-4"
+        ]
+      ],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 7,
+      "row": false,
+      "key": "Issue-6",
+      "issue": "Issue-6",
+      "outline": "1.5",
+      "title": "Permit",
+      "glyph": "x",
+      "state": "done",
+      "open": false,
+      "priority": null,
+      "epic": "Issue-1",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-6"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 8,
+      "row": false,
+      "key": "Issue-9",
+      "issue": "Issue-9",
+      "outline": "1.6",
+      "title": "Seal",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": "Issue-1",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-9",
+        "depends_on": [
+          "Issue-5"
+        ]
+      },
+      "depends_on": [
+        [
+          "Issue-5",
+          "local",
+          "page",
+          "Issue-5"
+        ]
+      ],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 9,
+      "row": false,
+      "key": "1.7",
+      "issue": null,
+      "outline": "1.7",
+      "title": "Polish",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": "Issue-1",
+      "parent": null,
+      "meta": {
+        "depends_on": [
+          "Issue-9"
+        ]
+      },
+      "depends_on": [
+        [
+          "Issue-9",
+          "local",
+          "page",
+          "Issue-9"
+        ]
+      ],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 10,
+      "row": true,
+      "key": "Issue-10",
+      "issue": "Issue-10",
+      "outline": "2",
+      "title": "Frame",
+      "glyph": " ",
+      "state": "pending",
+      "open": null,
+      "priority": null,
+      "epic": null,
+      "parent": null,
+      "meta": {
+        "issue": "Issue-10",
+        "depends_on": [
+          "gamma:Issue-1"
+        ]
+      },
+      "depends_on": [
+        [
+          "gamma:Issue-1",
+          "foreign",
+          "gamma",
+          "Issue-1"
+        ]
+      ],
+      "rank": null,
+      "est": null,
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 11,
+      "row": false,
+      "key": "Issue-11",
+      "issue": "Issue-11",
+      "outline": "2.1",
+      "title": "Walls",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": "Issue-10",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-11"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 12,
+      "row": false,
+      "key": "Issue-12",
+      "issue": "Issue-12",
+      "outline": "2.2",
+      "title": "Roof",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": "Issue-10",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-12",
+        "depends_on": [
+          "Issue-11",
+          "Issue-6"
+        ]
+      },
+      "depends_on": [
+        [
+          "Issue-11",
+          "local",
+          "page",
+          "Issue-11"
+        ],
+        [
+          "Issue-6",
+          "local",
+          "page",
+          "Issue-6"
+        ]
+      ],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 13,
+      "row": false,
+      "key": "Issue-13",
+      "issue": "Issue-13",
+      "outline": "2.3",
+      "title": "Brace",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": "Issue-10",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-13",
+        "depends_on": [
+          "Issue-4"
+        ]
+      },
+      "depends_on": [
+        [
+          "Issue-4",
+          "local",
+          "page",
+          "Issue-4"
+        ]
+      ],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 14,
+      "row": false,
+      "key": "Issue-7",
+      "issue": "Issue-7",
+      "outline": "2.4",
+      "title": "Fence",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": "P1",
+      "epic": "Issue-10",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-7",
+        "priority": "P1",
+        "depends_on": [
+          "Issue-13"
+        ]
+      },
+      "depends_on": [
+        [
+          "Issue-13",
+          "local",
+          "page",
+          "Issue-13"
+        ]
+      ],
+      "rank": 1,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 15,
+      "row": false,
+      "key": "Issue-14",
+      "issue": "Issue-14",
+      "outline": "2.5",
+      "title": "Gutters",
+      "glyph": "~",
+      "state": "in_progress",
+      "open": true,
+      "priority": null,
+      "epic": "Issue-10",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-14",
+        "depends_on": [
+          "Issue-13",
+          "Issue-99"
+        ]
+      },
+      "depends_on": [
+        [
+          "Issue-13",
+          "local",
+          "page",
+          "Issue-13"
+        ],
+        [
+          "Issue-99",
+          "local",
+          "page",
+          "Issue-99"
+        ]
+      ],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 16,
+      "row": false,
+      "key": "2.6",
+      "issue": null,
+      "outline": "2.6",
+      "title": "Sweep",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": "Issue-10",
+      "parent": null,
+      "meta": {},
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 17,
+      "row": false,
+      "key": "Issue-15",
+      "issue": "Issue-15",
+      "outline": "2.7",
+      "title": "Trim",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": "Issue-10",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-15",
+        "depends_on": [
+          "beta:Issue-3"
+        ]
+      },
+      "depends_on": [
+        [
+          "beta:Issue-3",
+          "foreign",
+          "beta",
+          "Issue-3"
+        ]
+      ],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 18,
+      "row": false,
+      "key": "Issue-20",
+      "issue": "Issue-20",
+      "outline": "3",
+      "title": "Sign",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": null,
+      "parent": null,
+      "meta": {
+        "issue": "Issue-20"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    }
+  ],
+  "links": [
+    [
+      "Issue-2",
+      "Issue-3"
+    ],
+    [
+      "Issue-2",
+      "Issue-4"
+    ],
+    [
+      "Issue-3",
+      "Issue-4"
+    ],
+    [
+      "Issue-4",
+      "Issue-5"
+    ],
+    [
+      "Issue-5",
+      "Issue-9"
+    ],
+    [
+      "Issue-9",
+      "1.7"
+    ],
+    [
+      "Issue-11",
+      "Issue-12"
+    ],
+    [
+      "Issue-4",
+      "Issue-13"
+    ],
+    [
+      "Issue-13",
+      "Issue-7"
+    ],
+    [
+      "Issue-13",
+      "Issue-14"
+    ]
+  ],
+  "held_out": [],
+  "report": [
+    [
+      9,
+      "no_issue",
+      "WBS.md line 9: leaf has no issue: id; it is named '1.7'"
+    ],
+    [
+      15,
+      "unresolved_ref",
+      "WBS.md line 15: depends_on entry 'Issue-99' names no issue: id in this file"
+    ],
+    [
+      16,
+      "no_issue",
+      "WBS.md line 16: leaf has no issue: id; it is named '2.6'"
+    ]
+  ],
+  "devagent": []
+}

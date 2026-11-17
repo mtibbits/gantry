@@ -1,0 +1,133 @@
+{
+  "pin": "devagent--v3.0.0",
+  "schema_version": "1.1",
+  "site": "edges",
+  "status": "read",
+  "reason": null,
+  "nodes": [
+    {
+      "line": 8,
+      "row": false,
+      "key": "Issue-5",
+      "issue": "Issue-5",
+      "outline": "1",
+      "title": "Done est",
+      "glyph": "x",
+      "state": "done",
+      "open": false,
+      "priority": null,
+      "epic": null,
+      "parent": null,
+      "meta": {
+        "issue": "Issue-5",
+        "est": "2-3d"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "unparseable",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 9,
+      "row": true,
+      "key": "Issue-6",
+      "issue": "Issue-6",
+      "outline": "2",
+      "title": "Row est",
+      "glyph": " ",
+      "state": "pending",
+      "open": null,
+      "priority": null,
+      "epic": null,
+      "parent": null,
+      "meta": {
+        "issue": "Issue-6",
+        "est": "2-3d"
+      },
+      "depends_on": [],
+      "rank": null,
+      "est": null,
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 10,
+      "row": false,
+      "key": "Issue-7",
+      "issue": "Issue-7",
+      "outline": "2.1",
+      "title": "Open child",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": "Issue-6",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-7"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    }
+  ],
+  "links": [],
+  "held_out": [],
+  "report": [
+    [
+      2,
+      "skipped_line",
+      "WBS.md line 2: looks like a node but is not one: - [xx] two chars"
+    ],
+    [
+      3,
+      "skipped_line",
+      "WBS.md line 3: looks like a node but is not one: -[x] no space"
+    ],
+    [
+      4,
+      "skipped_line",
+      "WBS.md line 4: looks like a node but is not one: * [ ] star"
+    ],
+    [
+      5,
+      "skipped_line",
+      "WBS.md line 5: looks like a node but is not one: + [ ] plus"
+    ],
+    [
+      6,
+      "skipped_line",
+      "WBS.md line 6: looks like a node but is not one: - [See the design](docs/design.md)"
+    ]
+  ],
+  "devagent": [
+    [
+      8,
+      "est_unparseable",
+      "est \"2-3d\" is not a time, non-time or placeholder estimate"
+    ],
+    [
+      9,
+      "est_unparseable",
+      "est \"2-3d\" is not a time, non-time or placeholder estimate"
+    ]
+  ]
+}

@@ -1,0 +1,378 @@
+{
+  "pin": "devagent--v3.0.0",
+  "schema_version": "1.1",
+  "site": "quarry",
+  "status": "read",
+  "reason": null,
+  "nodes": [
+    {
+      "line": 3,
+      "row": true,
+      "key": "1",
+      "issue": null,
+      "outline": "1",
+      "title": "Access road",
+      "glyph": " ",
+      "state": "pending",
+      "open": null,
+      "priority": null,
+      "epic": null,
+      "parent": null,
+      "meta": {},
+      "depends_on": [],
+      "rank": null,
+      "est": null,
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 4,
+      "row": false,
+      "key": "Issue-1",
+      "issue": "Issue-1",
+      "outline": "1.1",
+      "title": "Survey the route",
+      "glyph": "x",
+      "state": "done",
+      "open": false,
+      "priority": "P2",
+      "epic": "1",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-1",
+        "priority": "P2"
+      },
+      "depends_on": [],
+      "rank": 2,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 5,
+      "row": false,
+      "key": "Issue-2",
+      "issue": "Issue-2",
+      "outline": "1.2",
+      "title": "Clear the scrub",
+      "glyph": "x",
+      "state": "done",
+      "open": false,
+      "priority": null,
+      "epic": "1",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-2"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 6,
+      "row": false,
+      "key": "Issue-3",
+      "issue": "Issue-3",
+      "outline": "1.3",
+      "title": "Grade the road",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": "P1",
+      "epic": "1",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-3",
+        "priority": "P1",
+        "h": "0",
+        "depends_on": [
+          "harbor:Issue-3"
+        ],
+        "satisfies": "lighthouse:FR-2"
+      },
+      "depends_on": [
+        [
+          "harbor:Issue-3",
+          "foreign",
+          "harbor",
+          "Issue-3"
+        ]
+      ],
+      "rank": 1,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": 0,
+      "satisfies": [
+        "lighthouse:FR-2"
+      ],
+      "objective": []
+    },
+    {
+      "line": 7,
+      "row": false,
+      "key": "Issue-8",
+      "issue": "Issue-8",
+      "outline": "1.4",
+      "title": "Reopen the weighbridge",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": "P0",
+      "epic": "1",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-8",
+        "priority": "P0",
+        "depends_on": [
+          "Issue-9",
+          "quarry:Issue-9"
+        ]
+      },
+      "depends_on": [
+        [
+          "Issue-9",
+          "local",
+          "quarry",
+          "Issue-9"
+        ],
+        [
+          "quarry:Issue-9",
+          "local",
+          "quarry",
+          "Issue-9"
+        ]
+      ],
+      "rank": 0,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 8,
+      "row": false,
+      "key": "Issue-9",
+      "issue": "Issue-9",
+      "outline": "1.5",
+      "title": "Calibrate the weighbridge",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": "1",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-9",
+        "h": "4",
+        "depends_on": [
+          "harbor:Issue-7"
+        ]
+      },
+      "depends_on": [
+        [
+          "harbor:Issue-7",
+          "foreign",
+          "harbor",
+          "Issue-7"
+        ]
+      ],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": 4,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 9,
+      "row": true,
+      "key": "2",
+      "issue": null,
+      "outline": "2",
+      "title": "Extraction",
+      "glyph": " ",
+      "state": "pending",
+      "open": null,
+      "priority": null,
+      "epic": null,
+      "parent": null,
+      "meta": {},
+      "depends_on": [],
+      "rank": null,
+      "est": null,
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 10,
+      "row": false,
+      "key": "Issue-4",
+      "issue": "Issue-4",
+      "outline": "2.1",
+      "title": "Blast the first bench",
+      "glyph": "x",
+      "state": "done",
+      "open": false,
+      "priority": "P3",
+      "epic": "2",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-4",
+        "priority": "P3"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 11,
+      "row": false,
+      "key": "Issue-5",
+      "issue": "Issue-5",
+      "outline": "2.2",
+      "title": "Haul the first loads",
+      "glyph": "~",
+      "state": "in_progress",
+      "open": true,
+      "priority": null,
+      "epic": "2",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-5",
+        "depends_on": [
+          "Issue-3"
+        ],
+        "h": "2"
+      },
+      "depends_on": [
+        [
+          "Issue-3",
+          "local",
+          "quarry",
+          "Issue-3"
+        ]
+      ],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": 2,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 12,
+      "row": false,
+      "key": "Issue-7",
+      "issue": "Issue-7",
+      "outline": "2.3",
+      "title": "Crush the aggregate",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": "P2",
+      "epic": "2",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-7",
+        "priority": "P2",
+        "depends_on": [
+          "Issue-99",
+          "harbor:1.2"
+        ],
+        "h": "high"
+      },
+      "depends_on": [
+        [
+          "Issue-99",
+          "local",
+          "quarry",
+          "Issue-99"
+        ],
+        [
+          "harbor:1.2",
+          "foreign",
+          "harbor",
+          "1.2"
+        ]
+      ],
+      "rank": 2,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    }
+  ],
+  "links": [
+    [
+      "Issue-9",
+      "Issue-8"
+    ],
+    [
+      "Issue-3",
+      "Issue-5"
+    ]
+  ],
+  "held_out": [],
+  "report": [
+    [
+      12,
+      "unresolved_ref",
+      "WBS.md line 12: depends_on entry 'Issue-99' names no issue: id in this file"
+    ]
+  ],
+  "devagent": []
+}

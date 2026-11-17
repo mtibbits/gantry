@@ -1,0 +1,324 @@
+{
+  "pin": "devagent--v3.0.0",
+  "schema_version": "1.1",
+  "site": "ids",
+  "status": "read",
+  "reason": null,
+  "nodes": [
+    {
+      "line": 2,
+      "row": true,
+      "key": "Issue-Fork-1",
+      "issue": "Issue-Fork-1",
+      "outline": "1",
+      "title": "Ferry works",
+      "glyph": " ",
+      "state": "pending",
+      "open": null,
+      "priority": null,
+      "epic": null,
+      "parent": null,
+      "meta": {
+        "issue": "Issue-Fork-1"
+      },
+      "depends_on": [],
+      "rank": null,
+      "est": null,
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 3,
+      "row": false,
+      "key": "Issue-Fork-2",
+      "issue": "Issue-Fork-2",
+      "outline": "1.1",
+      "title": "Dock",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": "P0",
+      "epic": "Issue-Fork-1",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-Fork-2",
+        "priority": "P0"
+      },
+      "depends_on": [],
+      "rank": 0,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 4,
+      "row": false,
+      "key": "1.2",
+      "issue": "Issue-Fork-2",
+      "outline": "1.2",
+      "title": "Ramp",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": "P9",
+      "epic": "Issue-Fork-1",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-Fork-2",
+        "priority": "P9"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 5,
+      "row": false,
+      "key": "1.3~5",
+      "issue": null,
+      "outline": "1.3",
+      "title": "Unnamed leaf",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": "Issue-Fork-1",
+      "parent": null,
+      "meta": {},
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 6,
+      "row": false,
+      "key": "1.4",
+      "issue": null,
+      "outline": "1.4",
+      "title": "Second unnamed leaf",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": "Issue-Fork-1",
+      "parent": null,
+      "meta": {},
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 7,
+      "row": false,
+      "key": "1.3",
+      "issue": "1.3",
+      "outline": "2",
+      "title": "Signals",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": null,
+      "parent": null,
+      "meta": {
+        "issue": "1.3"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 8,
+      "row": false,
+      "key": "Issue-3",
+      "issue": "Issue-3",
+      "outline": "3",
+      "title": "Lights",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": null,
+      "parent": null,
+      "meta": {
+        "issue": "Issue-3",
+        "depends_on": "Issue-Fork-2"
+      },
+      "depends_on": [
+        [
+          "Issue-Fork-2",
+          "local",
+          "ids",
+          "Issue-Fork-2"
+        ]
+      ],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 9,
+      "row": false,
+      "key": "Issue-4",
+      "issue": "Issue-4",
+      "outline": "4",
+      "title": "Horns",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": null,
+      "parent": null,
+      "meta": {
+        "issue": "Issue-4",
+        "depends_on": [
+          "Issue-3",
+          "1.4",
+          "Issue-99"
+        ]
+      },
+      "depends_on": [
+        [
+          "Issue-3",
+          "local",
+          "ids",
+          "Issue-3"
+        ],
+        [
+          "1.4",
+          "local",
+          "ids",
+          "1.4"
+        ],
+        [
+          "Issue-99",
+          "local",
+          "ids",
+          "Issue-99"
+        ]
+      ],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    }
+  ],
+  "links": [
+    [
+      "Issue-Fork-2",
+      "Issue-3"
+    ],
+    [
+      "Issue-3",
+      "Issue-4"
+    ]
+  ],
+  "held_out": [],
+  "report": [
+    [
+      4,
+      "duplicate_issue",
+      "WBS.md line 4: issue 'Issue-Fork-2' is also on line 3; references resolve to line 3, and this node is named '1.2'"
+    ],
+    [
+      4,
+      "bad_priority",
+      "WBS.md line 4: priority 'P9' is not P0, P1, P2, P3 or P4; it counts as P3"
+    ],
+    [
+      5,
+      "no_issue",
+      "WBS.md line 5: leaf has no issue: id; it is named '1.3~5'"
+    ],
+    [
+      5,
+      "key_collision",
+      "WBS.md line 5: outline position '1.3' is the issue: id on line 7; this node is named '1.3~5'"
+    ],
+    [
+      6,
+      "no_issue",
+      "WBS.md line 6: leaf has no issue: id; it is named '1.4'"
+    ],
+    [
+      9,
+      "unresolved_ref",
+      "WBS.md line 9: depends_on entry '1.4' names no issue: id in this file"
+    ],
+    [
+      9,
+      "unresolved_ref",
+      "WBS.md line 9: depends_on entry 'Issue-99' names no issue: id in this file"
+    ],
+    [
+      10,
+      "skipped_line",
+      "WBS.md line 10: looks like a node but is not one: - [X] Unknown glyph"
+    ],
+    [
+      11,
+      "skipped_line",
+      "WBS.md line 11: looks like a node but is not one: - [ ]"
+    ]
+  ],
+  "devagent": []
+}
