@@ -6,11 +6,13 @@ wrote, and mutations of it built in the test. The one gated test ties a
 suppression rule to the pinned parser's own texts.
 """
 
+import ast
 import copy
 import dataclasses
 import json
+import random
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -20,8 +22,11 @@ from gantry import portfolio_json as pj
 from gantry.attention import read_h
 from gantry.deps import refs
 from gantry.est_rules import classify_est
-from gantry.model import STATE_GLYPHS, ParsedValue, meta_scalar, meta_value, meta_values
-from gantry.portfolio_json import PortfolioInput, PortfolioLoadError, map_document, read_portfolio
+from gantry import wbs_stopgap
+from gantry.model import (REPORT_KINDS, STATE_GLYPHS, Leaf, ParsedValue, ReportEntry, Row, SiteData, meta_scalar,
+                          meta_value, meta_values, report_order)
+from gantry.portfolio_json import (DevagentEntry, PortfolioInput, PortfolioLoadError, ProjectInput, map_document,
+                                   read_portfolio)
 from gantry.priority import rank
 from gantry.roots import directory_roots
 from gantry.wbs_stopgap import parse_wbs
@@ -449,15 +454,237 @@ def test_whole_document_replaced_by_each_type():
     assert str(info.value) == schema_text("the portfolio document", "$.schema", 'not "devagent-portfolio"')
 
 
-def test_generated_at_and_version_are_returned(tmp_path):
+def test_generated_at_is_utc(tmp_path):
     got = hp.read_doc(tmp_path, hp.written_doc())
     assert got.generated_at == datetime(2026, 1, 12, 9, 30, tzinfo=timezone.utc)
+    assert got.generated_at.tzinfo is not None and got.generated_at.utcoffset() == timedelta(0)
     assert got.schema_version == "1.1"
     doc = hp.written_doc()
     doc["generated_at"] = "2026-01-12T09:30:00.250+00:00"
-    assert map_document(doc).generated_at == datetime(2026, 1, 12, 9, 30, 0, 250000, tzinfo=timezone.utc)
+    later = map_document(doc).generated_at
+    assert later == datetime(2026, 1, 12, 9, 30, 0, 250000, tzinfo=timezone.utc)
+    assert later.utcoffset() == timedelta(0)
 
 
 def test_module_docstring_names_its_first_callers():
     text = pj.__doc__
     assert "#12" in text and "#84" in text and "provisional" in text
+
+
+# --- nodes into Leaf, Row and SiteData (Task 4) ----------------------------------------------
+
+
+def mapped():
+    return map_document(hp.written_doc())
+
+
+def project(got, name):
+    (found,) = [p for p in got.projects if p.name == name]
+    return found
+
+
+def nodes_by_line(data):
+    return {node.line: node for node in (*data.leaves, *data.rows)}
+
+
+def at(data, line, kind=None):
+    return [e for e in data.report if e.line == line and (kind is None or e.kind == kind)]
+
+
+def test_field_lists():
+    names = lambda cls: [f.name for f in dataclasses.fields(cls)]  # noqa: E731
+    assert names(DevagentEntry) == ["project", "line", "kind", "message"]
+    assert names(ProjectInput) == ["name", "status", "reason", "data"]
+    assert names(PortfolioInput) == ["projects", "devagent_report", "generated_at", "schema_version"]
+    for cls in (DevagentEntry, ProjectInput, PortfolioInput):
+        assert cls.__dataclass_params__.frozen
+    got = mapped()
+    assert isinstance(got.projects, tuple) and isinstance(got.devagent_report, tuple)
+    assert [p.name for p in got.projects] == [p["project"] for p in hp.written_doc()["projects"]]
+    assert all(isinstance(p.data, SiteData) for p in got.projects)
+
+
+def test_issue_less_leaf_keeps_its_outline_name():
+    data = project(mapped(), "ids").data
+    leaf = nodes_by_line(data)[6]
+    assert isinstance(leaf, Leaf)
+    assert (leaf.key, leaf.issue, leaf.outline, leaf.title) == ("1.4", None, "1.4", "Second unnamed leaf")
+    assert (leaf.glyph, leaf.state, leaf.open, leaf.epic) == (" ", "pending", True, "Issue-Fork-1")
+    assert leaf.meta == {} and leaf.deps == () and leaf.priority is None
+
+
+def test_later_duplicate_is_named_by_outline_and_references_reach_the_first():
+    data = project(mapped(), "ids").data
+    nodes = nodes_by_line(data)
+    assert (nodes[3].key, nodes[3].issue, nodes[3].outline) == ("Issue-Fork-2", "Issue-Fork-2", "1.1")
+    assert (nodes[4].key, nodes[4].issue, nodes[4].outline) == ("1.2", "Issue-Fork-2", "1.2")
+    assert ("Issue-Fork-2", "Issue-3") in data.links
+    assert data.links == (("Issue-Fork-2", "Issue-3"), ("Issue-3", "Issue-4"))
+    assert data.held_out == ()
+
+
+def test_outline_name_equal_to_an_issue_gets_key_collision():
+    data = project(mapped(), "ids").data
+    nodes = nodes_by_line(data)
+    assert (nodes[5].key, nodes[5].outline, nodes[5].issue) == ("1.3~5", "1.3", None)
+    assert (nodes[7].key, nodes[7].outline, nodes[7].issue) == ("1.3", "2", "1.3")
+    (entry,) = [e for e in data.report if e.kind == "key_collision"]
+    assert entry == ReportEntry("ids", 5, "key_collision", "WBS.md line 5: outline position '1.3' is the issue: id "
+                                                           "on line 7; this node is named '1.3~5'")
+    assert entry.message == wbs_stopgap.MESSAGES["key_collision"].format(line=5, outline="1.3", other=7, key="1.3~5")
+
+
+def test_outline_ignores_ids_and_array_order():
+    plain = mapped()
+    doc = hp.written_doc()
+    shuffle = random.Random(83).shuffle
+    moved = 0
+    for entry in doc["projects"]:
+        before = [n["source_line"] for n in entry["nodes"]]
+        rename = {n["id"]: f"renamed-{len(entry['nodes']) - k}-{n['id']}" for k, n in enumerate(entry["nodes"])}
+        for node in entry["nodes"]:
+            node["id"] = rename[node["id"]]
+            node["parent"] = rename.get(node["parent"])
+        shuffle(entry["nodes"])
+        moved += [n["source_line"] for n in entry["nodes"]] != before
+    assert moved >= 10
+    assert map_document(doc) == plain
+
+
+def test_meta_holds_parsed_values_in_document_order():
+    got = mapped()
+    scalars = lists = priorities = nodes = 0
+    for entry in hp.written_doc()["projects"]:
+        found = nodes_by_line(project(got, entry["project"]).data)
+        assert sorted(found) == sorted(n["source_line"] for n in entry["nodes"])
+        for raw in entry["nodes"]:
+            node = found[raw["source_line"]]
+            nodes += 1
+            assert type(node.meta) is dict and node.meta == raw["meta"]
+            assert list(node.meta) == list(raw["meta"])
+            for key, value in node.meta.items():
+                if isinstance(raw["meta"][key], list):
+                    assert type(value) is list and all(type(v) is ParsedValue for v in value), (raw["id"], key)
+                    lists += 1
+                else:
+                    assert type(value) is ParsedValue, (raw["id"], key)
+                    scalars += 1
+            if isinstance(node, Leaf):
+                assert node.priority is node.meta.get("priority")
+                if node.priority is not None:
+                    assert type(node.priority) is ParsedValue
+                    priorities += 1
+    assert (nodes, scalars, lists, priorities) == META_COUNTS
+    # A key order that is not alphabetical, and a quoted value devagent has already unquoted.
+    case_10 = nodes_by_line(project(got, "h_values").data)[11]
+    assert list(case_10.meta) == ["issue", "h", "priority"]
+    lights = nodes_by_line(project(got, "ids").data)[8]
+    assert lights.meta["depends_on"] == "Issue-Fork-2" and [d.raw for d in lights.deps] == ["Issue-Fork-2"]
+    assert type(lights.deps[0].raw) is ParsedValue
+
+
+META_COUNTS = (125, 175, 42, 21)  # nodes, scalar values, list values, leaf priorities
+
+
+def shape(data):
+    """{line: (kind, key, outline, the row above or the epic)} for every node."""
+    out = {}
+    for node in data.leaves:
+        out[node.line] = ("leaf", node.key, node.outline, node.epic)
+    for node in data.rows:
+        out[node.line] = ("row", node.key, node.outline, node.parent)
+    return out
+
+
+def test_rows_parents_and_epics():
+    got = mapped()
+    rows = project(got, "rows").data
+    assert shape(rows) == {
+        2: ("row", "Issue-1", "1", None), 3: ("leaf", "Issue-2", "1.1", "Issue-1"),
+        4: ("leaf", "Issue-3", "1.2", "Issue-1"), 5: ("row", "Issue-10", "2", None),
+        6: ("leaf", "Issue-11", "2.1", "Issue-10"), 7: ("leaf", "Issue-12", "2.2", "Issue-10"),
+        8: ("row", "Issue-20", "3", None), 9: ("leaf", "Issue-21", "3.1", "Issue-20"),
+        10: ("leaf", "Issue-22", "3.2", "Issue-20"), 11: ("row", "Issue-30", "4", None),
+        12: ("leaf", "Issue-31", "4.1", "Issue-30"), 13: ("row", "Issue-40", "5", None),
+        14: ("leaf", "Issue-41", "5.1", "Issue-40"), 15: ("leaf", "Issue-50", "6", None),
+    }
+    assert [leaf.line for leaf in rows.leaves] == [3, 4, 6, 7, 9, 10, 12, 14, 15]
+    assert [row.line for row in rows.rows] == [2, 5, 8, 11, 13]
+    assert all(isinstance(row, Row) for row in rows.rows)
+    assert rows.links == (("Issue-2", "Issue-11"), ("Issue-2", "Issue-12"), ("Issue-41", "Issue-50"))
+    swept = nodes_by_line(rows)[12]
+    assert (swept.glyph, swept.state, swept.open) == ("x", "done", False)
+    # A row under a row, an issue-less row keyed by its outline, and a jump of two levels.
+    assert shape(project(got, "nesting").data) == {
+        2: ("row", "Issue-1", "1", None), 3: ("row", "Issue-2", "1.1", "Issue-1"),
+        4: ("leaf", "Issue-3", "1.1.1", "Issue-1"), 5: ("leaf", "1.1.2", "1.1.2", "Issue-1"),
+        6: ("leaf", "Issue-4", "1.2", "Issue-1"), 7: ("leaf", "Issue-5", "1.3", "Issue-1"),
+        8: ("row", "2", "2", None), 9: ("leaf", "Issue-6", "2.1", "2"), 10: ("leaf", "Issue-7", "2.2", "2"),
+        11: ("leaf", "3", "3", None),
+    }
+    # Cycles and held-out keys come from gantry.deps, as for the stopgap.
+    cycle = project(got, "cycle").data
+    assert cycle.held_out == ("Issue-1", "Issue-2", "Issue-3")
+    assert [e.message for e in at(cycle, 2, "cycle")] == ["WBS.md line 2: dependency cycle among 'Issue-1', 'Issue-2'"]
+    assert len([e for e in cycle.report if e.kind == "waits_on_cycle"]) == 3
+
+
+def test_bad_priority_is_gantrys_and_p0_is_legal():
+    got = mapped()
+    (entry,) = at(project(got, "h_values").data, 11, "bad_priority")
+    assert entry.message == "WBS.md line 11: priority 'P9' is not P0, P1, P2, P3 or P4; it counts as P3"
+    (on_row,) = at(project(got, "rows").data, 5, "bad_priority")
+    assert on_row.message == "WBS.md line 5: priority 'high' is not P0, P1, P2, P3 or P4; it counts as P3"
+    assert isinstance(nodes_by_line(project(got, "rows").data)[5], Row)
+    est = project(got, "est").data
+    assert nodes_by_line(est)[9].priority == "P0" and rank(nodes_by_line(est)[9].priority) == 0
+    assert at(est, 9, "bad_priority") == []
+    assert sum(e.kind == "bad_priority" for p in got.projects for e in p.data.report) == BAD_PRIORITIES
+
+
+BAD_PRIORITIES = 6  # ids 4, rows 5, refs 5, est 13 and 14, h_values 11
+
+
+def test_statuses_are_returned_as_written():
+    doc = hp.written_doc()
+    reason = doc["projects"][NOT_UTF8]["status_reason"]
+    got = map_document(doc)
+    unreadable = project(got, "not_utf8")
+    assert (unreadable.status, unreadable.reason) == ("unreadable", reason)
+    assert unreadable.data == SiteData((), (), (), (), (ReportEntry("not_utf8", None, "site_unreadable", reason),))
+    empty = project(got, "empty")
+    assert (empty.status, empty.reason) == ("read", None)
+    assert empty.data == SiteData((), (), (), (), (ReportEntry("empty", None, "no_nodes", "WBS.md has no node lines"),))
+    for status in ("no_wbs", "no_devdoc_dir"):
+        doc = hp.written_doc()
+        doc["projects"][EMPTY].update(status=status, status_reason=f"reason for {status}")
+        other = project(map_document(doc), "empty")
+        assert (other.status, other.reason) == (status, f"reason for {status}")
+        assert other.data == SiteData((), (), (), (), ())
+    assert {p.status for p in got.projects} == {"read", "unreadable"}
+
+
+def test_site_data_holds_gantry_kinds_in_report_order():
+    for entry in mapped().projects:
+        report = entry.data.report
+        assert all(isinstance(e, ReportEntry) and e.kind in REPORT_KINDS and e.site == entry.name for e in report)
+        assert list(report) == sorted(report, key=report_order)
+
+
+def test_map_document_equals_read_portfolio(tmp_path):
+    read = hp.read_doc(tmp_path, hp.written_doc())
+    again = mapped()
+    assert read == again
+    assert len(read.projects) == 14 and sum(len(p.data.leaves) + len(p.data.rows) for p in read.projects) == 125
+
+
+def test_copied_messages_equal_the_stopgaps():
+    # #12 deletes this test with the stopgap: the texts are then the reader's own.
+    copied = ("key_collision", "bad_priority", "no_nodes", "no_issue", "duplicate_issue")
+    assert tuple(pj.MESSAGES) == copied
+    for kind in copied:
+        assert pj.MESSAGES[kind] == wbs_stopgap.MESSAGES[kind], kind
+    tree = ast.parse(hp.sp.ROOT.joinpath("gantry", "portfolio_json.py").read_bytes())
+    imported = {n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
+    imported |= {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
+    assert "gantry.deps" in imported and not any("stopgap" in name for name in imported)

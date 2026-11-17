@@ -24,7 +24,18 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from gantry.config import error_reason
-from gantry.model import STATE_GLYPHS
+from gantry.deps import refs, resolve
+from gantry.model import (
+    FINISHED_GLYPHS,
+    STATE_GLYPHS,
+    Leaf,
+    ParsedValue,
+    ReportEntry,
+    Row,
+    SiteData,
+    report_order,
+)
+from gantry.priority import is_valid
 from gantry.roots import OutsideRoots, read_bytes_confined
 
 SCHEMA_ID = "devagent-portfolio"
@@ -60,6 +71,17 @@ NOT_JSON = {
     "constant": "NaN or Infinity is not JSON",
 }
 GLYPH_LIST = ", ".join(repr(glyph) for glyph in STATE_GLYPHS)
+# The texts of gantry/wbs_stopgap.py's entries of the same kinds, copied: this
+# module never imports the stopgap, which #12 deletes.
+MESSAGES = {
+    "key_collision": "WBS.md line {line}: outline position {outline!r} is the issue: id on "
+                     "line {other}; this node is named {key!r}",
+    "bad_priority": "WBS.md line {line}: priority {raw!r} is not P0, P1, P2, P3 or P4; it counts as P3",
+    "no_nodes": "WBS.md has no node lines",
+    "no_issue": "WBS.md line {line}: leaf has no issue: id; it is named {key!r}",
+    "duplicate_issue": "WBS.md line {line}: issue {issue!r} is also on line {first}; "
+                       "references resolve to line {first}, and this node is named {key!r}",
+}
 
 
 class PortfolioLoadError(Exception):
@@ -73,7 +95,26 @@ class PortfolioLoadError(Exception):
 
 
 @dataclass(frozen=True)
+class DevagentEntry:
+    """One entry of devagent's parse report that Gantry shows as devagent wrote it."""
+    project: str
+    line: int | None  # None: no line
+    kind: str  # devagent's kind: never one of Gantry's REPORT_KINDS by contract
+    message: str
+
+
+@dataclass(frozen=True)
+class ProjectInput:
+    name: str
+    status: str  # one of STATUSES, as written
+    reason: str | None  # devagent's status_reason; None when read
+    data: SiteData  # empty unless read; its report holds Gantry's kinds only
+
+
+@dataclass(frozen=True)
 class PortfolioInput:
+    projects: tuple[ProjectInput, ...]  # in document order
+    devagent_report: tuple[DevagentEntry, ...]  # the shown entries, in document order
     generated_at: datetime  # aware, UTC
     schema_version: str  # as written
 
@@ -293,6 +334,122 @@ def _check_parents(doc):
             _need(depth[node["id"]] <= MAX_DEPTH, where, f"nests deeper than {MAX_DEPTH} levels")
 
 
+# --- nodes into leaves and rows ---------------------------------------------------------------
+
+
+class _Node:
+    """One node of a read project while it is named and built."""
+
+    __slots__ = ("line", "glyph", "title", "meta", "issue", "parent", "outline", "children", "key")
+
+    def __init__(self, raw, parent, outline):
+        self.line, self.glyph, self.title = raw["source_line"], raw["glyph"], raw["text"]
+        self.issue, self.parent, self.outline = raw["issue"], parent, outline
+        # New containers: the document is never changed. Key order is the document's.
+        self.meta = {key: [ParsedValue(v) for v in value] if isinstance(value, list) else ParsedValue(value)
+                     for key, value in raw["meta"].items()}
+        self.children = 0
+        self.key = None
+
+
+class _Site:
+    """A read project's nodes and Gantry's own findings about them."""
+
+    __slots__ = ("name", "nodes", "first", "leaves", "rows", "links", "held_out", "report")
+
+
+def _scan(raw_nodes):
+    """The nodes in line order, each with its parent and outline position.
+
+    A top-level node counts from 1; a child is its parent's outline, a dot and
+    its place among that parent's children. Node ids only find the parent and
+    array order decides nothing: neither is stable across runs.
+    """
+    by_id, nodes, top_level = {}, [], 0
+    for raw in sorted(raw_nodes, key=lambda raw: raw["source_line"]):
+        parent = None if raw["parent"] is None else by_id[raw["parent"]]
+        if parent is None:
+            top_level += 1
+            outline = str(top_level)
+        else:
+            parent.children += 1
+            outline = f"{parent.outline}.{parent.children}"
+        node = _Node(raw, parent, outline)
+        by_id[raw["id"]] = node
+        nodes.append(node)
+    return nodes
+
+
+def _name(site):
+    """Key every node as gantry/wbs_stopgap.py does: the first holder of each
+    issue by the issue, every other node by its outline position."""
+    first = {}
+    for node in site.nodes:
+        if node.issue is not None and node.issue not in first:
+            first[node.issue] = node
+            node.key = node.issue
+    for node in site.nodes:
+        if node.key is not None:
+            continue
+        key = node.outline
+        if key in first:
+            other = first[key].line
+            while key in first:
+                key += f"~{node.line}"
+            _report(site, node.line, "key_collision", outline=node.outline, other=other, key=key)
+        node.key = key
+    site.first = first
+
+
+def _report(site, line, kind, **fields):
+    site.report.append(ReportEntry(site.name, line, kind, MESSAGES[kind].format(line=line, **fields)))
+
+
+def _top(node):
+    while node.parent is not None:  # at most MAX_DEPTH steps: the links are checked
+        node = node.parent
+    return node
+
+
+def _build(site):
+    leaves, rows = [], []
+    for node in site.nodes:
+        state = STATE_GLYPHS[node.glyph]
+        priority = node.meta.get("priority")
+        if priority is not None and not is_valid(priority):
+            _report(site, node.line, "bad_priority", raw=priority)
+        if node.children:
+            parent = node.parent.key if node.parent is not None else None
+            rows.append(Row(node.key, node.issue, node.outline, node.title, node.glyph, state, node.line, parent,
+                            node.meta))
+            continue
+        epic = _top(node).key if node.parent is not None else None
+        leaves.append(Leaf(node.key, node.issue, node.outline, node.title, node.glyph, state,
+                           node.glyph not in FINISHED_GLYPHS, priority, refs(node.meta, site.name), node.meta, epic,
+                           node.line))
+    site.leaves, site.rows = tuple(leaves), tuple(rows)
+
+
+def _read_site(name, raw_nodes):
+    """A read project's nodes, named and built, with Gantry's own report entries."""
+    site = _Site()
+    site.name, site.report = name, []
+    site.nodes = _scan(raw_nodes)
+    _name(site)
+    _build(site)
+    if not site.nodes:
+        site.report.append(ReportEntry(name, None, "no_nodes", MESSAGES["no_nodes"]))
+    by_issue = {issue: node.key for issue, node in site.first.items()}
+    site.links, site.held_out, resolved = resolve(name, site.leaves, site.rows, by_issue)
+    # devagent reports a local entry that names nothing (dep_unresolved); Gantry's copy is dropped.
+    site.report += [entry for entry in resolved if entry.kind != "unresolved_ref"]
+    return site
+
+
+def _site_data(site):
+    return SiteData(site.leaves, site.rows, site.links, site.held_out, tuple(sorted(site.report, key=report_order)))
+
+
 def map_document(doc, *, source=DEFAULT_SOURCE) -> PortfolioInput:
     """A parsed portfolio document as a PortfolioInput. `doc` is never changed;
     `source` names it in an error."""
@@ -301,4 +458,14 @@ def map_document(doc, *, source=DEFAULT_SOURCE) -> PortfolioInput:
         _check_parents(doc)
     except _Problem as e:
         raise _error("schema", source, where=e.where, problem=e.problem) from None
-    return PortfolioInput(generated_at=generated, schema_version=doc["schema_version"])
+    projects = []
+    for raw in doc["projects"]:
+        name, status, reason = raw["project"], raw["status"], raw["status_reason"]
+        if status == "read":
+            data = _site_data(_read_site(name, raw["nodes"]))
+        else:
+            report = (ReportEntry(name, None, "site_unreadable", reason),) if status == "unreadable" else ()
+            data = SiteData((), (), (), (), report)
+        projects.append(ProjectInput(name, status, reason, data))
+    shown = tuple(DevagentEntry(e["project"], e["source_line"], e["kind"], e["message"]) for e in doc["parse_report"])
+    return PortfolioInput(tuple(projects), shown, generated, doc["schema_version"])
