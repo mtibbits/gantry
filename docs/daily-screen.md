@@ -179,6 +179,10 @@ it, and so does a report with no status at all. For each source:
 
 ### The stdout line
 
+Collecting reads all three records in every issue folder, so a full build
+on an installation with hundreds of issue folders takes seconds longer, and
+much longer from a cold disk cache; mtibbits/gantry#171 follows up.
+
 A full build prints one line last on stdout:
 
 ```
