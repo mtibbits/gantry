@@ -5,13 +5,13 @@ scalar, is the leaf's need. check_h reports every `h:` that is not, on any
 node in any state, as `bad_h`. docs/week-plan.md states the rules.
 """
 
-import math
 import re
 from dataclasses import dataclass, replace
 
 # Calls go through `model.meta_values`, never a name bound at import, so #12's
 # parser change and a test's spy both reach this module.
 from gantry import model
+from gantry.config import finite_number
 from gantry.inputs import has_tiers
 from gantry.model import ReportEntry, report_order
 
@@ -74,12 +74,11 @@ def check_h(data, site: str):
 def rate_problem(value) -> str | None:
     """Why `value` cannot be a rate, or None: a number from 0 to MAX_RATE.
 
-    Never raises: an int is never passed to math.isfinite, which overflows on
-    a 400-digit one.
+    Never raises: an int too large to convert to a float is not finite.
     """
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return "not a number"
-    if isinstance(value, float) and not math.isfinite(value):
+    if not finite_number(value):
         return "not finite"
     if value < 0:
         return "negative"
