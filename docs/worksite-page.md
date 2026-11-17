@@ -1084,7 +1084,9 @@ one absolute path per file it wrote: the pages in config order, then
 trace report has an item, in config order, one line
 `trace <site>: unreadable N, malformed N, duplicate N, misplaced N, cycle N, undefined N, unserved N, untraced N`,
 every category in that order, zeros included; a site not in the trace
-counts `unserved` and `untraced` as 0. The catalog (every requirements
+counts `unserved` and `untraced` as 0. Last, one `fires:` line, the count of
+the installation's fires and of the sources not fully read
+([daily-screen.md](daily-screen.md#the-stdout-line)). The catalog (every requirements
 file and the portfolio file) is read once per run. In a full build each
 site's trace is built before any render, in its own `try`: a fault there is
 that site's `render error:`, and the site is listed among the sites not read

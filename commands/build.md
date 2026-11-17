@@ -15,7 +15,8 @@ devagent's config names: each site's worksite page under
 `<output_dir>/week-plan.json`. It
 prints one absolute path per file written, then one `trace <site>:` line
 per written page whose site is in the trace or whose trace report has an
-item. A site that cannot be built is
+item, then one `fires: N; sources not fully read: M` line. A site that
+cannot be built is
 listed on the index and on stderr with its reason, and does not stop the
 others. Building one site's page alone is `gantry build --site`, which this
 command does not pass.

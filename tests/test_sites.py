@@ -87,9 +87,12 @@ def test_problem_sites_listed_run_exits_0(tmp_path, capsys):
     err = captured.err.splitlines()
     assert f"gantry: warning: site {NODIR} is not built: no devdoc_dir" in err
     assert f"gantry: warning: site {BAD_NAME} is not built: name does not match [A-Za-z0-9][A-Za-z0-9_.-]*" in err
-    # The paths of the pages, the week view (#38), the index and the plan file, then the
-    # in-trace sample site's trace line (#20).
-    assert len(captured.out.splitlines()) == len(READABLE) + 4
+    # The paths of the pages, the week view (#38), the index and the plan file, then the in-trace sample
+    # site's trace line (#20), then the fires line (#32): marsh's WBS.md and each problem site's P0 and
+    # STUCK sources are not read.
+    lines = captured.out.splitlines()
+    assert len(lines) == len(READABLE) + 5
+    assert lines[-1] == "fires: 7; sources not fully read: 5"
 
 
 def test_control_character_names_print_escaped(tmp_path, capsys):
@@ -132,9 +135,11 @@ def test_unmatched_site_table_warns(tmp_path, capsys):
     captured = capsys.readouterr()
     assert "gantry: warning:" in captured.err
     assert f"site.{FERRY}" in captured.err
-    # The paths of the pages, the week view (#38), the index and the plan file, then the
-    # in-trace sample site's trace line (#20).
-    assert len(captured.out.splitlines()) == len(READABLE) + 4
+    # The paths of the pages, the week view (#38), the index and the plan file, then the in-trace sample
+    # site's trace line (#20), then the fires line (#32).
+    lines = captured.out.splitlines()
+    assert len(lines) == len(READABLE) + 5
+    assert lines[-1] == "fires: 7; sources not fully read: 1"
 
 
 def test_sample_site_problems():
@@ -188,7 +193,11 @@ def test_nul_devdoc_dir_is_a_site_problem_not_a_crash(tmp_path, capsys):
     assert sites[1].problem is None
     capsys.readouterr()
     assert main(["build", "--config", str(p)]) == 0
-    assert len(capsys.readouterr().out.splitlines()) == 4  # the page, week.html, the index, the plan file
+    # The page, week.html, the index, the plan file, then the fires line (#32): no fires_list, the
+    # NUL site's P0 and STUCK sources are not read, and alpha's WBS.md has no node line.
+    lines = capsys.readouterr().out.splitlines()
+    assert len(lines) == 5
+    assert lines[-1] == "fires: 0; sources not fully read: 4"
 
 
 @pytest.mark.parametrize("target,error,expected", [

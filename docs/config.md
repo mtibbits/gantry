@@ -42,7 +42,7 @@ fires_check_days rows; reword them and that test together. -->
 | `as_of` | TOML date (a string is refused) | no | the build machine's local date when the run starts | the date a build treats as today | every dated view |
 | `default_unit_hours` | positive number, integer or float (0, a negative, infinity or a boolean is refused) | no | `6` | the agent-hours given to a leaf with no estimate | #9 |
 | `portfolio_file` | path | no | none | the installation's portfolio file ([format](portfolio-file.md)); `gantry portfolio` checks it; the build reads its business requirements, for the trace (#20), and its capacity settings and allocations, for the week plan (#61, #37); #23 adds the rest | #22 |
-| `fires_list` | path | no | none | the installation's fires list, its things that need the operator now ([format](fires-list.md)); `gantry fires` checks it; no build reads the fires list yet (#32) | #30 |
+| `fires_list` | path | no | none | the installation's fires list, its things that need the operator now ([format](fires-list.md)); `gantry fires` checks it; the full build reads it for its fires ([fires](daily-screen.md#fires)) and no page shows them yet (#34) | #30 |
 | `fires_check_days` | integer, 1 or more (a float or a boolean is refused) | no | `3` | an open fire this many whole days old is flagged "still a fire?"; it is here and not in the portfolio file's `[thresholds]` because the fires list is a fail-closed source, whose flag must not depend on a portfolio file being configured or readable | #30 |
 | `[requirements]` | table | no | none | settings for requirements files | #15 |
 | `[site.<name>]` | table | no | none | per-site overrides, keyed by the devagent `[project.<name>]` table name | #7 |
@@ -62,9 +62,9 @@ Keys of the `[requirements]` table:
 | `br_namespace` | name matching `[A-Za-z0-9][A-Za-z0-9_.-]*` (any other value is refused) | no | `life` | the installation namespace: the namespace of the operator's business requirements, which live only in the portfolio file ([format](requirements-format.md#namespaces)) | #15 |
 
 A path is a TOML string. The **Owner** column names the issue that reads the
-key. Every key is type-checked, accepted and resolved now; a key the build
-does not read yet, such as `fires_list` (only `gantry fires` reads it), has
-no effect on the build.
+key. Every key is type-checked, accepted and resolved now. `fires_list`
+changes no page and no file the build writes: the build reads it only for
+its fires, which change the last line it prints (#32).
 
 An example: the repository's sample (`samples/gantry.sample.toml`), which
 puts lighthouse in the trace, plus an optional site table and the
@@ -293,7 +293,8 @@ was not built, then the week plan, `<output_dir>/week-plan.json`
 ([week-plan.md](week-plan.md#the-plan-file)). It prints one absolute path
 per file written, then one
 `trace <site>:` line per written page whose site is in the trace or whose
-trace report has an item ([worksite-page.md](worksite-page.md#reading-the-trace)). A site that
+trace report has an item ([worksite-page.md](worksite-page.md#reading-the-trace)), then one
+`fires:` line ([daily-screen.md](daily-screen.md#the-stdout-line)). A site that
 cannot be built is listed on the index and on stderr with its reason, and
 does not stop the others; a name that fails the pattern above is printed
 escaped (a tab as `\t`, an ESC as `\x1b`). The reading rules are in
