@@ -277,7 +277,7 @@ def test_demo_output_passes(demo_out, capsys):
     assert check_demo.check(demo_out) == []
     assert check_demo.main([str(demo_out)]) == 0
     out = capsys.readouterr()
-    assert out.out.splitlines() == ["check_demo: ok: 6 pages, 4 site pages, 9 expected entries"]
+    assert out.out.splitlines() == ["check_demo: ok: 7 pages, 4 site pages, 9 expected entries"]
     assert out.err == ""
 
 
