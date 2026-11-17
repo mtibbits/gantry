@@ -375,3 +375,20 @@ def test_hours_source_no_file_read(tmp_path):
     assert t.elements[orchard]["attrs"]["data-source"] == "WBS.md, no estimates file read"
     harbor = figures(t, "hours", panel_of(t, BUSY))[0]
     assert t.elements[harbor]["attrs"]["data-source"] == "WBS.md and estimates-2026-01-15-effort-and-model-tiers.md"
+
+
+# --- the doc (AC12) ----------------------------------------------------------------------
+
+SERVING = ("real pages are meant to be served only on a private network, for example a tailnet; Gantry writes "
+           "them to your output folder and publishes nothing itself")
+
+
+def test_strategic_doc_states_texts():
+    from gantry.views import strategic as view
+
+    doc = (ROOT / "docs" / "strategic-page.md").read_bytes().decode("utf-8")
+    assert [text for text in view.STRATEGIC_TEXTS if f"`{text}`" not in doc] == []
+    assert [kind for kind in view.FIGURE_KINDS if f"`{kind}`" not in doc] == []
+    for name in ("`data-figure`", "`data-source`", "`data-unestimated`", "`strategic.html`", ONE_LINER):
+        assert name in doc, name
+    assert SERVING in " ".join(doc.split())

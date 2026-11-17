@@ -16,7 +16,7 @@ and its capacity settings and allocations, for the week plan (#61, #37,
 [week-plan.md](week-plan.md#the-planner)). The build reads the file once
 and every view reuses that read. The build runs every check below, the
 milestone-leaf check included, once per build over that read, and shows the
-entries on the strategic page (#23).
+entries on the strategic page (#23, [strategic-page.md](strategic-page.md#the-report-panel)).
 
 ## Checking the file
 

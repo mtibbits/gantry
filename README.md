@@ -11,9 +11,11 @@ Every number on those pages comes from records already kept.
 - **Worksite page**: one per project, the dependency network with its
   critical path, a rolling-wave zoom, and a schedule across parallel
   worklanes. See [docs/worksite-page.md](docs/worksite-page.md).
-- **Strategic page**: across all your projects, where your tokens and
-  attention are going against where your priorities say they should
-  (planned).
+- **Strategic page**: across all your projects, each site's open work and
+  the share of your attention your priorities give it, set against its share
+  of all open work (its backlog share, not effort), grouped under the
+  requirements it serves; the index shows the largest gap. See
+  [docs/strategic-page.md](docs/strategic-page.md).
 - **Daily screen**: for your phone, anything on fire first, then today's
   tasks to start warming up on (planned).
 - **Week view**: the week plan as a page, laid out over the operator's

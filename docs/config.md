@@ -287,7 +287,7 @@ a wrong path.
 
 `gantry build` builds every site: each site's worksite page to
 `<output_dir>/sites/<name>.html`, then the strategic page,
-`<output_dir>/strategic.html` (#23), then `<output_dir>/index.html`, which
+`<output_dir>/strategic.html` ([strategic-page.md](strategic-page.md)), then `<output_dir>/index.html`, which
 lists every site with its open leaves, finish and report count, or why it
 was not built, then the week plan, `<output_dir>/week-plan.json`
 ([week-plan.md](week-plan.md#the-plan-file)). It prints one absolute path
