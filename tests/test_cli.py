@@ -379,13 +379,18 @@ def sample_line_count(result):
     return len(result.stdout.decode("utf-8").splitlines())
 
 
+# A full sample build's stdout: four pages, week.html (#38), the index, the plan file,
+# one trace line (#20) and the fires line (#32), as check_written reads it.
+SAMPLE_BUILD_LINES = 9
+
+
 @needs_posix_bash
 def test_launcher_prefers_python(tmp_path):
     copy = launcher_copy(tmp_path)
     shims = shim_dir(tmp_path, ["python", "python3"])
     result, names = run_launcher(copy, [SAMPLE_CONFIG], shims, copy, tmp_path)
     assert result.returncode == 0, result.stderr
-    assert sample_line_count(result) == 8
+    assert sample_line_count(result) == SAMPLE_BUILD_LINES
     assert names == {"python"}
 
 
@@ -395,7 +400,7 @@ def test_launcher_falls_back_to_python3(tmp_path):
     shims = shim_dir(tmp_path, ["python3"])
     result, names = run_launcher(copy, [SAMPLE_CONFIG], shims, copy, tmp_path)
     assert result.returncode == 0, result.stderr
-    assert sample_line_count(result) == 8
+    assert sample_line_count(result) == SAMPLE_BUILD_LINES
     assert names == {"python3"}
 
 
@@ -426,7 +431,7 @@ def test_launcher_one_literal_argument(tmp_path):
     shims = shim_dir(tmp_path, ["python"])
     result, _ = run_launcher(copy, ["samples/" + name], shims, copy, tmp_path)
     assert result.returncode == 0, result.stderr
-    assert sample_line_count(result) == 8
+    assert sample_line_count(result) == SAMPLE_BUILD_LINES
     assert list(tmp_path.rglob("pwned")) == []
 
 
@@ -441,7 +446,7 @@ def test_launcher_P_ignores_cwd_package(tmp_path):
     result, _ = run_launcher(copy, [str(config)], shims, elsewhere, tmp_path)
     assert b"decoy" not in result.stderr
     assert result.returncode == 0, result.stderr
-    assert sample_line_count(result) == 8
+    assert sample_line_count(result) == SAMPLE_BUILD_LINES
 
 
 @needs_posix_bash
@@ -467,7 +472,7 @@ def test_launcher_dash_leading_config_is_a_value(tmp_path):
     shims = shim_dir(tmp_path, ["python"])
     result, _ = run_launcher(copy, ["-dash.toml"], shims, samples, tmp_path)
     assert result.returncode == 0, result.stderr
-    assert sample_line_count(result) == 8
+    assert sample_line_count(result) == SAMPLE_BUILD_LINES
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX file modes only")
