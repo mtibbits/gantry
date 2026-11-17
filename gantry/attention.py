@@ -9,8 +9,9 @@ import math
 import re
 from dataclasses import dataclass, replace
 
-# Calls go through `model.meta_values`, never a name bound at import, so #12's
-# parser change and a test's spy both reach this module.
+# Calls go through `model.meta_values`, never a name bound at import, so a
+# test's spy reaches this module. That accessor reads both shapes: raw text,
+# and a `ParsedValue` from devagent's portfolio JSON (#83).
 from gantry import model
 from gantry.inputs import has_tiers
 from gantry.model import ReportEntry, report_order

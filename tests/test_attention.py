@@ -26,7 +26,7 @@ from gantry.attention import (
     read_h,
     site_ratio_source,
 )
-from gantry.model import REPORT_KINDS, Leaf, Models, SiteData, report_order
+from gantry.model import REPORT_KINDS, Leaf, Models, ParsedValue, SiteData, report_order
 from gantry.portfolio_file import read_portfolio_file
 from gantry.roots import directory_roots
 from gantry.sites import config_roots
@@ -36,7 +36,8 @@ from test_samples import ROOT
 FIXTURES = ROOT / "tests" / "fixtures" / "attention"
 SITE = "alpha"
 
-# (written, the #12 parsed form, the score): in h_values.md's order, Issue-2 on.
+# (written, the parsed form, the score): in h_values.md's order, Issue-2 on. The parsed form
+# is what devagent's portfolio JSON holds (#83); parsed() tags it as the reader does.
 H_CASES = (
     ("3", "3", 3),
     ('"3"', "3", 3),
@@ -97,11 +98,10 @@ def site_of(*leaves, rows=()):
     return SiteData(tuple(leaves), tuple(rows), (), (), ())
 
 
-def parsed_12(raw):
-    """#12's meta_values contract: a string or a list of strings, no further reading."""
-    if raw is None or raw == "":
-        return []
-    return list(raw) if isinstance(raw, list) else [raw]
+def parsed(value):
+    """A parsed metadata value as gantry/portfolio_json.py stores it (#83): a
+    ParsedValue, or a list of them."""
+    return [ParsedValue(v) for v in value] if isinstance(value, list) else ParsedValue(value)
 
 
 # --- h: ----------------------------------------------------------------------
@@ -126,16 +126,16 @@ def test_h_text_forms(i):
 
 
 @pytest.mark.parametrize("i", range(len(H_CASES)), ids=CASE_IDS)
-def test_h_parsed_forms(i, monkeypatch):
-    _, parsed, expected = H_CASES[i]
-    monkeypatch.setattr(model, "meta_values", parsed_12)
-    leaf = make_leaf(meta={"issue": "Issue-1", "h": parsed})
+def test_h_parsed_forms(i):
+    _, form, expected = H_CASES[i]
+    value = parsed(form)
+    leaf = make_leaf(meta={"issue": "Issue-1", "h": value})
     assert read_h(leaf) == expected
     found = entries_on(check_h(site_of(leaf), SITE), leaf.line)
     assert len(found) == (0 if expected is not None else 1)
     if found:
-        assert found[0].message == bad_h_message(leaf, parsed)
-        assert repr(parsed) in found[0].message
+        assert found[0].message == bad_h_message(leaf, value)
+        assert repr(form) in found[0].message
 
 
 def test_h_edge_forms_follow_meta_values():

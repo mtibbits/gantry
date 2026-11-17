@@ -228,7 +228,8 @@ def test_module_never_imports_the_stopgap():
             continue  # a name imported from a module, not a module
         seen.add(name)
         todo += sorted(_gantry_imports(path))
-    # gantry.model is #8's, and #12 changes its meta reading with the stopgap.
+    # gantry.model is #8's; its meta reading has two shapes, raw text and
+    # `ParsedValue` (#83), and #12 removes the raw-text one with the stopgap.
     assert not {"gantry.wbs_stopgap", "gantry.model"} & seen
     assert {"gantry.wbs_history", "gantry.roots"} <= seen
     assert wbs_history.__name__ == "gantry.wbs_history"

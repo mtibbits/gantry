@@ -86,9 +86,11 @@ class Leaf:
     glyph: str
     state: str
     open: bool
-    priority: str | None  # the raw text
+    priority: str | None  # the raw text, or a ParsedValue (#83)
     deps: tuple[DepRef, ...]
-    meta: dict[str, str]  # raw value texts
+    # Each value is raw text (a plain str, from gantry/wbs_stopgap.py) or a
+    # parsed shape (a ParsedValue or a list of them, from gantry/portfolio_json.py).
+    meta: dict[str, str | list[str]]
     epic: str | None  # the top-level ancestor's key
     line: int
     estimate: object = None
@@ -144,7 +146,7 @@ class Row:
     state: str
     line: int
     parent: str | None  # the parent row's key
-    meta: dict[str, str]
+    meta: dict[str, str | list[str]]  # raw texts or parsed shapes, as Leaf.meta
 
 
 @dataclass(frozen=True)
@@ -166,14 +168,33 @@ class SiteData:
     report: tuple[ReportEntry, ...]
 
 
+class ParsedValue(str):
+    """A metadata string devagent has already parsed (#83).
+
+    gantry/portfolio_json.py stores each string of a node's `meta` as one, and
+    each list as a list of them. The accessors below return these shapes as
+    they are: no quote or bracket is read a second time. The tag is on the
+    object, so test it on the value taken from `meta`, before any str method:
+    each of those returns a plain str, which would be read as raw text.
+    """
+
+    __slots__ = ()
+
+
 def _strip_quotes(s):
     if len(s) >= 2 and s[0] == s[-1] and s[0] in "\"'":
         return s[1:-1]
     return s
 
 
-def meta_value(raw: str) -> str | list[str]:
-    """A raw metadata text as devagent reads it: a list or a string."""
+def meta_value(raw: str | list[str]) -> str | list[str]:
+    """A metadata value as devagent reads it: a list or a string.
+
+    A parsed shape (a list, or a ParsedValue) is returned as it is, the same
+    object; a plain str is raw text and is read here.
+    """
+    if isinstance(raw, (list, ParsedValue)):
+        return raw
     if raw.startswith("["):
         end = raw.find("]")
         if end == -1:
@@ -185,16 +206,16 @@ def meta_value(raw: str) -> str | list[str]:
     return raw.strip()
 
 
-def meta_scalar(raw: str | None) -> str | None:
-    """A raw text's string value; None when missing or a list."""
+def meta_scalar(raw: str | list[str] | None) -> str | None:
+    """A metadata value's string value; None when missing or a list."""
     if raw is None:
         return None
     value = meta_value(raw)
     return value if isinstance(value, str) else None
 
 
-def meta_values(raw: str | None) -> list[str]:
-    """A raw text as a list of entries: a scalar is one entry, empty is none."""
+def meta_values(raw: str | list[str] | None) -> list[str]:
+    """A metadata value as a list of entries: a scalar is one entry, empty is none."""
     if raw is None:
         return []
     value = meta_value(raw)
