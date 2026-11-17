@@ -534,6 +534,35 @@ def test_block_default_follows_a_larger_minimum(tmp_path):
     assert p.capacity.block_default_hours == 3
 
 
+HUGE = "1" * 400
+
+
+@pytest.mark.parametrize(
+    ("key", "rule", "default"),
+    [
+        ("capacity.block_min_hours", "a finite number above 0", 1),
+        ("capacity.block_start_cost_hours", "a finite number, 0 or more", 0.25),
+        ("thresholds.share_gap_points", "a finite number above 0", 10),
+        ("capacity.block_default_hours", "a finite number, at least block_min_hours", 2),
+    ],
+)
+def test_huge_int_setting_is_bad_value(tmp_path, key, rule, default):
+    # An int too large to convert to a float is not finite (#117).
+    table, name = key.split(".")
+    p = write(tmp_path, f"## Settings\n\n```toml\nportfolio_version = 1\n[{table}]\n{name} = {HUGE}\n```\n")
+    assert bad_values(p) == {key: (6, f"must be {rule}, not a very large integer; the default {default} is used")}
+    assert getattr(getattr(p, table), name) == default
+
+
+def test_huge_int_attention_day_still_bad_value(tmp_path):
+    # The day's own 0-to-24 check refused a huge int before #117 too.
+    p = write(tmp_path, f"## Settings\n\n```toml\nportfolio_version = 1\n[capacity]\n"
+                        f"attention_hours = {{ mon = {HUGE} }}\n```\n")
+    assert bad_values(p) == {"capacity.attention_hours.mon": (
+        6, "must be a finite number from 0 to 24, not a very large integer; the day reads 0")}
+    assert p.capacity.attention_hours["mon"] == 0
+
+
 @pytest.mark.parametrize(
     ("value", "read"),
     [
@@ -565,8 +594,15 @@ def test_reserved_exceeds_capacity(tmp_path):
     assert p.report[0].message == "reserved blocks on mon total 5 hours, more than its 4 attention hours"
     assert [(r.day, r.start, r.hours, r.label, r.line) for r in p.capacity.reserved] == [
         ("mon", "09:00", 3, None, 19), ("mon", "13:00", 2, "Standing meeting", 24), ("tue", "09:00", 2, None, 30)]
-    # A 400-digit hours value is a valid number: reported, never raised.
+    # A 400-digit hours value is not finite (#117): its block is reported and
+    # set aside, so nothing exceeds capacity. Never raised.
     p = write(tmp_path, fixture_with("reserved_exceeds_capacity.md", "hours = 3\n", "hours = 1" + "0" * 400 + "\n"))
+    assert [(e.kind, e.key_path, e.message) for e in p.report] == [
+        ("bad_value", "capacity.reserved[1].hours",
+         "must be a finite number above 0, not a very large integer; the reserved block is set aside")]
+    # A 21-digit hours value converts to a float, so it is a valid number: its
+    # total is named, never formatted.
+    p = write(tmp_path, fixture_with("reserved_exceeds_capacity.md", "hours = 3\n", "hours = 1" + "0" * 20 + "\n"))
     assert [e.message for e in p.report] == [
         "reserved blocks on mon total a very large number of hours, more than its 4 attention hours"]
 
@@ -689,16 +725,22 @@ def test_bad_allocation(tmp_path):
         f"share {BUSY} must be a number, 0 or more, not a boolean; this allocation is not used",
     ]
     assert p.allocations == []
-    # A 400-digit share is reported, never raised; a missing shares table is
-    # reported on its allocation's header line.
-    text = fixture_with("bad_allocation.md", "orchard = 49", "orchard = 1" + "0" * 400)
-    text = text.replace("[[allocation]]\nfrom = 2026-04-06\n[allocation.shares]\nharbor = true\norchard = 100\n",
-                        "[[allocation]]\nfrom = 2026-04-06\n")
+    # A 400-digit share is not finite (#117): reported as that share, never
+    # raised; a missing shares table is reported on its allocation's header line.
+    no_shares = ("[[allocation]]\nfrom = 2026-04-06\n[allocation.shares]\nharbor = true\norchard = 100\n",
+                 "[[allocation]]\nfrom = 2026-04-06\n")
+    text = fixture_with("bad_allocation.md", "orchard = 49", "orchard = 1" + "0" * 400).replace(*no_shares)
     p = write(tmp_path, text)
     assert [(e.line, e.key_path, e.message) for e in p.report][0] == (
-        20, "allocation[1].shares", "the shares sum to a very large number, not 100; this allocation is not used")
+        20, "allocation[1].shares.orchard",
+        "share orchard must be a number, 0 or more, not a very large integer; this allocation is not used")
     assert [(e.line, e.key_path, e.message) for e in p.report][-1] == (
         35, "allocation[4].shares", "no shares table; this allocation is not used")
+    # A 21-digit share converts to a float, so it is a valid number: the sum
+    # is named, never formatted.
+    p = write(tmp_path, fixture_with("bad_allocation.md", "orchard = 49", "orchard = 1" + "0" * 20).replace(*no_shares))
+    assert [(e.line, e.key_path, e.message) for e in p.report][0] == (
+        20, "allocation[1].shares", "the shares sum to a very large number, not 100; this allocation is not used")
 
 
 def test_shares_within_tolerance(tmp_path):

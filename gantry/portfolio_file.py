@@ -26,7 +26,7 @@ from dataclasses import dataclass, fields, replace
 from datetime import date, datetime
 
 from gantry import requirements
-from gantry.config import ID_TOKEN_RE, describe, error_reason
+from gantry.config import ID_TOKEN_RE, describe, error_reason, finite_number
 from gantry.requirements import (FENCE_RE, RequirementSet, hidden_lines, parse_id, parse_requirements,
                                  read_utf8, split_lines)
 from gantry.roots import OutsideRoots, stat_confined
@@ -112,9 +112,7 @@ def _number(v):
     return isinstance(v, (int, float)) and not isinstance(v, bool)
 
 
-def _finite(v):
-    # An int is always finite; math.isfinite would raise on a 400-digit one.
-    return _number(v) and (isinstance(v, int) or math.isfinite(v))
+_finite = finite_number
 
 
 def _int(v):
