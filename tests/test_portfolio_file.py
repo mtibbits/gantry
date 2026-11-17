@@ -1040,8 +1040,11 @@ def doc_text(path):
 
 
 def test_doc_states_huge_int_not_finite():
-    # #117: a 400-digit setting is refused like inf and nan.
-    assert "too large to convert to a float" in " ".join(doc_text(PORTFOLIO_DOC).split())
+    # #117: a 400-digit value is refused like inf and nan only where the rule
+    # says a finite number; an integer key's rule never does.
+    assert ("where a rule says a finite number, so is an integer too large to convert to a float"
+            in " ".join(doc_text(PORTFOLIO_DOC).split()))
+    assert [k.path for k in pf.SETTINGS_KEYS if k.rule in (pf._INT_0, pf._INT_1) and "finite" in k.rule] == []
 
 
 def test_doc_rows_match_registry():
