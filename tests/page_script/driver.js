@@ -105,15 +105,12 @@ function attrsOf(el) {
   return Array.from(el.attributes, (a) => [a.name.toLowerCase(), a.value]);
 }
 
-// The elements a selector matches, in document order.
 function matchAll(page, selector) {
-  let found;
   try {
-    found = page.document.querySelectorAll(selector);
+    return Array.from(page.document.querySelectorAll(selector));
   } catch (e) {
     throw new Error("bad selector " + JSON.stringify(selector) + ": " + e.message);
   }
-  return Array.from(found);
 }
 
 function query(page, selector) {
@@ -125,19 +122,15 @@ function query(page, selector) {
   }));
 }
 
-// Keep the elements a selector matches now, under a name. An empty match is
-// refused before the Map is touched, so an earlier set under the name stays.
+// An empty set would leave same() true while the match stayed empty, which
+// says nothing about identity. Refused before the set, so an earlier one stays.
 function remember(page, name, selector) {
   const nodes = matchAll(page, selector);
-  if (nodes.length === 0) {
-    throw new PageError("remember: " + JSON.stringify(selector) + " matches no element");
-  }
+  if (nodes.length === 0) throw new PageError("remember: " + JSON.stringify(selector) + " matches no element");
   page.remembered.set(name, { selector, nodes });
   return nodes.length;
 }
 
-// True only when the remembered selector matches the same nodes again: as
-// many, in the same order, each the very node kept (===), not an equal copy.
 function same(page, name) {
   const entry = page.remembered.get(name);
   if (entry === undefined) throw new Error("same: nothing remembered as " + JSON.stringify(name));

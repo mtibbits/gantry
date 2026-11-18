@@ -617,10 +617,9 @@ def test_redraw_keeps_box_node(node, sample_page):
         page.remember("box", "#req-path")
         page.remember("inside", "#req-path *")
         # Each leg asserts its start state, so the drive is a change and not a default.
-        assert set(g.attrs["aria-expanded"] for g in page.query(".g-toggle")) == {"false"}
+        assert {g.attrs["aria-expanded"] for g in page.query(".g-toggle")} == {"false"}
         page.drive("expand", "all")
-        expanded = [g.attrs["aria-expanded"] for g in page.query(".g-toggle")]
-        assert expanded and set(expanded) == {"true"}
+        assert {g.attrs["aria-expanded"] for g in page.query(".g-toggle")} == {"true"}
         # same("box") fails first only if #req-path itself is re-created.
         assert page.same("box"), "the epic redraw replaced #req-path"
         assert page.same("inside"), "the epic redraw rebuilt the box"
