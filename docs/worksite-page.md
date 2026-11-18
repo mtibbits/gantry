@@ -512,8 +512,9 @@ two changes:
   or `1 leaf with {what} and no estimates-file hours is unestimated: {keys}`,
   where `{what}` is `no est:`, `a placeholder est:`, `a non-time est:` or
   `an unparseable est:`. `{keys}` lists at most 20 keys, in report order.
-  A longer list is cut to its first 20 and reads `{keys} and {more} more`,
-  where `{more}` counts the keys left out; `{n}` stays the class's total.
+  A longer list is written `{keys} and {more} more`, where that `{keys}` is
+  its first 20 and `{more}` counts the keys left out; `{n}` stays the
+  class's total.
   It is left out of the network and the schedule, and the rest of the page
   renders.
 

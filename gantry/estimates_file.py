@@ -71,7 +71,7 @@ class EstimatesRow:
 class EstimatesFile:
     rows: dict[str, EstimatesRow]  # keyed Issue-<digits as written>
     report: tuple[ReportEntry, ...]
-    read: bool = True  # False: the file cannot be read or has no # table, so it gives nothing
+    read: bool  # False: the file cannot be read or has no # table, so it gives nothing
 
 
 def _entry(site, kind, message):

@@ -170,6 +170,18 @@ def test_leading_zero_row_joins_literal_issue(tmp_path):
     assert (est.lo_h, est.hi_h, est.source) == (2, 2, "estimates_file")
 
 
+def test_tableless_later_file_does_not_fall_back(tmp_path):
+    # The later file with no `#` table wins discovery, so the earlier file's
+    # rows are not used in its place (#108).
+    (tmp_path / "plan").mkdir()
+    (tmp_path / "plan" / "estimates-2026-03-01-notes.md").write_bytes(b"Notes only.\n")
+    got = run(tmp_path, est_text())
+    assert [e.kind for e in got.data.report if e.line is None][:2] == ["estimates_ignored", "estimates_no_table"]
+    assert got.estimates is None
+    timed = {"Issue-2", "Issue-3"}
+    assert {x.estimate.source for x in scheduled(got.data) if x.key not in timed} == {"default"}
+
+
 def test_configured_missing_every_leaf_default(tmp_path):
     got = run(tmp_path, est_text(), configured=tmp_path / "plan" / "gone.md")
     assert [e.kind for e in got.data.report if e.line is None][:1] == ["estimates_unreadable"]
