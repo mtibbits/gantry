@@ -13,7 +13,6 @@ from typing import NamedTuple
 
 from gantry import network, priority, render, schedule
 from gantry.deps import open_sources, refs
-from gantry.estimates_file import MESSAGES as ESTIMATES_MESSAGES
 from gantry.inputs import NO_TIERS, UNEST_WHAT, has_tiers, scheduled, site_totals
 from gantry.links import id_href, leaf_anchor
 from gantry.model import HOURS_PER_DAY, Estimate, Models
@@ -34,7 +33,7 @@ DATES = "dates include {n} unestimated leaves"
 DATES_ONE = "dates include 1 unestimated leaf"
 ESTIMATES_LINE = "Estimates read from {name}, dated {date}."
 ESTIMATES_UNDATED = "Estimates read from {name} (no date)."
-ESTIMATES_BAD_DATE = "Estimates read from {name} (" + ESTIMATES_MESSAGES["bad_date"] + ")."
+ESTIMATES_BAD_DATE = "Estimates read from {name} (its name's date {date} is not a valid date)."
 NON_TIME_LINE = "Not in any hour figure: {parts}"
 UNESTIMATED_LINE = "{n} leaves with {what} and no estimates-file hours are unestimated: {keys}"
 UNESTIMATED_LINE_ONE = "1 leaf with {what} and no estimates-file hours is unestimated: {keys}"

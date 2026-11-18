@@ -761,6 +761,9 @@ def test_estimates_line_names_invalid_date(tmp_path):
     assert "Estimates read from estimates-2026-02-30.md (its name's date 2026-02-30 is not a valid date)." in page
     assert "(no date)" not in page
     assert model_with(inputs)["estimates"] == {"name": "estimates-2026-02-30.md", "date": None}
+    # The header and the ignored reason name an invalid date in the same words.
+    from gantry import estimates_file
+    assert estimates_file.MESSAGES["bad_date"] in worksite.ESTIMATES_BAD_DATE
 
 
 def test_no_table_file_has_no_estimates_line(tmp_path):
@@ -1372,6 +1375,7 @@ def test_doc_states_unestimated_cap():
     section = doc.split("### Missing or unreadable", 1)[1].split("\n### ", 1)[0]
     assert worksite.UNESTIMATED_CAP == 20
     assert f"at most {worksite.UNESTIMATED_CAP} keys" in " ".join(section.split())
+    assert f"first {worksite.UNESTIMATED_CAP} of its class" in " ".join(doc.split())
     assert "listed in the panel" not in " ".join(doc.split())
 
 
