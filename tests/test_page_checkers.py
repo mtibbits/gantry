@@ -1007,6 +1007,55 @@ def test_key_dispatches_keydown(node, tmp_path):
             "keydown:Escape:none", "focusin:leaf-2/a:FR-2", "keydown:Enter:leaf-2/a:FR-2", "keydown: :leaf-2/a:FR-2"]
 
 
+# One change listener on the lanes select; each value edits #kept in a different way.
+IDENTITY_SCRIPT = "\n".join([
+    'const kept = document.getElementById("kept");',
+    'document.querySelector(\'[data-control="lanes"]\').addEventListener("change", (e) => {',
+    "  const first = kept.firstElementChild;",
+    '  if (e.target.value === "1") {',
+    '    const li = document.createElement("li");',
+    '    li.textContent = "c";',
+    "    kept.appendChild(li);",
+    '  } else if (e.target.value === "2") {',
+    "    kept.insertBefore(first.nextElementSibling, first);",
+    '  } else if (e.target.value === "3") {',
+    "    kept.replaceChild(first.cloneNode(true), first);",
+    '  } else if (e.target.value === "4") {',
+    '    first.textContent = "rewritten";',
+    "  }",
+    "});",
+])
+
+
+def test_remember_same_reports_node_identity(node, tmp_path):
+    body = LISTENER_BODY + '<ul id="kept"><li>a</li><li>b</li></ul>'
+    with open_page(write_page(tmp_path, hostile_page(body_extra=body, script=IDENTITY_SCRIPT))) as page:
+        assert page.remember("items", "#kept li") == 2
+        # Text rewritten in place: still the same element.
+        page.drive("lanes", "4")
+        assert page.same("items")
+        # The count clause: the stored prefix is unchanged, so only the length catches the append.
+        page.drive("lanes", "1")
+        assert not page.same("items")
+        # A second remember replaces the set under that name.
+        assert page.remember("items", "#kept li") == 3
+        assert page.same("items")
+        # The order clause: same members, new order.
+        page.drive("lanes", "2")
+        assert not page.same("items")
+        # The identity clause: an equal copy is a new node.
+        assert page.remember("items", "#kept li") == 3
+        page.drive("lanes", "3")
+        assert not page.same("items")
+        # A refused remember leaves the earlier set in place.
+        page.remember("items", "#kept li")
+        with pytest.raises(PageScriptError, match="matches no element"):
+            page.remember("items", "#none")
+        assert page.same("items")
+        with pytest.raises(HarnessError, match="nothing remembered as"):
+            page.same("never")
+
+
 def test_drive_unknown_control_raises(node, tmp_path):
     with open_page(listener_page(tmp_path)) as page:
         with pytest.raises(PageScriptError, match="nosuch"):
