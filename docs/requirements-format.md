@@ -162,8 +162,8 @@ A requirement's text runs from its first line through each following line
 indented deeper than its list marker. It stops at a blank line (empty, or
 only whitespace: any character Python's `str.isspace()` accepts, such as a
 space, a tab, a no-break space U+00A0 or U+2028, though a page shows a line
-holding one of the last two as text), at a fenced line, or at a line indented no deeper than the
-marker; a tab counts as four spaces. A comment line indented to at least
+holding one of the last two as text), at a fenced line, or at a line
+indented no deeper than the marker; a tab counts as four spaces. A comment line indented to at least
 the item's content column (see below) is skipped: the text joins across it
 (see [Comments](#comments)); a comment line indented less ends the text.
 The lines are joined with single spaces after their leading whitespace is
@@ -323,8 +323,9 @@ Reported, with the requirement still read:
   `needs: []`, a list with text after its `]` (`{needs: [FR-1] [FR-2]}`,
   reported "needs: a malformed list, with text after its ']'; it is not
   read", while the block's other keys are still read: which targets were
-  meant is unknown, so none is guessed), a second meta block on one item, and a block that starts with
-  a word and a colon anywhere else in the text. A second or mid-text block
+  meant is unknown, so none is guessed), a second meta block on one item,
+  and a block that starts with a word and a colon anywhere else in the
+  text. A second or mid-text block
   stays in the text, and its links are not read.
 - `malformed_link`: a target that is not a requirement ID; it is dropped.
 - `misplaced`: `needs:` on an item that is not a use case, and a link into
