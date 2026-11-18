@@ -53,7 +53,7 @@ SHARELESS = ("{n} sites have no intended share set; they are planned only into c
 SHARELESS_ONE = "1 site has no intended share set; it is planned only into capacity left after the sites with shares"
 SHARELESS_ALL = "{site}: on every planned day"
 SHARELESS_DAYS = "{site}: on {days}"
-P0_NOTE = "devagent's wbs order ranks these differently until mtibbits/devagent#889 lands"
+P0_CAPTION = "P0 leaves"
 HELD_BY = "held by {holders}"
 UNPLANNED_HEAD = "Unplanned leaves"
 BEYOND = "{n} leaves beyond the 10 days"
@@ -270,7 +270,7 @@ def _lines(page):
                     if entry["held_by"] else "")
             items.append(f'<li class="p0-leaf" data-site="{esc(site)}" data-leaf="{esc(entry["key"])}">'
                          f'{esc(site)}: {page.link(site, entry["key"])}{held}</li>')
-        out.append(f'<div id="p0"><ul>{"".join(items)}</ul><p>{esc(P0_NOTE)}</p></div>')
+        out.append(f'<div id="p0"><ul>{"".join(items)}</ul><p>{esc(P0_CAPTION)}</p></div>')
     return f'<section id="lines">{"".join(out)}</section>'
 
 
