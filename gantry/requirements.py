@@ -154,6 +154,11 @@ def _width(line):
     return len(line[: len(line) - len(line.lstrip(" \t"))].expandtabs(4))
 
 
+def _is_break(line):
+    """Whether `line` is a thematic break (`* * *`, `- - -`), never a list item."""
+    return _width(line) <= 3 and BREAK_RE.fullmatch(line) is not None
+
+
 def _closer(lines, i, no_closer):
     """The index of the line that closes a fence opened on line i, or None."""
     m = FENCE_RE.fullmatch(lines[i])
@@ -315,7 +320,7 @@ def _scan(lines):
                 leak = open_col if encloses else None
             continue
         m = ITEM_RE.fullmatch(line)
-        if m is None or (_width(line) <= 3 and BREAK_RE.fullmatch(line)):
+        if m is None or _is_break(line):
             if _width(line) <= 3 and HTML_START_RE.match(line):
                 html = True
             # Text outside every enclosing item is a paragraph a list-shaped line may only continue.
@@ -792,7 +797,8 @@ def parse_requirements(text, namespace, *, source, first_line=1, layers, br_name
         reader.add(first_line + comment[0], "malformed_comment", comment[1])
     i = 0
     while i < len(lines):
-        m = None if hidden[i] else ITEM_RE.fullmatch(lines[i])
+        # A thematic break is not an item, so the lines indented after it are not its text.
+        m = None if hidden[i] or _is_break(lines[i]) else ITEM_RE.fullmatch(lines[i])
         if m is None:
             i += 1
             continue

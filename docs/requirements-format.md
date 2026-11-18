@@ -155,7 +155,10 @@ item's text starts: 2 for `- a`, 4 for `-   a`, 3 for `1. a`. For an
 empty item, or one whose text starts five or more columns past the marker
 (code on a rendered page), it is one past the marker. An empty item followed
 by a blank line encloses nothing. A thematic break (`* * *`, `- - -`) is not
-a list item, so it encloses nothing either. A list item encloses only when
+a list item, so it encloses nothing either, nor does it start an item: after
+a thematic break at the top level (not inside an item's text), the lines
+indented after it are not its text, and an ID item there is read as
+top-level. A list item encloses only when
 it surely starts a list: at the top of the file, or after a blank line, a
 heading, a thematic break, a fence, a comment or another list item. A
 list-shaped line right after paragraph text outside every list item (`2. x`

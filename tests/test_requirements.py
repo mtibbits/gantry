@@ -246,6 +246,7 @@ def test_second_indented_sibling_after_blank_is_nested():
         ("-\n  text\n\n  - FR-2: b\n", [], "FR-2", 4),
         # A thematic break inside the item does not end it.
         ("- FR-1: a\n\n  * * *\n\n  - FR-2: b\n", ["alpha:FR-1"], "FR-2", 5),
+        ("- FR-1: a\n  * * *\n  - FR-2: b\n", ["alpha:FR-1"], "FR-2", 3),
         # A list surely starts after a heading, after an HTML block's blank line, or after a list.
         ("# H\n- a\n\n  - FR-1: x\n", [], "FR-1", 4),
         ("<div>\n\n- a\n\n  - FR-1: x\n", [], "FR-1", 5),
@@ -278,6 +279,10 @@ def test_enclosing_item_spans_blank_lines(text, keys, id, line):
         ("* * *\n\n   - FR-1: a\n", ["alpha:FR-1"]),
         ("- FR-1: a\n\n* * *\n\n  - FR-2: b\n", ["alpha:FR-1", "alpha:FR-2"]),
         ("- Notes\n- - -\n\n  - FR-1: a\n", ["alpha:FR-1"]),
+        # Nor does it start an item, so the lines indented after it are not its text (#112).
+        ("* * *\n  - FR-1: a\n", ["alpha:FR-1"]),
+        ("- - -\n  - FR-1: a\n", ["alpha:FR-1"]),
+        ("- FR-1: a\n- - -\n  - FR-2: b\n", ["alpha:FR-1", "alpha:FR-2"]),
         # Only a line that surely starts a list encloses: not one that continues a paragraph, and
         # not one inside an HTML block. A page nests the last leg; the reader reads it as written.
         ("Para\n2. x\n\n   - FR-1: a\n", ["alpha:FR-1"]),
@@ -1067,6 +1072,7 @@ def test_format_doc_states_report_causes():
         "the requirements file is not a file", "the requirements file does not exist",
         "a path under a file",
         MALFORMED_LIST, "after a trailing comma", "any other block that ends a line of the text",
+        "the lines indented after it are not its text",
     ]
     assert [w for w in wanted if w not in doc] == []
 
