@@ -69,6 +69,8 @@ BEFORE_ID = "an HTML comment before the ID; the item is not read: put the commen
 START = ("an HTML comment that starts a list item and does not close on its line; "
          "it hides nothing: put the comment on its own line")
 MALFORMED_LIST = "a malformed list, with text after its ']'; it is not read"
+BARE_CR = ("a carriage return (CR) with no line feed after it: lines end only at LF or CRLF, "
+           "so the rest of this line is not read")
 
 _WHY = {
     "ordered": "an ordered list item (a requirement uses -, * or +)",
@@ -833,6 +835,14 @@ def parse_requirements(text, namespace, *, source, first_line=1, layers, br_name
     _check_args(namespace, layers, br_namespace)
     reader = _Reader(namespace, source, first_line, frozenset(layers), br_namespace)
     lines = split_lines(text)
+    # A CR with no LF after it (split_lines removed a CRLF's CR) cuts its line there: lines end
+    # only at LF or CRLF, as every caller counts them. Cut before fences and comments pair.
+    for k, line in enumerate(lines):
+        cr = line.find("\r")
+        if cr != -1:
+            lines[k] = line[:cr]
+            if line[cr:].strip():
+                reader.add(first_line + k, "malformed_item", BARE_CR)
     hidden, skip, nested, comment, _, listed, raw = _scan(lines)
     if comment is not None:
         reader.add(first_line + comment[0], "malformed_comment", comment[1])

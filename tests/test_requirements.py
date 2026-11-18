@@ -870,6 +870,29 @@ def test_section_line_numbers():
     assert "on line 40;" in entry.message
 
 
+@pytest.mark.parametrize("text, texts, report_lines", [
+    # A CR-only file is one line: FR-1 keeps no CR and no text of FR-2.
+    ("- FR-1: a\r- FR-2: b\r", {"alpha:FR-1": "a"}, [1]),
+    ("- FR-1: a\r\n- FR-2: b\r- FR-3: c\n", {"alpha:FR-1": "a", "alpha:FR-2": "b"}, [2]),
+    # CRLF, and a bare CR with only whitespace after it, lose nothing.
+    ("- FR-1: a\r\n- FR-2: b\r\n", {"alpha:FR-1": "a", "alpha:FR-2": "b"}, []),
+    ("- FR-1: a\r\r\n", {"alpha:FR-1": "a"}, []),
+])
+def test_bare_carriage_return(text, texts, report_lines):
+    # A CR with no LF after it cuts its line and is reported, never silently joined (#112).
+    s = parse(text)
+    assert {k: r.text for k, r in s.requirements.items()} == texts
+    assert not any("\r" in r.text for r in s.requirements.values())
+    assert rows(s) == [(n, "malformed_item", req.BARE_CR) for n in report_lines]
+
+
+def test_bare_carriage_return_counts_from_first_line():
+    s = parse_requirements("- BR-1: a\r- BR-2: b", "life", source="portfolio", first_line=40, layers={"BR"},
+                           br_namespace="life")
+    assert list(s.requirements) == ["life:BR-1"]
+    assert rows(s) == [(40, "malformed_item", req.BARE_CR)]
+
+
 def test_report_order():
     s = parse("- FR-1: x {refines: SR-7, owner: y}\n- FR12: bad\n- FR-2: y {refines: FR-2}\n")
     got = [(e.line, e.kind) for e in s.report]
@@ -1138,6 +1161,7 @@ def test_format_doc_states_report_causes():
         "the lines indented after it are not its text",
         "> - FR-3: inside a block quote", NBSP, "zero-width space", "> - Q3: revenue",
         "a quoted ID item inside it is still reported",
+        req.BARE_CR, "a bare carriage return is still reported there",
     ]
     assert [w for w in wanted if w not in doc] == []
 

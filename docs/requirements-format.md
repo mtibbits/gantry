@@ -71,6 +71,15 @@ directory "the requirements file is not a file". These two read the same on
 every operating system; any other failure to read names the operating
 system's reason ("cannot read the requirements file: ...").
 
+Lines end at a line feed (LF) or a CR LF pair. A carriage return with no
+line feed after it cuts its line there: the rest of the line is not read
+and, unless it is only whitespace, is reported `malformed_item`, "a carriage
+return (CR) with no line feed after it: lines end only at LF or CRLF, so
+the rest of this line is not read". This holds inside fences and comments
+too, since the line is cut before they are paired. So a file whose lines
+end in CR alone (an old Mac file) reads as its first line only, with one
+report.
+
 ## File shape
 
 A requirements file is an ordinary Markdown document. A **requirement** is
@@ -85,7 +94,8 @@ Everything else is prose: headings, paragraphs, tables, and list items that
 do not start like an ID. Prose is ignored and never reported.
 
 Lines inside fenced code blocks are ignored too, so a file can show
-examples. A fence opened by three or more backticks or tildes is closed by
+examples (a bare carriage return is still reported there: see
+[Encoding](#encoding)). A fence opened by three or more backticks or tildes is closed by
 the first later line of the same character, at least as long, with nothing
 after it. A backtick opener whose info string holds a backtick is not an
 opener. An opener with no closer is ordinary text and hides nothing. Inside
@@ -464,7 +474,7 @@ line, then in this order:
 | Kind | When |
 |---|---|
 | `unreadable` | the path does not exist ("the requirements file does not exist"), is not a file ("the requirements file is not a file"), cannot be read, or is not valid UTF-8; the set is empty |
-| `malformed_item` | a list item the reader cannot place: a candidate that is not a requirement (one "inside a block quote" or "indented with U+00A0" included), or a `Threshold:` or `Objective:` item that is not a statement, with its reasons |
+| `malformed_item` | a list item the reader cannot place: a candidate that is not a requirement (one "inside a block quote" or "indented with U+00A0" included), or a `Threshold:` or `Objective:` item that is not a statement, with its reasons; or a line holding a carriage return with no line feed after it |
 | `malformed_meta` | a meta block that cannot be read, or a key or value shape it does not allow, such as a list with text after its `]` ("a malformed list, with text after its ']'; it is not read"); a second meta block on one item, or one inside the text |
 | `malformed_link` | a link target that is not a requirement ID |
 | `malformed_comment` | an HTML comment the reader does not hide: in a requirement's text (read as written), before an ID (not read), or starting a list item without closing on its line; or a block comment with no `-->`, or whose list item ends first, which hides every line after it |
