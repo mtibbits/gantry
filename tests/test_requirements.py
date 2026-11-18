@@ -371,8 +371,16 @@ FENCE = "`" * 3
     # A quoted fence closes when its quote depth drops.
     ("> > " + FENCE + "\n> - FR-1: a\n", [(2, "malformed_item", QUOTE)]),
     ("> > " + FENCE + "\n> - FR-1: a\n> > " + FENCE + "\n", [(2, "malformed_item", QUOTE)]),
+    # A tab around a quote marker, or a '>' a page reads as code, never opens a quoted fence.
+    (">   \t" + FENCE + "\n> - FR-1: a\n", [(2, "malformed_item", QUOTE)]),
+    ("  > \t" + FENCE + "\n> - FR-1: a\n", [(2, "malformed_item", QUOTE)]),
+    (" >  \t" + FENCE + "\n > - FR-1: a\n", [(2, "malformed_item", QUOTE)]),
+    ("> >  \t" + FENCE + "\n> > - FR-1: a\n", [(2, "malformed_item", QUOTE)]),
+    (">\t\t> " + FENCE + "\n> > - FR-1: a\n", [(2, "malformed_item", QUOTE)]),
     # A stated limit: a fence inside a list item inside a quote runs on past the item's end.
     ("> - x\n>   " + FENCE + "\n> - FR-1: a\n", []),
+    # A stated limit: a quote 4+ columns in, even inside a list item, opens no fence, so its example is reported.
+    ("- FR-9: x\n    > " + FENCE + "\n    > - FR-1: a\n    > " + FENCE + "\n", [(3, "malformed_item", QUOTE)]),
 ])
 def test_quoted_fence_hides_only_its_own_lines(text, report):
     s = parse(text)
@@ -1019,6 +1027,14 @@ NEITHER = "key '{}' is repeated in the meta block; the first is not read, so nei
      (1, "malformed_meta", "refines: takes one target, not a list; it is not read"), "refines"),
     ("- FR-2: c {needs: [x] [y], needs: [FR-1]}\n- FR-1: a\n",
      (1, "misplaced", "needs: on alpha:FR-2, which is not a use case; it is not read"), "needs"),
+    # A first value whose target is rejected is not read either.
+    ("- FR-2: c {refines: life:BR-1, refines: SR-1}\n- SR-1: a\n",
+     (1, "misplaced", "refines: life:BR-1 is in the installation namespace 'life', "
+                      "which only the portfolio file may link to; it is not read"), "refines"),
+    ("- FR-2: c {refines: nope, refines: SR-1}\n- SR-1: a\n",
+     (1, "malformed_link", "refines: 'nope' is not a requirement ID"), "refines"),
+    ("- UC-1: c {needs: [nope], needs: [FR-1]}\n- FR-1: a\n",
+     (1, "malformed_link", "needs: 'nope' is not a requirement ID"), "needs"),
 ])
 def test_unread_key_then_repeated(text, first, key):
     # The first is not kept when it was not read: the report says neither is read.
@@ -1225,6 +1241,8 @@ def test_format_doc_states_report_causes():
         "any character Python's `str.isspace()` accepts",
         "with no line feed after it and text after it", "the first is not read, so neither is",
         "a fence inside a list item inside a quote runs on past that item's end",
+        "it opens only after markers a page surely reads", "even inside a list item, hides nothing",
+        "outside fences and comments as the reader pairs them",
     ]
     assert [w for w in wanted if w not in doc] == []
 

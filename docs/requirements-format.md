@@ -147,9 +147,11 @@ its own code point), before any other reason. Such an item under a
 requirement is reported the same way, without "requirements are not
 nested": the quote or the indent, not the nesting, is the cause.
 
-So, outside fences and comments, a typo of the shape letters, an optional
-`-`, digits, then a colon is never silently lost, also after a `>` or after
-whitespace other than a space or tab (a no-break space, for example). A
+So, outside fences and comments as the reader pairs them (see the
+simplifications under [Comments](#comments)), a typo of the shape letters,
+an optional `-`, digits, then a colon is never silently lost, also after a
+`>` or after whitespace other than a space or tab (a no-break space, for
+example). A
 typo outside that shape, such as `FR_1:` or `FR.1:`, is prose and is not
 reported, as is an item after a character that is not whitespace, such as a
 zero-width space (U+200B). The rule also
@@ -254,9 +256,13 @@ page:
   inside a block quote (`> <!--`) is not a block comment, so a quoted ID
   item inside it is still reported (a fence inside a block quote does hide
   a quoted example, from its opening line to a closing run as for any
-  fence, or to the end of its quote or a drop in the quote's depth, though
-  a fence inside a list item inside a quote runs on past that item's end);
-  and a list item
+  fence, or to the end of its quote or a drop in the quote's depth; it
+  opens only after markers a page surely reads, up to three spaces and then
+  each `>` with at most one space after it, so a quoted fence line with a
+  tab or a wider gap around its markers, or a quote four or more columns
+  in, even inside a list item, hides nothing and a candidate in it is
+  reported; and a fence inside a list item inside a quote runs on past
+  that item's end); and a list item
   whose text starts five or more columns past its marker, which a page shows
   as code, is still read as an item, as is one nested four or more columns
   past its enclosing item's text (a `- <!--` there is still reported), and

@@ -56,7 +56,9 @@ HEADING_START_RE = re.compile(r"[ \t]*#{1,6}(?:[ \t]|$)")  # match, at most 3 co
 HTML_START_RE = re.compile(r"[ \t]*</?[A-Za-z]")  # match, at most 3 columns in: an HTML block may start
 FENCE_RE = re.compile(r"[ \t]*(?P<run>`{3,}|~{3,})(?P<info>.*)")  # fullmatch
 LEAD_RE = re.compile(r"[\s>]*")  # .match: quote markers and Unicode whitespace before an item's marker
-QUOTE_LEAD_RE = re.compile(r"[ \t>]*")  # .match: quote markers and the spaces and tabs around them
+# Quote markers a page surely reads: up to 3 spaces, then '>' each with at most one space after.
+QUOTE_MARKS_RE = re.compile(r" {0,3}(?:> ?)+")  # .match
+QUOTE_FENCE_RE = re.compile(r"(?P<marks> {0,3}(?:> ?)+) {0,3}(?P<run>`{3,}|~{3,})(?P<info>.*)")  # fullmatch
 NEAR_RE = re.compile(r"^[ \t]*(?:>|[^\S \t\r\n])", re.M)  # .search: a line near_item may report
 BLOCK_RE = re.compile(r"\{[ \t]*[A-Za-z_][A-Za-z0-9_]*[ \t]*:[^{}]*\}")  # finditer
 _OPENER_RE = re.compile(r"\{[ \t]*[A-Za-z_][A-Za-z0-9_]*[ \t]*:")  # a block's start, closed or not
@@ -163,30 +165,28 @@ def _width(line):
 
 def _quoted_code(lines, hidden):
     """Per line, whether it lies in a fence inside a block quote, which a page shows as code.
-    A fence line after quote markers opens one, as a top-level fence opens: not 4 or more
-    columns past the marker, and no backtick in a backtick opener's info. A later quoted run of
-    the same character, at least as long, with nothing after it closes it, and so does the end
-    of the quote or a drop in its depth. Only spaces and tabs sit around the quote markers, the
-    first at most 3 columns in, as on a page."""
+    Only a prefix a page surely reads as quote markers counts (QUOTE_MARKS_RE: spaces only, no
+    tab, each '>' right after the last); a looser line opens no fence and keeps none open
+    deeper than its sure markers, so a doubt reports a candidate rather than hiding it. A sure
+    fence line (QUOTE_FENCE_RE) opens one, unless a backtick opener's info holds a backtick. A
+    later one of the same character, at least as long, with nothing after it closes it, and so
+    does the end of the quote or a drop in its depth."""
     flags, run, depth = [], None, 0  # run, depth: the open quoted fence's opening run and quote depth
     for line, h in zip(lines, hidden):
-        if h or line.lstrip(" \t")[:1] != ">" or _width(line) > 3:
+        marks = None if h else QUOTE_MARKS_RE.match(line)
+        if marks is None:
             run = None  # not a quoted line: the quote, and any fence in it, has ended
             flags.append(False)
             continue
-        lead = QUOTE_LEAD_RE.match(line).group()
-        if run is not None and lead.count(">") < depth:
+        if run is not None and marks.group().count(">") < depth:
             run = None  # the fence's quote has ended
-        f = FENCE_RE.fullmatch(line, len(lead))
-        pad = lead[lead.rfind(">") + 1 :].expandtabs(4)  # one space after '>' belongs to the marker
-        if f is not None and len(pad) - 1 >= 4:
-            f = None  # code on a page, not a fence
+        f = QUOTE_FENCE_RE.fullmatch(line)
         flags.append(run is not None or f is not None)
         if f is None:
             continue
         if run is None:
             if f["run"][0] != "`" or "`" not in f["info"]:
-                run, depth = f["run"], lead.count(">")
+                run, depth = f["run"], f["marks"].count(">")
             else:
                 flags[-1] = False  # not an opener: a backtick fence's info holds no backtick
         elif f["run"][0] == run[0] and len(f["run"]) >= len(run) and not f["info"].strip():
@@ -753,7 +753,7 @@ class _Reader:
                     self.add(line, "malformed_meta", "refines: takes one target, not a list; it is not read")
                 else:
                     refines = self.target(line, key, value)
-                    read[key] = True
+                    read[key] = refines is not None
             else:
                 targets = value if isinstance(value, list) else [value]
                 if rid.code != "UC":
@@ -764,7 +764,7 @@ class _Reader:
                     self.add(line, "malformed_meta", "needs: [] names no target")
                 else:
                     needs = [t for t in (self.target(line, key, v) for v in targets) if t is not None]
-                    read[key] = True
+                    read[key] = bool(needs)  # a partly read list is still kept
         return refines, needs
 
     def target(self, line, key, value):
