@@ -22,7 +22,7 @@ lists each place where Gantry's own WBS.md reader differs from a snapshot.
 
 Exit 0 done; 1 a difference, an extra file, a failed aggregator or a document
 the reader refuses; 2 a usage error, no bash, or --devagent is not a devagent
-checkout. docs/worksite-page.md states the rules.
+checkout at the pinned release. docs/worksite-page.md states the rules.
 """
 
 import argparse
@@ -104,8 +104,9 @@ def snapshot_of(project, shown, *, pin, schema_version, namespaces) -> dict:
 def snapshots(portfolio, pin) -> dict:
     """{project: snapshot bytes} for every project of a PortfolioInput, in its order."""
     names = frozenset(p.name for p in portfolio.projects)
-    return {p.name: sample_portfolio.dumps(snapshot_of(p, [e for e in portfolio.devagent_report if e.project == p.name], pin=pin,
-                                     schema_version=portfolio.schema_version, namespaces=names))
+    return {p.name: sample_portfolio.dumps(snapshot_of(
+                p, [e for e in portfolio.devagent_report if e.project == p.name], pin=pin,
+                schema_version=portfolio.schema_version, namespaces=names))
             for p in portfolio.projects}
 
 
@@ -241,8 +242,7 @@ def main(argv=None):
         parser.error("--devagent is required when GANTRY_DEVAGENT_DIR is not set")
     devagent = Path(os.path.abspath(args.devagent))
     try:
-        if sample_portfolio.checkout_version(devagent) is None:
-            raise sample_portfolio.Preflight(sample_portfolio.NOT_CHECKOUT)
+        sample_portfolio.require_pinned(devagent)
         return run(devagent, args.check)
     except sample_portfolio.Preflight as e:
         print(f"update_expected_leaves: {e}", file=sys.stderr)

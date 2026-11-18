@@ -94,5 +94,21 @@
     "stopgap": "WBS.md line 12: leaf has no issue: id; it is named '4'",
     "snapshot": null,
     "why": "`issue: [Issue-9]` is a list. The stopgap treats it as no issue: id and reports no_issue. devagent sets the node's issue to null and reports issue_malformed, not leaf_no_issue, so nothing maps onto no_issue; the reader shows issue_malformed as devagent wrote it."
+  },
+  {
+    "set": "fixtures",
+    "site": "edges",
+    "where": "report[14, bad_priority]",
+    "stopgap": "WBS.md line 14: priority '[P1, P2]' is not P0, P1, P2, P3 or P4; it counts as P3",
+    "snapshot": "WBS.md line 14: priority ['P1', 'P2'] is not P0, P1, P2, P3 or P4; it counts as P3",
+    "why": "Both readers report the priority as bad, with the value as `{raw!r}` shows it. Gantry's own reader holds the raw text, so its repr keeps the brackets and quotes as written; the portfolio reader holds devagent's parsed value, so its repr is a Python list. #12 settles the wording, as for bad_h and est_unparseable."
+  },
+  {
+    "set": "fixtures",
+    "site": "edges",
+    "where": "report[15, bad_priority]",
+    "stopgap": "WBS.md line 15: priority \"' P1 '\" is not P0, P1, P2, P3 or P4; it counts as P3",
+    "snapshot": "WBS.md line 15: priority ' P1 ' is not P0, P1, P2, P3 or P4; it counts as P3",
+    "why": "Both readers report the priority as bad, with the value as `{raw!r}` shows it. Gantry's own reader holds the raw text, so its repr keeps the brackets and quotes as written; the portfolio reader holds devagent's parsed value, so its repr is the string without its quotes. #12 settles the wording, as for bad_h and est_unparseable."
   }
 ]

@@ -194,6 +194,72 @@
       "h": 3,
       "satisfies": [],
       "objective": []
+    },
+    {
+      "line": 14,
+      "row": false,
+      "key": "Issue-11",
+      "issue": "Issue-11",
+      "outline": "6",
+      "title": "List priority",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": [
+        "P1",
+        "P2"
+      ],
+      "epic": null,
+      "parent": null,
+      "meta": {
+        "issue": "Issue-11",
+        "priority": [
+          "P1",
+          "P2"
+        ]
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 15,
+      "row": false,
+      "key": "Issue-12",
+      "issue": "Issue-12",
+      "outline": "7",
+      "title": "Quoted priority",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": " P1 ",
+      "epic": null,
+      "parent": null,
+      "meta": {
+        "issue": "Issue-12",
+        "priority": " P1 "
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
     }
   ],
   "links": [],
@@ -233,6 +299,16 @@
       11,
       "unresolved_ref",
       "WBS.md line 11: depends_on entry 'Alpha-1' names no issue: id in this file"
+    ],
+    [
+      14,
+      "bad_priority",
+      "WBS.md line 14: priority ['P1', 'P2'] is not P0, P1, P2, P3 or P4; it counts as P3"
+    ],
+    [
+      15,
+      "bad_priority",
+      "WBS.md line 15: priority ' P1 ' is not P0, P1, P2, P3 or P4; it counts as P3"
     ]
   ],
   "devagent": [

@@ -11,3 +11,5 @@
 - [ ] Order {issue: Issue-8, depends_on: [Zeta-9, Alpha-1]}
 - [ ] List issue {issue: [Issue-9]}
 - [ ] Open h {issue: Issue-10, h: [3}
+- [ ] List priority {issue: Issue-11, priority: [P1, P2]}
+- [ ] Quoted priority {issue: Issue-12, priority: ' P1 '}

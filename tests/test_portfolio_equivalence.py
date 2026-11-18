@@ -36,7 +36,7 @@ from test_samples import ROOT, SAMPLES, git_work_tree, needs_git
 # U1: what devagent says of the sample site whose WBS.md is not UTF-8.
 MARSH_REASON = "WBS.md could not be read: UnicodeDecodeError: invalid continuation byte at byte 88"
 # The fixture's totals, as the pinned aggregator wrote them.
-FIXTURE_NODES = 128
+FIXTURE_NODES = 130
 FIXTURE_ENTRIES = 58
 # The 13 sources the stopgap's tests already read; `edges` is this issue's own.
 EARLIER_SOURCES = 13
@@ -151,6 +151,13 @@ def test_tool_usage_and_preflight_exit_2(tmp_path, monkeypatch, capsys):
     err = capsys.readouterr().err
     assert err.count("sample_portfolio: --devagent is not a devagent checkout") == 2
     assert str(tmp_path) not in err
+    # A checkout at another release stamps nothing with the pin.
+    tag, _ = hd.read_pin()
+    other = fake_checkout(tmp_path / "other", "9.9.9")
+    assert sp.main(["--fixtures", "--check", "--devagent", str(other)]) == 2
+    assert ue.main(["--check", "--devagent", str(other)]) == 2
+    want = f"--devagent is devagent 9.9.9; tests/devagent.pin names {tag}"
+    assert capsys.readouterr().err.splitlines() == [f"sample_portfolio: {want}", f"update_expected_leaves: {want}"]
     # No bash on PATH is a preflight failure too.
     _, version = hd.read_pin()
     checkout = fake_checkout(tmp_path / "da", version)
@@ -478,7 +485,8 @@ def test_reader_matches_the_stopgap_on_the_written_fixture():
         ("edges", "report[2, skipped_line]"), ("edges", "report[3, skipped_line]"),
         ("edges", "report[4, skipped_line]"), ("edges", "report[5, skipped_line]"),
         ("edges", "report[6, skipped_line]"), ("edges", "report[7, skipped_line]"),
-        ("edges", "report[12, no_issue]")]
+        ("edges", "report[12, no_issue]"), ("edges", "report[14, bad_priority]"),
+        ("edges", "report[15, bad_priority]")]
     # Where the two readers disagree on which lines are near misses, devagent's reading wins.
     edges = {e["where"]: e for e in known("fixtures") if e["site"] == "edges"}
     for line in (2, 3, 4, 5, 6):
@@ -701,7 +709,7 @@ def test_doc_states_the_reader_rules(capsys):
     assert not parses(shlex.split("python3 tools/update_expected_leaves.py --fixtures"))
     capsys.readouterr()
     # The doc's count of known differences is the list's.
-    assert len(known("samples")) + len(known("fixtures")) == 12 and "Today it holds twelve entries" in flat
+    assert len(known("samples")) + len(known("fixtures")) == 14 and "Today it holds fourteen entries" in flat
     # The skipped_line row says how devagent's reader differs.
     (row,) = [line for line in lines if line.startswith("| `skipped_line` |")]
     assert "known_differences.json" in row and "#12" in row

@@ -19,7 +19,7 @@ regenerates both and prints one line per file that differs or is missing.
 
 Exit 0 done; 1 the aggregator failed, a folder was refused, or --check found
 a difference; 2 a usage error, no bash, or --devagent is not a devagent
-checkout. The aggregator runs offline with five environment names (PATH,
+checkout at the pinned release. The aggregator runs offline with five environment names (PATH,
 HOME, DA_HOME, TZ, LC_ALL) and every path made absolute first. No absolute
 path reaches any file this tool writes. docs/worksite-page.md states the
 rules.
@@ -125,6 +125,16 @@ def _git(folder, *args):
                               capture_output=True)
     except OSError:
         return None
+
+
+def require_pinned(devagent):
+    """Preflight unless `devagent` is a devagent checkout at the release tests/devagent.pin names."""
+    found = checkout_version(devagent)
+    if found is None:
+        raise Preflight(NOT_CHECKOUT)
+    tag = read_pin()
+    if tag != f"devagent--v{found}":
+        raise Preflight(f"--devagent is devagent {found}; tests/devagent.pin names {tag}")
 
 
 def guard_out(samples) -> Path:
@@ -273,8 +283,7 @@ def main(argv=None):
         parser.error("--devagent is required when GANTRY_DEVAGENT_DIR is not set")
     devagent = _absolute(args.devagent)
     try:
-        if checkout_version(devagent) is None:
-            raise Preflight(NOT_CHECKOUT)
+        require_pinned(devagent)
         if args.fixtures:
             return _fixtures(devagent, args.check)
         samples = _absolute(args.samples) if args.samples else SAMPLES

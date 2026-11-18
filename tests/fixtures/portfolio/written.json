@@ -6273,6 +6273,69 @@
           "depends_on": [],
           "ready": true,
           "ready_via_parent_row": false
+        },
+        {
+          "id": "n129",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "List priority",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 14,
+          "issue": "Issue-11",
+          "meta": {
+            "issue": "Issue-11",
+            "priority": [
+              "P1",
+              "P2"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n130",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "Quoted priority",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 15,
+          "issue": "Issue-12",
+          "meta": {
+            "issue": "Issue-12",
+            "priority": " P1 "
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
         }
       ],
       "issues": [
@@ -6325,15 +6388,35 @@
           "checklist": "absent",
           "next_step": null,
           "next_step_number": null
+        },
+        {
+          "issue": "Issue-11",
+          "nodes": [
+            "n129"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-12",
+          "nodes": [
+            "n130"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
         }
       ],
       "rollup": {
         "by_state": {
           "pending": {
-            "leaves": 4,
+            "leaves": 6,
             "estimated": 0,
             "estimated_derived": 0,
-            "unestimated": 4
+            "unestimated": 6
           },
           "done": {
             "leaves": 1,
@@ -6373,10 +6456,10 @@
           }
         },
         "remaining": {
-          "leaves": 4,
+          "leaves": 6,
           "estimated": 0,
           "estimated_derived": 0,
-          "unestimated": 4,
+          "unestimated": 6,
           "low_hours": 0,
           "high_hours": 0,
           "non_time": {}

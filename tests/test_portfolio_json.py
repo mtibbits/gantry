@@ -188,7 +188,7 @@ def test_missing_or_outside_roots_document_names_path_and_remedy(tmp_path):
         (missing, f"{missing}: devagent's portfolio JSON does not exist. Run devagent's aggregator first "
                   "(/devagent:portfolio)."),
         (outside / hp.DOC_NAME, f"{outside / hp.DOC_NAME}: devagent's portfolio JSON is outside the configured "
-                                "roots; add its folder to the installation's roots"),
+                                "roots"),
         (nul, f"{nul}: cannot read devagent's portfolio JSON: embedded null character"),
     )
     for path, text in cases:
@@ -351,13 +351,15 @@ SCHEMA_ROWS = (
     ("state against the glyph", _set(NODE + ("state",), "done"), f"{NODE_AT}.state", "does not match the glyph"),
     ("no state", _drop(NODE + ("state",)), f"{NODE_AT}.state", "does not match the glyph"),
     ("source line is a string", _set(NODE + ("source_line",), "7"), f"{NODE_AT}.source_line",
-     "not an integer of 1 or more"),
+     "not an integer from 1 to 999999999"),
     ("source line is a fraction", _set(NODE + ("source_line",), 7.5), f"{NODE_AT}.source_line",
-     "not an integer of 1 or more"),
+     "not an integer from 1 to 999999999"),
     ("source line is true", _set(NODE + ("source_line",), True), f"{NODE_AT}.source_line",
-     "not an integer of 1 or more"),
-    ("no source line", _drop(NODE + ("source_line",)), f"{NODE_AT}.source_line", "not an integer of 1 or more"),
-    ("source line 0", _set(NODE + ("source_line",), 0), f"{NODE_AT}.source_line", "not an integer of 1 or more"),
+     "not an integer from 1 to 999999999"),
+    ("no source line", _drop(NODE + ("source_line",)), f"{NODE_AT}.source_line", "not an integer from 1 to 999999999"),
+    ("source line 0", _set(NODE + ("source_line",), 0), f"{NODE_AT}.source_line", "not an integer from 1 to 999999999"),
+    ("source line 10**9", _set(NODE + ("source_line",), 10**9), f"{NODE_AT}.source_line",
+     "not an integer from 1 to 999999999"),
     ("source line used twice", _set(NODE + ("source_line",), 2), f"{NODE_AT}.source_line",
      "used twice in this project"),
     ("issue is empty", _set(NODE + ("issue",), ""), f"{NODE_AT}.issue", "not a non-empty string or null"),
@@ -372,11 +374,13 @@ SCHEMA_ROWS = (
     ("an entry is a list", _set(ENTRY, []), "$.parse_report[0]", "not an object"),
     ("an entry's project is a number", _set(ENTRY + ("project",), 3), "$.parse_report[0].project", "not a string"),
     ("an entry's line is 0", _set(ENTRY + ("source_line",), 0), "$.parse_report[0].source_line",
-     "not an integer of 1 or more or null"),
+     "not an integer from 1 to 999999999 or null"),
+    ("an entry's line is 10**9", _set(ENTRY + ("source_line",), 10**9), "$.parse_report[0].source_line",
+     "not an integer from 1 to 999999999 or null"),
     ("an entry's line is a string", _set(ENTRY + ("source_line",), "2"), "$.parse_report[0].source_line",
-     "not an integer of 1 or more or null"),
+     "not an integer from 1 to 999999999 or null"),
     ("no line key on an entry", _drop(ENTRY + ("source_line",)), "$.parse_report[0].source_line",
-     "not an integer of 1 or more or null"),
+     "not an integer from 1 to 999999999 or null"),
     ("an entry's kind is empty", _set(ENTRY + ("kind",), ""), "$.parse_report[0].kind", "not a non-empty string"),
     ("an entry's message is null", _set(ENTRY + ("message",), None), "$.parse_report[0].message", "not a string"),
     # Pass 2: parent links.
@@ -395,7 +399,7 @@ SCHEMA_ROWS = (
 
 
 def test_schema_breaking_documents(tmp_path):
-    assert len(SCHEMA_ROWS) == 64
+    assert len(SCHEMA_ROWS) == 66
     doc = hp.written_doc()
     assert (doc["projects"][IDS]["nodes"][1]["id"], doc["projects"][IDS]["nodes"][0]["id"]) == ("n13", "n12")
     assert doc["projects"][CYCLE]["nodes"][0]["id"] == "n1" and len(doc["parse_report"]) == 58
@@ -473,6 +477,16 @@ def test_each_key_removed_raises_only_load_errors():
     # The 15 read lack a field the reader does not use: a project's wbs_title, issues or rollup, a node's
     # typed and derived fields.
     assert (read, refused) == (15, 25)
+
+
+def test_a_line_too_long_to_format_is_a_load_error():
+    # Only a parsed document can hold it: json.loads refuses the number first.
+    doc = hp.written_doc()
+    doc["parse_report"][0].update(source_line=10**5000, kind="near_miss_line")
+    with pytest.raises(PortfolioLoadError) as info:
+        map_document(doc)
+    assert str(info.value) == schema_text("the portfolio document", "$.parse_report[0].source_line",
+                                          "not an integer from 1 to 999999999 or null")
 
 
 def test_whole_document_replaced_by_each_type():
@@ -604,7 +618,8 @@ def test_meta_holds_parsed_values_in_document_order():
             if isinstance(node, Leaf):
                 assert node.priority is node.meta.get("priority")
                 if node.priority is not None:
-                    assert type(node.priority) is ParsedValue
+                    # A list priority (edges line 14) is a list of ParsedValue, as any list value.
+                    assert type(node.priority) in (ParsedValue, list)
                     priorities += 1
     assert (nodes, scalars, lists, priorities) == META_COUNTS
     # A key order that is not alphabetical, and a quoted value devagent has already unquoted.
@@ -615,7 +630,7 @@ def test_meta_holds_parsed_values_in_document_order():
     assert type(lights.deps[0].raw) is ParsedValue
 
 
-META_COUNTS = (128, 178, 44, 21)  # nodes, scalar values, list values, leaf priorities
+META_COUNTS = (130, 181, 45, 23)  # nodes, scalar values, list values, leaf priorities
 
 
 def shape(data):
@@ -674,7 +689,7 @@ def test_bad_priority_is_gantrys_and_p0_is_legal():
     assert sum(e.kind == "bad_priority" for p in got.projects for e in p.data.report) == BAD_PRIORITIES
 
 
-BAD_PRIORITIES = 6  # ids 4, rows 5, refs 5, est 13 and 14, h_values 11
+BAD_PRIORITIES = 8  # ids 4, rows 5, refs 5, est 13 and 14, h_values 11, edges 14 and 15
 
 
 def test_statuses_are_returned_as_written():
@@ -707,7 +722,7 @@ def test_map_document_equals_read_portfolio(tmp_path):
     read = hp.read_doc(tmp_path, hp.written_doc())
     again = mapped()
     assert read == again
-    assert len(read.projects) == 14 and sum(len(p.data.leaves) + len(p.data.rows) for p in read.projects) == 128
+    assert len(read.projects) == 14 and sum(len(p.data.leaves) + len(p.data.rows) for p in read.projects) == 130
 
 
 def test_copied_messages_equal_the_stopgaps():
@@ -1098,3 +1113,26 @@ def test_warned_key_re_matches_the_pinned_parser_texts():
     assert pj.WARNED_KEY_RE.match("wbs-parser: unclosed code fence at line 17 ignored; lines after it are parsed "
                                   "as WBS nodes") is None
     assert texts["PRIORITY_WARNING"].format("P0") == P0_WARNING.removeprefix("line 9: ")
+
+
+def test_many_unresolved_entries_cost_one_pass(monkeypatch):
+    # One node with 2,000 entries that name nothing: each devagent entry is matched through one index of the
+    # node's depends_on, built once, so the work grows with the entries, not with their square.
+    doc = hp.written_doc()
+    edges = next(p for p in doc["projects"] if p["project"] == "edges")
+    node = next(n for n in edges["nodes"] if n["source_line"] == 11)
+    template = next(e for e in doc["parse_report"] if e["project"] == "edges" and e["source_line"] == 11)
+    names = [f"Gone-{i}" for i in range(2000)]
+    node["meta"]["depends_on"] = names
+    doc["parse_report"] = [e for e in doc["parse_report"] if e is not template and not (
+        e["project"] == "edges" and e["source_line"] == 11)]
+    doc["parse_report"] += [dict(template, message=template["message"].replace(
+        template["message"].split("'")[1], name)) for name in sorted(names)]
+    calls = []
+    real = pj.meta_values
+    monkeypatch.setattr(pj, "meta_values", lambda raw: calls.append(raw) or real(raw))
+    got = map_document(doc)
+    found = at(project(got, "edges").data, 11, "unresolved_ref")
+    assert [e.message for e in found] == [deps.MESSAGES["unresolved_ref"].format(line=11, entry=name)
+                                          for name in names]
+    assert sum(raw is not None and len(real(raw)) == 2000 for raw in calls) == 1

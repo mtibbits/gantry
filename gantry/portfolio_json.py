@@ -10,7 +10,8 @@ read_portfolio loads the file under the run's roots and checks it;
 map_document does the same checks and mapping on a document that is already
 parsed. `gantry build` does not call either yet. The first callers are #12
 (the build switch) and #84 (the test builder), and both signatures are
-provisional until one of them binds.
+provisional until one of them binds. `tag(value)` gives one meta value the
+parsed shape the reader stores, for a test that builds such a leaf by hand.
 
 Neither entry point raises anything but PortfolioLoadError, whatever the
 file or the document holds: every walk here is a loop, never a recursion, and
@@ -23,8 +24,8 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 
-from gantry import deps
 from gantry.config import error_reason
+from gantry.deps import MESSAGES as DEPS_MESSAGES
 from gantry.deps import classify, find_cycles, refs, resolve
 from gantry.est_rules import classify_est
 from gantry.model import (
@@ -46,6 +47,7 @@ SCHEMA_ID = "devagent-portfolio"
 # minor of this major is read, and a field the reader does not use is ignored.
 MAJOR, MINOR = 1, 1
 MAX_DEPTH = 64  # the deepest a node may nest
+MAX_LINE = 999_999_999
 STATUSES = ("read", "no_wbs", "no_devdoc_dir", "unreadable")
 # Bounded digit groups: int() never sees a long run.
 VERSION_RE = re.compile(r"(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})")
@@ -57,8 +59,8 @@ LOAD_MESSAGES = {
     "missing": "{source}: devagent's portfolio JSON does not exist. Run devagent's aggregator first "
                "(/devagent:portfolio).",
     "unreadable": "{source}: cannot read devagent's portfolio JSON: {reason}",
-    "outside": "{source}: devagent's portfolio JSON is outside the configured roots; add its folder to the "
-               "installation's roots",
+    # No remedy yet: no config key names the document until #12, and roots come only from path keys.
+    "outside": "{source}: devagent's portfolio JSON is outside the configured roots",
     "not_json": "{source}: devagent's portfolio JSON is not valid JSON: {reason}. Run devagent's aggregator again "
                 "(/devagent:portfolio).",
     "version": '{source}: portfolio schema_version "{found}" is not supported: Gantry reads major '
@@ -252,8 +254,9 @@ class _Problem(Exception):
 
 
 def _is_line(value):
-    """An integer of 1 or more; a bool is not an integer."""
-    return isinstance(value, int) and not isinstance(value, bool) and value >= 1
+    """An integer from 1 to 999,999,999, as many digits as the message patterns
+    read; a bool is not an integer. A larger one is too long to format."""
+    return isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= MAX_LINE
 
 
 def _is_filled(value):
@@ -278,7 +281,7 @@ def _check_node(node, where, ids, lines):
     _need(isinstance(glyph, str) and glyph in STATE_GLYPHS, f"{where}.glyph", f"not one of {GLYPH_LIST}")
     _need(node.get("state") == STATE_GLYPHS[glyph], f"{where}.state", "does not match the glyph")
     line = node.get("source_line")
-    _need(_is_line(line), f"{where}.source_line", "not an integer of 1 or more")
+    _need(_is_line(line), f"{where}.source_line", "not an integer from 1 to 999999999")
     _need(line not in lines, f"{where}.source_line", "used twice in this project")
     lines.add(line)
     issue = node.get("issue", _ABSENT)
@@ -337,7 +340,7 @@ def _check_shapes(doc, source):
         _need(isinstance(entry, dict), where, "not an object")
         _need(isinstance(entry.get("project"), str), f"{where}.project", "not a string")
         line = entry.get("source_line", _ABSENT)
-        _need(line is None or _is_line(line), f"{where}.source_line", "not an integer of 1 or more or null")
+        _need(line is None or _is_line(line), f"{where}.source_line", "not an integer from 1 to 999999999 or null")
         _need(_is_filled(entry.get("kind")), f"{where}.kind", "not a non-empty string")
         _need(isinstance(entry.get("message"), str), f"{where}.message", "not a string")
     return generated
@@ -379,7 +382,7 @@ def tag(value):
 class _Node:
     """One node of a read project while it is named and built."""
 
-    __slots__ = ("line", "glyph", "title", "meta", "issue", "parent", "outline", "children", "key")
+    __slots__ = ("line", "glyph", "title", "meta", "issue", "parent", "outline", "children", "key", "dep_index")
 
     def __init__(self, raw, parent, outline):
         self.line, self.glyph, self.title = raw["source_line"], raw["glyph"], raw["text"]
@@ -388,12 +391,14 @@ class _Node:
         self.meta = {key: tag(value) for key, value in raw["meta"].items()}
         self.children = 0
         self.key = None
+        self.dep_index = None
 
 
 class _Site:
     """A read project's nodes and Gantry's own findings about them."""
 
-    __slots__ = ("name", "nodes", "by_line", "first", "leaves", "rows", "links", "held_out", "report", "cycles")
+    __slots__ = ("name", "nodes", "by_line", "first", "leaves", "rows", "links", "held_out", "report", "cycles",
+                 "dep_rank")
 
 
 def _scan(raw_nodes):
@@ -475,7 +480,7 @@ def _build(site):
 def _read_site(name, raw_nodes):
     """A read project's nodes, named and built, with Gantry's own report entries."""
     site = _Site()
-    site.name, site.report, site.cycles = name, [], None
+    site.name, site.report, site.cycles, site.dep_rank = name, [], None, {}
     site.nodes = _scan(raw_nodes)
     site.by_line = {node.line: node for node in site.nodes}
     _name(site)
@@ -489,20 +494,10 @@ def _read_site(name, raw_nodes):
     return site
 
 
-def _dep_rank(site, entry):
-    """A mapped unresolved_ref's place in its node's depends_on: several on one
-    line keep Gantry's own order, not the order devagent's report gives them."""
-    if entry.kind != "unresolved_ref":
-        return 0
-    entries = meta_values(site.by_line[entry.line].meta.get("depends_on"))
-    for i, raw in enumerate(entries):
-        if deps.MESSAGES["unresolved_ref"].format(line=entry.line, entry=raw) == entry.message:
-            return i
-    return len(entries)
-
-
 def _site_data(site):
-    report = sorted(site.report, key=lambda entry: (report_order(entry), _dep_rank(site, entry)))
+    # A mapped unresolved_ref keeps its place in the node's depends_on, as Gantry's
+    # own reader orders them, not the order devagent's report gives them.
+    report = sorted(site.report, key=lambda entry: (report_order(entry), site.dep_rank.get(entry, 0)))
     return SiteData(site.leaves, site.rows, site.links, site.held_out, tuple(report))
 
 
@@ -518,13 +513,30 @@ def _cycle_lines(site):
     return site.cycles
 
 
+def _dep_index(node):
+    """{depends_on entry: its first place}, built once per node."""
+    if node.dep_index is None:
+        node.dep_index = {}
+        for i, entry in enumerate(meta_values(node.meta.get("depends_on"))):
+            node.dep_index.setdefault(entry, i)
+    return node.dep_index
+
+
+DEP_PREFIX = "depends_on '"
+
+
 def _named_entry(node, message):
-    """The depends_on entry a dep_unresolved message is about: the longest one it opens with."""
-    found = None
-    for entry in meta_values(node.meta.get("depends_on")):
-        if message.startswith(f"depends_on '{entry}' ") and (found is None or len(entry) > len(found)):
-            found = entry
-    return found
+    """The depends_on entry a dep_unresolved message is about: the longest one
+    it opens with (`depends_on '<entry>' ...`). Each `' ` in the message, from
+    the right, ends one candidate, so the cost follows the message, not the
+    node's entries."""
+    if not message.startswith(DEP_PREFIX):
+        return None
+    start, index, end = len(DEP_PREFIX), _dep_index(node), len(message)
+    while (end := message.rfind("' ", start, end + 1)) != -1:
+        if message[start:end] in index:
+            return message[start:end]
+    return None
 
 
 def _dispose(site, entry):
@@ -567,8 +579,10 @@ def _dispose(site, entry):
             if ref.kind != "local":
                 return SUPPRESSED  # foreign or malformed: Gantry classifies and reports those itself
             if ref.issue not in site.first:
-                return ReportEntry(site.name, line, MAPPED[kind], deps.MESSAGES["unresolved_ref"].format(
+                mapped = ReportEntry(site.name, line, MAPPED[kind], DEPS_MESSAGES["unresolved_ref"].format(
                     line=line, entry=about))
+                site.dep_rank[mapped] = _dep_index(node)[about]
+                return mapped
     elif kind == "est_unparseable":
         if is_leaf and is_open and classify_est(node.meta.get("est")).kind == "unparseable":
             return SUPPRESSED
