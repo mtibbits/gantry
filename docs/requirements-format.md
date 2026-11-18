@@ -253,16 +253,10 @@ page:
 - The reader simplifies four things a renderer does: only the first `-->`
   on a line counts, so text after it, even a new `<!--`, is hidden with the
   comment; a backslash before `<!--` is not read as an escape; a comment
-  inside a block quote (`> <!--`) is not a block comment, so a quoted ID
-  item inside it is still reported (a fence inside a block quote does hide
-  a quoted example, from its opening line to a closing run as for any
-  fence, or to the end of its quote or a drop in the quote's depth; it
-  opens only after markers a page surely reads, up to three spaces and then
-  each `>` with at most one space after it, so a quoted fence line with a
-  tab or a wider gap around its markers, or a quote four or more columns
-  in, even inside a list item, hides nothing and a candidate in it is
-  reported; and a fence inside a list item inside a quote runs on past
-  that item's end); and a list item
+  inside a block quote (`> <!--`) is not a block comment, and a fence
+  inside a block quote (`> ```` `) hides nothing, so a quoted ID item
+  inside either is still reported, though a page shows a quoted fence's
+  lines as code: show such an example in an unquoted fence; and a list item
   whose text starts five or more columns past its marker, which a page shows
   as code, is still read as an item, as is one nested four or more columns
   past its enclosing item's text (a `- <!--` there is still reported), and

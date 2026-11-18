@@ -352,37 +352,26 @@ def test_quoted_candidate_under_an_item(text, line, why):
 FENCE = "`" * 3
 
 
+def Q(n, id="FR-1"):
+    return (n, "malformed_item", QUOTE.replace("FR-1", id))
+
+
 @pytest.mark.parametrize("text, report", [
-    # A quoted fence closes where its quote ends, so an unclosed one hides nothing after the quote.
-    ("> " + FENCE + "\n> code\n\n- FR-1: a\n> - FR-2: b\n", [(5, "malformed_item", QUOTE.replace("FR-1", "FR-2"))]),
+    # A fence inside a block quote hides nothing: an ID item in a quoted example is reported, never lost.
+    ("> " + FENCE + "text\n> - FR-1: a\n> " + FENCE + "\n", [Q(2)]),
+    ("> > " + FENCE + "\n> > - FR-1: a\n> > " + FENCE + "\n", [Q(2)]),
+    ("> ````\n> " + FENCE + "\n> - FR-1: x\n> ````\n> - FR-2: y\n", [Q(3), Q(5, "FR-2")]),
+    ("> " + FENCE + "\n> code\n\n- FR-1: a\n> - FR-2: b\n", [Q(5, "FR-2")]),
     ("> " + FENCE + "\n> code\n\n- FR-1: a\n" + NB + "- FR-2: b\n",
      [(5, "malformed_item", "'FR-2:' is not a requirement: " + NBSP)]),
-    ("> " + FENCE + "\n> code\n\n- FR-1: a\n  > - FR-2: b\n", [(5, "malformed_item", QUOTE.replace("FR-1", "FR-2"))]),
-    # A quoted fence closes only on a run of its own character, at least as long, with nothing after it.
-    ("> ````\n> " + FENCE + "\n> - FR-1: x\n> ````\n> - FR-2: y\n", [(5, "malformed_item", QUOTE.replace("FR-1", "FR-2"))]),
-    # Not a fence on a page: a backtick info string holding a backtick, or a run 4+ columns past the marker.
-    ("> " + FENCE + "a`b\n> - FR-1: a\n", [(2, "malformed_item", QUOTE)]),
-    (">     " + FENCE + "\n> - FR-1: a\n", [(2, "malformed_item", QUOTE)]),
-    # Only spaces and tabs sit around a quote marker, at most 3 columns in, as a page reads it.
-    (NB + "> " + FENCE + "\n> - FR-1: a\n", [(2, "malformed_item", QUOTE)]),
-    (">" + NB + FENCE + "\n> - FR-1: a\n", [(2, "malformed_item", QUOTE)]),
-    ("> " + NB + FENCE + "\n> - FR-1: a\n", [(2, "malformed_item", QUOTE)]),
-    ("    > " + FENCE + "\n> - FR-1: a\n", [(2, "malformed_item", QUOTE)]),
-    # A quoted fence closes when its quote depth drops.
-    ("> > " + FENCE + "\n> - FR-1: a\n", [(2, "malformed_item", QUOTE)]),
-    ("> > " + FENCE + "\n> - FR-1: a\n> > " + FENCE + "\n", [(2, "malformed_item", QUOTE)]),
-    # A tab around a quote marker, or a '>' a page reads as code, never opens a quoted fence.
-    (">   \t" + FENCE + "\n> - FR-1: a\n", [(2, "malformed_item", QUOTE)]),
-    ("  > \t" + FENCE + "\n> - FR-1: a\n", [(2, "malformed_item", QUOTE)]),
-    (" >  \t" + FENCE + "\n > - FR-1: a\n", [(2, "malformed_item", QUOTE)]),
-    ("> >  \t" + FENCE + "\n> > - FR-1: a\n", [(2, "malformed_item", QUOTE)]),
-    (">\t\t> " + FENCE + "\n> > - FR-1: a\n", [(2, "malformed_item", QUOTE)]),
-    # A stated limit: a fence inside a list item inside a quote runs on past the item's end.
-    ("> - x\n>   " + FENCE + "\n> - FR-1: a\n", []),
-    # A stated limit: a quote 4+ columns in, even inside a list item, opens no fence, so its example is reported.
-    ("- FR-9: x\n    > " + FENCE + "\n    > - FR-1: a\n    > " + FENCE + "\n", [(3, "malformed_item", QUOTE)]),
+    ("> " + FENCE + "\n> code\n>\t" + FENCE + "\n> - FR-1: a\n", [Q(4)]),
+    ("> > " + FENCE + "\n> - FR-1: a\n", [Q(2)]),
+    (">\t\t> " + FENCE + "\n> > - FR-1: a\n", [Q(2)]),
+    ("> - x\n>   " + FENCE + "\n> - FR-1: a\n", [Q(3)]),
+    ("- FR-9: x\n  > " + FENCE + "\n> - FR-1: a\n", [Q(3)]),
+    ("- FR-9: x\n    > " + FENCE + "\n    > - FR-1: a\n    > " + FENCE + "\n", [Q(3)]),
 ])
-def test_quoted_fence_hides_only_its_own_lines(text, report):
+def test_quoted_fence_hides_nothing(text, report):
     s = parse(text)
     assert rows(s) == report
 
@@ -395,7 +384,6 @@ def test_quoted_fence_hides_only_its_own_lines(text, report):
     "<!--\n> - FR-1: a\n-->\n",
     NB + "\n",
     "  " + NB + "\n",
-    "> ```text\n> - FR-1: a\n> ```\n",
     # Just outside the grammar: U+200B is not whitespace.
     chr(0x200B) + "- FR-1: a\n",
 ])
@@ -1236,12 +1224,11 @@ def test_format_doc_states_report_causes():
         MALFORMED_LIST, "after a trailing comma", "any other block that ends a line of the text",
         "the lines indented after it are not its text",
         "> - FR-3: inside a block quote", NBSP, "zero-width space", "> - Q3: revenue",
-        "a quoted ID item inside it is still reported",
+        "a quoted ID item inside either is still reported",
         req.BARE_CR, "a bare carriage return is still reported there",
         "any character Python's `str.isspace()` accepts",
         "with no line feed after it and text after it", "the first is not read, so neither is",
-        "a fence inside a list item inside a quote runs on past that item's end",
-        "it opens only after markers a page surely reads", "even inside a list item, hides nothing",
+        "a fence inside a block quote (`> ```` `) hides nothing", "show such an example in an unquoted fence",
         "outside fences and comments as the reader pairs them",
     ]
     assert [w for w in wanted if w not in doc] == []
