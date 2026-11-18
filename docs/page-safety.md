@@ -370,6 +370,8 @@ harness reports the `img` and its handler it built.
 - `drive` fires only `change`, `click` and `focusin`; `leave` fires only
   `focusout`, `chip` only `click` or a focus, and `key` only `keydown`: no
   pointer movement, `keyup` or default action follows.
+- `same` compares elements, not their text nodes: a redraw that keeps an
+  element but re-sets its text is not seen.
 - The harness's `violations` and `page_findings` differ in detail on some
   statically written markup, though both fail the page: an element inside a
   `template` is reported only by `page_findings`, since the live document
