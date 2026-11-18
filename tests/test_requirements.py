@@ -360,6 +360,9 @@ FENCE = "`" * 3
     ("> " + FENCE + "\n> code\n\n- FR-1: a\n  > - FR-2: b\n", [(5, "malformed_item", QUOTE.replace("FR-1", "FR-2"))]),
     # A quoted fence closes only on a run of its own character, at least as long, with nothing after it.
     ("> ````\n> " + FENCE + "\n> - FR-1: x\n> ````\n> - FR-2: y\n", [(5, "malformed_item", QUOTE.replace("FR-1", "FR-2"))]),
+    # Not a fence on a page: a backtick info string holding a backtick, or a run 4+ columns past the marker.
+    ("> " + FENCE + "a`b\n> - FR-1: a\n", [(2, "malformed_item", QUOTE)]),
+    (">     " + FENCE + "\n> - FR-1: a\n", [(2, "malformed_item", QUOTE)]),
 ])
 def test_quoted_fence_hides_only_its_own_lines(text, report):
     s = parse(text)

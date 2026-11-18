@@ -162,20 +162,29 @@ def _width(line):
 
 def _quoted_code(lines, hidden):
     """Per line, whether it lies in a fence inside a block quote, which a page shows as code.
-    A fence line after quote markers opens one; a later quoted run of the same character, at
-    least as long, with nothing after it closes it, and so does the end of the quote."""
+    A fence line after quote markers opens one, as a top-level fence opens: not 4 or more
+    columns past the marker, and no backtick in a backtick opener's info. A later quoted run of
+    the same character, at least as long, with nothing after it closes it, and so does the end
+    of the quote."""
     flags, run = [], None  # run: the open quoted fence's opening run
     for line, h in zip(lines, hidden):
         if h or line.lstrip()[:1] != ">":
             run = None  # not a quoted line: the quote, and any fence in it, has ended
             flags.append(False)
             continue
-        f = FENCE_RE.fullmatch(line, len(LEAD_RE.match(line).group()))
+        lead = LEAD_RE.match(line).group()
+        f = FENCE_RE.fullmatch(line, len(lead))
+        pad = lead[lead.rfind(">") + 1 :].expandtabs(4)  # one space after '>' belongs to the marker
+        if f is not None and len(pad) - 1 >= 4:
+            f = None  # code on a page, not a fence
         flags.append(run is not None or f is not None)
         if f is None:
             continue
         if run is None:
-            run = f["run"]
+            if f["run"][0] != "`" or "`" not in f["info"]:
+                run = f["run"]
+            else:
+                flags[-1] = False  # not an opener: a backtick fence's info holds no backtick
         elif f["run"][0] == run[0] and len(f["run"]) >= len(run) and not f["info"].strip():
             run = None
     return flags
@@ -561,7 +570,7 @@ class _Reader:
 
     def near_item(self, line, text):
         """Report a line that is an item after a quote marker, or after whitespace other
-        than a space or tab: a page shows no list item there, so it is never read."""
+        than a space or tab: never a top-level list item, so it is never read."""
         first = text.lstrip(" \t")[:1]
         if not first or not (first == ">" or first.isspace()):
             return  # the common case, without the regex

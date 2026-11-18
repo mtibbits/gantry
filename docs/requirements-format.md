@@ -95,8 +95,8 @@ do not start like an ID. Prose is ignored and never reported.
 
 Lines inside fenced code blocks are ignored too, so a file can show
 examples (a bare carriage return is still reported there: see
-[Encoding](#encoding)). A fence opened by three or more backticks or tildes is closed by
-the first later line of the same character, at least as long, with nothing
+[Encoding](#encoding)). A fence opened by three or more backticks or
+tildes is closed by the first later line of the same character, at least as long, with nothing
 after it. A backtick opener whose info string holds a backtick is not an
 opener. An opener with no closer is ordinary text and hides nothing. Inside
 a list item, the lines after an unclosed fence opener, up to the item's end,
@@ -137,8 +137,9 @@ reason that applies:
 ```
 
 A list item after a `>` (inside a block quote), or after whitespace other
-than a space or tab, is not read either, since a page shows no list item
-there; when it is a candidate it is reported with the reason "inside a
+than a space or tab, is not read either: a requirement is a top-level list
+item, never one inside a block quote, and a page shows no list item after
+a no-break space. When it is a candidate it is reported with the reason "inside a
 block quote", or "indented with U+00A0 (only spaces and tabs indent a list
 item)" for a no-break space (another character is named by its own code
 point), before any other reason. Such an item under a requirement is
@@ -163,8 +164,8 @@ indented deeper than its list marker. It stops at a blank line (empty, or
 only whitespace: any character Python's `str.isspace()` accepts, such as a
 space, a tab, a no-break space U+00A0 or U+2028, though a page shows a line
 holding one of the last two as text), at a fenced line, or at a line
-indented no deeper than the marker; a tab counts as four spaces. A comment line indented to at least
-the item's content column (see below) is skipped: the text joins across it
+indented no deeper than the marker; a tab counts as four spaces. A
+comment line indented to at least the item's content column (see below) is skipped: the text joins across it
 (see [Comments](#comments)); a comment line indented less ends the text.
 The lines are joined with single spaces after their leading whitespace is
 removed. A requirement with no text
@@ -306,7 +307,7 @@ Its keys:
   list. A use case with no `needs:` key needs nothing and is not reported,
   so a use case may be written before its requirements.
 
-An empty entry, such as the one after a trailing comma
+An empty entry after a comma, such as the one after a trailing comma
 (`{refines: SR-1, }`), is skipped, as devagent skips it.
 
 A target is a bare ID, in the file's own namespace, or a full ID
@@ -321,8 +322,8 @@ Reported, with the requirement still read:
   unclosed `[` or quote, or a block with no closing `}` or with a brace
   inside it), any key other than `refines` and `needs`, a key
   repeated in one block (the first is kept, unless it is a malformed list:
-  then "and the first is malformed; neither is read"), a list given to `refines:`,
-  `needs: []`, a list with text after its `]` (`{needs: [FR-1] [FR-2]}`,
+  then "and the first is malformed; neither is read"), a list given to
+  `refines:`, `needs: []`, a list with text after its `]` (`{needs: [FR-1] [FR-2]}`,
   reported "needs: a malformed list, with text after its ']'; it is not
   read", while the block's other keys are still read: which targets were
   meant is unknown, so none is guessed), a second meta block on one item,
