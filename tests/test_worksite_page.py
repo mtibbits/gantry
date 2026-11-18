@@ -74,6 +74,10 @@ def by_key(m):
     return {leaf["key"]: leaf for leaf in m["leaves"]}
 
 
+def p0_of(m):
+    return [leaf["key"] for leaf in m["leaves"] if leaf["eff"] == 0]
+
+
 def with_leaf(data, key, **changes):
     leaves = tuple(dataclasses.replace(leaf, **changes) if leaf.key == key else leaf for leaf in data.leaves)
     return dataclasses.replace(data, leaves=leaves)
@@ -810,13 +814,13 @@ def test_wave_caption_names_p0():
 
 def test_p0_site_model_has_no_p0_note(tmp_path):
     m = model_with(est_inputs(tmp_path))
-    assert [leaf["key"] for leaf in m["leaves"] if leaf["eff"] == 0] == ["Issue-20", "Issue-21"]
+    assert p0_of(m) == ["Issue-20", "Issue-21"]
     assert "p0" not in m["notes"]
 
 
 def test_p0_site_has_no_order_note(tmp_path):
     inputs = est_inputs(tmp_path)
-    assert [leaf["key"] for leaf in model_with(inputs)["leaves"] if leaf["eff"] == 0] == ["Issue-20", "Issue-21"]
+    assert p0_of(model_with(inputs)) == ["Issue-20", "Issue-21"]
     assert "wbs order" not in visible_text(page_with(inputs))
 
 
