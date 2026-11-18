@@ -617,6 +617,7 @@ def test_hostile_comment_files_are_fast():
         "<!--\n" * 50_000,
         "<!--\n```\n-->\n" * 20_000,
         "- a\n\n" + "  - FR-1: x\n\n" * 25_000,
+        "- FR-1: x {refines: SR-1}\n" + "  {a: b}\n" * 50_000,
     ]
     start = time.perf_counter()
     for text in texts:
@@ -1065,7 +1066,7 @@ def test_format_doc_states_report_causes():
     wanted = [
         "the requirements file is not a file", "the requirements file does not exist",
         "a path under a file",
-        MALFORMED_LIST, "after a trailing comma",
+        MALFORMED_LIST, "after a trailing comma", "any other block that ends a line of the text",
     ]
     assert [w for w in wanted if w not in doc] == []
 
@@ -1108,6 +1109,30 @@ def SECOND(n, word):
 
 def INSIDE(n):
     return (n, "malformed_meta", "a meta block inside the text; it stays in the text and is not read")
+
+
+SECOND_BLOCK = (1, "malformed_meta", "a second meta block on one item; it stays in the text and is not read")
+TWO = "- SR-1: s\n- SR-2: t\n"
+
+
+@pytest.mark.parametrize("text, report, fr_text, refines", [
+    # Both on continuation lines: the own text's LAST block is read (3a, 3b).
+    ("- FR-2: b\n  {refines: SR-1}\n  {refines: SR-2}\n", [SECOND_BLOCK], "b {refines: SR-1}", "SR-2"),
+    ("- FR-2: b\n  c {refines: SR-1}\n  d {refines: SR-2}\n", [SECOND_BLOCK], "b c {refines: SR-1} d", "SR-2"),
+    # The first line's block is read.
+    ("- FR-2: b {refines: SR-1}\n  {refines: SR-2}\n", [SECOND_BLOCK], "b {refines: SR-2}", "SR-1"),
+    # A mid-line block is still inside the text.
+    ("- FR-2: b\n  x {refines: SR-1} y\n  {refines: SR-2}\n", [INSIDE(1)], "b x {refines: SR-1} y", "SR-2"),
+    # A block ending a nested item's line is a second block too.
+    ("- FR-2: a {refines: SR-1}\n  - sub {refines: SR-2}\n  - more\n", [SECOND_BLOCK],
+     "a - sub {refines: SR-2} - more", "SR-1"),
+])
+def test_second_block_wherever_the_first_sits(text, report, fr_text, refines):
+    # When a block is read, another block that ends a line is a second block, wherever the read one sits (#112).
+    s = parse(text + TWO)
+    assert rows(s) == report
+    r = s.requirements["alpha:FR-2"]
+    assert (r.text, r.refines) == (fr_text, rid(refines))
 
 
 def fields(r):

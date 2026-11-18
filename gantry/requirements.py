@@ -417,6 +417,17 @@ def _joined(parts):
     return " ".join(part for part in parts if part)
 
 
+def _line_ends(parts, start=0):
+    """The offsets in _joined(parts), shifted by `start`, where each non-empty part ends."""
+    ends, at = set(), start
+    for part in parts:
+        if part:
+            at += len(part)
+            ends.add(at)
+            at += 1  # the joining space
+    return ends
+
+
 def _ending_block(text):
     """The meta block that ends `text`, or None."""
     last = None
@@ -569,19 +580,25 @@ class _Reader:
         own, after, statements = self.statements(lines)
         # The block closes the first line, or else the own text: the text before the first
         # nested item. A block after a nested item, or in a statement, is not read.
+        # When a block is read, any other block that ends a line of the text is a second block;
+        # `ends` holds the offsets in `text` where a line ends.
         head = tail.strip()
         block = _ending_block(head)
-        second = None
         if block is not None:
             head = head[: block.start()].rstrip()
             text = _joined([head, *own, *after])
-            second = _ending_block(text)
+            ends = _line_ends([head, *own, *after])
         else:
             own_text = _joined([head, *own])
             block = _ending_block(own_text)
+            ends = set()
             if block is not None:
-                own_text = own_text[: block.start()].rstrip()
+                # Line ends of the own text before the block is cut, the cut text's new end included.
+                cut = own_text[: block.start()].rstrip()
+                ends = {e for e in _line_ends([head, *own]) if e <= len(cut)} | {len(cut)}
+                own_text = cut
             text = _joined([own_text, *after])
+            ends |= _line_ends(after, len(own_text) + 1 if own_text else 0)
         threshold, objective = statements.get("Threshold"), statements.get("Objective")
         broken = False
         for n, part in enumerate((text, threshold, objective)):
@@ -590,7 +607,7 @@ class _Reader:
             starts = set()
             for other in BLOCK_RE.finditer(part):
                 starts.add(other.start())
-                if n == 0 and second is not None and other.start() == second.start():
+                if n == 0 and block is not None and other.end() in ends:
                     self.add(line, "malformed_meta",
                              "a second meta block on one item; it stays in the text and is not read")
                 else:

@@ -253,7 +253,11 @@ the one ending the own text before the first nested item: the first line and
 the lines after it up to the first nested item's line. So a block closing the
 text on a continuation line is read when nested items or statements follow.
 Any other block, one after a nested item or in a statement included, may
-belong to that item, so it is reported and not read.
+belong to that item, so it is reported and not read. When a block is read
+(the one ending the first line, or else the last one ending the own text),
+any other block that ends a line of the text, wherever the read one sits,
+is reported "a second meta block on one item"; any other block in the text
+or in a statement is reported "a meta block inside the text".
 
 ```text
 - UC-1: A keeper logs the lamp's nightly check. {needs: [FR-1, QA-1]}
@@ -442,7 +446,7 @@ line, then in this order:
 |---|---|
 | `unreadable` | the path does not exist ("the requirements file does not exist"), is not a file ("the requirements file is not a file"), cannot be read, or is not valid UTF-8; the set is empty |
 | `malformed_item` | a list item the reader cannot place: a candidate that is not a requirement, or a `Threshold:` or `Objective:` item that is not a statement, with its reasons |
-| `malformed_meta` | a meta block that cannot be read, or a key or value shape it does not allow, such as a list with text after its `]` ("a malformed list, with text after its ']'; it is not read") |
+| `malformed_meta` | a meta block that cannot be read, or a key or value shape it does not allow, such as a list with text after its `]` ("a malformed list, with text after its ']'; it is not read"); a second meta block on one item, or one inside the text |
 | `malformed_link` | a link target that is not a requirement ID |
 | `malformed_comment` | an HTML comment the reader does not hide: in a requirement's text (read as written), before an ID (not read), or starting a list item without closing on its line; or a block comment with no `-->`, or whose list item ends first, which hides every line after it |
 | `misplaced` | an item in a layer the file does not hold (it is dropped), `needs:` on an item that is not a use case, or a link into the installation namespace from another namespace |
