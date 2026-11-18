@@ -134,6 +134,34 @@ def test_satisfies_from_stopgap_meta():
     assert satisfies_ids(second, frozenset({"a"})) == ([rid("a:FR-1"), rid("a:QA-2")], [])
 
 
+@pytest.mark.parametrize("body, keys, extra, reported", [
+    ("issue: Issue-3, satisfies: [lighthouse:FR-1]", ["issue", "satisfies"], {"issue"}, []),
+    ("issue: Issue-3, satisfies: lighthouse:FR-1", ["issue", "satisfies"], {"issue"}, []),
+    ("satisfies: [lighthouse:FR-1], est: 2h", ["satisfies", "est"], {"est"}, []),
+    ("issue: Issue-3, satisfies: lighthouse:FR-1, harbor:FR-2", ["issue", "satisfies", "harbor"], {"harbor"},
+     ["harbor"]),
+    ("issue: Issue-3, satisfies: lighthouse:FR-1, harbor:FR-2", ["issue", "satisfies", "harbor"], {"harbor", "issue"},
+     ["harbor"]),
+    ("satisfies: lighthouse:FR-1, issue: Issue-3, harbor: x", ["satisfies", "issue", "harbor"], {"harbor"}, []),
+    ("satisfies: lighthouse:FR-1, est: 2h", ["satisfies", "est"], {"est"}, ["est"]),
+    ("issue: Issue-3, satisfies: lighthouse:FR-1, issue: Y", ["issue", "satisfies"], {"issue"}, []),
+    ("satisfies: lighthouse:FR-1, objective: lighthouse:FR-1", ["satisfies", "objective"], {"objective"},
+     ["objective"]),
+    ("satisfies: lighthouse:FR-1, typo:FR-2, harbor:FR-3", ["satisfies", "typo", "harbor"], {"harbor"}, []),
+    ("issue: Issue-3, satisfies: lighthouse:FR-1, issue: Y, est: 2h", ["issue", "satisfies", "est"], {"est"}, ["est"]),
+], ids=["ac1", "ac2", "ac3", "ac4", "ac4-one-key", "ac5", "limit-est", "limit-repeat", "objective-site",
+        "limit-unknown-second", "repeat-shifts"])
+def test_unbracketed_list_only_directly_after_a_scalar_satisfies(body, keys, extra, reported):
+    # Only the key read directly after a satisfies that is not a bracketed list counts (#114). The limit-* legs
+    # are the rule's known limits: a meta key named like a site, a repeated key, an unknown second namespace.
+    parsed = parse_wbs(f"- [ ] Leaf {{{body}}}\n", "lighthouse").leaves[0]
+    assert list(parsed.meta) == keys
+    ids, problems = satisfies_ids(parsed, frozenset({"lighthouse", *extra}))
+    assert ids == [rid("lighthouse:FR-1")]
+    assert [(p.kind, p.message) for p in problems] == [("unbracketed_list", message("unbracketed_list", key=k))
+                                                       for k in reported]
+
+
 def test_satisfies_absent_empty_and_repeat():
     assert satisfies_ids(leaf("L1", 2), NS) == ([], [])
     assert satisfies_ids(leaf("L1", 2, satisfies="[]"), NS) == ([], [])
@@ -441,7 +469,12 @@ def test_hostile_values_never_raise(tmp_path):
     problems = [e for name in FIELDS for e in getattr(report, name)]
     assert problems
     assert {e.kind for e in problems} <= set(TRACE_KINDS)
-    assert sum(e.kind == "unbracketed_list" for e in problems) == 2 * len(HOSTILE)
+    listed = [e for e in problems if e.kind == "unbracketed_list"]
+    # One entry per leaf whose satisfies is a scalar, naming alpha, the key directly after it (life never
+    # is). meta_value reads every HOSTILE value as a scalar, an unclosed "[" included, except "[,]", a list.
+    assert len(listed) == len(HOSTILE) - 1
+    assert sorted(e.line for e in listed) == [i + 2 for i, raw in enumerate(HOSTILE) if raw != "[,]"]
+    assert {e.message for e in listed} == {message("unbracketed_list", key="alpha")}
 
 
 # --- Task 5: serving -----------------------------------------------------------------
