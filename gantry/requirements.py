@@ -6,9 +6,9 @@ A requirements file is Markdown; a requirement is an unordered list item whose
 text starts with a bare ID and a colon (`- FR-12: <text>`). Lines in fences and
 block HTML comments are hidden. A requirement may hold one `Threshold:` and one
 `Objective:` statement, a list item directly under it (#79). Every other line is
-prose, except an ID-shaped item that is not a requirement, a statement-shaped
-item that is not a statement, or an HTML comment the reader does not hide,
-which is reported.
+prose, except an ID-shaped item that is not a requirement (one after a `>` or a
+no-break space included), a statement-shaped item that is not a statement, or an
+HTML comment the reader does not hide, which is reported.
 The module has its own meta-block reader and fence pairing and shares no code
 with gantry/wbs_stopgap.py or gantry/model.py, so #12 can delete the stopgap
 freely. docs/requirements-format.md states the rules.
@@ -55,6 +55,7 @@ BREAK_RE = re.compile(r"[ \t]*([-*_])(?:[ \t]*\1){2,}[ \t]*")  # fullmatch: a th
 HEADING_START_RE = re.compile(r"[ \t]*#{1,6}(?:[ \t]|$)")  # match, at most 3 columns in: an ATX heading
 HTML_START_RE = re.compile(r"[ \t]*</?[A-Za-z]")  # match, at most 3 columns in: an HTML block may start
 FENCE_RE = re.compile(r"[ \t]*(?P<run>`{3,}|~{3,})(?P<info>.*)")  # fullmatch
+LEAD_RE = re.compile(r"[\s>]*")  # .match: quote markers and Unicode whitespace before an item's marker
 BLOCK_RE = re.compile(r"\{[ \t]*[A-Za-z_][A-Za-z0-9_]*[ \t]*:[^{}]*\}")  # finditer
 _OPENER_RE = re.compile(r"\{[ \t]*[A-Za-z_][A-Za-z0-9_]*[ \t]*:")  # a block's start, closed or not
 _KEY_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -80,6 +81,8 @@ _WHY = {
     "long": "the number has more than 9 digits",
     "suffix": "letters after the number",
     "nested": "requirements are not nested",
+    "quote": "inside a block quote",
+    "indent": "indented with {char} (only spaces and tabs indent a list item)",
     "second_statement": "a second {word}: statement",
     "stray_statement": "a statement not directly under a requirement",
 }
@@ -154,9 +157,24 @@ def _width(line):
     return len(line[: len(line) - len(line.lstrip(" \t"))].expandtabs(4))
 
 
+def _quoted_code(lines, hidden):
+    """Per line, whether it lies in a fence inside a block quote: a fence line after quote
+    markers opens one, and the next such line closes it. A page shows those lines as code."""
+    flags, inside = [], False
+    for line, h in zip(lines, hidden):
+        fence = False
+        if not h and line.lstrip()[:1] == ">":
+            lead = LEAD_RE.match(line).group()
+            fence = ">" in lead and FENCE_RE.fullmatch(line, len(lead)) is not None
+        flags.append(inside or fence)
+        if fence:
+            inside = not inside
+    return flags
+
+
 def _is_break(line):
     """Whether `line` is a thematic break (`* * *`, `- - -`), never a list item."""
-    return _width(line) <= 3 and BREAK_RE.fullmatch(line) is not None
+    return BREAK_RE.fullmatch(line) is not None and _width(line) <= 3
 
 
 def _closer(lines, i, no_closer):
@@ -513,22 +531,42 @@ class _Reader:
         self.br_namespace = br_namespace
         self.requirements = {}
         self.report = []
+        self.quoted_code = []  # per line: inside a fence in a block quote (_quoted_code)
 
     def add(self, line, kind, message):
         self.report.append(ReportEntry(self.source, line, kind, message))
 
-    def candidate(self, line, m, nested):
+    def candidate(self, line, m, nested, lead=()):
         """Report an ID-shaped item that is not a requirement; return the
-        candidate match when it is one."""
+        candidate match when it is one. `lead` holds reasons found before the marker."""
         rest = m["rest"]
         c = CANDIDATE_RE.match(rest) if rest is not None else None
         if c is None:
             return None  # prose
-        why = _reasons(m["marker"], c, nested)
+        why = [*lead, *_reasons(m["marker"], c, nested)]
         if why:
             self.add(line, "malformed_item", f"{rest[: c.end()]!r} is not a requirement: {'; '.join(why)}")
             return None
         return c
+
+    def near_item(self, line, text, nested):
+        """Report a line that is an item after a quote marker, or after whitespace other
+        than a space or tab: a page shows no list item there, so it is never read."""
+        first = text.lstrip(" \t")[:1]
+        if not first or not (first == ">" or first.isspace()):
+            return  # the common case, without the regex
+        lead = LEAD_RE.match(text).group()
+        m = ITEM_RE.fullmatch(text, len(lead))
+        if m is None:
+            return
+        why = []
+        if ">" in lead:
+            why.append(_WHY["quote"])
+            nested = False  # the quote is the cause
+        odd = next((ch for ch in lead if ch.isspace() and ch not in " \t"), None)
+        if odd is not None:
+            why.append(_WHY["indent"].format(char=f"U+{ord(odd):04X}"))
+        self.candidate(line, m, nested, why)
 
     def item(self, index, m, continuation, nested, listed, raw):
         """Read the item on line `index`. `listed` and `raw` are _scan's per-line flags: a
@@ -539,7 +577,10 @@ class _Reader:
         for k, text in continuation:
             sub = ITEM_RE.fullmatch(text)
             lines.append((k, text, sub, None if sub is None or raw[k] else _statement_word(sub["rest"])))
-            if sub is not None:
+            if sub is None:
+                if not self.quoted_code[k]:
+                    self.near_item(self.first_line + k, text, nested=True)
+            else:
                 self.candidate(self.first_line + k, sub, nested=True)
                 if _opens_comment(sub["rest"]):
                     if listed[k] and not _text_is_code(text, sub):
@@ -795,11 +836,15 @@ def parse_requirements(text, namespace, *, source, first_line=1, layers, br_name
     hidden, skip, nested, comment, _, listed, raw = _scan(lines)
     if comment is not None:
         reader.add(first_line + comment[0], "malformed_comment", comment[1])
+    reader.quoted_code = _quoted_code(lines, hidden)
     i = 0
     while i < len(lines):
-        # A thematic break is not an item, so the lines indented after it are not its text.
-        m = None if hidden[i] or _is_break(lines[i]) else ITEM_RE.fullmatch(lines[i])
+        m = None if hidden[i] else ITEM_RE.fullmatch(lines[i])
+        if m is not None and m["marker"] in "-*" and _is_break(lines[i]):
+            m = None  # a thematic break is not an item, so the lines indented after it are not its text
         if m is None:
+            if not hidden[i] and not reader.quoted_code[i]:
+                reader.near_item(first_line + i, lines[i], nested=False)
             i += 1
             continue
         # The item's text runs on through lines indented deeper than its marker,

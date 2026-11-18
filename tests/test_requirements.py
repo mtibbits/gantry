@@ -309,6 +309,61 @@ def test_item_under_a_prose_bullet_is_nested():
     assert "requirements are not nested" in entry.message
 
 
+NB = chr(0xA0)
+QUOTE = "'FR-1:' is not a requirement: inside a block quote"
+NBSP = "indented with U+00A0 (only spaces and tabs indent a list item)"
+
+
+@pytest.mark.parametrize("text, report", [
+    ("> - FR-1: a\n", [(1, "malformed_item", QUOTE)]),
+    (">- FR-1: a\n", [(1, "malformed_item", QUOTE)]),
+    ("> > - FR-1: a\n", [(1, "malformed_item", QUOTE)]),
+    ("  > - FR-1: a\n", [(1, "malformed_item", QUOTE)]),
+    (NB + "- FR-1: a\n", [(1, "malformed_item", "'FR-1:' is not a requirement: " + NBSP)]),
+    ("  " + NB + "- FR-1: a\n", [(1, "malformed_item", "'FR-1:' is not a requirement: " + NBSP)]),
+    ("> " + NB + "- FR-1: a\n", [(1, "malformed_item", QUOTE + "; " + NBSP)]),
+    ("> - FR12: a\n",
+     [(1, "malformed_item", "'FR12:' is not a requirement: inside a block quote; no '-' between the code and the number")]),
+    ("# H\n\n> - FR-1: a\n", [(3, "malformed_item", QUOTE)]),
+    # A quoted comment is not a block comment, so the item inside it is reported.
+    ("> <!--\n> - FR-1: a\n> -->\n", [(2, "malformed_item", QUOTE)]),
+])
+def test_quoted_or_unusually_indented_candidate(text, report):
+    # An ID item in a block quote, or indented with a no-break space, is never silently lost (#112).
+    s = parse(text)
+    assert rows(s) == report
+    assert s.requirements == {}
+
+
+@pytest.mark.parametrize("text, line", [
+    ("- FR-1: a\n  > - FR-2: b\n", 2),
+    ("- FR-1: a\n\n  > - FR-2: b\n", 3),
+])
+def test_quoted_candidate_under_an_item(text, line):
+    # The quote is the cause, so no "not nested" reason, whether or not a blank line comes first.
+    s = parse(text)
+    assert rows(s) == [(line, "malformed_item", "'FR-2:' is not a requirement: inside a block quote")]
+    assert list(s.requirements) == ["alpha:FR-1"]
+
+
+@pytest.mark.parametrize("text", [
+    "> - note: x\n",
+    NB + "- note: x\n",
+    "> FR-1: a\n",
+    "```text\n> - FR-1: a\n```\n",
+    "<!--\n> - FR-1: a\n-->\n",
+    NB + "\n",
+    "  " + NB + "\n",
+    "> ```text\n> - FR-1: a\n> ```\n",
+    # Just outside the grammar: U+200B is not whitespace.
+    chr(0x200B) + "- FR-1: a\n",
+])
+def test_quoted_or_unusually_indented_prose_is_silent(text):
+    s = parse(text)
+    assert rows(s) == []
+    assert s.requirements == {}
+
+
 def test_nested_items_block_is_not_the_parents():
     s = parse("- FR-1: parent\n  - FR-2: child {refines: SR-1}\n- SR-1: y\n")
     assert s.requirements["alpha:FR-1"].refines is None
@@ -622,11 +677,17 @@ def test_hostile_comment_files_are_fast():
         "<!--\n" * 50_000,
         "<!--\n```\n-->\n" * 20_000,
         "- a\n\n" + "  - FR-1: x\n\n" * 25_000,
-        "- FR-1: x {refines: SR-1}\n" + "  {a: b}\n" * 50_000,
     ]
     start = time.perf_counter()
     for text in texts:
         parse(text)
+    assert time.perf_counter() - start < 2
+
+
+def test_many_blocks_on_one_item_are_fast():
+    # Each block is checked against the item's line ends once (#112): never per block, per line.
+    start = time.perf_counter()
+    parse("- FR-1: x {refines: SR-1}\n" + "  {a: b}\n" * 20_000)
     assert time.perf_counter() - start < 2
 
 
@@ -644,6 +705,8 @@ HOSTILE = [
     "- FR-1: x " + "<!-- a --> " * 9_000,
     "<!--" * 25_000,
     "- FR-1: x " + "`` ` " * 20_000 + "<!--",
+    ">" * 100_000 + " - FR-1: x",
+    chr(0xA0) * 100_000 + "- FR-1: x",
 ]
 
 
@@ -1073,6 +1136,8 @@ def test_format_doc_states_report_causes():
         "a path under a file",
         MALFORMED_LIST, "after a trailing comma", "any other block that ends a line of the text",
         "the lines indented after it are not its text",
+        "> - FR-3: inside a block quote", NBSP, "zero-width space", "> - Q3: revenue",
+        "a quoted ID item inside it is still reported",
     ]
     assert [w for w in wanted if w not in doc] == []
 

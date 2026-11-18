@@ -123,13 +123,27 @@ reason that applies:
 - **FR-3:** marks around the ID
 - gantry:FR-12: a namespace (a requirement is defined with a bare ID)
 1. FR-3: an ordered list item
+> - FR-3: inside a block quote
 ```
 
+A list item after a `>` (inside a block quote), or after whitespace other
+than a space or tab, is not read either, since a page shows no list item
+there; when it is a candidate it is reported with the reason "inside a
+block quote", or "indented with U+00A0 (only spaces and tabs indent a list
+item)" for a no-break space (another character is named by its own code
+point), before any other reason. Such an item under a requirement is
+reported the same way, without "requirements are not nested": the quote,
+not the nesting, is the cause.
+
 So, outside fences and comments, a typo of the shape letters, an optional
-`-`, digits, then a colon is never silently lost. A typo outside that shape,
-such as `FR_1:` or `FR.1:`, is prose and is not reported. The rule also
+`-`, digits, then a colon is never silently lost, also after a `>` or after
+whitespace other than a space or tab (a no-break space, for example). A
+typo outside that shape, such as `FR_1:` or `FR.1:`, is prose and is not
+reported, as is an item after a character that is not whitespace, such as a
+zero-width space (U+200B). The rule also
 catches prose bullets that begin like an ID, such as `Step-1:`, `Q3:` and
-`v2:`, and finding labels such as `R1:`, `N2:` and `B1:`. They are reported
+`v2:`, and finding labels such as `R1:`, `N2:` and `B1:`, in a block quote
+too (`> - Q3: revenue`). They are reported
 malformed: reword them (`Step 1:`, `In Q3,`) so that they no longer start like an ID.
 
 ### Text
@@ -222,7 +236,9 @@ page:
 - The reader simplifies four things a renderer does: only the first `-->`
   on a line counts, so text after it, even a new `<!--`, is hidden with the
   comment; a backslash before `<!--` is not read as an escape; a comment
-  inside a block quote (`> <!--`) is not a block comment; and a list item
+  inside a block quote (`> <!--`) is not a block comment, so a quoted ID
+  item inside it is still reported (a fence inside a block quote does hide
+  a quoted example: from a quoted fence line to the next one); and a list item
   whose text starts five or more columns past its marker, which a page shows
   as code, is still read as an item, as is one nested four or more columns
   past its enclosing item's text (a `- <!--` there is still reported), and
@@ -448,7 +464,7 @@ line, then in this order:
 | Kind | When |
 |---|---|
 | `unreadable` | the path does not exist ("the requirements file does not exist"), is not a file ("the requirements file is not a file"), cannot be read, or is not valid UTF-8; the set is empty |
-| `malformed_item` | a list item the reader cannot place: a candidate that is not a requirement, or a `Threshold:` or `Objective:` item that is not a statement, with its reasons |
+| `malformed_item` | a list item the reader cannot place: a candidate that is not a requirement (one "inside a block quote" or "indented with U+00A0" included), or a `Threshold:` or `Objective:` item that is not a statement, with its reasons |
 | `malformed_meta` | a meta block that cannot be read, or a key or value shape it does not allow, such as a list with text after its `]` ("a malformed list, with text after its ']'; it is not read"); a second meta block on one item, or one inside the text |
 | `malformed_link` | a link target that is not a requirement ID |
 | `malformed_comment` | an HTML comment the reader does not hide: in a requirement's text (read as written), before an ID (not read), or starting a list item without closing on its line; or a block comment with no `-->`, or whose list item ends first, which hides every line after it |
