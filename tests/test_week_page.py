@@ -468,7 +468,7 @@ def test_no_allocation_note_only(tmp_path):
     assert len(result.plan.notes) == 10
 
 
-def test_p0_note(tmp_path):
+def test_p0_list(tmp_path):
     result, page = fixture_build(tmp_path, "p0")
     t = tree(page)
     box = one(t, "id", "p0")
@@ -479,7 +479,8 @@ def test_p0_note(tmp_path):
     held = {(attr(t, i, "data-site"), attr(t, i, "data-leaf")): texts(t, "span", ["held"], i) for i in lines}
     assert held[("a", "Issue-3")] == ["held by b:Issue-3"]
     assert held[("a", "Issue-1")] == []
-    assert texts(t, "p", within=box) == ["devagent's wbs order ranks these differently until mtibbits/devagent#889 lands"]
+    assert "wbs order" not in " ".join(texts(t, "p", within=box))
+    assert texts(t, "p", within=box) == [week.P0_CAPTION]
 
 
 def test_no_p0_box_without_p0(tmp_path):
