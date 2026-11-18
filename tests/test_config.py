@@ -227,7 +227,7 @@ def test_huge_unit_hours_is_refused(tmp_path):
 
 
 def test_deeply_nested_toml_is_refused(tmp_path):
-    # Valid TOML, but deeper than Python's recursion limit (#117).
+    # Valid TOML, but nested too deeply for tomllib to parse (#117).
     p = write_config(tmp_path, x="[" * 3000 + "]" * 3000)
     with pytest.raises(cfg.ConfigError) as e:
         cfg.load_config(p)
