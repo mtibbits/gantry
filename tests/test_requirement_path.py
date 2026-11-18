@@ -492,11 +492,14 @@ def test_build_paths_scales(monkeypatch):
     size = sum(len(p.order) for p in paths.values())
     wo, wo_in = spent["work_order"]
     hv, hv_in = spent["heaviest"]
+    assert wo_in == hv_in == size, (f"work_order saw {wo_in} items and heaviest {hv_in} for {size} path leaves: "
+                                    "build_paths no longer calls the wrapped names")
     assert wo >= wo_in, f"work_order made {wo} key tests on {wo_in} items: the count no longer sees it"
     assert hv >= hv_in, f"heaviest made {hv} key tests on {hv_in} items: the count no longer sees it"
-    # The heap makes about 21 key tests per leaf; a scan that looks up pending items by key or reads their
-    # fields on every pick makes hundreds (293 for a key scan here, and the count grows with n). A scan over
-    # positional lists that never touches a key escapes this count.
+    # The heap makes about 21 key tests per leaf; a scan that looks up or tests pending items by key on every
+    # pick makes hundreds (293 for a key scan here, and the count grows with n). Only hashing and == on keys
+    # count: a scan over positional lists or item fields that never hashes or == a key escapes this count, as
+    # do ordering comparisons (<, min, sorted) on keys.
     assert wo <= 70 * size, (f"work_order made {wo} key tests for {size} path leaves: "
                              "it scans pending items on each pick")
     assert hv <= 100 * size, f"heaviest made {hv} key tests for {size} path leaves: its walk is no longer linear"
