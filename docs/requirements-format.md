@@ -96,9 +96,10 @@ do not start like an ID. Prose is ignored and never reported.
 Lines inside fenced code blocks are ignored too, so a file can show
 examples (a bare carriage return is still reported there: see
 [Encoding](#encoding)). A fence opened by three or more backticks or
-tildes is closed by the first later line of the same character, at least as long, with nothing
-after it. A backtick opener whose info string holds a backtick is not an
-opener. An opener with no closer is ordinary text and hides nothing. Inside
+tildes is closed by the first later line of the same character, at least
+as long, with nothing after it. A backtick opener whose info string holds
+a backtick is not an opener. An opener with no closer is ordinary text and
+hides nothing. Inside
 a list item, the lines after an unclosed fence opener, up to the item's end,
 are a page's code, so a `<!--` among them is text, not a block comment: the
 reader keeps what it read before, after an unclosed fence. The same holds
@@ -139,12 +140,12 @@ reason that applies:
 A list item after a `>` (inside a block quote), or after whitespace other
 than a space or tab, is not read either: a requirement is a top-level list
 item, never one inside a block quote, and a page shows no list item after
-a no-break space. When it is a candidate it is reported with the reason "inside a
-block quote", or "indented with U+00A0 (only spaces and tabs indent a list
-item)" for a no-break space (another character is named by its own code
-point), before any other reason. Such an item under a requirement is
-reported the same way, without "requirements are not nested": the quote
-or the indent, not the nesting, is the cause.
+a no-break space. When it is a candidate it is reported with the reason
+"inside a block quote", or "indented with U+00A0 (only spaces and tabs
+indent a list item)" for a no-break space (another character is named by
+its own code point), before any other reason. Such an item under a
+requirement is reported the same way, without "requirements are not
+nested": the quote or the indent, not the nesting, is the cause.
 
 So, outside fences and comments, a typo of the shape letters, an optional
 `-`, digits, then a colon is never silently lost, also after a `>` or after
@@ -165,8 +166,9 @@ only whitespace: any character Python's `str.isspace()` accepts, such as a
 space, a tab, a no-break space U+00A0 or U+2028, though a page shows a line
 holding one of the last two as text), at a fenced line, or at a line
 indented no deeper than the marker; a tab counts as four spaces. A
-comment line indented to at least the item's content column (see below) is skipped: the text joins across it
-(see [Comments](#comments)); a comment line indented less ends the text.
+comment line indented to at least the item's content column (see below)
+is skipped: the text joins across it (see [Comments](#comments)); a
+comment line indented less ends the text.
 The lines are joined with single spaces after their leading whitespace is
 removed. A requirement with no text
 (`- FR-6:`) is read with empty text.
@@ -252,7 +254,9 @@ page:
   inside a block quote (`> <!--`) is not a block comment, so a quoted ID
   item inside it is still reported (a fence inside a block quote does hide
   a quoted example, from its opening line to a closing run as for any
-  fence, or to the quote's end); and a list item
+  fence, or to the end of its quote or a drop in the quote's depth, though
+  a fence inside a list item inside a quote runs on past that item's end);
+  and a list item
   whose text starts five or more columns past its marker, which a page shows
   as code, is still read as an item, as is one nested four or more columns
   past its enclosing item's text (a `- <!--` there is still reported), and
@@ -320,13 +324,13 @@ Reported, with the requirement still read:
 
 - `malformed_meta`: a block that cannot be read (an entry with no key, an
   unclosed `[` or quote, or a block with no closing `}` or with a brace
-  inside it), any key other than `refines` and `needs`, a key
-  repeated in one block (the first is kept, unless it is a malformed list:
-  then "and the first is malformed; neither is read"), a list given to
-  `refines:`, `needs: []`, a list with text after its `]` (`{needs: [FR-1] [FR-2]}`,
-  reported "needs: a malformed list, with text after its ']'; it is not
-  read", while the block's other keys are still read: which targets were
-  meant is unknown, so none is guessed), a second meta block on one item,
+  inside it), any key other than `refines` and `needs`, a key repeated in
+  one block (the first is kept, unless it was not read: then "the first is
+  not read, so neither is"), a list given to `refines:`, `needs: []`, a
+  list with text after its `]` (`{needs: [FR-1] [FR-2]}`, reported "needs:
+  a malformed list, with text after its ']'; it is not read", while the
+  block's other keys are still read: which targets were meant is unknown,
+  so none is guessed), a second meta block on one item,
   and a block that starts with a word and a colon anywhere else in the
   text. A second or mid-text block
   stays in the text, and its links are not read.

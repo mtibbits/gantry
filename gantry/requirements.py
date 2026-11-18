@@ -56,6 +56,7 @@ HEADING_START_RE = re.compile(r"[ \t]*#{1,6}(?:[ \t]|$)")  # match, at most 3 co
 HTML_START_RE = re.compile(r"[ \t]*</?[A-Za-z]")  # match, at most 3 columns in: an HTML block may start
 FENCE_RE = re.compile(r"[ \t]*(?P<run>`{3,}|~{3,})(?P<info>.*)")  # fullmatch
 LEAD_RE = re.compile(r"[\s>]*")  # .match: quote markers and Unicode whitespace before an item's marker
+QUOTE_LEAD_RE = re.compile(r"[ \t>]*")  # .match: quote markers and the spaces and tabs around them
 NEAR_RE = re.compile(r"^[ \t]*(?:>|[^\S \t\r\n])", re.M)  # .search: a line near_item may report
 BLOCK_RE = re.compile(r"\{[ \t]*[A-Za-z_][A-Za-z0-9_]*[ \t]*:[^{}]*\}")  # finditer
 _OPENER_RE = re.compile(r"\{[ \t]*[A-Za-z_][A-Za-z0-9_]*[ \t]*:")  # a block's start, closed or not
@@ -165,14 +166,17 @@ def _quoted_code(lines, hidden):
     A fence line after quote markers opens one, as a top-level fence opens: not 4 or more
     columns past the marker, and no backtick in a backtick opener's info. A later quoted run of
     the same character, at least as long, with nothing after it closes it, and so does the end
-    of the quote."""
-    flags, run = [], None  # run: the open quoted fence's opening run
+    of the quote or a drop in its depth. Only spaces and tabs sit around the quote markers, the
+    first at most 3 columns in, as on a page."""
+    flags, run, depth = [], None, 0  # run, depth: the open quoted fence's opening run and quote depth
     for line, h in zip(lines, hidden):
-        if h or line.lstrip()[:1] != ">":
+        if h or line.lstrip(" \t")[:1] != ">" or _width(line) > 3:
             run = None  # not a quoted line: the quote, and any fence in it, has ended
             flags.append(False)
             continue
-        lead = LEAD_RE.match(line).group()
+        lead = QUOTE_LEAD_RE.match(line).group()
+        if run is not None and lead.count(">") < depth:
+            run = None  # the fence's quote has ended
         f = FENCE_RE.fullmatch(line, len(lead))
         pad = lead[lead.rfind(">") + 1 :].expandtabs(4)  # one space after '>' belongs to the marker
         if f is not None and len(pad) - 1 >= 4:
@@ -182,7 +186,7 @@ def _quoted_code(lines, hidden):
             continue
         if run is None:
             if f["run"][0] != "`" or "`" not in f["info"]:
-                run = f["run"]
+                run, depth = f["run"], lead.count(">")
             else:
                 flags[-1] = False  # not an opener: a backtick fence's info holds no backtick
         elif f["run"][0] == run[0] and len(f["run"]) >= len(run) and not f["info"].strip():
@@ -731,17 +735,17 @@ class _Reader:
         if why is not None:
             self.add(line, "malformed_meta", f"the meta block {block.group(0)!r} cannot be read: {why}")
             return refines, needs
-        seen = {}  # key -> its first value; None for a malformed list
+        read = {}  # key -> whether its first value was read
         for key, value in entries:
             if key not in ("refines", "needs"):
                 self.add(line, "malformed_meta",
                          f"unknown key {key!r} in the meta block (a requirement's keys are refines and needs)")
                 continue
-            if key in seen:
-                outcome = "; the first is kept" if seen[key] is not None else ", and the first is malformed; neither is read"
-                self.add(line, "malformed_meta", f"key {key!r} is repeated in the meta block{outcome}")
+            if key in read:
+                outcome = "the first is kept" if read[key] else "the first is not read, so neither is"
+                self.add(line, "malformed_meta", f"key {key!r} is repeated in the meta block; {outcome}")
                 continue
-            seen[key] = value
+            read[key] = False
             if key == "refines":
                 if value is None:
                     self.add(line, "malformed_meta", f"{key}: {MALFORMED_LIST}")
@@ -749,6 +753,7 @@ class _Reader:
                     self.add(line, "malformed_meta", "refines: takes one target, not a list; it is not read")
                 else:
                     refines = self.target(line, key, value)
+                    read[key] = True
             else:
                 targets = value if isinstance(value, list) else [value]
                 if rid.code != "UC":
@@ -759,6 +764,7 @@ class _Reader:
                     self.add(line, "malformed_meta", "needs: [] names no target")
                 else:
                     needs = [t for t in (self.target(line, key, v) for v in targets) if t is not None]
+                    read[key] = True
         return refines, needs
 
     def target(self, line, key, value):

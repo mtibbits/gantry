@@ -363,6 +363,16 @@ FENCE = "`" * 3
     # Not a fence on a page: a backtick info string holding a backtick, or a run 4+ columns past the marker.
     ("> " + FENCE + "a`b\n> - FR-1: a\n", [(2, "malformed_item", QUOTE)]),
     (">     " + FENCE + "\n> - FR-1: a\n", [(2, "malformed_item", QUOTE)]),
+    # Only spaces and tabs sit around a quote marker, at most 3 columns in, as a page reads it.
+    (NB + "> " + FENCE + "\n> - FR-1: a\n", [(2, "malformed_item", QUOTE)]),
+    (">" + NB + FENCE + "\n> - FR-1: a\n", [(2, "malformed_item", QUOTE)]),
+    ("> " + NB + FENCE + "\n> - FR-1: a\n", [(2, "malformed_item", QUOTE)]),
+    ("    > " + FENCE + "\n> - FR-1: a\n", [(2, "malformed_item", QUOTE)]),
+    # A quoted fence closes when its quote depth drops.
+    ("> > " + FENCE + "\n> - FR-1: a\n", [(2, "malformed_item", QUOTE)]),
+    ("> > " + FENCE + "\n> - FR-1: a\n> > " + FENCE + "\n", [(2, "malformed_item", QUOTE)]),
+    # A stated limit: a fence inside a list item inside a quote runs on past the item's end.
+    ("> - x\n>   " + FENCE + "\n> - FR-1: a\n", []),
 ])
 def test_quoted_fence_hides_only_its_own_lines(text, report):
     s = parse(text)
@@ -999,13 +1009,23 @@ def test_list_with_text_after_its_bracket(text, report, field, value):
     assert got == (rid(value) if isinstance(value, str) else value)
 
 
-def test_malformed_list_then_its_key_repeated():
-    # The first is not kept when it cannot be read: the report says neither is read.
-    s = parse("- UC-1: c {needs: [x] [y], needs: [FR-1]}\n- FR-1: a\n")
-    assert rows(s) == [(1, "malformed_meta", "needs: " + MALFORMED_LIST),
-                       (1, "malformed_meta", "key 'needs' is repeated in the meta block, and the first is "
-                                             "malformed; neither is read")]
-    assert s.requirements["alpha:UC-1"].needs == []
+NEITHER = "key '{}' is repeated in the meta block; the first is not read, so neither is"
+
+
+@pytest.mark.parametrize("text, first, key", [
+    ("- UC-1: c {needs: [x] [y], needs: [FR-1]}\n- FR-1: a\n", (1, "malformed_meta", "needs: " + MALFORMED_LIST),
+     "needs"),
+    ("- FR-2: c {refines: [SR-1], refines: SR-1}\n- SR-1: a\n",
+     (1, "malformed_meta", "refines: takes one target, not a list; it is not read"), "refines"),
+    ("- FR-2: c {needs: [x] [y], needs: [FR-1]}\n- FR-1: a\n",
+     (1, "misplaced", "needs: on alpha:FR-2, which is not a use case; it is not read"), "needs"),
+])
+def test_unread_key_then_repeated(text, first, key):
+    # The first is not kept when it was not read: the report says neither is read.
+    s = parse(text)
+    assert sorted(rows(s)) == sorted([first, (1, "malformed_meta", NEITHER.format(key))])
+    r = next(r for r in s.requirements.values() if r.id.number == 2 or r.id.code == "UC")
+    assert (r.refines, r.needs) == (None, [])
 
 
 def test_misplaced_item_is_dropped_before_its_block():
@@ -1203,7 +1223,8 @@ def test_format_doc_states_report_causes():
         "a quoted ID item inside it is still reported",
         req.BARE_CR, "a bare carriage return is still reported there",
         "any character Python's `str.isspace()` accepts",
-        "with no line feed after it and text after it", "and the first is malformed; neither is read",
+        "with no line feed after it and text after it", "the first is not read, so neither is",
+        "a fence inside a list item inside a quote runs on past that item's end",
     ]
     assert [w for w in wanted if w not in doc] == []
 
