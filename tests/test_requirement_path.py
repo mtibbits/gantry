@@ -12,6 +12,7 @@ from dataclasses import replace
 
 import pytest
 
+import gantry.path
 from gantry import build
 from gantry.config import load_config
 from gantry.inputs import scheduled
@@ -451,7 +452,7 @@ def test_hours_text_agrees_with_num():
 
 
 def test_build_paths_scales(monkeypatch):
-    count = 0
+    count = reads = 0
 
     class Key(str):
         """A key that counts every hash and comparison made on it."""
@@ -471,43 +472,60 @@ def test_build_paths_scales(monkeypatch):
     for op in ("__eq__", "__ne__", "__lt__", "__le__", "__gt__", "__ge__"):
         setattr(Key, op, counting(getattr(str, op)))
 
-    spent = {}  # name: [count inside it, items handed to it]
+    class Item(dict):
+        """An item that counts every field read made on it with []."""
+
+        def __getitem__(self, field):
+            nonlocal reads
+            reads += 1
+            return dict.__getitem__(self, field)
+
+    spent = {}  # name: [key tests inside it, field reads inside it, items handed to it]
 
     def counted(name, fn):
-        tally = spent[name] = [0, 0]
+        tally = spent[name] = [0, 0, 0]
 
         def wrapper(items):
-            before = count
+            keys, fields = count, reads
             out = fn(items)
-            tally[0] += count - before
-            tally[1] += len(items)
+            tally[0] += count - keys
+            tally[1] += reads - fields
+            tally[2] += len(items)
             return out
         return wrapper
 
     for name, fn in (("work_order", work_order), ("heaviest", heaviest)):
-        monkeypatch.setattr(f"gantry.path.{name}", counted(name, fn))
+        monkeypatch.setattr(gantry.path, name, counted(name, fn))
 
     rng = random.Random(77)
     n = 500
-    items = [it(Key(f"k{j}"), rng.choice((1, 2, 6)), [Key(f"k{p}") for p in rng.sample(range(j), min(j, 2))],
-                rng.randint(1, 4), j) for j in range(n)]
+    items = [Item(it(Key(f"k{j}"), rng.choice((1, 2, 6)), [Key(f"k{p}") for p in rng.sample(range(j), min(j, 2))],
+                     rng.randint(1, 4), j)) for j in range(n)]
     links = [(p, item["key"]) for item in items for p in item["preds"]]
     serving = {f"R{r}": ([[f"k{j}", "direct"] for j in range(n) if (j + r) % 7], [], 0) for r in range(10)}
+    before = count
     paths = build_paths(serving, items, unestimated=set(), links=links, foreign={})
+    total = count - before
 
     size = sum(len(p.order) for p in paths.values())
-    wo, wo_in = spent["work_order"]
-    hv, hv_in = spent["heaviest"]
+    wo, wo_reads, wo_in = spent["work_order"]
+    hv, _, hv_in = spent["heaviest"]
+    body = total - wo - hv
     assert wo_in == hv_in == size, (f"work_order saw {wo_in} items and heaviest {hv_in} for {size} path leaves: "
-                                    "build_paths no longer calls the wrapped names")
+                                    "the wrappers no longer see each path's items exactly once")
     assert wo >= wo_in, f"work_order made {wo} key tests on {wo_in} items: the count no longer sees it"
+    assert wo_reads >= wo_in, f"work_order made {wo_reads} field reads on {wo_in} items: the count no longer sees it"
     assert hv >= hv_in, f"heaviest made {hv} key tests on {hv_in} items: the count no longer sees it"
-    # The heap makes about 21 key tests per leaf; a scan that looks up or tests pending items by key on every
-    # pick makes hundreds (293 for a key scan here, and the count grows with n). Only hashing and comparing
-    # keys count: a scan over positional lists or item fields that never hashes or compares a key escapes.
+    # The heap makes about 21 key tests and 13 field reads per leaf; a scan over pending items on every pick
+    # makes hundreds of one or the other, and the count grows with n. Only hashing or comparing keys and []
+    # reads of item fields count: a scan over positional lists that touches neither escapes.
     assert wo <= 70 * size, (f"work_order made {wo} key tests for {size} path leaves: "
                              "it scans pending items on each pick")
+    assert wo_reads <= 40 * size, (f"work_order made {wo_reads} field reads for {size} path leaves: "
+                                   "it scans pending items on each pick")
     assert hv <= 100 * size, f"heaviest made {hv} key tests for {size} path leaves: its walk is no longer linear"
+    assert body <= 50 * size, (f"build_paths made {body} key tests outside work_order and heaviest for {size} "
+                               "path leaves: its own walk or filter is no longer linear")
 
     # The plain-str serving keys find their Key members because Key hashes and compares as str.
     members = path_set([k for k, _ in serving["R3"][0]], serving["R3"][1], links, {item["key"] for item in items})
