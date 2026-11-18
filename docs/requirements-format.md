@@ -65,7 +65,20 @@ check. A change to this grammar is raised on that issue first.
 
 A requirements file is read as UTF-8. A leading byte-order mark is accepted
 and skipped. A file that is not valid UTF-8 is reported `unreadable`, naming
-the byte where decoding failed.
+the byte where decoding failed. A path that names nothing, including a path
+under a file, is reported "the requirements file does not exist", and a
+directory "the requirements file is not a file". These two read the same on
+every operating system; any other failure to read names the operating
+system's reason ("cannot read the requirements file: ...").
+
+Lines end at a line feed (LF) or a CR LF pair. A carriage return with no
+line feed after it cuts its line there: the rest of the line is not read
+and, unless it is only whitespace, is reported `malformed_item`, "a carriage
+return (CR) with no line feed after it: lines end only at LF or CRLF, so
+the rest of this line is not read". This holds inside fences and comments
+too, since the line is cut before they are paired. So a file whose lines
+end in CR alone (an old Mac file) reads as its first line only, with one
+report.
 
 ## File shape
 
@@ -81,10 +94,12 @@ Everything else is prose: headings, paragraphs, tables, and list items that
 do not start like an ID. Prose is ignored and never reported.
 
 Lines inside fenced code blocks are ignored too, so a file can show
-examples. A fence opened by three or more backticks or tildes is closed by
-the first later line of the same character, at least as long, with nothing
-after it. A backtick opener whose info string holds a backtick is not an
-opener. An opener with no closer is ordinary text and hides nothing. Inside
+examples (a bare carriage return is still reported there: see
+[Encoding](#encoding)). A fence opened by three or more backticks or
+tildes is closed by the first later line of the same character, at least
+as long, with nothing after it. A backtick opener whose info string holds
+a backtick is not an opener. An opener with no closer is ordinary text and
+hides nothing. Inside
 a list item, the lines after an unclosed fence opener, up to the item's end,
 are a page's code, so a `<!--` among them is text, not a block comment: the
 reader keeps what it read before, after an unclosed fence. The same holds
@@ -119,23 +134,47 @@ reason that applies:
 - **FR-3:** marks around the ID
 - gantry:FR-12: a namespace (a requirement is defined with a bare ID)
 1. FR-3: an ordered list item
+> - FR-3: inside a block quote
 ```
 
-So, outside fences and comments, a typo of the shape letters, an optional
-`-`, digits, then a colon is never silently lost. A typo outside that shape,
-such as `FR_1:` or `FR.1:`, is prose and is not reported. The rule also
+A list item after a `>` (inside a block quote), or after whitespace other
+than a space or tab, is not read either: a requirement is a top-level list
+item, never one inside a block quote, and a page shows no list item after
+a no-break space. When it is a candidate it is reported with the reason
+"inside a block quote", or "indented with U+00A0 (only spaces and tabs
+indent a list item)" for a no-break space (another character is named by
+its own code point), before any other reason. Such an item under a
+requirement is reported the same way, without "requirements are not
+nested": the quote or the indent, not the nesting, is the cause. A
+candidate that starts on another list item's line, after its marker
+(`- - FR-1:`, `1. > - FR-1:`), is looked inside the same way: it is
+reported "requirements are not nested", or with the quote or indent
+reason when one comes before it.
+
+So, outside fences and comments as the reader pairs them (see the
+simplifications under [Comments](#comments)), a typo of the shape letters,
+an optional `-`, digits, then a colon is never silently lost, also after a
+`>` or after whitespace other than a space or tab (a no-break space, for
+example). A
+typo outside that shape, such as `FR_1:` or `FR.1:`, is prose and is not
+reported, as is an item after a character that is not whitespace, such as a
+zero-width space (U+200B). The rule also
 catches prose bullets that begin like an ID, such as `Step-1:`, `Q3:` and
-`v2:`, and finding labels such as `R1:`, `N2:` and `B1:`. They are reported
+`v2:`, and finding labels such as `R1:`, `N2:` and `B1:`, in a block quote
+too (`> - Q3: revenue`). They are reported
 malformed: reword them (`Step 1:`, `In Q3,`) so that they no longer start like an ID.
 
 ### Text
 
 A requirement's text runs from its first line through each following line
 indented deeper than its list marker. It stops at a blank line (empty, or
-spaces only), at a fenced line, or at a line indented no deeper than the
-marker; a tab counts as four spaces. A comment line indented to at least
-the item's content column (see below) is skipped: the text joins across it
-(see [Comments](#comments)); a comment line indented less ends the text.
+only whitespace: any character Python's `str.isspace()` accepts, such as a
+space, a tab, a no-break space U+00A0 or U+2028, though a page shows a line
+holding one of the last two as text), at a fenced line, or at a line
+indented no deeper than the marker; a tab counts as four spaces. A
+comment line indented to at least the item's content column (see below)
+is skipped: the text joins across it (see [Comments](#comments)); a
+comment line indented less ends the text.
 The lines are joined with single spaces after their leading whitespace is
 removed. A requirement with no text
 (`- FR-6:`) is read with empty text.
@@ -151,7 +190,10 @@ item's text starts: 2 for `- a`, 4 for `-   a`, 3 for `1. a`. For an
 empty item, or one whose text starts five or more columns past the marker
 (code on a rendered page), it is one past the marker. An empty item followed
 by a blank line encloses nothing. A thematic break (`* * *`, `- - -`) is not
-a list item, so it encloses nothing either. A list item encloses only when
+a list item, so it encloses nothing either, nor does it start an item: after
+a thematic break at the top level (not inside an item's text), the lines
+indented after it are not its text, and an ID item there is read as
+top-level. A list item encloses only when
 it surely starts a list: at the top of the file, or after a blank line, a
 heading, a thematic break, a fence, a comment or another list item. A
 list-shaped line right after paragraph text outside every list item (`2. x`
@@ -215,7 +257,10 @@ page:
 - The reader simplifies four things a renderer does: only the first `-->`
   on a line counts, so text after it, even a new `<!--`, is hidden with the
   comment; a backslash before `<!--` is not read as an escape; a comment
-  inside a block quote (`> <!--`) is not a block comment; and a list item
+  inside a block quote (`> <!--`) is not a block comment, and a fence
+  inside a block quote (`> ```` `) hides nothing, so a quoted ID item
+  inside either is still reported, though a page shows a quoted fence's
+  lines as code: show such an example in an unquoted fence; and a list item
   whose text starts five or more columns past its marker, which a page shows
   as code, is still read as an item, as is one nested four or more columns
   past its enclosing item's text (a `- <!--` there is still reported), and
@@ -249,7 +294,11 @@ the one ending the own text before the first nested item: the first line and
 the lines after it up to the first nested item's line. So a block closing the
 text on a continuation line is read when nested items or statements follow.
 Any other block, one after a nested item or in a statement included, may
-belong to that item, so it is reported and not read.
+belong to that item, so it is reported and not read. When a block is read
+(the one ending the first line, or else the last one ending the own text),
+any other block that ends a line of the text, wherever the read one sits,
+is reported "a second meta block on one item"; any other block in the text
+or in a statement is reported "a meta block inside the text".
 
 ```text
 - UC-1: A keeper logs the lamp's nightly check. {needs: [FR-1, QA-1]}
@@ -266,6 +315,9 @@ Its keys:
   list. A use case with no `needs:` key needs nothing and is not reported,
   so a use case may be written before its requirements.
 
+An empty entry after a comma, such as the one after a trailing comma
+(`{refines: SR-1, }`), is skipped, as devagent skips it.
+
 A target is a bare ID, in the file's own namespace, or a full ID
 (`ferry:SR-2`). A value or list entry may carry one layer of matching quotes
 (`'SR-1'` or `"SR-1"`), which is removed: devagent's writer quotes a value
@@ -276,10 +328,15 @@ Reported, with the requirement still read:
 
 - `malformed_meta`: a block that cannot be read (an entry with no key, an
   unclosed `[` or quote, or a block with no closing `}` or with a brace
-  inside it), any key other than `refines` and `needs`, a key
-  repeated in one block (the first is kept), a list given to `refines:`,
-  `needs: []`, a second meta block on one item, and a block that starts with
-  a word and a colon anywhere else in the text. A second or mid-text block
+  inside it), any key other than `refines` and `needs`, a key repeated in
+  one block (the first is kept, unless it was not read: then "the first is
+  not read, so neither is"), a list given to `refines:`, `needs: []`, a
+  list with text after its `]` (`{needs: [FR-1] [FR-2]}`, reported "needs:
+  a malformed list, with text after its ']'; it is not read", while the
+  block's other keys are still read: which targets were meant is unknown,
+  so none is guessed), a second meta block on one item,
+  and a block that starts with a word and a colon anywhere else in the
+  text. A second or mid-text block
   stays in the text, and its links are not read.
 - `malformed_link`: a target that is not a requirement ID; it is dropped.
 - `misplaced`: `needs:` on an item that is not a use case, and a link into
@@ -430,9 +487,9 @@ line, then in this order:
 
 | Kind | When |
 |---|---|
-| `unreadable` | the path does not exist, is not a file, or is not valid UTF-8; the set is empty |
-| `malformed_item` | a list item the reader cannot place: a candidate that is not a requirement, or a `Threshold:` or `Objective:` item that is not a statement, with its reasons |
-| `malformed_meta` | a meta block that cannot be read, or a key or value shape it does not allow |
+| `unreadable` | the path does not exist ("the requirements file does not exist"), is not a file ("the requirements file is not a file"), cannot be read, or is not valid UTF-8; the set is empty |
+| `malformed_item` | a list item the reader cannot place: a candidate that is not a requirement (one "inside a block quote" or "indented with U+00A0" included), or a `Threshold:` or `Objective:` item that is not a statement, with its reasons; or a line holding a carriage return with no line feed after it and text after it |
+| `malformed_meta` | a meta block that cannot be read, or a key or value shape it does not allow, such as a list with text after its `]` ("a malformed list, with text after its ']'; it is not read"); a second meta block on one item, or one inside the text |
 | `malformed_link` | a link target that is not a requirement ID |
 | `malformed_comment` | an HTML comment the reader does not hide: in a requirement's text (read as written), before an ID (not read), or starting a list item without closing on its line; or a block comment with no `-->`, or whose list item ends first, which hides every line after it |
 | `misplaced` | an item in a layer the file does not hold (it is dropped), `needs:` on an item that is not a use case, or a link into the installation namespace from another namespace |
