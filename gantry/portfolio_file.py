@@ -34,9 +34,11 @@ from gantry.sites import shown
 
 PORTFOLIO_LABEL = "the portfolio file"
 SECTIONS = ("business requirements", "settings")  # section None: the whole file (portfolio_unreadable, or a comment)
-# An ATX heading, matched on the line with its trailing spaces and tabs removed,
-# outside fences and HTML comments (hidden_lines). Greedy throughout, so it is linear on a long line.
-HEADING_RE = re.compile(r"(?P<hashes>#{1,6})[ \t]+(?P<text>.*)")  # fullmatch
+# An ATX heading: at most three spaces, then the hashes (CommonMark; a tab in the indent
+# counts to column 4, so it never matches). Matched on the line with its trailing spaces and
+# tabs removed, outside fences and HTML comments (hidden_lines). Greedy throughout, so it is
+# linear on a long line. The one rule finds, ends and counts sections (_sections).
+HEADING_RE = re.compile(r" {0,3}(?P<hashes>#{1,6})[ \t]+(?P<text>.*)")  # fullmatch
 BR_HEADING, SETTINGS_HEADING = "Business requirements", "Settings"  # level 2, matched exactly
 
 TOML_AT_RE = re.compile(r" \(at line (?P<line>[1-9][0-9]*), column [0-9]+\)$")  # search
