@@ -20,8 +20,6 @@ from gantry.estimates_file import find_estimates_file, read_estimates_file
 from gantry.model import Estimate, Leaf, Models, ReportEntry, SiteData, Totals, report_order
 
 NO_TIERS = "no per-leaf model tiers recorded"
-# A file with one of these report kinds is not read: no rows, no header line.
-NOT_READ = ("estimates_unreadable", "estimates_no_table")
 UNEST_WHAT = {"absent": "no est:", "placeholder": "a placeholder est:", "non_time": "a non-time est:",
               "unparseable": "an unparseable est:"}
 MESSAGES = {
@@ -32,8 +30,7 @@ MESSAGES = {
     "no_priority": "{n} open leaves have no priority and count as P3",
     "no_priority_one": "1 open leaf has no priority and counts as P3",
     "unmatched": "estimates file {name!r} line {line}: #{n} names no WBS.md line",
-    "unmatched_zero": "estimates file {name!r} line {line}: #{n} names no WBS.md line; it has a leading zero, "
-                      "so it is read as Issue-{n}, not Issue-{bare}",
+    "leading_zero": "; it has a leading zero, so it is read as Issue-{n}, not Issue-{bare}",
 }
 
 
@@ -89,22 +86,20 @@ def apply_inputs(roots, site, data, config) -> Inputs:
     report = list(found.report)
     rows, source = {}, None
     if found.path is not None:
-        read = read_estimates_file(roots, found.path, site.name, found.name, key=found.key)
-        report += read.report
-        if not any(e.kind in NOT_READ for e in read.report):
-            rows, source = read.rows, EstimatesSource(found.name, found.date, found.bad_date)
+        estimates = read_estimates_file(roots, found.path, site.name, found.name, key=found.key)
+        report += estimates.report
+        if estimates.read:
+            rows, source = estimates.rows, EstimatesSource(found.name, found.date, found.bad_date)
     unit = config.default_unit_hours
 
     holders = {node.key: node for node in (*data.rows, *data.leaves)}
     for key, row in rows.items():
         if key not in holders:
             n = key.removeprefix("Issue-")
+            message = MESSAGES["unmatched"].format(name=found.name, line=row.line, n=n)
             # The zero is kept: #012 joins only Issue-012, so say so (#108).
             if len(n) > 1 and n.startswith("0"):
-                message = MESSAGES["unmatched_zero"].format(name=found.name, line=row.line, n=n,
-                                                            bare=n.lstrip("0") or "0")
-            else:
-                message = MESSAGES["unmatched"].format(name=found.name, line=row.line, n=n)
+                message += MESSAGES["leading_zero"].format(n=n, bare=n.lstrip("0") or "0")
             report.append(ReportEntry(site.name, None, "estimates_row_unmatched", message))
 
     held = set(data.held_out)

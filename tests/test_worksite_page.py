@@ -652,8 +652,16 @@ def est_inputs(tmp_path):
     return inputs_for(tmp_path / "est", text, estimates=INPUTS / "estimates.md")
 
 
-def all_estimated_inputs(tmp_path):
-    return inputs_for(tmp_path / "all", (INPUTS / "all-estimated.md").read_bytes().decode("utf-8"))
+def all_estimated_inputs(tmp_path, estimates=None, configured=None):
+    """all-estimated.md, with `estimates` copied in as a dated file or
+    estimates.md copied in as the configured file named `configured`."""
+    folder = tmp_path / "all"
+    if configured is not None:
+        folder.mkdir()
+        shutil.copyfile(INPUTS / "estimates.md", folder / configured)
+        configured = folder / configured
+    text = (INPUTS / "all-estimated.md").read_bytes().decode("utf-8")
+    return inputs_for(folder, text, estimates=estimates, configured=configured)
 
 
 def model_with(inputs, site="alpha", unit=6):
@@ -738,11 +746,7 @@ def test_mixed_epics_fixture(tmp_path):
 def test_estimates_line_names_file_and_date(tmp_path):
     harbor = sample_inputs(BUSY)
     assert ESTIMATES_LINE.format(name=harbor.estimates.name, date="2026-01-15") in visible_text(page_with(harbor, BUSY))
-    folder = tmp_path / "configured"
-    folder.mkdir()
-    shutil.copyfile(INPUTS / "estimates.md", folder / "my-estimates.md")
-    text = (INPUTS / "all-estimated.md").read_bytes().decode("utf-8")
-    configured = inputs_for(folder, text, configured=folder / "my-estimates.md")
+    configured = all_estimated_inputs(tmp_path, configured="my-estimates.md")
     assert ESTIMATES_UNDATED.format(name="my-estimates.md") in visible_text(page_with(configured))
     quarry = model_with(sample_inputs(UNESTIMATED), UNESTIMATED)
     assert "no estimates file" in quarry["panel"]
@@ -751,11 +755,7 @@ def test_estimates_line_names_file_and_date(tmp_path):
 
 def test_estimates_line_names_invalid_date(tmp_path):
     # Driven end to end, so a dropped bad_date pass-through reddens (#108).
-    folder = tmp_path / "bad-date"
-    folder.mkdir()
-    shutil.copyfile(INPUTS / "estimates.md", folder / "estimates-2026-02-30.md")
-    text = (INPUTS / "all-estimated.md").read_bytes().decode("utf-8")
-    inputs = inputs_for(folder, text, configured=folder / "estimates-2026-02-30.md")
+    inputs = all_estimated_inputs(tmp_path, configured="estimates-2026-02-30.md")
     assert inputs.estimates == EstimatesSource("estimates-2026-02-30.md", None, "2026-02-30")
     page = visible_text(page_with(inputs))
     assert "Estimates read from estimates-2026-02-30.md (its name's date 2026-02-30 is not a valid date)." in page
@@ -766,8 +766,7 @@ def test_estimates_line_names_invalid_date(tmp_path):
 def test_no_table_file_has_no_estimates_line(tmp_path):
     # A file with no `#` table is not read, so the header names no file (#108).
     (tmp_path / "notes.md").write_bytes(b"Notes only.\n")
-    text = (INPUTS / "all-estimated.md").read_bytes().decode("utf-8")
-    inputs = inputs_for(tmp_path / "prose", text, estimates=tmp_path / "notes.md")
+    inputs = all_estimated_inputs(tmp_path, estimates=tmp_path / "notes.md")
     m = model_with(inputs)
     assert inputs.estimates is None
     assert m["notes"]["estimates"] is None
@@ -800,20 +799,16 @@ def test_panel_groups_unestimated_by_class(tmp_path):
 @pytest.mark.parametrize("n", [20, 21, 160])
 def test_unestimated_line_capped(tmp_path, n):
     # At most 20 keys, in report order, then "and N more"; {n} stays the total (#108).
+    # The literal tails pin the cap at 20; the full line is built from the module.
+    cap = worksite.UNESTIMATED_CAP
     text = "".join(f"- [ ] L{i} {{issue: Issue-{i}}}\n" for i in range(1, n + 1))
     inputs = inputs_for(tmp_path / "many", text)
-    lines = [line for line in model_with(inputs)["panel"] if " and no estimates-file hours " in line]
-    assert len(lines) == 1
-    (line,) = lines
-    assert line.startswith(f"{n} leaves with no est: and no estimates-file hours are unestimated: ")
-    assert line.count("Issue-") == min(n, 20)
+    (line,) = [line for line in model_with(inputs)["panel"] if " and no estimates-file hours " in line]
     tails = {20: "Issue-19, Issue-20", 21: "Issue-19, Issue-20 and 1 more", 160: "Issue-20 and 140 more"}
     assert line.endswith(tails[n])
-    if n <= 20:
-        assert " more" not in line
-    keys = ", ".join(f"Issue-{i}" for i in range(1, min(n, 20) + 1))
-    if n > 20:
-        keys = worksite.UNESTIMATED_MORE.format(keys=keys, more=n - 20)
+    keys = ", ".join(f"Issue-{i}" for i in range(1, min(n, cap) + 1))
+    if n > cap:
+        keys = worksite.UNESTIMATED_MORE.format(keys=keys, more=n - cap)
     assert line == worksite.UNESTIMATED_LINE.format(n=n, what="no est:", keys=keys)
 
 
@@ -1367,7 +1362,7 @@ def test_doc_states_estimates_messages():
     # The templates are read from the modules, never copied here (#108).
     from gantry import estimates_file, inputs
     templates = [estimates_file.MESSAGES["no_table"], estimates_file.MESSAGES["bad_date"],
-                 inputs.MESSAGES["unmatched_zero"]]
+                 inputs.MESSAGES["unmatched"] + inputs.MESSAGES["leading_zero"]]
     doc = " ".join((ROOT / "docs" / "worksite-page.md").read_bytes().decode("utf-8").split())
     assert [t for t in templates if f"`{t}`" not in doc] == []
 
