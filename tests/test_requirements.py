@@ -349,6 +349,32 @@ def test_quoted_candidate_under_an_item(text, line, why):
     assert list(s.requirements) == ["alpha:FR-1"]
 
 
+NOT_NESTED = "requirements are not nested"
+
+
+@pytest.mark.parametrize("text, report, keys", [
+    # An item that starts on another list item's line is looked inside, quoted or not.
+    ("- > - FR-1: a\n", [(1, "malformed_item", QUOTE)], []),
+    ("* > - FR-1: a\n", [(1, "malformed_item", QUOTE)], []),
+    ("1. > - FR-1: a\n", [(1, "malformed_item", QUOTE)], []),
+    ("- FR-9: x\n  - > - FR-1: a\n", [(2, "malformed_item", QUOTE)], ["alpha:FR-9"]),
+    ("- - FR-1: a\n", [(1, "malformed_item", "'FR-1:' is not a requirement: " + NOT_NESTED)], []),
+    ("- x\n- - FR-1: a\n", [(2, "malformed_item", "'FR-1:' is not a requirement: " + NOT_NESTED)], []),
+    ("> - - FR-1: a\n", [(1, "malformed_item", QUOTE)], []),
+    ("- > - > - FR-1: a\n", [(1, "malformed_item", QUOTE)], []),
+    ("- 3. FR-1: a\n", [(1, "malformed_item", "'FR-1:' is not a requirement: an ordered list item (a requirement "
+                                            "uses -, * or +); " + NOT_NESTED)], []),
+    # Prose inside: nothing is reported.
+    ("- - note\n", [], []),
+    ("- 2024. was a good year\n", [], []),
+    ("- > a quoted note\n", [], []),
+])
+def test_item_on_another_items_line(text, report, keys):
+    s = parse(text)
+    assert rows(s) == report
+    assert list(s.requirements) == keys
+
+
 FENCE = "`" * 3
 
 
@@ -735,6 +761,8 @@ HOSTILE = [
     "<!--" * 25_000,
     "- FR-1: x " + "`` ` " * 20_000 + "<!--",
     ">" * 100_000 + " - FR-1: x",
+    "- " * 50_000 + "FR-1: x",
+    "- > " * 25_000 + "x",
     chr(0xA0) * 100_000 + "- FR-1: x",
 ]
 
@@ -1230,6 +1258,7 @@ def test_format_doc_states_report_causes():
         "with no line feed after it and text after it", "the first is not read, so neither is",
         "a fence inside a block quote (`> ```` `) hides nothing", "show such an example in an unquoted fence",
         "outside fences and comments as the reader pairs them",
+        "candidate that starts on another list item's line, after its marker",
     ]
     assert [w for w in wanted if w not in doc] == []
 

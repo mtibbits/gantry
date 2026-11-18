@@ -56,6 +56,7 @@ HEADING_START_RE = re.compile(r"[ \t]*#{1,6}(?:[ \t]|$)")  # match, at most 3 co
 HTML_START_RE = re.compile(r"[ \t]*</?[A-Za-z]")  # match, at most 3 columns in: an HTML block may start
 FENCE_RE = re.compile(r"[ \t]*(?P<run>`{3,}|~{3,})(?P<info>.*)")  # fullmatch
 LEAD_RE = re.compile(r"[\s>]*")  # .match: quote markers and Unicode whitespace before an item's marker
+STEP_RE = re.compile(r"(?P<lead>[\s>]*)(?P<marker>[-*+]|[0-9]{1,9}[.)])[ \t]+")  # .match: one more marker
 NEAR_RE = re.compile(r"^[ \t]*(?:>|[^\S \t\r\n])", re.M)  # .search: a line near_item may report
 BLOCK_RE = re.compile(r"\{[ \t]*[A-Za-z_][A-Za-z0-9_]*[ \t]*:[^{}]*\}")  # finditer
 _OPENER_RE = re.compile(r"\{[ \t]*[A-Za-z_][A-Za-z0-9_]*[ \t]*:")  # a block's start, closed or not
@@ -530,12 +531,35 @@ class _Reader:
         rest = m["rest"]
         c = CANDIDATE_RE.match(rest) if rest is not None else None
         if c is None:
+            if rest is not None:
+                self.inner(line, rest, lead)
             return None  # prose
         why = [*lead, *_reasons(m["marker"], c, nested)]
         if why:
             self.add(line, "malformed_item", f"{rest[: c.end()]!r} is not a requirement: {'; '.join(why)}")
             return None
         return c
+
+    def inner(self, line, text, lead):
+        """Report a candidate that starts on another list item's line, after the item's own
+        marker (`- - FR-1:`, `- > - FR-1:`): a page shows it nested, never at the top level.
+        The markers, quote markers and whitespace before it are walked once, left to right."""
+        quote, odd, marker, pos = False, None, None, 0
+        while (s := STEP_RE.match(text, pos)) is not None:
+            quote = quote or ">" in s["lead"]
+            if odd is None:
+                odd = next((ch for ch in s["lead"] if ch.isspace() and ch not in " \t"), None)
+            marker, pos = s["marker"], s.end()
+        c = CANDIDATE_RE.match(text, pos) if marker is not None else None
+        if c is None:
+            return
+        why = list(lead)
+        if quote and _WHY["quote"] not in why:
+            why.append(_WHY["quote"])
+        if odd is not None and not any(w.startswith("indented with") for w in why):
+            why.append(_WHY["indent"].format(char=f"U+{ord(odd):04X}"))
+        why += _reasons(marker, c, not why)  # nested in the outer item, unless a quote or indent is the cause
+        self.add(line, "malformed_item", f"{text[pos : c.end()]!r} is not a requirement: {'; '.join(why)}")
 
     def near_item(self, line, text):
         """Report a line that is an item after a quote marker, or after whitespace other

@@ -145,7 +145,11 @@ a no-break space. When it is a candidate it is reported with the reason
 indent a list item)" for a no-break space (another character is named by
 its own code point), before any other reason. Such an item under a
 requirement is reported the same way, without "requirements are not
-nested": the quote or the indent, not the nesting, is the cause.
+nested": the quote or the indent, not the nesting, is the cause. A
+candidate that starts on another list item's line, after its marker
+(`- - FR-1:`, `1. > - FR-1:`), is looked inside the same way: it is
+reported "requirements are not nested", or with the quote or indent
+reason when one comes before it.
 
 So, outside fences and comments as the reader pairs them (see the
 simplifications under [Comments](#comments)), a typo of the shape letters,
