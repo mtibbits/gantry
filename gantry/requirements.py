@@ -525,22 +525,22 @@ class _Reader:
     def add(self, line, kind, message):
         self.report.append(ReportEntry(self.source, line, kind, message))
 
-    def candidate(self, line, m, nested, lead=()):
+    def candidate(self, line, m, nested, reasons=()):
         """Report an ID-shaped item that is not a requirement; return the
-        candidate match when it is one. `lead` holds reasons found before the marker."""
+        candidate match when it is one. `reasons` holds those found before the marker."""
         rest = m["rest"]
         c = CANDIDATE_RE.match(rest) if rest is not None else None
         if c is None:
             if rest is not None:
-                self.inner(line, rest, lead)
+                self.inner(line, rest, reasons)
             return None  # prose
-        why = [*lead, *_reasons(m["marker"], c, nested)]
+        why = [*reasons, *_reasons(m["marker"], c, nested)]
         if why:
             self.add(line, "malformed_item", f"{rest[: c.end()]!r} is not a requirement: {'; '.join(why)}")
             return None
         return c
 
-    def inner(self, line, text, lead):
+    def inner(self, line, text, reasons):
         """Report a candidate that starts on another list item's line, after the item's own
         marker (`- - FR-1:`, `- > - FR-1:`): a page shows it nested, never at the top level.
         The markers, quote markers and whitespace before it are walked once, left to right."""
@@ -553,7 +553,7 @@ class _Reader:
         c = CANDIDATE_RE.match(text, pos) if marker is not None else None
         if c is None:
             return
-        why = list(lead)
+        why = list(reasons)
         if quote and _WHY["quote"] not in why:
             why.append(_WHY["quote"])
         if odd is not None and not any(w.startswith("indented with") for w in why):
