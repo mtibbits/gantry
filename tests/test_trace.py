@@ -149,8 +149,9 @@ def test_satisfies_from_stopgap_meta():
      ["objective"]),
     ("satisfies: lighthouse:FR-1, typo:FR-2, harbor:FR-3", ["satisfies", "typo", "harbor"], {"harbor"}, []),
     ("issue: Issue-3, satisfies: lighthouse:FR-1, issue: Y, est: 2h", ["issue", "satisfies", "est"], {"est"}, ["est"]),
+    ("satisfies: [lighthouse:FR-1], lighthouse:FR-2", ["satisfies", "lighthouse"], set(), []),
 ], ids=["ac1", "ac2", "ac3", "ac4", "ac4-one-key", "ac5", "limit-est", "limit-repeat", "objective-site",
-        "limit-unknown-second", "repeat-shifts"])
+        "limit-unknown-second", "repeat-shifts", "limit-closed-bracket"])
 def test_unbracketed_list_only_directly_after_a_scalar_satisfies(body, keys, extra, reported):
     # Only the key read directly after a satisfies that is not a bracketed list counts (#114). The limit-* legs
     # are the known limits that docs/requirements-format.md states.

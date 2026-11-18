@@ -490,7 +490,7 @@ an unbracketed `satisfies: a:X, a:Y` splits at its first comma into
   first writing, so the key read directly after `satisfies:` can be one
   written further on. An unbracketed `objective:` has its own report,
   `unbracketed_objective` ([The `objective:` key](#the-objective-key)).
-  The rule has three limits:
+  The rule has four limits:
   - A meta key written directly after a single ID still reads as a split
     list when a site has its name: on a site named `est`,
     `satisfies: lighthouse:FR-1, est: 2h` is reported, as
@@ -499,10 +499,15 @@ an unbracketed `satisfies: a:X, a:Y` splits at its first comma into
     single ID (`satisfies: [lighthouse:FR-1]`) or give the site another
     name.
   - When the key written after `satisfies:` repeats one written before
-    it, nothing is reported.
+    it, that key is not tested; the next key written after it is, if
+    there is one.
   - When an unbracketed list's second entry names no known namespace, as
     in `satisfies: lighthouse:FR-1, typo:FR-2, harbor:FR-3`, nothing is
     reported, though every entry after the first is lost.
+  - When a bracket closes too early, as in
+    `satisfies: [lighthouse:FR-1], lighthouse:FR-2`, the ID after it is
+    lost unreported: a key after a bracketed `satisfies:` is never
+    tested.
 - An ID repeated on one leaf counts once.
 - `satisfies: []` names nothing.
 

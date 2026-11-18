@@ -88,9 +88,9 @@ separated by commas: a `[...]` value is a list, a quoted value runs to its
 closing quote (commas included), a plain value runs to the next comma, and a
 later duplicate key wins. So `satisfies: a:X, a:Y` reads as two keys,
 `satisfies: a:X` and `a: Y`; write a list as `[a:X, a:Y]`. When such a
-key comes directly after a `satisfies:` that is not a bracketed list and
-equals a known namespace, the trace reports it as a probable unbracketed
-list, and it reports no other key
+key equals a known namespace and comes directly after a `satisfies:` that
+is not a bracketed list, the trace reports it as a probable unbracketed
+list, and it reports no other key as one
 ([requirements-format.md](requirements-format.md#the-satisfies-key)).
 
 ### Identity
