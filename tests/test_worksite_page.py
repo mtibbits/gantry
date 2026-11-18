@@ -808,15 +808,16 @@ def test_wave_caption_names_p0():
     assert "every leaf whose own priority is P0 or P1" in visible_text(page_for())
 
 
-def test_p0_note_lists_leaf_and_inheritor(tmp_path):
+def test_p0_site_model_has_no_p0_note(tmp_path):
+    m = model_with(est_inputs(tmp_path))
+    assert [leaf["key"] for leaf in m["leaves"] if leaf["eff"] == 0] == ["Issue-20", "Issue-21"]
+    assert "p0" not in m["notes"]
+
+
+def test_p0_site_has_no_order_note(tmp_path):
     inputs = est_inputs(tmp_path)
-    assert model_with(inputs)["notes"]["p0"] == ["Issue-20", "Issue-21"]
-    assert worksite.P0_NOTE + "Issue-20, Issue-21" in visible_text(page_with(inputs))
-
-
-def test_no_p0_no_note():
-    assert model()["notes"]["p0"] is None
-    assert "does not know P0" not in visible_text(page_for())
+    assert [leaf["key"] for leaf in model_with(inputs)["leaves"] if leaf["eff"] == 0] == ["Issue-20", "Issue-21"]
+    assert "wbs order" not in visible_text(page_with(inputs))
 
 
 # --- the re-ported prototype figures (#10) ----------------------------------------------
@@ -1050,8 +1051,6 @@ def test_p0_sample_site(node, tmp_path):
     inputs, page = inputs_page(UNESTIMATED)
     m = model_with(inputs, UNESTIMATED)
     assert by_key(m)["Issue-8"]["wave_full"] is True
-    assert m["notes"]["p0"] == ["Issue-8", "Issue-9"]
-    assert worksite.P0_NOTE + "Issue-8, Issue-9" in visible_text(page)
     with open_page(write(tmp_path, page)) as live:
         assert keys_of(live.query("#gantt circle.pr-p0")) == {"Issue-8"}
 
@@ -1283,7 +1282,7 @@ PAGE_TEXTS = [getattr(worksite, name) for name in (
     "SCHEDULE_LABEL", "STUCK_LINE", "STUCK_LINE_ONE", "NO_TIERS", "NO_LEAVES", "NO_OPEN", "ALL_HELD",
     "NOTHING_MISSING", "NO_ISSUE_LINE", "NO_ISSUE_LINE_ONE", "WAITS_LINE", "FOREIGN", "CHAIN_LINE",
     "CAPACITY_LINE", "INCLUDES", "INCLUDES_ONE", "DATES", "DATES_ONE", "ESTIMATES_LINE", "ESTIMATES_UNDATED",
-    "NON_TIME_LINE", "UNESTIMATED_LINE", "UNESTIMATED_LINE_ONE", "P0_NOTE", "SUMMARY", "SUMMARY_UNEST",
+    "NON_TIME_LINE", "UNESTIMATED_LINE", "UNESTIMATED_LINE_ONE", "SUMMARY", "SUMMARY_UNEST",
     "SUMMARY_UNEST_ONE", "LIMITS_CAPTION", "SUMMARY_NO_CHAIN", "LIMITS_CAPTION_NO_CHAIN", "NO_CHAIN",
     "FINISHED_HEADING", "NO_ISSUE_ID", "NO_FINISHED",
     # A full build's foreign entries (#68).

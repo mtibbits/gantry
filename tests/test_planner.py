@@ -1091,7 +1091,7 @@ def test_continues_leaf_keeps_fair_share_on_day_two(tmp_path):
 
 
 def p0_cases(tmp_path):
-    """(plan, {site: the worksite page's notes.p0 or []}) of p0/, cross_site/ and the demo."""
+    """(plan, {site: the worksite page's leaves whose effective priority is 0}) of p0/, cross_site/ and the demo."""
     from gantry.views import worksite
 
     for base in ("p0", "cross_site", "demo"):
@@ -1100,8 +1100,8 @@ def p0_cases(tmp_path):
         pages = {}
         for name in result.pages:
             inputs = result.inputs[name]
-            pages[name] = worksite.page_model(name, inputs.data, default_unit_hours=config.default_unit_hours,
-                                              inputs=inputs)["notes"]["p0"] or []
+            model = worksite.page_model(name, inputs.data, default_unit_hours=config.default_unit_hours, inputs=inputs)
+            pages[name] = [leaf["key"] for leaf in model["leaves"] if leaf["eff"] == 0]
         yield plan_week(result, portfolio, config), pages
 
 
