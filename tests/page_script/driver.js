@@ -123,7 +123,8 @@ function query(page, selector) {
 }
 
 // An empty set would leave same() true while the match stayed empty, which
-// says nothing about identity. Refused before the set, so an earlier one stays.
+// says nothing about identity. The refusal comes before the store, so an
+// earlier set under the name stays.
 function remember(page, name, selector) {
   const nodes = matchAll(page, selector);
   if (nodes.length === 0) throw new PageError("remember: " + JSON.stringify(selector) + " matches no element");
