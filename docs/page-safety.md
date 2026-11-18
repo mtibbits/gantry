@@ -206,6 +206,15 @@ checks what its script built with `planted_nodes`.
   each with its `tag`, `attrs`, `classes` and `text`. The `tag` is lower
   case; attribute names are as the live DOM holds them, so an SVG name keeps
   its case, such as `viewBox`.
+- `page.remember(name, selector)` keeps, inside the driver and under `name`,
+  the elements the selector matches now, in document order. It replaces any
+  earlier set under that name and returns how many. A selector that matches
+  nothing is a `PageScriptError` and leaves any earlier set in place.
+  `page.same(name)` runs that selector again and is true only for the same
+  nodes, as many, in the same order, so it tells a node a redraw kept from an
+  equal one it rebuilt, which `query` cannot. The harness holds the
+  references and writes nothing to the page. It compares elements only, so a
+  kept element whose text was rewritten is still the same.
 - `page.planted_nodes(planted, rules=None)` reports three lists:
   - `created`: each element or attribute a planted value built, because the
     page wrote it as markup. The harness parses each value inertly, as markup
@@ -236,13 +245,15 @@ Two errors keep the page's failures apart from the harness's own:
 - `PageScriptError`: a script error at load or in a listener (a thrown
   value of any kind, or a promise the page leaves rejected), a use of
   something jsdom does not implement, a refused network call or timer, a
-  missing or disabled control or value, or a `run_function` name that is not
-  defined, is not a function, throws or returns what JSON cannot carry;
+  missing or disabled control or value, a `remember` selector that matches
+  nothing, or a `run_function` name that is not defined, is not a function,
+  throws or returns what JSON cannot carry;
 - `HarnessError`: Node or jsdom is not ready, `package.json` pins no jsdom,
   the driver could not start, exited or sent no reply within `REPLY_TIMEOUT`
-  seconds, the reply broke the protocol, or a selector is invalid. A new
-  driver first gets `START_TIMEOUT` seconds to load jsdom, so a short
-  `REPLY_TIMEOUT` times the page, not the load.
+  seconds, the reply broke the protocol, a selector is invalid, or a `same`
+  name nothing was remembered under. A new driver first gets `START_TIMEOUT`
+  seconds to load jsdom, so a short `REPLY_TIMEOUT` times the page, not the
+  load.
 
 The harness loads no subresource: a `script src`, a stylesheet or a frame
 the page names is never fetched, and `fetch`, `XMLHttpRequest`, `WebSocket`
