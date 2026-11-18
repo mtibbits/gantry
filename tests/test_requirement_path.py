@@ -8,7 +8,6 @@ Sample literals are hand-derived from samples/lighthouse/.
 import copy
 import re
 import random
-import time
 from dataclasses import replace
 
 import pytest
@@ -451,17 +450,61 @@ def test_hours_text_agrees_with_num():
                                                                                    "108"]
 
 
-def test_build_paths_scales():
+def test_build_paths_scales(monkeypatch):
+    count = 0
+
+    class Key(str):
+        """A key that counts every hash and equality test made on it."""
+        __slots__ = ()
+
+        def __hash__(self):
+            nonlocal count
+            count += 1
+            return str.__hash__(self)
+
+        def __eq__(self, other):
+            nonlocal count
+            count += 1
+            return str.__eq__(self, other)
+
+    spent = {"work_order": [0, 0], "heaviest": [0, 0]}  # name: [count inside it, items handed to it]
+
+    def counted(name, fn):
+        def wrapper(items):
+            before = count
+            out = fn(items)
+            spent[name][0] += count - before
+            spent[name][1] += len(items)
+            return out
+        return wrapper
+
+    monkeypatch.setattr("gantry.path.work_order", counted("work_order", work_order))
+    monkeypatch.setattr("gantry.path.heaviest", counted("heaviest", heaviest))
+
     rng = random.Random(77)
-    n = 2000
-    items = [it(f"k{j}", rng.choice((1, 2, 6)), [f"k{p}" for p in rng.sample(range(j), min(j, 2))],
+    n = 500
+    items = [it(Key(f"k{j}"), rng.choice((1, 2, 6)), [Key(f"k{p}") for p in rng.sample(range(j), min(j, 2))],
                 rng.randint(1, 4), j) for j in range(n)]
     links = [(p, item["key"]) for item in items for p in item["preds"]]
     serving = {f"R{r}": ([[f"k{j}", "direct"] for j in range(n) if (j + r) % 7], [], 0) for r in range(10)}
-    start = time.perf_counter()
     paths = build_paths(serving, items, unestimated=set(), links=links, foreign={})
-    assert time.perf_counter() - start < 2.0
-    assert all(len(p.order) <= n for p in paths.values())
+
+    size = sum(len(p.order) for p in paths.values())
+    wo, wo_in = spent["work_order"]
+    hv, hv_in = spent["heaviest"]
+    assert wo >= wo_in, f"work_order made {wo} key tests on {wo_in} items: the count no longer sees it"
+    assert hv >= hv_in, f"heaviest made {hv} key tests on {hv_in} items: the count no longer sees it"
+    # The heap makes about 21 key tests per leaf; a scan that looks up pending items by key or reads their
+    # fields on every pick makes hundreds (293 for a key scan here, and the count grows with n). A scan over
+    # positional lists that never touches a key escapes this count.
+    assert wo <= 70 * size, (f"work_order made {wo} key tests for {size} path leaves: "
+                             "it scans pending items on each pick")
+    assert hv <= 100 * size, f"heaviest made {hv} key tests for {size} path leaves: its walk is no longer linear"
+
+    # Key objects compare equal to plain str; plan runs after the counts are read, so it cannot disturb them.
+    members = path_set([k for k, _ in serving["R3"][0]], serving["R3"][1], links, {item["key"] for item in items})
+    planned = plan([item for item in items if item["key"] in members], 1)
+    assert [k for k, _ in paths["R3"].order] == sorted(planned, key=lambda k: planned[k][0])
 
 
 def test_work_order_is_the_one_lane_plan():
