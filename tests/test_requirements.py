@@ -870,6 +870,14 @@ def test_section_line_numbers():
     assert "on line 40;" in entry.message
 
 
+@pytest.mark.parametrize("ws", [chr(0xA0), chr(0x2028), chr(0x1C)])
+def test_unicode_whitespace_line_ends_the_text(ws):
+    # A line of only whitespace, Unicode whitespace included, is blank (#112): it ends the text.
+    s = parse("- FR-1: a\n  b\n  " + ws + "\n  c\n")
+    assert _fr1(s).text == "a b"
+    assert rows(s) == []
+
+
 @pytest.mark.parametrize("text, texts, report_lines", [
     # A CR-only file is one line: FR-1 keeps no CR and no text of FR-2.
     ("- FR-1: a\r- FR-2: b\r", {"alpha:FR-1": "a"}, [1]),
@@ -1162,6 +1170,7 @@ def test_format_doc_states_report_causes():
         "> - FR-3: inside a block quote", NBSP, "zero-width space", "> - Q3: revenue",
         "a quoted ID item inside it is still reported",
         req.BARE_CR, "a bare carriage return is still reported there",
+        "any character Python's `str.isspace()` accepts",
     ]
     assert [w for w in wanted if w not in doc] == []
 

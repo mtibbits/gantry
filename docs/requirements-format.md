@@ -160,7 +160,9 @@ malformed: reword them (`Step 1:`, `In Q3,`) so that they no longer start like a
 
 A requirement's text runs from its first line through each following line
 indented deeper than its list marker. It stops at a blank line (empty, or
-spaces only), at a fenced line, or at a line indented no deeper than the
+only whitespace: any character Python's `str.isspace()` accepts, such as a
+space, a tab, a no-break space U+00A0 or U+2028, though a page shows a line
+holding one of the last two as text), at a fenced line, or at a line indented no deeper than the
 marker; a tab counts as four spaces. A comment line indented to at least
 the item's content column (see below) is skipped: the text joins across it
 (see [Comments](#comments)); a comment line indented less ends the text.
