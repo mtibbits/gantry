@@ -49,7 +49,7 @@ MAX_DEPTH = 64  # the deepest a node may nest
 STATUSES = ("read", "no_wbs", "no_devdoc_dir", "unreadable")
 # Bounded digit groups: int() never sees a long run.
 VERSION_RE = re.compile(r"(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})")
-TIME_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,6})?(?:Z|\+00:00)")
+TIME_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T(?:[01][0-9]|2[0-3]):[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,6})?(?:Z|\+00:00)")
 
 ROOTS_KEY = "portfolio_json"
 DEFAULT_SOURCE = "the portfolio document"
@@ -240,6 +240,11 @@ def read_portfolio(roots, path) -> PortfolioInput:
 # --- the checks -------------------------------------------------------------------------------
 
 
+# A nullable key's default when it is absent: it fails every type check, so a
+# missing key is refused as a wrong type, never read as null.
+_ABSENT = object()
+
+
 class _Problem(Exception):
     def __init__(self, where, problem):
         super().__init__(where, problem)
@@ -266,7 +271,7 @@ def _check_node(node, where, ids, lines):
     _need(_is_filled(node_id), f"{where}.id", "not a non-empty string")
     _need(node_id not in ids, f"{where}.id", "used twice")
     ids.add(node_id)
-    parent = node.get("parent")
+    parent = node.get("parent", _ABSENT)
     _need(parent is None or isinstance(parent, str), f"{where}.parent", "not a string or null")
     _need(isinstance(node.get("text"), str), f"{where}.text", "not a string")
     glyph = node.get("glyph")
@@ -276,7 +281,7 @@ def _check_node(node, where, ids, lines):
     _need(_is_line(line), f"{where}.source_line", "not an integer of 1 or more")
     _need(line not in lines, f"{where}.source_line", "used twice in this project")
     lines.add(line)
-    issue = node.get("issue")
+    issue = node.get("issue", _ABSENT)
     _need(issue is None or _is_filled(issue), f"{where}.issue", "not a non-empty string or null")
     meta = node.get("meta")
     _need(isinstance(meta, dict), f"{where}.meta", "not an object")
@@ -314,7 +319,7 @@ def _check_shapes(doc, source):
         status = project.get("status")
         _need(isinstance(status, str) and status in STATUSES, f"{where}.status", "not one of " + ", ".join(STATUSES))
         read = status == "read"
-        reason = project.get("status_reason")
+        reason = project.get("status_reason", _ABSENT)
         if read:
             _need(reason is None, f"{where}.status_reason", "not null on a read project")
         else:
@@ -331,7 +336,7 @@ def _check_shapes(doc, source):
         where = f"$.parse_report[{k}]"
         _need(isinstance(entry, dict), where, "not an object")
         _need(isinstance(entry.get("project"), str), f"{where}.project", "not a string")
-        line = entry.get("source_line")
+        line = entry.get("source_line", _ABSENT)
         _need(line is None or _is_line(line), f"{where}.source_line", "not an integer of 1 or more or null")
         _need(_is_filled(entry.get("kind")), f"{where}.kind", "not a non-empty string")
         _need(isinstance(entry.get("message"), str), f"{where}.message", "not a string")
@@ -484,8 +489,21 @@ def _read_site(name, raw_nodes):
     return site
 
 
+def _dep_rank(site, entry):
+    """A mapped unresolved_ref's place in its node's depends_on: several on one
+    line keep Gantry's own order, not the order devagent's report gives them."""
+    if entry.kind != "unresolved_ref":
+        return 0
+    entries = meta_values(site.by_line[entry.line].meta.get("depends_on"))
+    for i, raw in enumerate(entries):
+        if deps.MESSAGES["unresolved_ref"].format(line=entry.line, entry=raw) == entry.message:
+            return i
+    return len(entries)
+
+
 def _site_data(site):
-    return SiteData(site.leaves, site.rows, site.links, site.held_out, tuple(sorted(site.report, key=report_order)))
+    report = sorted(site.report, key=lambda entry: (report_order(entry), _dep_rank(site, entry)))
+    return SiteData(site.leaves, site.rows, site.links, site.held_out, tuple(report))
 
 
 # --- devagent's report entries ----------------------------------------------------------------

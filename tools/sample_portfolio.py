@@ -131,8 +131,8 @@ def guard_out(samples) -> Path:
     """`<samples>/devagent/out`, or Refused; deletes nothing.
 
     The checks tools/demo_build.py makes before it deletes the demo output:
-    neither the folder nor the one above it is a link, git ignores it (by a
-    tracked .gitignore, never a local exclude file) and git tracks no file in it.
+    neither the folder nor the one above it is a link, git ignores it (a
+    .gitignore or the clone's .git/info/exclude) and git tracks no file in it.
     """
     home = _absolute(samples) / "devagent"
     out = home / "out"

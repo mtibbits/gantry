@@ -314,6 +314,8 @@ SCHEMA_ROWS = (
     ("time is a word", _set(("generated_at",), "yesterday"), "$.generated_at", "not an RFC 3339 UTC time"),
     ("time has month 13", _set(("generated_at",), "2026-13-01T00:00:00Z"), "$.generated_at",
      "not an RFC 3339 UTC time"),
+    ("time has hour 24", _set(("generated_at",), "2026-01-12T24:00:00Z"), "$.generated_at",
+     "not an RFC 3339 UTC time"),
     ("time has no zone", _set(("generated_at",), "2026-01-12T09:30:00"), "$.generated_at", "not an RFC 3339 UTC time"),
     ("time is not UTC", _set(("generated_at",), "2026-01-12T09:30:00+01:00"), "$.generated_at",
      "not an RFC 3339 UTC time"),
@@ -328,6 +330,8 @@ SCHEMA_ROWS = (
      "not one of read, no_wbs, no_devdoc_dir, unreadable"),
     ("a reason on a read project", _set(("projects", CYCLE, "status_reason"), "why"), "$.projects[0].status_reason",
      "not null on a read project"),
+    ("no reason key on a read project", _drop(("projects", CYCLE, "status_reason")), "$.projects[0].status_reason",
+     "not null on a read project"),
     ("no reason on an unreadable project", _set(("projects", NOT_UTF8, "status_reason"), None),
      "$.projects[5].status_reason", "not a non-empty string"),
     ("an empty reason", _set(("projects", NOT_UTF8, "status_reason"), ""), "$.projects[5].status_reason",
@@ -340,6 +344,7 @@ SCHEMA_ROWS = (
     ("node id used twice in a project", _set(NODE + ("id",), "n12"), f"{NODE_AT}.id", "used twice"),
     ("node id used twice across projects", _set(NODE + ("id",), "n1"), f"{NODE_AT}.id", "used twice"),
     ("parent is a number", _set(NODE + ("parent",), 7), f"{NODE_AT}.parent", "not a string or null"),
+    ("no parent key", _drop(NODE + ("parent",)), f"{NODE_AT}.parent", "not a string or null"),
     ("text is null", _set(NODE + ("text",), None), f"{NODE_AT}.text", "not a string"),
     ("unknown glyph", _set(NODE + ("glyph",), "X"), f"{NODE_AT}.glyph", f"not one of {GLYPHS}"),
     ("glyph is a list", _set(NODE + ("glyph",), [" "]), f"{NODE_AT}.glyph", f"not one of {GLYPHS}"),
@@ -357,6 +362,7 @@ SCHEMA_ROWS = (
      "used twice in this project"),
     ("issue is empty", _set(NODE + ("issue",), ""), f"{NODE_AT}.issue", "not a non-empty string or null"),
     ("issue is a number", _set(NODE + ("issue",), 3), f"{NODE_AT}.issue", "not a non-empty string or null"),
+    ("no issue key", _drop(NODE + ("issue",)), f"{NODE_AT}.issue", "not a non-empty string or null"),
     ("meta is a list", _set(NODE + ("meta",), []), f"{NODE_AT}.meta", "not an object"),
     ("a meta value is a number", _set(NODE + ("meta", "priority"), 0), f"{NODE_AT}.meta.priority",
      "not a string or a list of strings"),
@@ -368,6 +374,8 @@ SCHEMA_ROWS = (
     ("an entry's line is 0", _set(ENTRY + ("source_line",), 0), "$.parse_report[0].source_line",
      "not an integer of 1 or more or null"),
     ("an entry's line is a string", _set(ENTRY + ("source_line",), "2"), "$.parse_report[0].source_line",
+     "not an integer of 1 or more or null"),
+    ("no line key on an entry", _drop(ENTRY + ("source_line",)), "$.parse_report[0].source_line",
      "not an integer of 1 or more or null"),
     ("an entry's kind is empty", _set(ENTRY + ("kind",), ""), "$.parse_report[0].kind", "not a non-empty string"),
     ("an entry's message is null", _set(ENTRY + ("message",), None), "$.parse_report[0].message", "not a string"),
@@ -382,15 +390,15 @@ SCHEMA_ROWS = (
      "nests deeper than 64 levels"),
     ("a chain 5,000 deep", _set(("projects", EMPTY, "nodes"), chain(5000)), "$.projects[1].nodes[64].parent",
      "nests deeper than 64 levels"),
-    ("shapes are checked before parent links", _both_passes, "$.parse_report[53].message", "not a string"),
+    ("shapes are checked before parent links", _both_passes, "$.parse_report[57].message", "not a string"),
 )
 
 
 def test_schema_breaking_documents(tmp_path):
-    assert len(SCHEMA_ROWS) == 59
+    assert len(SCHEMA_ROWS) == 64
     doc = hp.written_doc()
     assert (doc["projects"][IDS]["nodes"][1]["id"], doc["projects"][IDS]["nodes"][0]["id"]) == ("n13", "n12")
-    assert doc["projects"][CYCLE]["nodes"][0]["id"] == "n1" and len(doc["parse_report"]) == 54
+    assert doc["projects"][CYCLE]["nodes"][0]["id"] == "n1" and len(doc["parse_report"]) == 58
     assert ", ".join(repr(g) for g in STATE_GLYPHS) == GLYPHS
     seen = set()
     for what, change, where, problem in SCHEMA_ROWS:
@@ -444,6 +452,27 @@ def test_type_sweep_raises_only_load_errors():
     assert read + refused == len(SWEEP_TARGETS) * len(SWEEP_VALUES) == 162
     # Most are refused; the 21 read are legal values (a null parent, any message text, an empty list, ...).
     assert (read, refused) == (21, 141)
+
+
+def test_each_key_removed_raises_only_load_errors():
+    # A missing key is a wrong type: never a KeyError, whichever key of a level goes.
+    levels = [(), ("projects", IDS), ("projects", NOT_UTF8), NODE, ENTRY]
+    read = refused = 0
+    for level in levels:
+        for key in list(_parent(hp.written_doc(), (*level, None))):
+            doc = hp.written_doc()
+            _drop(level + (key,))(doc)
+            try:
+                got = map_document(doc)
+            except PortfolioLoadError as error:
+                assert error.kind == "schema", (level, key)
+                refused += 1
+            else:
+                assert isinstance(got, PortfolioInput), (level, key)
+                read += 1
+    # The 15 read lack a field the reader does not use: a project's wbs_title, issues or rollup, a node's
+    # typed and derived fields.
+    assert (read, refused) == (15, 25)
 
 
 def test_whole_document_replaced_by_each_type():
@@ -586,7 +615,7 @@ def test_meta_holds_parsed_values_in_document_order():
     assert type(lights.deps[0].raw) is ParsedValue
 
 
-META_COUNTS = (125, 175, 42, 21)  # nodes, scalar values, list values, leaf priorities
+META_COUNTS = (128, 178, 44, 21)  # nodes, scalar values, list values, leaf priorities
 
 
 def shape(data):
@@ -678,7 +707,7 @@ def test_map_document_equals_read_portfolio(tmp_path):
     read = hp.read_doc(tmp_path, hp.written_doc())
     again = mapped()
     assert read == again
-    assert len(read.projects) == 14 and sum(len(p.data.leaves) + len(p.data.rows) for p in read.projects) == 125
+    assert len(read.projects) == 14 and sum(len(p.data.leaves) + len(p.data.rows) for p in read.projects) == 128
 
 
 def test_copied_messages_equal_the_stopgaps():
@@ -758,9 +787,10 @@ def test_every_entry_has_one_disposition():
     assert [(e.project, e.line, e.kind) for e in got.devagent_report if e.project != "edges"] == [
         ("cycle", 7, "dep_cycle"), ("fences", 17, "parser_warning"), ("nesting", 10, "unknown_meta_key"),
         ("rows", 9, "dep_cycle"), ("rows", 13, "parent_done_leaf_pending")]
-    # With `edges`: five more near misses mapped, two est_unparseable shown.
-    assert partition(names) == (54, 18, 29, 7)
-    assert partition(["edges"]) == (7, 5, 0, 2)
+    # With `edges`: five near misses and two unresolved refs mapped; two est_unparseable, an
+    # issue_malformed and a meta_unreadable shown.
+    assert partition(names) == (58, 20, 29, 9)
+    assert partition(["edges"]) == (11, 7, 0, 4)
     # What is suppressed, by devagent's kind: each is an entry Gantry's own passes report.
     gone = {}
     kept = set(got.devagent_report)
@@ -768,7 +798,7 @@ def test_every_entry_has_one_disposition():
     for raw in doc["parse_report"]:
         if as_shown(raw) not in kept and raw["kind"] not in mapped_from:
             gone[raw["kind"]] = gone.get(raw["kind"], 0) + 1
-    assert gone == {"h_malformed": 14, "est_unparseable": 2, "dep_cycle": 2, "dep_unresolved": 15}
+    assert gone == {"h_malformed": 14, "est_unparseable": 2, "dep_cycle": 2, "dep_unresolved": 17}
     assert gone["dep_unresolved"] - mapped_counts(got, names)["unresolved_ref"] == 11  # foreign or malformed
     assert 14 + 2 + 2 + 11 == 29
 

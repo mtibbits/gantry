@@ -36,8 +36,8 @@ from test_samples import ROOT, SAMPLES, git_work_tree, needs_git
 # U1: what devagent says of the sample site whose WBS.md is not UTF-8.
 MARSH_REASON = "WBS.md could not be read: UnicodeDecodeError: invalid continuation byte at byte 88"
 # The fixture's totals, as the pinned aggregator wrote them.
-FIXTURE_NODES = 125
-FIXTURE_ENTRIES = 54
+FIXTURE_NODES = 128
+FIXTURE_ENTRIES = 58
 # The 13 sources the stopgap's tests already read; `edges` is this issue's own.
 EARLIER_SOURCES = 13
 
@@ -474,10 +474,11 @@ def test_reader_matches_the_stopgap_on_the_written_fixture():
     assert found == without_why(known("fixtures"))
     assert [(e["site"], e["where"]) for e in found] == [
         ("ids", "report[10, skipped_line]"), ("ids", "report[11, skipped_line]"),
-        ("not_utf8", "report[null, site_unreadable]"),
+        ("not_utf8", "report[null, site_unreadable]"), ("edges", "nodes[13].h"),
         ("edges", "report[2, skipped_line]"), ("edges", "report[3, skipped_line]"),
         ("edges", "report[4, skipped_line]"), ("edges", "report[5, skipped_line]"),
-        ("edges", "report[6, skipped_line]"), ("edges", "report[7, skipped_line]")]
+        ("edges", "report[6, skipped_line]"), ("edges", "report[7, skipped_line]"),
+        ("edges", "report[12, no_issue]")]
     # Where the two readers disagree on which lines are near misses, devagent's reading wins.
     edges = {e["where"]: e for e in known("fixtures") if e["site"] == "edges"}
     for line in (2, 3, 4, 5, 6):
@@ -522,6 +523,15 @@ def test_diff_snapshots_sees_each_field():
     # A report entry on one side only has null opposite; two of a kind on one line pair in message order.
     extra = one(lambda s: s["report"].append([9, "unresolved_ref", "A third"]))
     assert extra == [("report[9, unresolved_ref]", "A third", None)]
+
+    def swap(s):
+        at = [i for i, (line, kind, _) in enumerate(s["report"]) if (line, kind) == (9, "unresolved_ref")]
+        assert len(at) == 2
+        s["report"][at[0]], s["report"][at[1]] = s["report"][at[1]], s["report"][at[0]]
+
+    theirs = [text for line, kind, text in committed("ids", fixture=True)["report"]
+              if (line, kind) == (9, "unresolved_ref")]
+    assert one(swap) == [("report[9, unresolved_ref].order", theirs[::-1], theirs)]
     assert one(lambda s: s["report"].append([None, "no_nodes", "WBS.md has no node lines"])) == [
         ("report[null, no_nodes]", "WBS.md has no node lines", None)]
     # What the stopgap cannot know is not compared.
@@ -691,7 +701,7 @@ def test_doc_states_the_reader_rules(capsys):
     assert not parses(shlex.split("python3 tools/update_expected_leaves.py --fixtures"))
     capsys.readouterr()
     # The doc's count of known differences is the list's.
-    assert len(known("samples")) + len(known("fixtures")) == 10 and "Today it holds ten entries" in flat
+    assert len(known("samples")) + len(known("fixtures")) == 12 and "Today it holds twelve entries" in flat
     # The skipped_line row says how devagent's reader differs.
     (row,) = [line for line in lines if line.startswith("| `skipped_line` |")]
     assert "known_differences.json" in row and "#12" in row

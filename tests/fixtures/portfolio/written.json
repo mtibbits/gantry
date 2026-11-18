@@ -6164,6 +6164,115 @@
           "depends_on": [],
           "ready": true,
           "ready_via_parent_row": false
+        },
+        {
+          "id": "n126",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "Order",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 11,
+          "issue": "Issue-8",
+          "meta": {
+            "issue": "Issue-8",
+            "depends_on": [
+              "Zeta-9",
+              "Alpha-1"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Zeta-9",
+              "scope": "local",
+              "project": "edges",
+              "issue": "Zeta-9",
+              "resolved": false
+            },
+            {
+              "raw": "Alpha-1",
+              "scope": "local",
+              "project": "edges",
+              "issue": "Alpha-1",
+              "resolved": false
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n127",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "List issue",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 12,
+          "issue": null,
+          "meta": {
+            "issue": [
+              "Issue-9"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n128",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "Open h",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 13,
+          "issue": "Issue-10",
+          "meta": {
+            "issue": "Issue-10",
+            "h": "3"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": 3,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
         }
       ],
       "issues": [
@@ -6196,15 +6305,35 @@
           "checklist": "absent",
           "next_step": null,
           "next_step_number": null
+        },
+        {
+          "issue": "Issue-8",
+          "nodes": [
+            "n126"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-10",
+          "nodes": [
+            "n128"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
         }
       ],
       "rollup": {
         "by_state": {
           "pending": {
-            "leaves": 1,
+            "leaves": 4,
             "estimated": 0,
             "estimated_derived": 0,
-            "unestimated": 1
+            "unestimated": 4
           },
           "done": {
             "leaves": 1,
@@ -6244,10 +6373,10 @@
           }
         },
         "remaining": {
-          "leaves": 1,
+          "leaves": 4,
           "estimated": 0,
           "estimated_derived": 0,
-          "unestimated": 1,
+          "unestimated": 4,
           "low_hours": 0,
           "high_hours": 0,
           "non_time": {}
@@ -6579,6 +6708,30 @@
       "source_line": 9,
       "kind": "est_unparseable",
       "message": "est \"2-3d\" is not a time, non-time or placeholder estimate"
+    },
+    {
+      "project": "edges",
+      "source_line": 11,
+      "kind": "dep_unresolved",
+      "message": "depends_on 'Alpha-1' matches no issue in this project"
+    },
+    {
+      "project": "edges",
+      "source_line": 11,
+      "kind": "dep_unresolved",
+      "message": "depends_on 'Zeta-9' matches no issue in this project"
+    },
+    {
+      "project": "edges",
+      "source_line": 12,
+      "kind": "issue_malformed",
+      "message": "issue [\"Issue-9\"] is not a string; the node carries no issue"
+    },
+    {
+      "project": "edges",
+      "source_line": 13,
+      "kind": "meta_unreadable",
+      "message": "'h' opens '[' with no ']'; the rest of the block is read as its value"
     }
   ]
 }

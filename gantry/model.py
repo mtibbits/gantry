@@ -86,7 +86,7 @@ class Leaf:
     glyph: str
     state: str
     open: bool
-    priority: str | None  # the raw text, or a ParsedValue (#83)
+    priority: str | list[str] | None  # the raw text, or a ParsedValue or a list of them (#83)
     deps: tuple[DepRef, ...]
     # Each value is raw text (a plain str, from gantry/wbs_stopgap.py) or a
     # parsed shape (a ParsedValue or a list of them, from gantry/portfolio_json.py).

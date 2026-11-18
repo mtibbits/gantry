@@ -34,6 +34,14 @@
   {
     "set": "fixtures",
     "site": "edges",
+    "where": "nodes[13].h",
+    "stopgap": null,
+    "snapshot": 3,
+    "why": "`h: [3` opens a bracket it never closes. The stopgap reads the raw text `[3`, which is no score, so its h is null and gantry.attention reports bad_h. devagent's parser stores the value as `3` and reports meta_unreadable, which the reader shows as devagent wrote it. Once #12 switches, this leaf scores 3 and gets no bad_h."
+  },
+  {
+    "set": "fixtures",
+    "site": "edges",
     "where": "report[2, skipped_line]",
     "stopgap": null,
     "snapshot": "WBS.md line 2: looks like a node but is not one: - [xx] two chars",
@@ -78,5 +86,13 @@
     "stopgap": "WBS.md line 7: not a node: glyph 'X' is not one of ' ', 'x', '-', '!', '~', '?', 'P'",
     "snapshot": null,
     "why": "The line is indented with no-break spaces. The stopgap's SKIP_RE allows any Unicode white space before the marker; devagent's NEAR_MISS_RE allows spaces and tabs only. devagent's reading wins: the line is not reported."
+  },
+  {
+    "set": "fixtures",
+    "site": "edges",
+    "where": "report[12, no_issue]",
+    "stopgap": "WBS.md line 12: leaf has no issue: id; it is named '4'",
+    "snapshot": null,
+    "why": "`issue: [Issue-9]` is a list. The stopgap treats it as no issue: id and reports no_issue. devagent sets the node's issue to null and reports issue_malformed, not leaf_no_issue, so nothing maps onto no_issue; the reader shows issue_malformed as devagent wrote it."
   }
 ]

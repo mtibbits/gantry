@@ -249,7 +249,9 @@ Any minor of major 1 is read, older or newer, and a field the reader does
 not use is ignored. The reader first checks shapes, in document order: the
 schema id, the version, the time (RFC 3339, UTC), each project's name,
 status and reason, each node's id, parent, text, glyph, state, source line,
-issue and `meta`, and each report entry. A key used twice in one JSON
+issue and `meta`, and each report entry. A missing key is refused as a
+wrong type, even where `null` is allowed (a node's parent and issue, a read
+project's reason, an entry's line). A key used twice in one JSON
 object, a project name or node id used twice, and a source line used twice
 in one project are refused. Then it checks parent links: a parent is a node
 of the same project on an earlier line, and no node nests deeper than 64
@@ -347,20 +349,27 @@ Three tests in `tests/test_portfolio_equivalence.py` stand on them:
 1. The reader against the 14 fixture snapshots, byte for byte. It needs no
    devagent checkout, so it runs on every CI leg.
 2. Gantry's own `WBS.md` reader against the snapshots, on the five sample
-   sites it can read and on the 14 fixture projects. Every difference must
+   sites with a `WBS.md` (marsh, which neither reader can read, among them)
+   and on the 14 fixture projects. Every difference must
    be an entry of `known_differences.json` in the same folder, and every
    entry must still occur. This test goes when #12 deletes that reader.
 3. The reader against the six sample snapshots, on a document made during
    the test. It needs a devagent checkout (below).
 
-`known_differences.json` is kept by hand. Today it holds ten entries, all
-report texts; no node, link or held-out key differs. devagent words an
+`known_differences.json` is kept by hand. Today it holds twelve entries.
+On the sample sites the one difference is a report text; across both
+sets, no link or held-out key differs. devagent words an
 unreadable `WBS.md`, and a near-miss line, in its own text. And the two
 readers disagree on which lines are near misses: devagent's reader reports
 `- [xx] text`, `-[x] text`, `* [ ] text`, `+ [ ] text` and every link item,
 and does not report a `- [X] text` line indented with no-break spaces.
 devagent's reading wins, so the `skipped_line` row of
-[The report](#the-report) changes when #12 switches the build.
+[The report](#the-report) changes when #12 switches the build. Two more
+shapes, in the fixture's `edges` text, change a leaf. A list `issue:` gives
+`no_issue` under Gantry's own reader, and devagent's `issue_malformed`,
+shown as written, under the portfolio reader. An unclosed `h: [3` gives no
+score and `bad_h` under Gantry's own reader, and the score 3 under the
+portfolio reader.
 
 ### The tools and the pin
 

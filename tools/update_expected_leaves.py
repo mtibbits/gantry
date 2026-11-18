@@ -120,6 +120,8 @@ def diff_snapshots(stopgap, snapshot) -> list:
     order), the links, the held-out keys, and the report, whose entries pair
     by line and kind: an entry both sides hold pairs with itself, the rest
     pair in message order, and an entry with no partner has None opposite.
+    When both sides hold the same entries for a line and kind in another
+    order, one `.order` difference lists each side's messages.
     The pin, schema version, reason and devagent entries are not compared:
     Gantry's own WBS.md reader has none of them.
     """
@@ -149,11 +151,14 @@ def diff_snapshots(stopgap, snapshot) -> list:
     groups = {}
     for side, report in enumerate((stopgap["report"], snapshot["report"])):
         for line, kind, message in report:
-            groups.setdefault((line, kind), (Counter(), Counter()))[side][message] += 1
+            groups.setdefault((line, kind), ([], []))[side].append(message)
     for (line, kind), (a, b) in sorted(groups.items(), key=lambda item: (item[0][0] is not None, item[0][0] or 0,
                                                                          item[0][1])):
-        left, right = sorted((a - b).elements()), sorted((b - a).elements())
+        mine, theirs = Counter(a), Counter(b)
+        left, right = sorted((mine - theirs).elements()), sorted((theirs - mine).elements())
         found += [(f"report[{_line(line)}, {kind}]", x, y) for x, y in zip_longest(left, right)]
+        if mine == theirs and a != b:
+            found.append((f"report[{_line(line)}, {kind}].order", a, b))
     return found
 
 

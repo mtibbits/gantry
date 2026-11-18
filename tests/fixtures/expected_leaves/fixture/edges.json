@@ -87,6 +87,113 @@
       "h": null,
       "satisfies": [],
       "objective": []
+    },
+    {
+      "line": 11,
+      "row": false,
+      "key": "Issue-8",
+      "issue": "Issue-8",
+      "outline": "3",
+      "title": "Order",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": null,
+      "parent": null,
+      "meta": {
+        "issue": "Issue-8",
+        "depends_on": [
+          "Zeta-9",
+          "Alpha-1"
+        ]
+      },
+      "depends_on": [
+        [
+          "Zeta-9",
+          "local",
+          "edges",
+          "Zeta-9"
+        ],
+        [
+          "Alpha-1",
+          "local",
+          "edges",
+          "Alpha-1"
+        ]
+      ],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 12,
+      "row": false,
+      "key": "4",
+      "issue": null,
+      "outline": "4",
+      "title": "List issue",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": null,
+      "parent": null,
+      "meta": {
+        "issue": [
+          "Issue-9"
+        ]
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 13,
+      "row": false,
+      "key": "Issue-10",
+      "issue": "Issue-10",
+      "outline": "5",
+      "title": "Open h",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": null,
+      "parent": null,
+      "meta": {
+        "issue": "Issue-10",
+        "h": "3"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": 3,
+      "satisfies": [],
+      "objective": []
     }
   ],
   "links": [],
@@ -116,6 +223,16 @@
       6,
       "skipped_line",
       "WBS.md line 6: looks like a node but is not one: - [See the design](docs/design.md)"
+    ],
+    [
+      11,
+      "unresolved_ref",
+      "WBS.md line 11: depends_on entry 'Zeta-9' names no issue: id in this file"
+    ],
+    [
+      11,
+      "unresolved_ref",
+      "WBS.md line 11: depends_on entry 'Alpha-1' names no issue: id in this file"
     ]
   ],
   "devagent": [
@@ -128,6 +245,16 @@
       9,
       "est_unparseable",
       "est \"2-3d\" is not a time, non-time or placeholder estimate"
+    ],
+    [
+      12,
+      "issue_malformed",
+      "issue [\"Issue-9\"] is not a string; the node carries no issue"
+    ],
+    [
+      13,
+      "meta_unreadable",
+      "'h' opens '[' with no ']'; the rest of the block is read as its value"
     ]
   ]
 }
