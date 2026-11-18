@@ -1147,6 +1147,23 @@ def test_doc_states_huge_int_not_finite():
     assert [k.path for k in pf.SETTINGS_KEYS if k.rule in (pf._INT_0, pf._INT_1) and "finite" in k.rule] == []
 
 
+def test_doc_states_heading_indent():
+    # #118: a heading may be indented up to three spaces, as CommonMark has it.
+    text = " ".join(doc_text(PORTFOLIO_DOC).split())
+    for clause in [
+        "A heading is an ATX heading: up to three spaces from the start of the line, then one to six `#`",
+        "That is CommonMark's indent",
+        "four or more spaces, or a tab before the first `#`",
+        "Fences keep the requirements format's indentation rule, not this one",
+        "an indented `## Notes` ends the business-requirements section",
+        "with their checks, are not read",
+        "between `## Settings` and its toml block hides the block",
+        "Indentation is counted from the line, not from an enclosing list item",
+    ]:
+        assert clause in text, clause
+    assert "A heading is an ATX heading at the start of a line" not in text
+
+
 def test_doc_rows_match_registry():
     (table,) = [t for t in md_tables(doc_text(PORTFOLIO_DOC)) if t.heading == "Settings keys"]
     assert table.header == ["Key", "Type and rule", "Default", "Read by"]
