@@ -455,7 +455,6 @@ def test_build_paths_scales(monkeypatch):
 
     class Key(str):
         """A key that counts every hash and equality test made on it."""
-        __slots__ = ()
 
         def __hash__(self):
             nonlocal count
@@ -467,19 +466,21 @@ def test_build_paths_scales(monkeypatch):
             count += 1
             return str.__eq__(self, other)
 
-    spent = {"work_order": [0, 0], "heaviest": [0, 0]}  # name: [count inside it, items handed to it]
+    spent = {}  # name: [count inside it, items handed to it]
 
-    def counted(name, fn):
+    def counted(fn):
+        tally = spent[fn.__name__] = [0, 0]
+
         def wrapper(items):
             before = count
             out = fn(items)
-            spent[name][0] += count - before
-            spent[name][1] += len(items)
+            tally[0] += count - before
+            tally[1] += len(items)
             return out
         return wrapper
 
-    monkeypatch.setattr("gantry.path.work_order", counted("work_order", work_order))
-    monkeypatch.setattr("gantry.path.heaviest", counted("heaviest", heaviest))
+    for fn in (work_order, heaviest):
+        monkeypatch.setattr(f"gantry.path.{fn.__name__}", counted(fn))
 
     rng = random.Random(77)
     n = 500
@@ -504,7 +505,7 @@ def test_build_paths_scales(monkeypatch):
                              "it scans pending items on each pick")
     assert hv <= 100 * size, f"heaviest made {hv} key tests for {size} path leaves: its walk is no longer linear"
 
-    # Key objects compare equal to plain str; plan runs after the counts are read, so it cannot disturb them.
+    # Key objects compare equal to plain str.
     members = path_set([k for k, _ in serving["R3"][0]], serving["R3"][1], links, {item["key"] for item in items})
     planned = plan([item for item in items if item["key"] in members], 1)
     assert [k for k, _ in paths["R3"].order] == sorted(planned, key=lambda k: planned[k][0])
