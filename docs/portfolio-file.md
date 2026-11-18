@@ -69,14 +69,25 @@ as prose, so the operator can keep notes in it:
 - the **settings block**: the first fenced code block whose info string is
   `toml` under the heading `## Settings`. Every setting below lives there.
 
-A heading is an ATX heading at the start of a line: one to six `#`, then a
-space or tab, then its text, with no closing `#`s. Trailing spaces and tabs
-are ignored, and the text is matched exactly, so the two headings are level 2
-and spelled as above. A line inside a fence or an HTML comment is never a
-heading, so a TOML comment such as `## Note` inside the settings block, a
-fenced example holding `## Example` in the business-requirements section, or
-a commented-out section does not count, and a fence inside a comment is not
-the settings block. Fences
+A heading is an ATX heading: up to three spaces from the start of the line,
+then one to six `#`, then a space or tab, then its text, with no closing
+`#`s. That is CommonMark's indent, so the file reads as a rendered page shows
+it: four or more spaces, or a tab before the first `#` (a tab counts to the
+next multiple of four), make the line not a heading. Fences keep the
+requirements format's indentation rule, not this one. Trailing spaces and
+tabs are ignored, and the text is matched exactly, so the two headings are
+level 2 and spelled as above. The same rule ends a section: an indented
+`## Notes` ends the business-requirements section, and the requirements
+below it, with their checks, are not read; an indented level-1 or level-2
+heading between `## Settings` and its toml block hides the block.
+Indentation is counted from the line, not from an enclosing list item, so a
+line indented four or more columns (spaces, or a tab) under a list item is
+not a heading, though a page may show one.
+
+A line inside a fence or an HTML comment is never a heading, so a TOML
+comment such as `## Note` inside the settings block, a fenced example holding
+`## Example` in the business-requirements section, or a commented-out section
+does not count, and a fence inside a comment is not the settings block. Fences
 pair by the requirements format's rule: a fence opened with three or more
 backticks or tildes closes at a line of at least as many of the same
 character with nothing after it, and an opener with no closer is plain text.

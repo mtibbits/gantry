@@ -131,6 +131,106 @@ def test_settings_in_a_comment_are_not_read(tmp_path):
     assert p.settings_read is False
 
 
+# A heading may be indented up to three spaces, as CommonMark has it; four
+# spaces, or a tab before the first '#', is not a heading (#118).
+INDENTS = [(" ", True), ("  ", True), ("   ", True), ("    ", False), ("\t", False), (" \t", False)]
+INDENT_IDS = ["1sp", "2sp", "3sp", "4sp", "tab", "sp-tab"]
+BR1 = "- BR-1: Keep the household running.\n"
+
+
+@pytest.mark.parametrize(("indent", "is_heading"), INDENTS, ids=INDENT_IDS)
+def test_indented_settings_heading(tmp_path, indent, is_heading):
+    p = write(tmp_path, commented("## Settings\n", indent + "## Settings\n"))
+    if is_heading:
+        assert entries(p) == []
+        assert p.settings_read is True
+        assert p.key_lines["capacity.agent_lanes"] == 16
+    else:
+        assert entries(p) == [("no_settings", SETTINGS, None, None)]
+        assert p.settings_read is False
+
+
+@pytest.mark.parametrize(("indent", "is_heading"), INDENTS, ids=INDENT_IDS)
+def test_indented_br_heading(tmp_path, indent, is_heading):
+    p = write(tmp_path, commented("## Business requirements\n", indent + "## Business requirements\n"))
+    if is_heading:
+        assert entries(p) == []
+        assert list(p.brs.requirements) == ["life:BR-1"]
+        assert p.brs.requirements["life:BR-1"].line == 7
+    else:
+        assert entries(p) == [("no_br_section", BRS, None, None)]
+        assert p.brs.requirements == {}
+
+
+@pytest.mark.parametrize(("heading", "brs"), [
+    ("  ## Notes", ["life:BR-1"]),
+    (" # Appendix", ["life:BR-1"]),
+    ("   ## Notes", ["life:BR-1"]),
+    ("\n   ## Notes\n", ["life:BR-1"]),
+    ("   ### Detail", ["life:BR-1", "life:BR-2"]),
+    ("    ## Notes", ["life:BR-1", "life:BR-2"]),
+    ("\t## Notes", ["life:BR-1", "life:BR-2"]),
+], ids=["l2-2sp", "l1-1sp", "l2-3sp", "l2-3sp-spaced", "l3-3sp", "l2-4sp", "l2-tab"])
+def test_indented_heading_ends_the_br_section(tmp_path, heading, brs):
+    # Indentation is counted from the line, not from the BR-1 list item (#118).
+    p = write(tmp_path, commented(BR1, BR1 + heading + "\n- BR-2: Second.\n"))
+    assert entries(p) == []
+    assert list(p.brs.requirements) == brs
+    assert p.settings_read is True
+
+
+SECOND_SETTINGS = "a second '## Settings' heading; only the first (line 9) is read"
+SECOND_TOML = "a second toml block under '## Settings'; only the first (line 11) is read"
+
+
+@pytest.mark.parametrize(("old", "new", "tail", "entry", "message"), [
+    ("", "", "\n  ## Settings\n\n```toml\nportfolio_version = 2\n```\n",
+     ("duplicate_section", SETTINGS, 19, None), SECOND_SETTINGS),
+    ("", "", "\n   ## Settings\n\nNothing.\n", ("duplicate_section", SETTINGS, 19, None), SECOND_SETTINGS),
+    ("## Settings\n", " ## Business requirements\n\n- BR-2: Second.\n\n## Settings\n", "",
+     ("duplicate_section", BRS, 9, None),
+     "a second '## Business requirements' heading; only the first (line 5) is read"),
+    ("", "", "\n    ## Settings\n\n```toml\nportfolio_version = 2\n```\n",
+     ("duplicate_section", SETTINGS, 21, None), SECOND_TOML),
+], ids=["settings-2sp-block", "settings-3sp-bare", "br-1sp", "settings-4sp-control"])
+def test_indented_second_heading_is_a_duplicate(tmp_path, old, new, tail, entry, message):
+    p = write(tmp_path, commented(old, new) + tail)
+    assert entries(p) == [entry]
+    assert p.report[0].message == message
+    assert p.settings_read is True
+    assert list(p.brs.requirements) == ["life:BR-1"]
+
+
+@pytest.mark.parametrize(("tail", "read"), [
+    ("  # Appendix", False),
+    ("  ## Notes", False),
+    ("    # Appendix", True),
+], ids=["l1-2sp", "l2-2sp", "l1-4sp"])
+def test_indented_heading_ends_the_settings_section(tmp_path, tail, read):
+    # The line sits between '## Settings' and its toml block, so it ends the
+    # section before the block.
+    p = write(tmp_path, commented("## Settings\n", "## Settings\n\n" + tail + "\n"))
+    if read:
+        assert entries(p) == []
+        assert p.settings_read is True
+    else:
+        assert entries(p) == [("no_settings", SETTINGS, None, None)]
+        assert p.settings_read is False
+
+
+def test_indented_heading_silences_the_checks_below_it(tmp_path):
+    # BR-01 is malformed, but it sits below a heading that ends the section.
+    p = write(tmp_path, commented(BR1, BR1 + "  ## Notes\n- BR-01: Zero.\n"))
+    assert entries(p) == []
+    assert list(p.brs.requirements) == ["life:BR-1"]
+
+
+def test_indented_heading_moves_a_comment_out_of_the_br_section(tmp_path):
+    p = write(tmp_path, commented(BR1, BR1 + "\n  ## Notes\n\n<!--\n"))
+    assert entries(p) == [("malformed_comment", None, 11, None), ("no_settings", SETTINGS, None, None)]
+    assert p.report[0].message == UNCLOSED
+
+
 UNCLOSED = "an HTML comment with no closing '-->' hides every line after it"
 
 
@@ -1045,6 +1145,24 @@ def test_doc_states_huge_int_not_finite():
     assert ("where a rule says a finite number, so is an integer too large to convert to a float"
             in " ".join(doc_text(PORTFOLIO_DOC).split()))
     assert [k.path for k in pf.SETTINGS_KEYS if k.rule in (pf._INT_0, pf._INT_1) and "finite" in k.rule] == []
+
+
+def test_doc_states_heading_indent():
+    # #118: a heading may be indented up to three spaces, as CommonMark has it.
+    text = " ".join(doc_text(PORTFOLIO_DOC).split())
+    for clause in [
+        "A heading is an ATX heading: up to three spaces from the start of the line, then one to six `#`",
+        "That is CommonMark's indent",
+        "four or more spaces, or a tab before the first `#`",
+        "Fences keep the requirements format's indentation rule, not this one",
+        "an indented `## Notes` ends the business-requirements section",
+        "with their checks, are not read",
+        "between `## Settings` and its toml block hides the block",
+        "Indentation is counted from the line, not from an enclosing list item",
+        "four or more columns (spaces, or a tab) under a list item is not a heading",
+    ]:
+        assert clause in text, clause
+    assert "A heading is an ATX heading at the start of a line" not in text
 
 
 def test_doc_rows_match_registry():
