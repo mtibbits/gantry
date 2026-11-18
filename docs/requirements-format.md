@@ -479,13 +479,38 @@ an unbracketed `satisfies: a:X, a:Y` splits at its first comma into
 - Each entry is a full ID, namespace included (`lighthouse:FR-1`, never
   `FR-1`). An entry that is not one, such as `FR-1`, `lighthouse:FR-01` or
   `a:b:FR-1`, is reported `malformed_satisfies` and ignored.
-- When a leaf has `satisfies:`, each other key of the leaf that equals a
-  known namespace (a site's name, or `br_namespace`) is reported
-  `unbracketed_list`, naming the key: a probable unbracketed list. A key
-  that follows `objective:` is reported `unbracketed_objective` instead
-  ([The `objective:` key](#the-objective-key)). On a site named
-  `objective`, the `objective:` key itself equals a known namespace, so it
-  is reported `unbracketed_list` too: give such a site another name.
+- When a leaf's `satisfies:` is not a bracketed list (a bare, quoted or
+  empty value), the key directly after it, in the order the leaf's keys
+  are read, is reported `unbracketed_list` if it equals a known namespace
+  (a site's name, or `br_namespace`), naming the key: a probable
+  unbracketed list. No other key is reported: not one after a bracketed
+  `satisfies:`, and not one elsewhere on the leaf, such as `issue:` on a
+  site named `issue`. A real unbracketed list gets one report, naming its
+  second entry's namespace. A key written twice keeps the place of its
+  first writing, so the key read directly after `satisfies:` can be one
+  written further on. An unbracketed `objective:` has its own report,
+  `unbracketed_objective` ([The `objective:` key](#the-objective-key)).
+  Its known limits:
+  - A meta key written directly after a single ID still reads as a split
+    list when a site has its name: on a site named `est`,
+    `satisfies: lighthouse:FR-1, est: 2h` is reported, as
+    `satisfies: lighthouse:FR-1, est:FR-2` would be, and on a site named
+    `objective` so is an `objective:` key written there. Bracket the
+    single ID (`satisfies: [lighthouse:FR-1]`) or give the site another
+    name.
+  - When the key written after `satisfies:` repeats one written before
+    it, that key is not tested; the next key written after it is, if
+    there is one.
+  - When an unbracketed list's second entry names no known namespace, as
+    in `satisfies: lighthouse:FR-1, typo:FR-2, harbor:FR-3`, nothing is
+    reported, though every entry after the first is lost.
+  - When a bracket closes too early, as in
+    `satisfies: [lighthouse:FR-1], lighthouse:FR-2`, the ID after it is
+    lost unreported: a key after a bracketed `satisfies:` is never
+    tested.
+  - When `satisfies:` itself is written twice, the later value decides
+    whether it is a bracketed list, and the key tested is the one read
+    after the first writing's place.
 - An ID repeated on one leaf counts once.
 - `satisfies: []` names nothing.
 
