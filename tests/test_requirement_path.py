@@ -25,7 +25,7 @@ from gantry.model import HOURS_PER_DAY, ForeignOutcome, SiteData
 from gantry.render import CLASS_TOKENS
 from gantry.views.worksite import page_model, plan_finish_day
 from page_safety import HOSTILE, _strings, assert_no_external_resources, assert_page_safe
-from page_script.harness import Planted, open_page, run_function
+from page_script.harness import PageScriptError, Planted, open_page, run_function
 from sample_roles import READABLE, SMALL
 from test_build import heading_slugs
 from test_own_requirements import own_set
@@ -605,6 +605,38 @@ def test_end_day_follows_lanes(node, sample_page):
         assert [e.text for e in page.query("#req-path .path-end")] == [worksite.path_end_text(17, 4)]
         page.drive("lanes", "1")
         assert [e.text for e in page.query("#req-path .path-end")] == [worksite.path_end_text(one, 1)]
+
+
+def test_redraw_keeps_box_node(node, sample_page):
+    path, _, _ = sample_page
+    with open_page(path) as page:
+        # The box is empty before a selection, so remember refuses: the set below is never empty.
+        with pytest.raises(PageScriptError, match="matches no element"):
+            page.remember("inside", "#req-path *")
+        page.drive("requirement", "lighthouse:FR-1")
+        page.remember("box", "#req-path")
+        page.remember("inside", "#req-path *")
+        # Each leg asserts its start state, so the drive is a change and not a default.
+        assert set(g.attrs["aria-expanded"] for g in page.query(".g-toggle")) == {"false"}
+        page.drive("expand", "all")
+        expanded = [g.attrs["aria-expanded"] for g in page.query(".g-toggle")]
+        assert expanded and set(expanded) == {"true"}
+        # same("box") fails first only if #req-path itself is re-created.
+        assert page.same("box"), "the epic redraw replaced #req-path"
+        assert page.same("inside"), "the epic redraw rebuilt the box"
+        assert [e.text for e in page.query("#req-path .path-end")] == [worksite.path_end_text(17, 4)]
+        page.drive("lanes", "1")
+        assert [e.text for e in page.query("#req-path .path-end")] == [worksite.path_end_text(29, 1)]
+        assert page.same("box"), "the lane change replaced #req-path"
+        assert page.same("inside"), "the lane change rebuilt the box"
+        # A new selection rebuilds the box: equal snapshots, new nodes. So snapshots cannot be
+        # the guard, and a same() that always answers true fails here.
+        kept = page.query("#req-path *")
+        page.drive("requirement", "lighthouse:FR-1")
+        page.drive("requirement", "lighthouse:FR-1")
+        assert page.query("#req-path *") == kept
+        assert page.same("box")
+        assert not page.same("inside")
 
 
 def test_box_hidden_without_selection(node, sample_page):
