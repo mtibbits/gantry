@@ -286,8 +286,7 @@ def read_toml(roots, path, name: str, subject: str, *, key) -> dict:
     except (ValueError, RecursionError) as e:
         # ValueError: TOMLDecodeError, UnicodeDecodeError and the integer-digit
         # limit. RecursionError: valid TOML nested deeper than Python's
-        # recursion limit; refused with the same message as the portfolio
-        # reader's (portfolio_file._load_settings).
+        # recursion limit, which portfolio_file._load_settings also catches.
         raise ConfigError(f"{file}: {subject}is not valid TOML: {e}") from None
 
 

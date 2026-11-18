@@ -492,7 +492,7 @@ def test_finite_rule_has_one_home():
     import gantry.attention
     import gantry.portfolio_file
 
-    assert gantry.portfolio_file._finite is cfg.finite_number
+    assert gantry.portfolio_file.finite_number is cfg.finite_number
     assert gantry.attention.finite_number is cfg.finite_number
 
 

@@ -112,9 +112,6 @@ def _number(v):
     return isinstance(v, (int, float)) and not isinstance(v, bool)
 
 
-_finite = finite_number
-
-
 def _int(v):
     return isinstance(v, int) and not isinstance(v, bool)
 
@@ -134,7 +131,7 @@ def _int_1(v):
 
 
 def _positive(v):
-    return _finite(v) and v > 0
+    return finite_number(v) and v > 0
 
 
 def _str(v):
@@ -152,7 +149,7 @@ _CHECKS = {
     "capacity.reserved[].hours": _positive,
     "capacity.reserved[].label": _str,
     "capacity.block_min_hours": _positive,
-    "capacity.block_start_cost_hours": lambda v: _finite(v) and v >= 0,
+    "capacity.block_start_cost_hours": lambda v: finite_number(v) and v >= 0,
     "capacity.attention_mapping": _mapping_shape,
     "milestone.project": _nonempty_str,
     "milestone.issue": _nonempty_str,
@@ -672,7 +669,7 @@ class _Settings:
         ok = True
         for name, share in value.items():
             self.refs.append((name, parts + (name,), "share"))
-            if not (_finite(share) and share >= 0):
+            if not (finite_number(share) and share >= 0):
                 self.add("bad_allocation", parts + (name,),
                          f"share {_seg(name)} must be a number, 0 or more, not {describe(share)}; "
                          "this allocation is not used")
@@ -697,7 +694,7 @@ class _Settings:
         default = table.get("block_default_hours", _ABSENT)
         if default is _ABSENT:
             default = in_use
-        elif not (_finite(default) and default >= minimum):
+        elif not (finite_number(default) and default >= minimum):
             self.bad(p + ("block_default_hours",), _KEYS["capacity.block_default_hours"].rule, default,
                      f"the default {_num(in_use)} is used")
             default = in_use
@@ -723,7 +720,7 @@ class _Settings:
             return None
         hours = {}
         for day, h in self.known(value, parts, None, allowed=WEEKDAYS).items():
-            if _finite(h) and 0 <= h <= 24:
+            if finite_number(h) and 0 <= h <= 24:
                 hours[day] = h
             else:
                 self.bad(parts + (day,), _DAY_RULE, h, "the day reads 0")
