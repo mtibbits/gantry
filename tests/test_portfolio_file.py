@@ -1159,6 +1159,7 @@ def test_doc_states_heading_indent():
         "with their checks, are not read",
         "between `## Settings` and its toml block hides the block",
         "Indentation is counted from the line, not from an enclosing list item",
+        "four or more columns (spaces, or a tab) under a list item is not a heading",
     ]:
         assert clause in text, clause
     assert "A heading is an ATX heading at the start of a line" not in text

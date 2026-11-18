@@ -81,8 +81,8 @@ level 2 and spelled as above. The same rule ends a section: an indented
 below it, with their checks, are not read; an indented level-1 or level-2
 heading between `## Settings` and its toml block hides the block.
 Indentation is counted from the line, not from an enclosing list item, so a
-line indented four or more spaces under a list item is not a heading, though
-a page may show one. A line inside a fence or an HTML comment is never a
+line indented four or more columns (spaces, or a tab) under a list item is
+not a heading, though a page may show one. A line inside a fence or an HTML comment is never a
 heading, so a TOML comment such as `## Note` inside the settings block, a
 fenced example holding `## Example` in the business-requirements section, or
 a commented-out section does not count, and a fence inside a comment is not
