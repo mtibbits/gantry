@@ -1007,7 +1007,8 @@ def test_key_dispatches_keydown(node, tmp_path):
             "keydown:Escape:none", "focusin:leaf-2/a:FR-2", "keydown:Enter:leaf-2/a:FR-2", "keydown: :leaf-2/a:FR-2"]
 
 
-# One change listener on the lanes select; each value edits #kept in a different way.
+# A change listener on the lanes select edits #kept a different way for each value;
+# a click on the wave button removes its last item.
 IDENTITY_SCRIPT = "\n".join([
     'const kept = document.getElementById("kept");',
     'document.querySelector(\'[data-control="lanes"]\').addEventListener("change", (e) => {',
@@ -1024,6 +1025,9 @@ IDENTITY_SCRIPT = "\n".join([
     '    first.textContent = "rewritten";',
     "  }",
     "});",
+    'document.querySelector(\'[data-control="zoom"][data-value="wave"]\').addEventListener("click", () => {',
+    "  kept.lastElementChild.remove();",
+    "});",
 ])
 
 
@@ -1034,7 +1038,7 @@ def test_remember_same_reports_node_identity(node, tmp_path):
         # Text rewritten in place: still the same element.
         page.drive("lanes", "4")
         assert page.same("items")
-        # The count clause: the stored prefix is unchanged, so only the length catches the append.
+        # An append: the new match holds a node the kept set lacks.
         page.drive("lanes", "1")
         assert not page.same("items")
         # A second remember replaces the set under that name.
@@ -1047,11 +1051,19 @@ def test_remember_same_reports_node_identity(node, tmp_path):
         assert page.remember("items", "#kept li") == 3
         page.drive("lanes", "3")
         assert not page.same("items")
-        # A refused remember leaves the earlier set in place.
+        # The count clause: removing the last node leaves the new match a prefix of the kept
+        # set, so only the length catches it.
+        assert page.remember("items", "#kept li") == 3
+        page.drive("zoom", "wave")
+        assert not page.same("items")
+        # A refused remember leaves the earlier set in place: same answers from it, and an
+        # edit turns it false, which an empty set never would.
         page.remember("items", "#kept li")
         with pytest.raises(PageScriptError, match="matches no element"):
             page.remember("items", "#none")
         assert page.same("items")
+        page.drive("lanes", "3")
+        assert not page.same("items")
         with pytest.raises(HarnessError, match="nothing remembered as"):
             page.same("never")
 
