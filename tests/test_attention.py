@@ -283,6 +283,16 @@ def test_mapping_above_max():
     assert mapping_in_use(p) == AttentionMapping(DEFAULT_MAPPING, "default", MAPPING_ABOVE_MAX)
 
 
+def test_mapping_huge_int_not_finite(tmp_path):
+    # A 400-digit int in the mapping is not finite, not above 24 (#117).
+    text = (FIXTURES / "portfolio_huge.md").read_bytes().decode("utf-8")
+    assert "1e308" in text
+    (tmp_path / "p.md").write_bytes(text.replace("1e308", "1" + "0" * 400).encode("utf-8"))
+    p = read_portfolio_file(directory_roots([tmp_path]), tmp_path / "p.md", br_namespace="life")
+    assert report_paths(p, "bad_value") == []
+    assert mapping_in_use(p) == AttentionMapping(DEFAULT_MAPPING, "default", MAPPING_NOT_FINITE)
+
+
 def test_mapping_reasons_name_the_limit():
     assert MAPPING_ABOVE_MAX.endswith(f"above {MAX_RATE}")
 
@@ -292,7 +302,8 @@ def test_mapping_reasons_name_the_limit():
     (24.01, "above 24"), (-0.01, "negative"),
     (float("inf"), "not finite"), (float("-inf"), "not finite"), (float("nan"), "not finite"),
     (True, "not a number"), ("1", "not a number"), (None, "not a number"),
-    (10 ** 400, "above 24"),
+    # An int too large to convert to a float is not finite (#117).
+    (10 ** 400, "not finite"), (-(10 ** 400), "not finite"),
 ], ids=repr)
 def test_rate_problem(value, reason):
     assert rate_problem(value) == reason
@@ -420,6 +431,11 @@ def test_site_ratio_refused(value):
         SiteRatio(value, "declared")
 
 
+def test_site_ratio_huge_int_is_not_finite():
+    with pytest.raises(ValueError, match="is not finite"):
+        SiteRatio(10 ** 400, "declared")
+
+
 def test_site_ratio_at_max():
     assert attention_of(declared=SiteRatio(24, "declared")).rate == 24.0
 
@@ -502,6 +518,7 @@ def test_week_plan_doc_states_rules():
         f"`MAX_RATE`, is {MAX_RATE}", f"`{default_mapping_text()}`", f"`{TOP_TIER}`",
         "only from the estimates file", "#14", "Gantry's", "capacity.attention_mapping",
         "worksite-page.md", "`measured=`", "`declared=`", "#38", "#39", "#40",
+        "too large to convert to a float",
     ]
     assert [w for w in wanted if w not in text] == []
     assert default_mapping_text() == "0, 0.1, 0.25, 0.5, 1.0"

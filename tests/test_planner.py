@@ -225,7 +225,9 @@ def test_planned_plan_has_no_reason(tmp_path):
 
 EXTREMES = [
     ("block_min 1e308", portfolio_md(block_min="1e308")),
-    ("400-digit start cost", portfolio_md(start_cost="9" * 400)),
+    # 20 digits: still a finite number (a 400-digit one is refused, #117), and
+    # still more than a day, so to_minutes clamps it.
+    ("20-digit start cost", portfolio_md(start_cost="9" * 20)),
     ("reserved 1e308 hours", portfolio_md(tail=reserved("mon", "1e308"))),
     ("400-digit agent_lanes", portfolio_md(lanes="9" * 400)),
     ("1e-7 rate", portfolio_md(more="attention_mapping = [0, 1e-7, 0.25, 0.5, 1.0]\n")),
@@ -238,6 +240,8 @@ def test_extreme_numbers_still_plan(tmp_path, case, portfolio):
     copy = install(tmp_path, "binds_lanes", portfolio=portfolio)
     result, read, config = built(copy)
     assert read.settings_read and read.capacity.agent_lanes is not None, read.report
+    # Each extreme must reach the planner, not be refused for its default.
+    assert not [e for e in read.report if e.kind == "bad_value"], read.report
     plan = plan_week(result, read, config)
     assert plan.status == "planned"
     assert len(plan.horizon_days) == 10

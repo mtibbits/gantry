@@ -218,6 +218,22 @@ def test_default_unit_hours_default_and_float(tmp_path):
     assert cfg.load_config(write_config(tmp_path / "b", default_unit_hours="2.5")).default_unit_hours == 2.5
 
 
+def test_huge_unit_hours_is_refused(tmp_path):
+    # An int too large to convert to a float is not a positive number (#117).
+    p = write_config(tmp_path, default_unit_hours="1" * 400)
+    with pytest.raises(cfg.ConfigError) as e:
+        cfg.load_config(p)
+    assert str(e.value) == f"{p}: key 'default_unit_hours' must be a positive number, not a very large integer"
+
+
+def test_deeply_nested_toml_is_refused(tmp_path):
+    # Valid TOML, but nested too deeply for tomllib to parse (#117).
+    p = write_config(tmp_path, x="[" * 3000 + "]" * 3000)
+    with pytest.raises(cfg.ConfigError) as e:
+        cfg.load_config(p)
+    assert str(e.value).startswith(f"{p}: is not valid TOML: ")
+
+
 @pytest.mark.skipif(os.name == "nt", reason="a drive-letter path is absolute on Windows")
 def test_other_os_output_dir_is_error_on_linux(tmp_path, capsys):
     p = write_config(tmp_path, output_dir='"' + DRIVE + "/" + "out" + '"')
@@ -326,6 +342,7 @@ DEVAGENT_ERRORS = {
     "project-not-table": (_devagent_text(b"project = 3\n"), ["[project]"]),
     "empty-project": (_devagent_text(b"[project]\n"), ["[project]"]),
     "bom": (_devagent_text(b"\xef\xbb\xbf[project.p]\ndevdoc_dir = \"p\"\n"), ["byte-order mark"]),
+    "deep-nesting": (_devagent_text(b"x = " + b"[" * 3000 + b"]" * 3000 + b"\n"), ["not valid TOML"]),
 }
 
 
@@ -405,6 +422,13 @@ def test_rooted_devdoc_is_site_problem_on_windows(tmp_path, capsys):
 # --- docs/config.md lists every registry key ---------------------------------------
 
 
+def test_config_doc_unit_hours_refuses_huge_int():
+    # #117: an int too large to convert to a float is refused, not raised.
+    text = (ROOT / "docs" / "config.md").read_text(encoding="utf-8")
+    (row,) = [row for table in md_tables(text) for row in table.rows if row[0] == "`default_unit_hours`"]
+    assert "too large to convert to a float" in row[1]
+
+
 def test_docs_list_every_key():
     text = (ROOT / "docs" / "config.md").read_text(encoding="utf-8")
     rows = [row for table in md_tables(text) for row in table.rows]
@@ -436,6 +460,40 @@ def test_id_token_re_has_one_home():
     assert gantry.sites.ID_TOKEN_RE is cfg.ID_TOKEN_RE
     assert cfg.ID_TOKEN_RE.pattern == "[A-Za-z0-9][A-Za-z0-9_.-]*"
     assert gantry.cli.shown is gantry.sites.shown
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (0, True),
+        (6, True),
+        (2.5, True),
+        (10**308, True),
+        (1e308, True),
+        (10**400, False),
+        (-(10**400), False),
+        (float("inf"), False),
+        (float("-inf"), False),
+        (float("nan"), False),
+        (True, False),
+        (False, False),
+        ("1", False),
+        (None, False),
+        ([1], False),
+    ],
+    ids=repr,
+)
+def test_finite_number(value, expected):
+    # Never raises: an int too large to convert to a float is not finite (#117).
+    assert cfg.finite_number(value) is expected
+
+
+def test_finite_rule_has_one_home():
+    import gantry.attention
+    import gantry.portfolio_file
+
+    assert gantry.portfolio_file.finite_number is cfg.finite_number
+    assert gantry.attention.finite_number is cfg.finite_number
 
 
 def test_config_doc_estimates_key():

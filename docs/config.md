@@ -40,7 +40,7 @@ fires_check_days rows; reword them and that test together. -->
 | `devagent_config` | path | yes | none | devagent's `config.toml`, which names the sites | #7 |
 | `output_dir` | path | yes | none | the folder the build writes pages and the plan file (`week-plan.json`) into | #9 |
 | `as_of` | TOML date (a string is refused) | no | the build machine's local date when the run starts | the date a build treats as today | every dated view |
-| `default_unit_hours` | positive number, integer or float (0, a negative, infinity or a boolean is refused) | no | `6` | the agent-hours given to a leaf with no estimate | #9 |
+| `default_unit_hours` | positive number, integer or float (0, a negative, infinity, an integer too large to convert to a float, or a boolean is refused) | no | `6` | the agent-hours given to a leaf with no estimate | #9 |
 | `portfolio_file` | path | no | none | the installation's portfolio file ([format](portfolio-file.md)); `gantry portfolio` checks it; the build reads its business requirements, for the trace (#20), and its capacity settings and allocations, for the week plan (#61, #37); #23 adds the rest | #22 |
 | `fires_list` | path | no | none | the installation's fires list, its things that need the operator now ([format](fires-list.md)); `gantry fires` checks it; the full build reads it for its fires ([fires](daily-screen.md#fires)) and no page shows them yet (#34) | #30 |
 | `fires_check_days` | integer, 1 or more (a float or a boolean is refused) | no | `3` | an open fire this many whole days old is flagged "still a fire?"; it is here and not in the portfolio file's `[thresholds]` because the fires list is a fail-closed source, whose flag must not depend on a portfolio file being configured or readable | #30 |
