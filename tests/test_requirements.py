@@ -969,7 +969,7 @@ def test_empty_meta_entry_is_skipped(text, key, field, value):
     assert getattr(s.requirements[key], field) == value
 
 
-MALFORMED_LIST = "a malformed list, with text after its ']'; it is not read"
+MALFORMED_LIST = req.MALFORMED_LIST
 
 
 @pytest.mark.parametrize("text, report, field, value", [

@@ -56,6 +56,7 @@ HEADING_START_RE = re.compile(r"[ \t]*#{1,6}(?:[ \t]|$)")  # match, at most 3 co
 HTML_START_RE = re.compile(r"[ \t]*</?[A-Za-z]")  # match, at most 3 columns in: an HTML block may start
 FENCE_RE = re.compile(r"[ \t]*(?P<run>`{3,}|~{3,})(?P<info>.*)")  # fullmatch
 LEAD_RE = re.compile(r"[\s>]*")  # .match: quote markers and Unicode whitespace before an item's marker
+NEAR_RE = re.compile(r"^[ \t]*(?:>|[^\S \t\r\n])", re.M)  # .search: a line near_item may report
 BLOCK_RE = re.compile(r"\{[ \t]*[A-Za-z_][A-Za-z0-9_]*[ \t]*:[^{}]*\}")  # finditer
 _OPENER_RE = re.compile(r"\{[ \t]*[A-Za-z_][A-Za-z0-9_]*[ \t]*:")  # a block's start, closed or not
 _KEY_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -650,9 +651,9 @@ class _Reader:
                 # Line ends of the own text before the block is cut, the cut text's new end included.
                 cut = own_text[: block.start()].rstrip()
                 ends = {e for e in _line_ends([head, *own]) if e <= len(cut)} | {len(cut)}
+                ends |= _line_ends(after, len(cut) + 1 if cut else 0)
                 own_text = cut
             text = _joined([own_text, *after])
-            ends |= _line_ends(after, len(own_text) + 1 if own_text else 0)
         threshold, objective = statements.get("Threshold"), statements.get("Objective")
         broken = False
         for n, part in enumerate((text, threshold, objective)):
@@ -721,19 +722,17 @@ class _Reader:
         if why is not None:
             self.add(line, "malformed_meta", f"the meta block {block.group(0)!r} cannot be read: {why}")
             return refines, needs
-        seen, malformed = set(), set()  # keys read, and those whose first value is a malformed list
+        seen = {}  # key -> its first value; None for a malformed list
         for key, value in entries:
             if key not in ("refines", "needs"):
                 self.add(line, "malformed_meta",
                          f"unknown key {key!r} in the meta block (a requirement's keys are refines and needs)")
                 continue
             if key in seen:
-                outcome = ", and the first is malformed; neither is read" if key in malformed else "; the first is kept"
+                outcome = "; the first is kept" if seen[key] is not None else ", and the first is malformed; neither is read"
                 self.add(line, "malformed_meta", f"key {key!r} is repeated in the meta block{outcome}")
                 continue
-            seen.add(key)
-            if value is None:
-                malformed.add(key)
+            seen[key] = value
             if key == "refines":
                 if value is None:
                     self.add(line, "malformed_meta", f"{key}: {MALFORMED_LIST}")
@@ -846,19 +845,20 @@ def parse_requirements(text, namespace, *, source, first_line=1, layers, br_name
     lines = split_lines(text)
     # A CR with no LF after it (split_lines removed a CRLF's CR) cuts its line there: lines end
     # only at LF or CRLF, as every caller counts them. Cut before fences and comments pair.
-    for k, line in enumerate(lines if "\r" in text else ()):
-        cr = line.find("\r")
-        if cr != -1:
-            lines[k] = line[:cr]
-            if line[cr:].strip():
-                reader.add(first_line + k, "malformed_item", BARE_CR)
+    if "\r" in text.replace("\r\n", ""):
+        for k, line in enumerate(lines):
+            cr = line.find("\r")
+            if cr != -1:
+                lines[k] = line[:cr]
+                if line[cr:].strip():
+                    reader.add(first_line + k, "malformed_item", BARE_CR)
     hidden, skip, nested, comment, _, listed, raw = _scan(lines)
     if comment is not None:
         reader.add(first_line + comment[0], "malformed_comment", comment[1])
     reader.quoted_code = _quoted_code(lines, hidden) if ">" in text else [False] * len(lines)
-    # near_item looks for a '>' or whitespace other than a space or tab before a marker: when the
-    # text holds neither, no line can be one, and the per-line check is skipped.
-    reader.near = ">" in text or not text.isascii() or any(c in text for c in "\v\f\x1c\x1d\x1e\x1f")
+    # near_item looks for a line led by a '>' or whitespace other than a space or tab: when no
+    # line is, the per-line check is skipped.
+    reader.near = NEAR_RE.search(text.removeprefix(_BOM)) is not None
     i = 0
     while i < len(lines):
         m = None if hidden[i] else ITEM_RE.fullmatch(lines[i])
