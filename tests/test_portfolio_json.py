@@ -9,7 +9,6 @@ suppression rule to the pinned parser's own texts.
 import ast
 import copy
 import dataclasses
-import json
 import random
 import re
 from datetime import datetime, timedelta, timezone
@@ -265,22 +264,22 @@ def test_not_json_names_path(tmp_path):
         assert str(error) == f"{path}: devagent's portfolio JSON is not valid JSON: {reason}. {AGAIN}"
 
 
+def _parent(doc, path):
+    for step in path[:-1]:
+        doc = doc[step]
+    return doc
+
+
 def _set(path, value):
     """A mutation: the value at `path` (keys and indexes) becomes `value`."""
     def change(doc):
-        at = doc
-        for step in path[:-1]:
-            at = at[step]
-        at[path[-1]] = value
+        _parent(doc, path)[path[-1]] = value
     return change
 
 
 def _drop(path):
     def change(doc):
-        at = doc
-        for step in path[:-1]:
-            at = at[step]
-        del at[path[-1]]
+        del _parent(doc, path)[path[-1]]
     return change
 
 
@@ -816,11 +815,8 @@ def apply(tmp_path, got, name):
     folder = tmp_path / name
     folder.mkdir()
     config = SimpleNamespace(sites={}, default_unit_hours=6)
-    return apply_inputs_of(folder, name, project(got, name).data, config)
-
-
-def apply_inputs_of(folder, name, data, config):
-    return inputs.apply_inputs(directory_roots([folder]), SiteEntry(name, folder, None), data, config).data
+    return inputs.apply_inputs(directory_roots([folder]), SiteEntry(name, folder, None), project(got, name).data,
+                               config).data
 
 
 def test_unparsed_est_appears_once(tmp_path):

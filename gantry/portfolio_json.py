@@ -95,7 +95,7 @@ MAPPED = {"leaf_no_issue": "no_issue", "duplicate_issue": "duplicate_issue", "ne
 SUPPRESSED_ALWAYS = ("h_malformed",)
 # Suppressed only where the rule in _dispose finds Gantry's own entry or check.
 SUPPRESSED_BY_RULE = ("dep_unresolved", "est_unparseable", "dep_cycle", "parser_warning")
-MAPPED_ENTRY, SUPPRESSED, SHOWN = "mapped", "suppressed", "shown"
+SUPPRESSED, SHOWN = "suppressed", "shown"
 # A mapped near miss: Gantry's own reason needs the line's text, which the document does not carry.
 SKIPPED_LINE = "WBS.md line {line}: {message}"
 # One member of devagent's dep_cycle message: `<issue> (line N)`, with `<project>:` before another project's.
@@ -195,8 +195,16 @@ def _loads(data, source):
         text = data.decode("utf-8")
     except UnicodeDecodeError as e:
         raise _error("not_json", source, reason=NOT_JSON["utf8"].format(byte=e.start)) from None
+    repeated = []
+
+    def pairs(items):
+        out = _pairs(items)
+        if isinstance(out, _Repeated):
+            repeated.append(out)
+        return out
+
     try:
-        doc = json.loads(text, parse_constant=_refuse_constant, object_pairs_hook=_pairs)
+        doc = json.loads(text, parse_constant=_refuse_constant, object_pairs_hook=pairs)
     except json.JSONDecodeError as e:
         reason = NOT_JSON["syntax"].format(line=e.lineno, column=e.colno)
     except _Constant:
@@ -207,9 +215,9 @@ def _loads(data, source):
         # The integer-digit limit: the decoder raises a plain ValueError for it.
         reason = NOT_JSON["number"]
     else:
-        repeat = _first_repeat(doc)
-        if repeat is not None:
-            raise _error("schema", source, where=repeat[0], problem=f"key {repeat[1]!r} used twice")
+        if repeated:  # the walk finds the first in document order, which the parse order is not
+            where, key = _first_repeat(doc)
+            raise _error("schema", source, where=where, problem=f"key {key!r} used twice")
         return doc
     raise _error("not_json", source, reason=reason)
 
@@ -358,6 +366,11 @@ def _check_parents(doc):
 # --- nodes into leaves and rows ---------------------------------------------------------------
 
 
+def tag(value):
+    """A node's meta value in its parsed shape: a ParsedValue, or a new list of them."""
+    return [ParsedValue(v) for v in value] if isinstance(value, list) else ParsedValue(value)
+
+
 class _Node:
     """One node of a read project while it is named and built."""
 
@@ -367,8 +380,7 @@ class _Node:
         self.line, self.glyph, self.title = raw["source_line"], raw["glyph"], raw["text"]
         self.issue, self.parent, self.outline = raw["issue"], parent, outline
         # New containers: the document is never changed. Key order is the document's.
-        self.meta = {key: [ParsedValue(v) for v in value] if isinstance(value, list) else ParsedValue(value)
-                     for key, value in raw["meta"].items()}
+        self.meta = {key: tag(value) for key, value in raw["meta"].items()}
         self.children = 0
         self.key = None
 
@@ -422,8 +434,12 @@ def _name(site):
     site.first = first
 
 
+def _entry(site, line, kind, **fields):
+    return ReportEntry(site.name, line, kind, MESSAGES[kind].format(line=line, **fields))
+
+
 def _report(site, line, kind, **fields):
-    site.report.append(ReportEntry(site.name, line, kind, MESSAGES[kind].format(line=line, **fields)))
+    site.report.append(_entry(site, line, kind, **fields))
 
 
 def _top(node):
@@ -494,11 +510,12 @@ def _named_entry(node, message):
 
 
 def _dispose(site, entry):
-    """One devagent report entry's disposition, with Gantry's entry when mapped.
+    """One devagent report entry's disposition: Gantry's ReportEntry when
+    mapped, else SUPPRESSED or SHOWN.
 
     `site` is the entry's project when the document holds it and it was read,
-    else None. Every entry leaves here as exactly one of MAPPED_ENTRY,
-    SUPPRESSED or SHOWN, and nothing is suppressed unless a Gantry pass
+    else None. Every entry leaves here as exactly one of the three, and
+    nothing is suppressed unless a Gantry pass
     reports the same thing about the same node: gantry.deps (cycle,
     malformed_ref), gantry.crosssite (the foreign kinds), gantry.inputs
     (est_unparseable), gantry.attention (bad_h), gantry.trace (satisfies,
@@ -507,55 +524,53 @@ def _dispose(site, entry):
     kind, line, message = entry["kind"], entry["source_line"], entry["message"]
     named = kind in MAPPED or kind in SUPPRESSED_ALWAYS or kind in SUPPRESSED_BY_RULE
     if site is None or line is None or not named:
-        return SHOWN, None
+        return SHOWN
     node = site.by_line.get(line)
     if kind == "near_miss_line":
         # A near miss is not a node: one on a node's line is not what Gantry would report.
         if node is None:
-            return MAPPED_ENTRY, ReportEntry(site.name, line, MAPPED[kind], SKIPPED_LINE.format(line=line,
-                                                                                                 message=message))
-        return SHOWN, None
+            return ReportEntry(site.name, line, MAPPED[kind], SKIPPED_LINE.format(line=line, message=message))
+        return SHOWN
     if node is None:
-        return SHOWN, None
+        return SHOWN
     is_leaf = not node.children
     is_open = node.glyph not in FINISHED_GLYPHS
     if kind == "leaf_no_issue":
         if is_leaf and node.issue is None:
-            return MAPPED_ENTRY, ReportEntry(site.name, line, MAPPED[kind], MESSAGES["no_issue"].format(
-                line=line, key=node.key))
+            return _entry(site, line, MAPPED[kind], key=node.key)
     elif kind == "duplicate_issue":
         if node.issue is not None and site.first[node.issue] is not node:
-            return MAPPED_ENTRY, ReportEntry(site.name, line, MAPPED[kind], MESSAGES["duplicate_issue"].format(
-                line=line, issue=node.issue, first=site.first[node.issue].line, key=node.key))
+            return _entry(site, line, MAPPED[kind], issue=node.issue, first=site.first[node.issue].line,
+                          key=node.key)
     elif kind == "dep_unresolved":
         about = _named_entry(node, message)
         if about is not None:
             ref = classify(about, site.name)
             if ref.kind != "local":
-                return SUPPRESSED, None  # foreign or malformed: Gantry classifies and reports those itself
+                return SUPPRESSED  # foreign or malformed: Gantry classifies and reports those itself
             if ref.issue not in site.first:
-                return MAPPED_ENTRY, ReportEntry(site.name, line, MAPPED[kind], deps.MESSAGES["unresolved_ref"].format(
+                return ReportEntry(site.name, line, MAPPED[kind], deps.MESSAGES["unresolved_ref"].format(
                     line=line, entry=about))
     elif kind == "est_unparseable":
         if is_leaf and is_open and classify_est(node.meta.get("est")).kind == "unparseable":
-            return SUPPRESSED, None
+            return SUPPRESSED
     elif kind in SUPPRESSED_ALWAYS:
         if "h" in node.meta:
-            return SUPPRESSED, None
+            return SUPPRESSED
     elif kind == "dep_cycle":
         members = list(CYCLE_MEMBER_RE.finditer(message))
         # A member of another project makes it a cross-project cycle, which is no cycle of this file.
         if members and not any(m.group("project") for m in members):
             if sorted(int(m.group("line")) for m in members) in _cycle_lines(site):
-                return SUPPRESSED, None
+                return SUPPRESSED
     elif kind == "parser_warning":
         # A defence: no devagent release words a warning about these keys today.
         match = WARNED_KEY_RE.match(message)
         key = match.group(1) if match else None
         if key in node.meta and (key in ("priority", "h") or (key == "depends_on" and is_leaf and is_open)
                                  or (key in ("satisfies", "objective") and is_leaf)):
-            return SUPPRESSED, None
-    return SHOWN, None
+            return SUPPRESSED
+    return SHOWN
 
 
 def map_document(doc, *, source=DEFAULT_SOURCE) -> PortfolioInput:
@@ -571,9 +586,9 @@ def map_document(doc, *, source=DEFAULT_SOURCE) -> PortfolioInput:
     shown = []
     for entry in doc["parse_report"]:
         site = sites.get(entry["project"])
-        disposition, mapped = _dispose(site, entry)
-        if disposition == MAPPED_ENTRY:
-            site.report.append(mapped)
+        disposition = _dispose(site, entry)
+        if isinstance(disposition, ReportEntry):
+            site.report.append(disposition)
         elif disposition == SHOWN:
             shown.append(DevagentEntry(entry["project"], entry["source_line"], entry["kind"], entry["message"]))
     projects = []

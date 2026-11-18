@@ -8,7 +8,6 @@ tests/helpers_devagent.py): they skip on Windows and locally without the
 variable, and fail under CI without it.
 """
 
-import dataclasses
 import json
 import os
 import shlex
@@ -298,10 +297,8 @@ def test_written_fixture_shape():
 
 
 def test_written_fixture_regenerates():
+    # --check compares both written.json and provenance.json with one aggregator run.
     checkout = hd.require_devagent()
-    document = sp.fixture_document(checkout)
-    assert document == sp.WRITTEN.read_bytes()
-    assert sp.provenance(checkout, document) == sp.PROVENANCE.read_bytes()
     assert sp.main(["--fixtures", "--check", "--devagent", str(checkout)]) == 0
 
 
@@ -532,7 +529,7 @@ def test_diff_snapshots_sees_each_field():
 
 
 def test_dump_is_devagents_form():
-    assert ue.dump({"a": [1, None], "é": "ü"}) == '{\n  "a": [\n    1,\n    null\n  ],\n  "é": "ü"\n}\n'.encode("utf-8")
+    assert sp.dumps({"a": [1, None], "é": "ü"}) == '{\n  "a": [\n    1,\n    null\n  ],\n  "é": "ü"\n}\n'.encode("utf-8")
 
 
 def test_snapshot_tool_checks_and_writes(tmp_path, monkeypatch, capsys):
@@ -584,7 +581,6 @@ def test_snapshot_tool_usage_and_preflight_exit_2(tmp_path, monkeypatch, capsys)
     capsys.readouterr()
     assert ue.main(["--check", "--devagent", str(tmp_path)]) == 2
     assert "update_expected_leaves: --devagent is not a devagent checkout" in capsys.readouterr().err
-    assert (ue.Refused, ue.Preflight, ue.read_pin) == (sp.Refused, sp.Preflight, sp.read_pin)
 
 
 @pytest.mark.parametrize("tool", ["sample_portfolio.py", "update_expected_leaves.py"])
@@ -612,11 +608,8 @@ def test_reader_matches_the_snapshots(sample_document):
 
 
 def test_snapshots_regenerate_byte_for_byte():
+    # test_reader_matches_the_snapshots compares each site; --check adds the fixture set and extra files.
     checkout = hd.require_devagent()
-    made = ue.expected(checkout)
-    assert list(made) == sample_projects()
-    for site, data in made.items():
-        assert data == (ue.OUT / f"{site}.json").read_bytes(), site
     assert ue.main(["--check", "--devagent", str(checkout)]) == 0
 
 
@@ -624,7 +617,7 @@ def test_map_document_equals_read_portfolio_on_the_sample_document(sample_docume
     document, _ = sample_document
     read = read_sample(sample_document)
     again = map_document(json.loads(document.read_bytes().decode("utf-8")))
-    assert dataclasses.replace(again) == read
+    assert again == read
     assert len(read.projects) == 6 and sum(len(p.data.leaves) + len(p.data.rows) for p in read.projects) == 52
     assert len(read.devagent_report) == SAMPLE_SHOWN
 

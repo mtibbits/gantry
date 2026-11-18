@@ -5,7 +5,6 @@ sample_roles's import contract). tools/sample_portfolio.py makes both
 documents with the pinned devagent release's own aggregator.
 """
 
-import json
 from pathlib import Path
 
 import helpers_devagent as hd
@@ -15,9 +14,7 @@ from helpers_config import copy_samples
 DOC_NAME = "portfolio.json"
 
 
-def written_doc():
-    """tests/fixtures/portfolio/written.json, parsed: a fresh copy on every call, so a test may change it."""
-    return json.loads(sp.WRITTEN.read_bytes().decode("utf-8"))
+written_doc = sp.written_doc
 
 
 def build_sample_document(tmp, env=None, os_name=None):

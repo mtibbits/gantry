@@ -174,6 +174,22 @@ def dumps(doc) -> bytes:
     return (json.dumps(doc, ensure_ascii=False, indent=2, allow_nan=False) + "\n").encode("utf-8")
 
 
+def written_doc():
+    """tests/fixtures/portfolio/written.json, parsed: a fresh copy on every call, so a caller may change it."""
+    return json.loads(WRITTEN.read_bytes().decode("utf-8"))
+
+
+def compare(items, differs="differs"):
+    """One line per (label, path, bytes) whose file is missing or holds other bytes."""
+    lines = []
+    for label, path, data in items:
+        if not path.is_file():
+            lines.append(f"{label}: missing")
+        elif path.read_bytes() != data:
+            lines.append(f"{label}: {differs}")
+    return lines
+
+
 def fixture_document(devagent) -> bytes:
     """The aggregator's document over FIXTURE_SOURCES, `generated_at` fixed.
 
@@ -205,7 +221,7 @@ def provenance(devagent, document=None) -> bytes:
     data = {"pin": read_pin(), "devagent_version": checkout_version(devagent),
             "schema_version": doc["schema_version"], "generated_at": doc["generated_at"],
             "sources": dict(FIXTURE_SOURCES)}
-    return (json.dumps(data, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+    return dumps(data)
 
 
 def _fixtures(devagent, check):
@@ -220,12 +236,7 @@ def _fixtures(devagent, check):
               f"{sum(len(p['nodes']) for p in doc['projects'])} nodes, {len(doc['parse_report'])} report entries) "
               f"and {PROVENANCE.name}")
         return 0
-    lines = []
-    for path, data in made.items():
-        if not path.is_file():
-            lines.append(f"{path.name}: missing")
-        elif path.read_bytes() != data:
-            lines.append(f"{path.name}: differs from what devagent writes")
+    lines = compare(((path.name, path, data) for path, data in made.items()), "differs from what devagent writes")
     for line in lines:
         print(f"sample_portfolio: {line}")
     if lines:

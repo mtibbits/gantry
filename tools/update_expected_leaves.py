@@ -26,7 +26,6 @@ checkout. docs/worksite-page.md states the rules.
 """
 
 import argparse
-import json
 import os
 import shutil
 import sys
@@ -50,15 +49,9 @@ from gantry.portfolio_json import PortfolioLoadError, map_document, read_portfol
 from gantry.priority import rank  # noqa: E402
 from gantry.roots import directory_roots  # noqa: E402
 
-read_pin, Refused, Preflight = sample_portfolio.read_pin, sample_portfolio.Refused, sample_portfolio.Preflight
-
 OUT = ROOT / "tests" / "fixtures" / "expected_leaves"
 FIXTURE_OUT = OUT / "fixture"
 KNOWN = OUT / "known_differences.json"
-
-
-def dump(obj) -> bytes:
-    return (json.dumps(obj, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
 
 
 def _value(raw):
@@ -111,7 +104,7 @@ def snapshot_of(project, shown, *, pin, schema_version, namespaces) -> dict:
 def snapshots(portfolio, pin) -> dict:
     """{project: snapshot bytes} for every project of a PortfolioInput, in its order."""
     names = frozenset(p.name for p in portfolio.projects)
-    return {p.name: dump(snapshot_of(p, [e for e in portfolio.devagent_report if e.project == p.name], pin=pin,
+    return {p.name: sample_portfolio.dumps(snapshot_of(p, [e for e in portfolio.devagent_report if e.project == p.name], pin=pin,
                                      schema_version=portfolio.schema_version, namespaces=names))
             for p in portfolio.projects}
 
@@ -166,8 +159,8 @@ def diff_snapshots(stopgap, snapshot) -> list:
 
 def expected_fixtures() -> dict:
     """{project: snapshot bytes} for the committed written.json; no aggregator is run."""
-    doc = json.loads(sample_portfolio.WRITTEN.read_bytes().decode("utf-8"))
-    return snapshots(map_document(doc, source="tests/fixtures/portfolio/written.json"), read_pin())
+    doc = sample_portfolio.written_doc()
+    return snapshots(map_document(doc, source="tests/fixtures/portfolio/written.json"), sample_portfolio.read_pin())
 
 
 def expected(devagent) -> dict:
@@ -177,7 +170,7 @@ def expected(devagent) -> dict:
         copy = Path(scratch) / "samples"
         shutil.copytree(sample_portfolio.SAMPLES, copy, ignore=shutil.ignore_patterns("out"))
         document = sample_portfolio.make_sample(devagent, copy)
-        return snapshots(read_portfolio(directory_roots([copy]), document), read_pin())
+        return snapshots(read_portfolio(directory_roots([copy]), document), sample_portfolio.read_pin())
 
 
 def _files(devagent):
@@ -206,13 +199,7 @@ def _say(lines):
 def run(devagent, check) -> int:
     made = _files(devagent)
     if check:
-        lines = []
-        for rel, data in made.items():
-            path = OUT / rel
-            if not path.is_file():
-                lines.append(f"{rel}: missing")
-            elif path.read_bytes() != data:
-                lines.append(f"{rel}: differs")
+        lines = sample_portfolio.compare((rel, OUT / rel, data) for rel, data in made.items())
         lines += [f"{rel}: extra" for rel in _extra(made)]
         # Sample files, then the fixture set: the order the files are listed in.
         lines.sort(key=lambda line: line.startswith(f"{FIXTURE_OUT.name}/"))
@@ -250,12 +237,12 @@ def main(argv=None):
     devagent = Path(os.path.abspath(args.devagent))
     try:
         if sample_portfolio.checkout_version(devagent) is None:
-            raise Preflight(sample_portfolio.NOT_CHECKOUT)
+            raise sample_portfolio.Preflight(sample_portfolio.NOT_CHECKOUT)
         return run(devagent, args.check)
-    except Preflight as e:
+    except sample_portfolio.Preflight as e:
         print(f"update_expected_leaves: {e}", file=sys.stderr)
         return 2
-    except (Refused, PortfolioLoadError) as e:
+    except (sample_portfolio.Refused, PortfolioLoadError) as e:
         print(f"update_expected_leaves: {e}", file=sys.stderr)
         return 1
 
