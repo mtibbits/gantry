@@ -16,8 +16,8 @@ public tools (in prose, in the `samples/devagent/` folder name and in
 - `devagent/out/`: devagent's portfolio JSON over these samples
   (`portfolio/portfolio.json`) and the devagent home it is written from.
   `tools/sample_portfolio.py` writes it with a devagent checkout; it is
-  git-ignored and never committed, and `gantry build` does not read it yet
-  (#12).
+  git-ignored and never committed. `gantry build` reads `WBS.md` directly
+  until #12 switches it to this document.
 - `gantry.sample.toml`: the sample installation config (#7); its paths are
   relative to `samples/` and its pages go to the ignored `samples/out/`.
 - `<site>/`: one planning folder per site, holding its `WBS.md`.
