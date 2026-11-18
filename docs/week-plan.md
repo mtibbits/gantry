@@ -629,8 +629,9 @@ end: [Fair share between sites](#fair-share-between-sites)), its
 `share` in percent, null on a day the site is share-less), its
 `shareless_days`, its `share_note` (null, or the text "no intended share
 set; planned only into capacity left after the sites with shares" when
-`shareless_days` is not empty) and its `p0` list: each leaf the worksite
-page lists as P0, by `key`, with `held_by`, the `<site>:<issue>` of each
+`shareless_days` is not empty) and its `p0` list: each leaf whose
+effective priority is 0 ([Priority tiers](#priority-tiers)), in `WBS.md`
+order, by `key`, with `held_by`, the `<site>:<issue>` of each
 cross-site entry that holds it. An unplanned leaf's `reason` is one of
 `blocked_externally`, `parked`, `waits_on_cycle`, `cross_site_cycle`,
 `waits_on_site_absent`, `waits_on_unresolved`, `waits_on_unplanned` and
@@ -1025,8 +1026,7 @@ with no exponent ("0.000001").
   then per site `{site}: on every planned day` or `{site}: on {days}`;
 - each of the plan's notes, as written;
 - the P0 leaves, each linked and marked `held by {holders}` when a
-  cross-site entry holds it, then
-  `devagent's wbs order ranks these differently until mtibbits/devagent#889 lands`.
+  cross-site entry holds it, captioned `P0 leaves`.
 
 **The days.** All 10 days are on the page; with the page script, the
 first 5 show and the `5 days` and `10 days` buttons show or hide the rest.

@@ -35,8 +35,8 @@ A fire comes from one of three sources, in this order:
   parent row (an epic) marked P0: only its open leaves can be. P0 is Gantry's
   rule ([Priority](worksite-page.md#priority)): the value read as
   devagent reads metadata, then exactly `P0`; so `"P0"` is P0 and `p0`,
-  `P00` and `[P0]` are not. Gantry keeps its own rule until devagent states
-  one (mtibbits/devagent#889).
+  `P00` and `[P0]` are not. Gantry keeps its own rule; FR-9 says when that
+  changes.
 - `stuck`: every devagent STUCK marker in a site's issue folders whose
   outcome is a fire ([STUCK markers](#stuck-markers)).
 

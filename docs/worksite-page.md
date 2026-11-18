@@ -156,6 +156,11 @@ not pass through a finished leaf or a foreign entry. Compute it over the
 leaves a page schedules:
 `effective([l for l in s.leaves if l.open and l.key not in s.held_out], s.links)`.
 
+devagent 3.1.0 is the first devagent release whose `wbs order` ranks `P0`
+above `P1`. devagent 3.0.0 counts `P0` as P3, so with it a site with an open
+P0 leaf can order some leaves differently from Gantry, and the page does not
+say so.
+
 ### Cycles
 
 A dependency cycle among open leaves is reported `cycle` once, at its first
@@ -360,15 +365,6 @@ is P0 or P1 (not its effective priority), it is in progress (`~`), or the schedu
 starts it within 10 working days (60 agent-hours at 6 a day) at the default
 4 lanes. Every other leaf is a circle whose area is its hours. "Every leaf
 as a box" shows them all as boxes; "Rolling wave" returns.
-
-### P0 and devagent's `wbs order`
-
-devagent's `wbs order` counts `P0` as P3 until mtibbits/devagent#889 lands,
-so a site with an open P0 leaf ranks some leaves differently from Gantry.
-The schedule section then carries one note,
-`devagent's wbs order does not know P0 yet (mtibbits/devagent#889), so it ranks these leaves differently: `,
-followed by each P0 leaf and each leaf whose effective priority comes from
-one, in `WBS.md` order. A site with no such leaf shows no note.
 
 ### The model band and table
 
