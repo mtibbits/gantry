@@ -322,6 +322,8 @@ NBSP = "indented with U+00A0 (only spaces and tabs indent a list item)"
     (NB + "- FR-1: a\n", [(1, "malformed_item", "'FR-1:' is not a requirement: " + NBSP)]),
     ("  " + NB + "- FR-1: a\n", [(1, "malformed_item", "'FR-1:' is not a requirement: " + NBSP)]),
     ("> " + NB + "- FR-1: a\n", [(1, "malformed_item", QUOTE + "; " + NBSP)]),
+    # An ASCII text with no '>' still gets the check (a form feed is whitespace).
+    ("\f- FR-1: a\n", [(1, "malformed_item", "'FR-1:' is not a requirement: " + NBSP.replace("U+00A0", "U+000C"))]),
     ("> - FR12: a\n",
      [(1, "malformed_item", "'FR12:' is not a requirement: inside a block quote; no '-' between the code and the number")]),
     ("# H\n\n> - FR-1: a\n", [(3, "malformed_item", QUOTE)]),

@@ -540,6 +540,7 @@ class _Reader:
         self.requirements = {}
         self.report = []
         self.quoted_code = []  # per line: inside a fence in a block quote (_quoted_code)
+        self.near = False  # whether any line may be a near item (parse_requirements)
 
     def add(self, line, kind, message):
         self.report.append(ReportEntry(self.source, line, kind, message))
@@ -585,7 +586,7 @@ class _Reader:
             sub = ITEM_RE.fullmatch(text)
             lines.append((k, text, sub, None if sub is None or raw[k] else _statement_word(sub["rest"])))
             if sub is None:
-                if not self.quoted_code[k]:
+                if self.near and not self.quoted_code[k]:
                     self.near_item(self.first_line + k, text)
             else:
                 self.candidate(self.first_line + k, sub, nested=True)
@@ -845,7 +846,7 @@ def parse_requirements(text, namespace, *, source, first_line=1, layers, br_name
     lines = split_lines(text)
     # A CR with no LF after it (split_lines removed a CRLF's CR) cuts its line there: lines end
     # only at LF or CRLF, as every caller counts them. Cut before fences and comments pair.
-    for k, line in enumerate(lines):
+    for k, line in enumerate(lines if "\r" in text else ()):
         cr = line.find("\r")
         if cr != -1:
             lines[k] = line[:cr]
@@ -854,14 +855,17 @@ def parse_requirements(text, namespace, *, source, first_line=1, layers, br_name
     hidden, skip, nested, comment, _, listed, raw = _scan(lines)
     if comment is not None:
         reader.add(first_line + comment[0], "malformed_comment", comment[1])
-    reader.quoted_code = _quoted_code(lines, hidden)
+    reader.quoted_code = _quoted_code(lines, hidden) if ">" in text else [False] * len(lines)
+    # near_item looks for a '>' or whitespace other than a space or tab before a marker: when the
+    # text holds neither, no line can be one, and the per-line check is skipped.
+    reader.near = ">" in text or not text.isascii() or any(c in text for c in "\v\f\x1c\x1d\x1e\x1f")
     i = 0
     while i < len(lines):
         m = None if hidden[i] else ITEM_RE.fullmatch(lines[i])
         if m is not None and m["marker"] in "-*" and _is_break(lines[i]):
             m = None  # a thematic break is not an item, so the lines indented after it are not its text
         if m is None:
-            if not hidden[i] and not reader.quoted_code[i]:
+            if reader.near and not hidden[i] and not reader.quoted_code[i]:
                 reader.near_item(first_line + i, lines[i])
             i += 1
             continue
