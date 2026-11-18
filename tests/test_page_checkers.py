@@ -1007,6 +1007,72 @@ def test_key_dispatches_keydown(node, tmp_path):
             "keydown:Escape:none", "focusin:leaf-2/a:FR-2", "keydown:Enter:leaf-2/a:FR-2", "keydown: :leaf-2/a:FR-2"]
 
 
+# Each edit button changes #kept its own way; drive("edit", name) clicks one.
+IDENTITY_BODY = "\n".join([
+    '<ul id="kept"><li>a</li><li>b</li></ul>',
+    *[f'<button data-control="edit" data-value="{v}">{v}</button>' for v in ("append", "swap", "clone", "rewrite", "remove")],
+])
+
+IDENTITY_SCRIPT = "\n".join([
+    'const kept = document.getElementById("kept");',
+    'document.addEventListener("click", (e) => {',
+    "  const button = e.target.closest('[data-control=\"edit\"]');",
+    "  if (button === null) return;",
+    "  const first = kept.firstElementChild;",
+    '  const edit = button.getAttribute("data-value");',
+    '  if (edit === "append") {',
+    '    const li = document.createElement("li");',
+    '    li.textContent = "c";',
+    "    kept.appendChild(li);",
+    '  } else if (edit === "swap") {',
+    "    kept.insertBefore(first.nextElementSibling, first);",
+    '  } else if (edit === "clone") {',
+    "    kept.replaceChild(first.cloneNode(true), first);",
+    '  } else if (edit === "rewrite") {',
+    '    first.textContent = "rewritten";',
+    '  } else if (edit === "remove") {',
+    "    kept.lastElementChild.remove();",
+    "  }",
+    "});",
+])
+
+
+def test_remember_same_reports_node_identity(node, tmp_path):
+    with open_page(write_page(tmp_path, hostile_page(body_extra=IDENTITY_BODY, script=IDENTITY_SCRIPT))) as page:
+        assert page.remember("items", "#kept li") == 2
+        # Text rewritten in place: still the same element.
+        page.drive("edit", "rewrite")
+        assert page.same("items")
+        # An append: the new match holds a node the kept set lacks.
+        page.drive("edit", "append")
+        assert not page.same("items")
+        # A second remember replaces the set under that name.
+        assert page.remember("items", "#kept li") == 3
+        assert page.same("items")
+        # The order clause: same members, new order.
+        page.drive("edit", "swap")
+        assert not page.same("items")
+        # The identity clause: an equal copy is a new node.
+        assert page.remember("items", "#kept li") == 3
+        page.drive("edit", "clone")
+        assert not page.same("items")
+        # The count clause: removing the last node leaves the new match a prefix of the kept
+        # set, so only the length catches it.
+        assert page.remember("items", "#kept li") == 3
+        page.drive("edit", "remove")
+        assert not page.same("items")
+        # A refused remember leaves the earlier set in place: same answers from it, and an
+        # edit turns it false, which an empty set never would.
+        page.remember("items", "#kept li")
+        with pytest.raises(PageScriptError, match="matches no element"):
+            page.remember("items", "#none")
+        assert page.same("items")
+        page.drive("edit", "clone")
+        assert not page.same("items")
+        with pytest.raises(HarnessError, match="nothing remembered as"):
+            page.same("never")
+
+
 def test_drive_unknown_control_raises(node, tmp_path):
     with open_page(listener_page(tmp_path)) as page:
         with pytest.raises(PageScriptError, match="nosuch"):
