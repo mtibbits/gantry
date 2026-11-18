@@ -488,19 +488,21 @@ an unbracketed `satisfies: a:X, a:Y` splits at its first comma into
   site named `issue`. A real unbracketed list gets one report, naming its
   second entry's namespace. A key written twice keeps the place of its
   first writing, so the key read directly after `satisfies:` can be one
-  written further on. The rule has three limits. A meta key written
-  directly after a single ID still reads as a split list when a site has
-  its name: on a site named `est`, `satisfies: lighthouse:FR-1, est: 2h`
-  is reported, as `satisfies: lighthouse:FR-1, est:FR-2` would be, and on
-  a site named `objective` so is an `objective:` key written there;
-  bracket the single ID (`satisfies: [lighthouse:FR-1]`) or give the site
-  another name. When the key written after `satisfies:` repeats one
-  written before it, nothing is reported. When an unbracketed list's
-  second entry names no known namespace, as in
-  `satisfies: lighthouse:FR-1, typo:FR-2, harbor:FR-3`, nothing is
-  reported either, though every entry after the first is lost. An
-  unbracketed `objective:` has its own report, `unbracketed_objective`
-  ([The `objective:` key](#the-objective-key)).
+  written further on. An unbracketed `objective:` has its own report,
+  `unbracketed_objective` ([The `objective:` key](#the-objective-key)).
+  The rule has three limits:
+  - A meta key written directly after a single ID still reads as a split
+    list when a site has its name: on a site named `est`,
+    `satisfies: lighthouse:FR-1, est: 2h` is reported, as
+    `satisfies: lighthouse:FR-1, est:FR-2` would be, and on a site named
+    `objective` so is an `objective:` key written there. Bracket the
+    single ID (`satisfies: [lighthouse:FR-1]`) or give the site another
+    name.
+  - When the key written after `satisfies:` repeats one written before
+    it, nothing is reported.
+  - When an unbracketed list's second entry names no known namespace, as
+    in `satisfies: lighthouse:FR-1, typo:FR-2, harbor:FR-3`, nothing is
+    reported, though every entry after the first is lost.
 - An ID repeated on one leaf counts once.
 - `satisfies: []` names nothing.
 

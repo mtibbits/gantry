@@ -153,7 +153,7 @@ def test_satisfies_from_stopgap_meta():
         "limit-unknown-second", "repeat-shifts"])
 def test_unbracketed_list_only_directly_after_a_scalar_satisfies(body, keys, extra, reported):
     # Only the key read directly after a satisfies that is not a bracketed list counts (#114). The limit-* legs
-    # are the rule's known limits: a meta key named like a site, a repeated key, an unknown second namespace.
+    # are the known limits that docs/requirements-format.md states.
     parsed = parse_wbs(f"- [ ] Leaf {{{body}}}\n", "lighthouse").leaves[0]
     assert list(parsed.meta) == keys
     ids, problems = satisfies_ids(parsed, frozenset({"lighthouse", *extra}))
