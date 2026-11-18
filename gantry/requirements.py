@@ -67,6 +67,7 @@ INLINE = "an HTML comment inside the text; it stays in the text and hides nothin
 BEFORE_ID = "an HTML comment before the ID; the item is not read: put the comment on its own line"
 START = ("an HTML comment that starts a list item and does not close on its line; "
          "it hides nothing: put the comment on its own line")
+MALFORMED_LIST = "a malformed list, with text after its ']'; it is not read"
 
 _WHY = {
     "ordered": "an ordered list item (a requirement uses -, * or +)",
@@ -458,8 +459,9 @@ def _unquote(item):
 
 
 def _block_entries(block):
-    """([(key, value)], None) from a meta block, a value being a str or a list
-    of str; or (None, why) when the block cannot be read."""
+    """([(key, value)], None) from a meta block, a value being a str, a list
+    of str, or None for a malformed list; or (None, why) when the block cannot
+    be read."""
     parts = _split(block[1:-1], ",")
     if parts is None:
         return None, "an unclosed [ or quote"
@@ -470,8 +472,14 @@ def _block_entries(block):
         if not colon or not _KEY_RE.fullmatch(key):
             return None, "an entry with no key"
         value = value.strip()
-        if value.startswith("[") and value.endswith("]"):
-            items = [_unquote(item) for item in _split(value[1:-1], ",") or []]
+        if value.startswith("["):
+            # Brackets are balanced here (_split above), so a list whose items cannot be
+            # split, or a value not ending at its ']', has text after the list's ']'.
+            items = _split(value[1:-1], ",") if value.endswith("]") else None
+            if items is None:
+                entries.append((key, None))
+                continue
+            items = [_unquote(item) for item in items]
             entries.append((key, [item for item in items if item]))
         else:
             entries.append((key, _unquote(value)))
@@ -651,7 +659,9 @@ class _Reader:
                 continue
             seen.add(key)
             if key == "refines":
-                if isinstance(value, list):
+                if value is None:
+                    self.add(line, "malformed_meta", f"{key}: {MALFORMED_LIST}")
+                elif isinstance(value, list):
                     self.add(line, "malformed_meta", "refines: takes one target, not a list; it is not read")
                 else:
                     refines = self.target(line, key, value)
@@ -659,6 +669,8 @@ class _Reader:
                 targets = value if isinstance(value, list) else [value]
                 if rid.code != "UC":
                     self.add(line, "misplaced", f"needs: on {rid}, which is not a use case; it is not read")
+                elif value is None:
+                    self.add(line, "malformed_meta", f"{key}: {MALFORMED_LIST}")
                 elif not targets:
                     self.add(line, "malformed_meta", "needs: [] names no target")
                 else:

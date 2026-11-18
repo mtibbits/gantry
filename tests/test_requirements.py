@@ -837,6 +837,33 @@ def test_meta_entry_with_no_key():
     assert entry.message == "the meta block '{refines: SR-1, SR-2}' cannot be read: an entry with no key"
 
 
+MALFORMED_LIST = "a malformed list, with text after its ']'; it is not read"
+
+
+@pytest.mark.parametrize("text, report, field, value", [
+    ("- UC-1: c {needs: [FR-1] [FR-2]}\n- FR-1: a\n- FR-2: b\n",
+     [(1, "malformed_meta", "needs: " + MALFORMED_LIST)], ("alpha:UC-1", "needs"), []),
+    ("- UC-1: c {needs: [FR-1] x}\n- FR-1: a\n",
+     [(1, "malformed_meta", "needs: " + MALFORMED_LIST)], ("alpha:UC-1", "needs"), []),
+    ("- FR-1: a {refines: [SR-1] [SR-2]}\n- SR-1: s\n",
+     [(1, "malformed_meta", "refines: " + MALFORMED_LIST)], ("alpha:FR-1", "refines"), None),
+    # Per key: the block's other keys are still read.
+    ("- FR-1: a {refines: SR-1, note: [x] [y]}\n- SR-1: s\n",
+     [(1, "malformed_meta", "unknown key 'note' in the meta block (a requirement's keys are refines and needs)")],
+     ("alpha:FR-1", "refines"), "SR-1"),
+    # The misplaced check stays first.
+    ("- FR-1: a {needs: [x] [y]}\n",
+     [(1, "misplaced", "needs: on alpha:FR-1, which is not a use case; it is not read")],
+     ("alpha:FR-1", "needs"), []),
+])
+def test_list_with_text_after_its_bracket(text, report, field, value):
+    # A list whose ']' is not its value's end is malformed, not empty (#112).
+    s = parse(text)
+    assert rows(s) == report
+    got = getattr(s.requirements[field[0]], field[1])
+    assert got == (rid(value) if isinstance(value, str) else value)
+
+
 def test_misplaced_item_is_dropped_before_its_block():
     # The wrong-layer item's own block is never read, so no further entry.
     s = parse("- BR-1: x {owner: y}\n- FR-1: z {refines: BR-1}\n")
@@ -1026,6 +1053,7 @@ def test_format_doc_states_report_causes():
     wanted = [
         "the requirements file is not a file", "the requirements file does not exist",
         "a path under a file",
+        MALFORMED_LIST,
     ]
     assert [w for w in wanted if w not in doc] == []
 

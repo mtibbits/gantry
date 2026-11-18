@@ -282,7 +282,10 @@ Reported, with the requirement still read:
   unclosed `[` or quote, or a block with no closing `}` or with a brace
   inside it), any key other than `refines` and `needs`, a key
   repeated in one block (the first is kept), a list given to `refines:`,
-  `needs: []`, a second meta block on one item, and a block that starts with
+  `needs: []`, a list with text after its `]` (`{needs: [FR-1] [FR-2]}`,
+  reported "needs: a malformed list, with text after its ']'; it is not
+  read", while the block's other keys are still read: which targets were
+  meant is unknown, so none is guessed), a second meta block on one item, and a block that starts with
   a word and a colon anywhere else in the text. A second or mid-text block
   stays in the text, and its links are not read.
 - `malformed_link`: a target that is not a requirement ID; it is dropped.
@@ -436,7 +439,7 @@ line, then in this order:
 |---|---|
 | `unreadable` | the path does not exist ("the requirements file does not exist"), is not a file ("the requirements file is not a file"), cannot be read, or is not valid UTF-8; the set is empty |
 | `malformed_item` | a list item the reader cannot place: a candidate that is not a requirement, or a `Threshold:` or `Objective:` item that is not a statement, with its reasons |
-| `malformed_meta` | a meta block that cannot be read, or a key or value shape it does not allow |
+| `malformed_meta` | a meta block that cannot be read, or a key or value shape it does not allow, such as a list with text after its `]` ("a malformed list, with text after its ']'; it is not read") |
 | `malformed_link` | a link target that is not a requirement ID |
 | `malformed_comment` | an HTML comment the reader does not hide: in a requirement's text (read as written), before an ID (not read), or starting a list item without closing on its line; or a block comment with no `-->`, or whose list item ends first, which hides every line after it |
 | `misplaced` | an item in a layer the file does not hold (it is dropped), `needs:` on an item that is not a use case, or a link into the installation namespace from another namespace |
