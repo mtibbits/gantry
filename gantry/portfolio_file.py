@@ -26,7 +26,7 @@ from dataclasses import dataclass, fields, replace
 from datetime import date, datetime
 
 from gantry import requirements
-from gantry.config import ID_TOKEN_RE, describe, error_reason
+from gantry.config import ID_TOKEN_RE, describe, error_reason, finite_number
 from gantry.requirements import (FENCE_RE, RequirementSet, hidden_lines, parse_id, parse_requirements,
                                  read_utf8, split_lines)
 from gantry.roots import OutsideRoots, stat_confined
@@ -34,9 +34,11 @@ from gantry.sites import shown
 
 PORTFOLIO_LABEL = "the portfolio file"
 SECTIONS = ("business requirements", "settings")  # section None: the whole file (portfolio_unreadable, or a comment)
-# An ATX heading, matched on the line with its trailing spaces and tabs removed,
-# outside fences and HTML comments (hidden_lines). Greedy throughout, so it is linear on a long line.
-HEADING_RE = re.compile(r"(?P<hashes>#{1,6})[ \t]+(?P<text>.*)")  # fullmatch
+# An ATX heading: at most three spaces, then the hashes (CommonMark; a tab in the indent
+# counts to column 4, so it never matches). Matched on the line with its trailing spaces and
+# tabs removed, outside fences and HTML comments (hidden_lines). Greedy throughout, so it is
+# linear on a long line. The one rule finds, ends and counts sections (_sections).
+HEADING_RE = re.compile(r" {0,3}(?P<hashes>#{1,6})[ \t]+(?P<text>.*)")  # fullmatch
 BR_HEADING, SETTINGS_HEADING = "Business requirements", "Settings"  # level 2, matched exactly
 
 TOML_AT_RE = re.compile(r" \(at line (?P<line>[1-9][0-9]*), column [0-9]+\)$")  # search
@@ -112,11 +114,6 @@ def _number(v):
     return isinstance(v, (int, float)) and not isinstance(v, bool)
 
 
-def _finite(v):
-    # An int is always finite; math.isfinite would raise on a 400-digit one.
-    return _number(v) and (isinstance(v, int) or math.isfinite(v))
-
-
 def _int(v):
     return isinstance(v, int) and not isinstance(v, bool)
 
@@ -136,7 +133,7 @@ def _int_1(v):
 
 
 def _positive(v):
-    return _finite(v) and v > 0
+    return finite_number(v) and v > 0
 
 
 def _str(v):
@@ -154,7 +151,7 @@ _CHECKS = {
     "capacity.reserved[].hours": _positive,
     "capacity.reserved[].label": _str,
     "capacity.block_min_hours": _positive,
-    "capacity.block_start_cost_hours": lambda v: _finite(v) and v >= 0,
+    "capacity.block_start_cost_hours": lambda v: finite_number(v) and v >= 0,
     "capacity.attention_mapping": _mapping_shape,
     "milestone.project": _nonempty_str,
     "milestone.issue": _nonempty_str,
@@ -674,7 +671,7 @@ class _Settings:
         ok = True
         for name, share in value.items():
             self.refs.append((name, parts + (name,), "share"))
-            if not (_finite(share) and share >= 0):
+            if not (finite_number(share) and share >= 0):
                 self.add("bad_allocation", parts + (name,),
                          f"share {_seg(name)} must be a number, 0 or more, not {describe(share)}; "
                          "this allocation is not used")
@@ -699,7 +696,7 @@ class _Settings:
         default = table.get("block_default_hours", _ABSENT)
         if default is _ABSENT:
             default = in_use
-        elif not (_finite(default) and default >= minimum):
+        elif not (finite_number(default) and default >= minimum):
             self.bad(p + ("block_default_hours",), _KEYS["capacity.block_default_hours"].rule, default,
                      f"the default {_num(in_use)} is used")
             default = in_use
@@ -725,7 +722,7 @@ class _Settings:
             return None
         hours = {}
         for day, h in self.known(value, parts, None, allowed=WEEKDAYS).items():
-            if _finite(h) and 0 <= h <= 24:
+            if finite_number(h) and 0 <= h <= 24:
                 hours[day] = h
             else:
                 self.bad(parts + (day,), _DAY_RULE, h, "the day reads 0")

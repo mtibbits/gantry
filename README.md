@@ -109,8 +109,11 @@ What a run does (`gantry` here is `python3 -m gantry` when you run in place):
 
 - `gantry build --config <file>` builds every site's worksite page, the
   week view `week.html` and the index that links them, and writes the week
-  plan to `week-plan.json` ([docs/week-plan.md](docs/week-plan.md));
-  `--site <name>` builds one site's page.
+  plan to `week-plan.json` ([docs/week-plan.md](docs/week-plan.md)); its
+  last line counts the installation's fires,
+  `fires: N; sources not fully read: M`
+  ([docs/daily-screen.md](docs/daily-screen.md#fires)); `--site <name>`
+  builds one site's page.
 - `gantry portfolio --config <file>` checks the installation's portfolio
   file without building ([docs/portfolio-file.md](docs/portfolio-file.md)).
 - `gantry fires --config <file>` checks the installation's fires list
@@ -260,8 +263,9 @@ config key bumps the minor; and a break bumps the major.
 
 A change reaches installed users as a release, under a new version string.
 Whether `claude plugin update` also delivers a merge that leaves the version
-unchanged to an install from GitHub is not yet checked; the second release's
-update check is the first to show it. A fresh install between releases is
+unchanged to an install from GitHub is not checked. The 0.1.1 release's
+update check moved an install of 0.1.0 to 0.1.1 across a version change,
+but no update ran between those releases, so it could not show this. A fresh install between releases is
 expected to take `main`'s tree as it is then, under the last released
 version string, so the release checks below run while `main` is still at
 the tag; the first release's install check is the first to confirm it. A
@@ -347,9 +351,8 @@ Run these while `main` is still at the tag.
 
 - The plugin, by hand. At the first release, a fresh install with the two
   commands under [Install](#install). At each later release, the update
-  path from an install of the previous release; it is not yet exercised,
-  and the second release is the first to run it. That release replaces this
-  "not yet" and the one under Versioning & releases with what it showed:
+  path from an install of the previous release. It first ran at 0.1.1,
+  where it updated an install of 0.1.0 to 0.1.1 (the record is on #174):
 
   ```
   claude plugin marketplace update gantry

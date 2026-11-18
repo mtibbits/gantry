@@ -134,6 +134,35 @@ def test_satisfies_from_stopgap_meta():
     assert satisfies_ids(second, frozenset({"a"})) == ([rid("a:FR-1"), rid("a:QA-2")], [])
 
 
+@pytest.mark.parametrize("body, keys, extra, reported", [
+    ("issue: Issue-3, satisfies: [lighthouse:FR-1]", ["issue", "satisfies"], {"issue"}, []),
+    ("issue: Issue-3, satisfies: lighthouse:FR-1", ["issue", "satisfies"], {"issue"}, []),
+    ("satisfies: [lighthouse:FR-1], est: 2h", ["satisfies", "est"], {"est"}, []),
+    ("issue: Issue-3, satisfies: lighthouse:FR-1, harbor:FR-2", ["issue", "satisfies", "harbor"], {"harbor"},
+     ["harbor"]),
+    ("issue: Issue-3, satisfies: lighthouse:FR-1, harbor:FR-2", ["issue", "satisfies", "harbor"], {"harbor", "issue"},
+     ["harbor"]),
+    ("satisfies: lighthouse:FR-1, issue: Issue-3, harbor: x", ["satisfies", "issue", "harbor"], {"harbor"}, []),
+    ("satisfies: lighthouse:FR-1, est: 2h", ["satisfies", "est"], {"est"}, ["est"]),
+    ("issue: Issue-3, satisfies: lighthouse:FR-1, issue: Y", ["issue", "satisfies"], {"issue"}, []),
+    ("satisfies: lighthouse:FR-1, objective: lighthouse:FR-1", ["satisfies", "objective"], {"objective"},
+     ["objective"]),
+    ("satisfies: lighthouse:FR-1, typo:FR-2, harbor:FR-3", ["satisfies", "typo", "harbor"], {"harbor"}, []),
+    ("issue: Issue-3, satisfies: lighthouse:FR-1, issue: Y, est: 2h", ["issue", "satisfies", "est"], {"est"}, ["est"]),
+    ("satisfies: [lighthouse:FR-1], lighthouse:FR-2", ["satisfies", "lighthouse"], set(), []),
+], ids=["ac1", "ac2", "ac3", "ac4", "ac4-one-key", "ac5", "limit-est", "limit-repeat", "objective-site",
+        "limit-unknown-second", "repeat-shifts", "limit-closed-bracket"])
+def test_unbracketed_list_only_directly_after_a_scalar_satisfies(body, keys, extra, reported):
+    # Only the key read directly after a satisfies that is not a bracketed list counts (#114). The limit-* legs
+    # are the known limits that docs/requirements-format.md states.
+    parsed = parse_wbs(f"- [ ] Leaf {{{body}}}\n", "lighthouse").leaves[0]
+    assert list(parsed.meta) == keys
+    ids, problems = satisfies_ids(parsed, frozenset({"lighthouse", *extra}))
+    assert ids == [rid("lighthouse:FR-1")]
+    assert [(p.kind, p.message) for p in problems] == [("unbracketed_list", message("unbracketed_list", key=k))
+                                                       for k in reported]
+
+
 def test_satisfies_absent_empty_and_repeat():
     assert satisfies_ids(leaf("L1", 2), NS) == ([], [])
     assert satisfies_ids(leaf("L1", 2, satisfies="[]"), NS) == ([], [])
@@ -441,7 +470,12 @@ def test_hostile_values_never_raise(tmp_path):
     problems = [e for name in FIELDS for e in getattr(report, name)]
     assert problems
     assert {e.kind for e in problems} <= set(TRACE_KINDS)
-    assert sum(e.kind == "unbracketed_list" for e in problems) == 2 * len(HOSTILE)
+    listed = [e for e in problems if e.kind == "unbracketed_list"]
+    # One entry per leaf whose satisfies is a scalar, naming alpha, the key directly after it (life never
+    # is). meta_value reads every HOSTILE value as a scalar, an unclosed "[" included, except "[,]", a list.
+    assert len(listed) == len(HOSTILE) - 1
+    assert sorted(e.line for e in listed) == [i + 2 for i, raw in enumerate(HOSTILE) if raw != "[,]"]
+    assert {e.message for e in listed} == {message("unbracketed_list", key="alpha")}
 
 
 # --- Task 5: serving -----------------------------------------------------------------
@@ -607,6 +641,20 @@ def test_worksite_page_points_at_the_satisfies_key():
     assert "[requirements-format.md](requirements-format.md#the-satisfies-key)" in page
     assert "the-satisfies-key" in heading_slugs(
         (DOCS / "requirements-format.md").read_bytes().decode("utf-8").replace("\r", ""))
+
+
+def test_docs_state_the_unbracketed_list_rule():
+    # Both limbs of the rule (#114), each pinned in the one subsection that states it: section() stops only at a
+    # "## " line, so the worksite-page text is cut at its next "### " heading.
+    from helpers_docs import section
+
+    rules = section((DOCS / "requirements-format.md").read_bytes().decode("utf-8"), "## The `satisfies:` key")
+    page = section((DOCS / "worksite-page.md").read_bytes().decode("utf-8"), "### Title and metadata")
+    assert rules is not None and page is not None
+    page = page.split("\n### ", 1)[0]
+    for text in (rules, page):
+        flat = " ".join(text.split())
+        assert [phrase for phrase in ("directly after", "not a bracketed list") if phrase not in flat] == []
 
 
 def test_catalog_keeps_the_portfolio_it_read(tmp_path):

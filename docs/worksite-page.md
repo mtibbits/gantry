@@ -87,8 +87,10 @@ result as devagent's regular expression. Inside it, `key: value` pairs are
 separated by commas: a `[...]` value is a list, a quoted value runs to its
 closing quote (commas included), a plain value runs to the next comma, and a
 later duplicate key wins. So `satisfies: a:X, a:Y` reads as two keys,
-`satisfies: a:X` and `a: Y`; write a list as `[a:X, a:Y]`. The trace reports
-such a key as a probable unbracketed list
+`satisfies: a:X` and `a: Y`; write a list as `[a:X, a:Y]`. When such a
+key equals a known namespace and comes directly after a `satisfies:` that
+is not a bracketed list, the trace reports it as a probable unbracketed
+list, and it reports no other key as one
 ([requirements-format.md](requirements-format.md#the-satisfies-key)).
 
 ### Identity
@@ -156,6 +158,11 @@ not pass through a finished leaf or a foreign entry. Compute it over the
 leaves a page schedules:
 `effective([l for l in s.leaves if l.open and l.key not in s.held_out], s.links)`.
 
+devagent 3.1.0 is the first devagent release whose `wbs order` ranks `P0`
+above `P1`. devagent 3.0.0 counts `P0` as P3, so with it a site with an open
+P0 leaf can order some leaves differently from Gantry, and the page does not
+say so.
+
 ### Cycles
 
 A dependency cycle among open leaves is reported `cycle` once, at its first
@@ -188,11 +195,12 @@ in this table's order.
 | `no_nodes` | the file has no node lines | shows an empty site |
 | `site_unreadable` | `WBS.md` cannot be opened, read or decoded as UTF-8 | shows the site as unreadable, with the reason |
 | `no_estimates_file` | the site has no estimates file, or its `estimates` key is `false` | reads hours and tiers from `est:` and the default unit only |
-| `estimates_ignored` | a discovered `estimates-*.md` file is not the one read: an earlier date, the same date and an earlier name, or no date | lists the file and why |
+| `estimates_ignored` | a discovered `estimates-*.md` file is not the one read: an earlier date, the same date and an earlier name, no date, or a date that is not a valid date | lists the file and why |
 | `estimates_unreadable` | the configured file does not exist, or the file cannot be opened, is not valid UTF-8, or leads outside the configured roots | continues as if the site had no estimates file |
+| `estimates_no_table` | no line of the file read starts a table whose first header cell is `#` (prose only, other tables only, empty, or a `#` table that is indented or quoted) | reads no rows and continues as if the site had no estimates file; the header names no file |
 | `estimates_column_missing` | an estimates table has no `#`-table column Gantry reads (once per file and column) | reads the rest of the table |
 | `estimates_cell_bad` | a row's `hours` cell is empty or not a number or range above 0 | the row gives no hours; its other cells are still read |
-| `estimates_row_unmatched` | a row `#N` names no `WBS.md` line | lists the row |
+| `estimates_row_unmatched` | a row `#N` names no `WBS.md` line | lists the row; a `#N` with a leading zero is read with the zero kept, and its message says so |
 | `estimates_row_duplicate` | a second row names the same `#N` | uses the first row |
 | `est_unparseable` | an open leaf's `est:` is in none of the other classes | lists it; the leaf may still get hours from its estimates-file row |
 | `unestimated` | a scheduled leaf has no time `est:` and no estimates-file hours | schedules it at the default unit and labels every figure that counts it |
@@ -428,7 +436,8 @@ a build, and each is a report entry.
 2. Else the leaf's row in the estimates file, if its `hours` cell reads
    (`estimates_file`).
 3. Else the default unit, `default_unit_hours` (`default`): the leaf is
-   **unestimated** and listed in the panel.
+   **unestimated** and counted in the panel's unestimated line, which names
+   at most the first 20 of its class.
 
 A placeholder, non-time or unparseable `est:` does not stop the row from
 applying. Model tiers, the effort bucket and flags come from the leaf's row
@@ -461,7 +470,10 @@ directory (never below it) for regular files whose names match
 outside the configured roots is kept too, so its read reports the refusal. The latest date is read; among
 files of that date, the name that sorts last. Every other match, and every
 `estimates-*.md` whose name holds no valid date, is listed as
-`estimates_ignored`. With none, the panel says `no estimates file`.
+`estimates_ignored`, with the reason `its name has no date` or, for a date
+that is not a valid date such as `estimates-2026-02-30.md`,
+`its name's date {date} is not a valid date`. With none, the panel says
+`no estimates file`.
 
 A configured path that does not exist, a file that cannot be opened, and one
 that is not valid UTF-8 are each `estimates_unreadable`, naming the config
@@ -474,11 +486,20 @@ table line: its outer pipes are dropped, it is split on `|` (a `\|` is not
 an escape) and each cell is trimmed. A table whose first header cell is `#`
 is read until the first line that does not start with `|`; only its `#`,
 `effort`, `hours`, `thinking`, `checking` and `flags` columns are read, so
-`P`, `tier` (a checklist tier, not a model tier) and the rest are not. A row
-whose first cell is `#N` joins the leaf whose key is `Issue-N`:
+`P`, `tier` (a checklist tier, not a model tier) and the rest are not. A
+table's lines must start at the line's first column: an indented or quoted
+table is not read. A file with no such table is `estimates_no_table`,
+`estimates file {name!r} has no line that starts a table whose first header cell is '#', so no rows were read`,
+and the site continues as if it had no file; the file still wins discovery
+by its date, so a notes file named `estimates-<date>*.md` must be renamed or
+moved out of the planning directory. A row whose first cell is `#N` joins
+the leaf whose key is `Issue-N`:
 
 - a row naming a row with children or a finished leaf is ignored;
-- a row naming no `WBS.md` line is `estimates_row_unmatched`;
+- a row naming no `WBS.md` line is `estimates_row_unmatched`; a `#N` with a
+  leading zero joins only a leaf whose `issue:` keeps the zero (`#012` joins
+  `Issue-012`, never `Issue-12`), and when it names no line its message is
+  `estimates file {name!r} line {line}: #{n} names no WBS.md line; it has a leading zero, so it is read as Issue-{n}, not Issue-{bare}`;
 - a second row for the same `#N` is `estimates_row_duplicate`, and the
   first is used;
 - a read column missing from a table is `estimates_column_missing`, once
@@ -575,15 +596,6 @@ is P0 or P1 (not its effective priority), it is in progress (`~`), or the schedu
 starts it within 10 working days (60 agent-hours at 6 a day) at the default
 4 lanes. Every other leaf is a circle whose area is its hours. "Every leaf
 as a box" shows them all as boxes; "Rolling wave" returns.
-
-### P0 and devagent's `wbs order`
-
-devagent's `wbs order` counts `P0` as P3 until mtibbits/devagent#889 lands,
-so a site with an open P0 leaf ranks some leaves differently from Gantry.
-The schedule section then carries one note,
-`devagent's wbs order does not know P0 yet (mtibbits/devagent#889), so it ranks these leaves differently: `,
-followed by each P0 leaf and each leaf whose effective priority comes from
-one, in `WBS.md` order. A site with no such leaf shows no note.
 
 ### The model band and table
 
@@ -694,8 +706,9 @@ when N is above 0:
 
 The header names the estimates file read, `Estimates read from {name}, dated {date}.`
 or `Estimates read from {name} (no date).` for a configured file whose name
-has no date, then the site's non-time quantities,
-`Not in any hour figure: {parts}`, where each part is
+has no date, or `Estimates read from {name} (its name's date {date} is not a valid date).`
+for a configured file whose name's date is not a valid date, then the
+site's non-time quantities, `Not in any hour figure: {parts}`, where each part is
 `{quantity} {unit} ({n} leaves)` and parts are joined with `; `.
 
 ### Missing or unreadable
@@ -711,7 +724,10 @@ two changes:
   them: `{n} leaves with {what} and no estimates-file hours are unestimated: {keys}`,
   or `1 leaf with {what} and no estimates-file hours is unestimated: {keys}`,
   where `{what}` is `no est:`, `a placeholder est:`, `a non-time est:` or
-  `an unparseable est:`.
+  `an unparseable est:`. `{keys}` lists at most 20 keys, in report order.
+  A longer list is written `{keys} and {more} more`, where that `{keys}` is
+  its first 20 and `{more}` counts the keys left out; `{n}` stays the
+  class's total.
   It is left out of the network and the schedule, and the rest of the page
   renders.
 
@@ -1299,7 +1315,9 @@ one absolute path per file it wrote: the pages in config order, then
 trace report has an item, in config order, one line
 `trace <site>: unreadable N, malformed N, duplicate N, misplaced N, cycle N, undefined N, unserved N, untraced N`,
 every category in that order, zeros included; a site not in the trace
-counts `unserved` and `untraced` as 0. The catalog (every requirements
+counts `unserved` and `untraced` as 0. Last, one `fires:` line, the count of
+the installation's fires and of the sources not fully read
+([daily-screen.md](daily-screen.md#the-stdout-line)). The catalog (every requirements
 file and the portfolio file) is read once per run. In a full build each
 site's trace is built before any render, in its own `try`: a fault there is
 that site's `render error:`, and the site is listed among the sites not read

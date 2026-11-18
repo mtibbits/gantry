@@ -77,7 +77,9 @@ async function load(path) {
     virtualConsole,
     beforeParse,
   });
-  const page = { dom, window: dom.window, document: dom.window.document, errors };
+  // remembered: name -> {selector, nodes}, the references remember keeps for
+  // same. Nothing is written to a DOM node.
+  const page = { dom, window: dom.window, document: dom.window.document, errors, remembered: new Map() };
   try {
     if (page.document.readyState !== "complete") {
       await new Promise((resolve) => page.window.addEventListener("load", resolve, { once: true }));
@@ -103,19 +105,38 @@ function attrsOf(el) {
   return Array.from(el.attributes, (a) => [a.name.toLowerCase(), a.value]);
 }
 
-function query(page, selector) {
-  let found;
+function matchAll(page, selector) {
   try {
-    found = page.document.querySelectorAll(selector);
+    return Array.from(page.document.querySelectorAll(selector));
   } catch (e) {
     throw new Error("bad selector " + JSON.stringify(selector) + ": " + e.message);
   }
-  return Array.from(found, (el) => ({
+}
+
+function query(page, selector) {
+  return matchAll(page, selector).map((el) => ({
     tag: tagOf(el),
     attrs: Array.from(el.attributes, (a) => [a.name, a.value]),
     classes: Array.from(el.classList),
     text: el.textContent,
   }));
+}
+
+// An empty set would leave same() true while the match stayed empty, which
+// says nothing about identity. The refusal comes before the store, so an
+// earlier set under the name stays.
+function remember(page, name, selector) {
+  const nodes = matchAll(page, selector);
+  if (nodes.length === 0) throw new PageError("remember: " + JSON.stringify(selector) + " matches no element");
+  page.remembered.set(name, { selector, nodes });
+  return nodes.length;
+}
+
+function same(page, name) {
+  const entry = page.remembered.get(name);
+  if (entry === undefined) throw new Error("same: nothing remembered as " + JSON.stringify(name));
+  const now = matchAll(page, entry.selector);
+  return now.length === entry.nodes.length && now.every((el, i) => el === entry.nodes[i]);
 }
 
 function comparePairs(a, b) {
@@ -422,6 +443,10 @@ async function handle(request, state) {
       return null;
     case "query":
       return query(needPage(state), request.selector);
+    case "remember":
+      return remember(needPage(state), request.name, request.selector);
+    case "same":
+      return same(needPage(state), request.name);
     case "planted":
       return plantedReport(needPage(state), request.planted, request.rules);
     case "drive":

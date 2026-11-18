@@ -189,6 +189,9 @@ def test_demo_build_writes_index_and_pages(tmp_path, monkeypatch):
     assert written_files(out) == sorted(["index.html", "week.html", "week-plan.json",
                                          *(f"sites/{s}.html" for s in READABLE)])
     printed = stdout.splitlines()
+    # The fires line is last (#32).
+    assert printed[-1] == DEMO_FIRES_LINE
+    printed = printed[:-1]
     projects = [p for p in sample_projects() if p in READABLE]
     # The paths (the week view before the index, #38; the plan file last, #61),
     # then the in-trace sample site's trace line (#20).
@@ -225,7 +228,7 @@ def test_all_fail_writes_index_exit_1(tmp_path):
     assert (tmp_path / "out" / "index.html").is_file()
     assert not (tmp_path / "out" / "sites").exists() or not list((tmp_path / "out" / "sites").iterdir())
     assert stdout.splitlines() == [str(tmp_path / "out" / "week.html"), str(tmp_path / "out" / "index.html"),
-                                   str(tmp_path / "out" / "week-plan.json")]
+                                   str(tmp_path / "out" / "week-plan.json"), "fires: 0; sources not fully read: 1"]
     assert stderr.splitlines()[-1] == "gantry: error: no site page was written"
 
 
@@ -280,7 +283,8 @@ def test_unwritable_output_exits_1(tmp_path):
     config = write_site_tree(tmp_path, {"alpha": (FIXTURES / "page.md").read_bytes()})
     (tmp_path / "out").write_bytes(b"a file, not a folder")
     code, stdout, stderr = run_main("--config", str(config))
-    assert (code, stdout) == (1, "")
+    # build_all returned, so the fires line prints though nothing was written (#32).
+    assert (code, stdout) == (1, "fires: 0; sources not fully read: 1\n")
     lines = stderr.splitlines()
     assert len(lines) == 1
     assert lines[0].startswith(f"gantry: error: cannot write {tmp_path / 'out' / 'index.html'}: ")
@@ -294,7 +298,7 @@ def test_page_write_error_lists_site(tmp_path):
     code, stdout, stderr = run_main("--config", str(config))
     assert code == 0
     assert stdout.splitlines() == [str(tmp_path / "out" / "sites" / "alpha.html"), str(tmp_path / "out" / "week.html"),
-                                   str(tmp_path / "out" / "index.html"), str(tmp_path / "out" / "week-plan.json")]
+                                   str(tmp_path / "out" / "index.html"), str(tmp_path / "out" / "week-plan.json"), "fires: 0; sources not fully read: 1"]
     (line,) = [line for line in stderr.splitlines() if "beta" in line]
     assert line.startswith("gantry: warning: site beta is not built: cannot write sites/beta.html: ")
     index = (tmp_path / "out" / "index.html").read_bytes().decode("utf-8")
@@ -433,7 +437,7 @@ def test_unwritable_output_still_reports_not_built(tmp_path, monkeypatch):
     copy = copy_samples(tmp_path)
     (copy / "out").write_bytes(b"a file, not a folder")
     code, out, stdout, stderr = demo_build(tmp_path, monkeypatch, copy=copy)
-    assert (code, stdout) == (1, "")
+    assert (code, stdout) == (1, DEMO_FIRES_LINE + "\n")
     lines = stderr.splitlines()
     assert f"gantry: warning: site {NO_WBS} is not built: no WBS.md in the planning directory" in lines
     assert f"gantry: warning: site {UNREADABLE} is not built: WBS.md is not valid UTF-8 at byte 88" in lines
@@ -447,7 +451,7 @@ def test_unwritable_sites_folder_still_writes_index(tmp_path, monkeypatch):
     (copy / "out").mkdir()
     (copy / "out" / "sites").write_bytes(b"a file, not a folder")
     code, out, stdout, stderr = demo_build(tmp_path, monkeypatch, copy=copy)
-    assert (code, stdout) == (1, f"{out / 'week.html'}\n{out / 'index.html'}\n{out / 'week-plan.json'}\n")
+    assert (code, stdout) == (1, f"{out / 'week.html'}\n{out / 'index.html'}\n{out / 'week-plan.json'}\n{DEMO_FIRES_LINE}\n")
     lines = stderr.splitlines()
     for name in READABLE:
         assert f"gantry: warning: site {name} is not built: cannot write sites/{name}.html: sites/ is not a folder" in lines
@@ -593,7 +597,7 @@ def test_full_build_hands_same_plan_to_views_and_writes_it(tmp_path, monkeypatch
     assert result.plan.leaves[-1] == "view" and '"view"' not in texts[0]
     out = copy / "out"
     assert stdout.splitlines() == [str(out / "sites" / "a.html"), str(out / "sites" / "b.html"),
-                                   str(out / "week.html"), str(out / "index.html"), str(out / "week-plan.json")]
+                                   str(out / "week.html"), str(out / "index.html"), str(out / "week-plan.json"), "fires: 0; sources not fully read: 1"]
 
 
 def test_site_writes_no_plan_file(tmp_path):
@@ -617,7 +621,7 @@ def test_unwritable_output_skips_plan_write(tmp_path, monkeypatch):
     built = spy_on(monkeypatch, cli, "build_all")
     writes = spy_on(monkeypatch, cli, "write_plan")
     code, stdout, stderr = run_main("--config", str(copy / "gantry.toml"))
-    assert (code, stdout) == (1, "")
+    assert (code, stdout) == (1, "fires: 0; sources not fully read: 1\n")
     assert writes == []
     assert isinstance(built[0][1].plan, WeekPlan) and built[0][1].plan.status == "planned"
     assert stderr.splitlines() == [f"gantry: error: cannot write {copy / 'out' / 'index.html'}: output_dir is not a folder"]
@@ -635,7 +639,7 @@ def test_index_failure_still_writes_plan(tmp_path):
     assert code == 1
     # An older plan never stands in: the plan file is written though the index is not.
     assert stdout.splitlines() == [str(out / "sites" / "a.html"), str(out / "sites" / "b.html"),
-                                   str(out / "week.html"), str(out / "week-plan.json")]
+                                   str(out / "week.html"), str(out / "week-plan.json"), "fires: 0; sources not fully read: 1"]
     assert (out / "week-plan.json").read_bytes() == plan_to_json(
         build_all(load_config(copy / "gantry.toml")).plan).encode("utf-8")
     (line,) = stderr.splitlines()
@@ -741,6 +745,187 @@ def test_demo_plan_holds_a_cross_site_leaf(tmp_path):
     assert {BUSY, UNESTIMATED} <= set(intended_shares(result.portfolio, result.config.as_of).shares)
 
 
+# --- the fires of a full build (#32) ------------------------------------------------------
+
+DEMO_FIRES_LINE = "fires: 7; sources not fully read: 1"
+
+
+def fires_install(tmp_path, name="samples", fires_list=None):
+    """A samples copy under tmp_path/name, its fires_list repointed when given."""
+    import shutil
+
+    from helpers_config import SAMPLES
+
+    copy = tmp_path / name / "samples"
+    shutil.copytree(SAMPLES, copy, ignore=shutil.ignore_patterns("out"))
+    if fires_list is not None:
+        config = copy / "gantry.sample.toml"
+        text = config.read_bytes().decode("utf-8")
+        assert text.count('fires_list = "fires.md"') == 1
+        config.write_bytes(text.replace('fires_list = "fires.md"', f'fires_list = "{fires_list}"').encode("utf-8"))
+    return copy
+
+
+def test_demo_build_collects_fires(tmp_path, monkeypatch):
+    from gantry import fires_list
+
+    seen = spy_on(monkeypatch, build, "collect_fires")
+    result = sample_build(tmp_path)
+    report = result.fires
+    assert report is seen[0][1]
+    assert result.fires_list is seen[0][0][2]
+    assert result.fires_list.status == "read" and len(result.fires_list.entries) == 6
+    assert set(result.records) == set(sample_projects())
+    for name, data in ((n, i.data) for n, i in result.inputs.items()):
+        assert not [e for e in data.report if e.kind in fires_list.REPORT_KINDS], name
+    assert [(f.kinds, f.site, f.issue) for f in report.fires if f.kinds != ("fires_list",)] == [
+        (("p0_leaf",), "quarry", "Issue-8"), (("stuck",), "harbor", "Issue-13"), (("stuck",), "harbor", "Issue-14")]
+    stuck = [f for f in report.fires if f.kinds == ("stuck",)]
+    assert stuck[0].since == stuck[1].since
+    assert {f.why[0] for f in report.fires if f.kinds == ("fires_list",)} == {
+        "the east crane failed its morning check", "return the surveyor's call about the boundary",
+        "the weighbridge has read low since last week", "a delivery arrived with no paperwork"}
+    assert report.stuck_no_open_leaf == {"quarry": ("Issue-20",)}
+    assert report.stuck_parked == {"quarry": ("Issue-9",)}
+    p0 = {s.site: s.status for s in report.sources if s.source == "p0_leaf"}
+    assert (p0[NO_WBS], p0[UNREADABLE]) == ("absent", "not_read")
+    assert report.confirmed_none is False
+    assert (len(report.fires), report.not_fully_read) == (7, 1)
+
+
+def test_demo_build_prints_fires_line(tmp_path, monkeypatch):
+    first = demo_build(tmp_path / "a", monkeypatch)
+    second = demo_build(tmp_path / "b", monkeypatch)
+    assert first[0] == second[0] == 0
+    assert first[2].splitlines()[-1] == second[2].splitlines()[-1] == DEMO_FIRES_LINE
+    assert written(first[1]) == written(second[1])
+
+
+def test_site_build_collects_no_fires(tmp_path, monkeypatch):
+    lists = spy_on(monkeypatch, build, "read_fires_list")
+    records = spy_on(monkeypatch, build, "read_site_records")
+    code, _, stdout, stderr = demo_build(tmp_path, monkeypatch, "--site", "quarry")
+    assert code == 0, stderr
+    assert (lists, records) == ([], [])
+    assert not [line for line in stdout.splitlines() if line.startswith("fires:")]
+    bare = build.BuildResult(None, (), (), {}, {}, (), "", None)
+    assert (bare.fires_list, bare.fires, bare.records) == (None, None, {})
+
+
+def test_full_build_reads_fires_and_records_once(tmp_path, monkeypatch):
+    from gantry.fires import naive_reference
+
+    lists = spy_on(monkeypatch, build, "read_fires_list")
+    sites_named = []
+    records = spy_on(monkeypatch, build, "read_site_records",
+                     before=lambda roots, planning_dir, *, site=None: sites_named.append(site))
+    collected = spy_on(monkeypatch, build, "collect_fires")
+    result = sample_build(tmp_path)
+    assert len(lists) == 1 and len(collected) == 1
+    assert lists[0][0][2] == sample_projects()
+    assert lists[0][0][3] == naive_reference(collected[0][0][4])
+    with_planning = [s.name for s in result.sites if s.planning_dir is not None]
+    assert len(with_planning) == 6
+    assert len(records) == len(with_planning)
+    assert sorted(sites_named) == sorted(with_planning)
+
+
+def written(out):
+    return {p.relative_to(out).as_posix(): p.read_bytes() for p in sorted(out.rglob("*")) if p.is_file()}
+
+
+def test_fires_never_change_exit_status(tmp_path, monkeypatch):
+    plain = fires_install(tmp_path, "plain")
+    missing = fires_install(tmp_path, "missing", fires_list="nope.md")
+    code, out, stdout, _ = demo_build(tmp_path, monkeypatch, copy=plain)
+    code2, out2, stdout2, _ = demo_build(tmp_path, monkeypatch, copy=missing)
+    assert code == code2 == 0
+    assert written(out) == written(out2)
+    assert stdout.splitlines()[-1] == DEMO_FIRES_LINE
+    assert stdout2.splitlines()[-1] == "fires: 3; sources not fully read: 2"
+    result = build_all(load_config(missing / "gantry.sample.toml"), samples=missing)
+    assert result.fires_list.status == "not_read"
+    assert build_all(load_config(plain / "gantry.sample.toml"), samples=plain).fires_list.status == "read"
+    unset = fires_install(tmp_path, "unset")
+    config = unset / "gantry.sample.toml"
+    config.write_bytes(config.read_bytes().replace(b'fires_list = "fires.md"\n', b""))
+    code3, out3, stdout3, _ = demo_build(tmp_path, monkeypatch, copy=unset)
+    assert code3 == 0 and written(out3) == written(out)
+    assert stdout3.splitlines()[-1] == "fires: 3; sources not fully read: 2"
+    result = build_all(load_config(config), samples=unset)
+    assert (result.fires_list.status, result.fires_list.reason) == ("not_configured", "fires_list is not set")
+
+
+def test_collector_failure_is_isolated(tmp_path, monkeypatch):
+    real = build.read_site_records
+
+    def refuse(roots, planning_dir, *, site=None):
+        if site == BUSY:
+            raise RuntimeError("no records")
+        return real(roots, planning_dir, site=site)
+
+    monkeypatch.setattr(build, "read_site_records", refuse)
+    code, _, stdout, stderr = demo_build(tmp_path, monkeypatch)
+    assert code == 0, stderr
+    assert stdout.splitlines()[-1] == "fires: 5; sources not fully read: 2"  # DEMO_FIRES_LINE less BUSY's STUCK fires
+    result = sample_build(tmp_path / "again")
+    (status,) = [s for s in result.fires.sources if s.source == "stuck" and s.site == BUSY]
+    assert (status.status, status.reason) == ("not_read", "records read failed: RuntimeError")
+    assert result.records[BUSY].status == "not_read"
+
+
+def test_build_fires_fault_degrades(tmp_path, monkeypatch):
+    from gantry.fires import SourceStatus
+
+    plain = fires_install(tmp_path, "plain")
+    faulty = fires_install(tmp_path, "faulty")
+    _, out, _, _ = demo_build(tmp_path, monkeypatch, copy=plain)
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("collector")
+
+    monkeypatch.setattr(build, "collect_fires", fail)
+    code, out2, stdout, stderr = demo_build(tmp_path, monkeypatch, copy=faulty)
+    assert code == 0, stderr
+    assert written(out) == written(out2)
+    assert stdout.splitlines()[-1] == "fires: 0; sources not fully read: 1"
+    assert "gantry: warning: fires not collected: fires step failed: RuntimeError" in stderr.splitlines()
+    result = build_all(load_config(faulty / "gantry.sample.toml"), samples=faulty)
+    assert result.fires.sources == (SourceStatus("fires", None, "not_read", "fires step failed: RuntimeError"),)
+    assert result.fires.fires == ()
+
+
+def test_fires_step_fault_before_any_read(tmp_path, monkeypatch):
+    def fail(*args, **kwargs):
+        raise RuntimeError("fires list")
+
+    monkeypatch.setattr(build, "read_fires_list", fail)
+    code, _, stdout, stderr = demo_build(tmp_path, monkeypatch)
+    assert code == 0, stderr
+    assert stdout.splitlines()[-1] == "fires: 0; sources not fully read: 1"
+    assert "gantry: warning: fires not collected: fires step failed: RuntimeError" in stderr.splitlines()
+    result = sample_build(tmp_path / "again")
+    assert (result.fires_list, result.records) == (None, {})
+    assert [s.reason for s in result.fires.sources] == ["fires step failed: RuntimeError"]
+
+
+def test_no_home_defers_to_32():
+    # The homes that deferred to #32 say what the build does now. Split, so
+    # this test is not itself a hit of the sweep's grep.
+    stale = ("yet (#" + "32)", "(#" + "32) will", "No build reads the " + "records yet", "does not read " + "it yet",
+             "#" + "32's build will", "#" + "32 adds the read", "no build reads the fires " + "list yet",
+             "will " + "read each site once", "(#" + "32) merges", "does not read " + "the file yet")
+    assert_no_stale(stale, [*swept_files(), ROOT / "samples" / "README.md", ROOT / "tests" / "test_cli.py",
+                            ROOT / "CHANGELOG.md"])
+    for rel in BUILD_HOMES:
+        text = " ".join((ROOT / rel).read_bytes().decode("utf-8").split())
+        assert "fires:" in text, rel
+    # The changelog names both stdout changes: a new last line, and a line on a failed build.
+    # Read CHANGELOG.md: a release compiles changelog.d/32.added.md into it and deletes the file.
+    entry = " ".join((ROOT / "CHANGELOG.md").read_bytes().decode("utf-8").split())
+    assert "last stdout line" in entry and "even when the build exits 1" in entry
+
+
 # --- the week view page (#38) ------------------------------------------------------------
 
 
@@ -823,7 +1008,8 @@ def test_week_write_failure_exits_1(tmp_path):
     assert line.startswith(prefix) and line[len(prefix):].strip()
     assert str(tmp_path) not in line and "/" not in line
     assert stdout.splitlines() == [str(out / "sites" / "a.html"), str(out / "sites" / "b.html"),
-                                   str(out / "index.html"), str(out / "week-plan.json")]
+                                   str(out / "index.html"), str(out / "week-plan.json"),
+                                   "fires: 0; sources not fully read: 1"]  # no fires_list (#32)
     assert view_links(out) == []
     assert (out / "week.html").is_dir() and list((out / "week.html").iterdir()) == []
 
@@ -863,7 +1049,8 @@ def test_week_render_failure_exits_1(tmp_path, monkeypatch, error, line):
     assert code == 1
     assert stderr.splitlines() == [line]
     assert stdout.splitlines() == [str(out / "sites" / "a.html"), str(out / "sites" / "b.html"),
-                                   str(out / "index.html"), str(out / "week-plan.json")]
+                                   str(out / "index.html"), str(out / "week-plan.json"),
+                                   "fires: 0; sources not fully read: 1"]  # no fires_list (#32)
     assert not (out / "week.html").exists()
     assert view_links(out) == []
 

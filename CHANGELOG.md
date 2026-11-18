@@ -12,11 +12,96 @@ into its section here.
 
 New entries are files in changelog.d/; README's "Versioning & releases" says how.
 
+## [0.1.2] — 2026-11-18
+
+### Changed
+
+- A worksite page's line of unestimated leaves names at most the first 20
+  of each `est:` class, then `and N more`; its count is still the class's
+  total (docs/worksite-page.md).
+- The portfolio file reads an ATX heading indented one to three spaces as a
+  heading, as CommonMark and a rendered page do, so an indented
+  `## Settings` or `## Business requirements` is read instead of being
+  reported as `no_settings` or `no_br_section`. An indented level-1 or
+  level-2 heading now also ends the section above it: requirements below
+  it, and their checks, are no longer read, and one between `## Settings`
+  and its toml block hides the block. An indented second heading is a
+  `duplicate_section`; four or more spaces, or a tab, is still not a
+  heading (docs/portfolio-file.md).
+
+### Removed
+
+- The note that devagent's `wbs order` ranks P0 leaves differently, from a
+  worksite page's schedule and from the week view's P0 leaves: devagent
+  3.1.0 is the first release whose `wbs order` ranks P0 above P1
+  (docs/worksite-page.md#priority).
+
+### Fixed
+
+- An estimates file with no table whose first header cell is `#` (prose
+  only, other tables only, empty, or an indented or quoted `#` table) is
+  now reported as `estimates_no_table` instead of being read silently, and
+  the worksite page no longer names it as read (docs/worksite-page.md).
+- An `estimates-*.md` name whose date is not a valid date, such as
+  `estimates-2026-02-30.md`, is now ignored for that reason, not as a name
+  with no date; a configured file with such a name is still read, and the
+  page header names the invalid date instead of saying "(no date)"
+  (docs/worksite-page.md).
+- An estimates-file row such as `#012` that names no `WBS.md` line now
+  says it has a leading zero and is read as `Issue-012`, not `Issue-12`
+  (docs/worksite-page.md).
+- The requirements reader names the real cause of more problems. A
+  `needs:` or `refines:` list with text after its `]`
+  (`{needs: [FR-1] [FR-2]}`) is reported as a malformed list, not as
+  `needs: []`, and the block's other keys are still read. A trailing comma
+  in a meta block (`{refines: SR-1, }`) is accepted, as devagent accepts
+  it. A second meta block on one item is reported as one wherever the
+  first sits, also when both are on continuation lines. A key repeated
+  after a first value that was not read now says "the first is not read,
+  so neither is" instead of "the first is kept".
+- An ID item indented under a thematic break (`* * *`, `- - -`) is read as
+  top-level instead of being reported as nested.
+- A requirements path that is a directory is reported "the requirements
+  file is not a file", and a missing path, or a path under a file, "the
+  requirements file does not exist", with the same text on every
+  operating system.
+- An ID item inside a block quote (`> - FR-1: a`) or indented with a
+  no-break space, and a carriage return with no line feed after it (a
+  CR-only file), are now reported `malformed_item` instead of being lost
+  without a report. A fence inside a block quote hides nothing, so an ID
+  item in a quoted example is reported too; show such an example in an
+  unquoted fence. A CR cuts its line, so a requirement's text no longer
+  runs on into the next line's item.
+- docs/requirements-format.md states that a line of only whitespace,
+  Unicode whitespace included, is blank, as the reader already read it.
+- The trace now reports a probable unbracketed `satisfies:` list
+  (`unbracketed_list`) only for the key directly after a `satisfies:`
+  that is not a bracketed list, when that key is named like a site or
+  `br_namespace`. A site named like a meta key, such as `issue`, `h` or
+  `est`, no longer gets that report on every leaf carrying the key. A
+  real unbracketed list now gets one report per leaf instead of one per
+  split-off key, so the page's `malformed` count drops for such leaves.
+  It no longer reports a list whose second entry names no known
+  namespace, or an ID written after a bracket that closes too early;
+  docs/requirements-format.md lists the rule's known limits.
+- `gantry build` refuses an installation config that holds an integer too
+  large to convert to a float for a positive-number key, or an installation
+  or devagent config with a value nested too deeply for Python's TOML parser
+  to read, with one `gantry: error:` line instead of a traceback.
+- The portfolio file reports an integer too large to convert to a float as a
+  `bad_value` where the key's rule says a finite number, or as a
+  `bad_allocation` for a share, instead of accepting it, so
+  `gantry portfolio` exits 1 for that file.
+- The week plan's mapping note reads "not finite", not "above 24", for an
+  integer too large to convert to a float.
+
+## [0.1.1] — 2026-11-17
+
 ### Added
 
 - The fires list: a private Markdown file of fires that are not leaves yet,
   the `fires_check_days` config key and `gantry fires --config <file>`,
-  which checks it; the build does not read it yet (docs/fires-list.md).
+  which checks it (docs/fires-list.md).
 - Threshold and objective paths (#79): a requirement may state a
   `Threshold:` and an `Objective:`, a leaf's `objective:` names the
   requirements it serves at objective only, and selecting a requirement
@@ -35,15 +120,40 @@ New entries are files in changelog.d/; README's "Versioning & releases" says how
   and plans, read from every issue folder of a planning directory with no
   link followed, pinned by fixtures that devagent's own scripts write and a
   contract test against devagent 3.0.0 (`tests/devagent.pin`) on the Ubuntu
-  CI legs; the harbor sample gains seven issue folders. No build reads the
-  records yet (#32) (docs/devagent-formats.md).
-
+  CI legs; the harbor sample gains seven issue folders
+  (docs/devagent-formats.md).
 - The "Served from other sites" panel on a worksite page (#21): in a full
   build, each leaf on another site whose `satisfies:` names one of this
   site's requirements, linked to its leaf on that site's page and lit when
   its requirement is selected; requirement IDs of another built site link
   to its page; the trace report gains `sites_not_read` and
   `undefined_foreign` (docs/worksite-page.md, docs/requirements-format.md).
+- Every full build collects the installation's fires across sites (the
+  fires list, open P0 leaves and devagent STUCK markers), with a read
+  status for every source, and prints `fires: N; sources not fully read: M`
+  as its last stdout line (docs/daily-screen.md#fires); a script that read
+  the last stdout line of `gantry build` now reads that line. The line
+  prints even when the build exits 1 after collecting, such as when the
+  output folder cannot be made, so stdout is no longer empty there. A fires
+  source that cannot be read at all is named on stderr. Reading every issue
+  folder's records makes a full build slower on a large installation
+  (mtibbits/gantry#171 follows up).
+- The week view page: every full build writes `week.html` beside the
+  index, and the index links it as "Week view". It shows the week plan's
+  10 working days (5 at first, with a control for all 10), each day's
+  blocks, lanes row and what was left, each leaf's hours, need or rate,
+  tag and basis, the binding pool, the allocation rule, the mapping, the
+  unestimated count, share-less sites, P0 leaves, each site's unplanned
+  leaves by reason and the per-site shares and charges; it computes
+  nothing itself (docs/week-plan.md#the-week-view-page).
+- The fires list also reports lines that look like entries but miss the
+  marker rule, such as `[] 2026-10-24 ...`, `1. [xx] ...` or
+  `> - [ ] ...`, as unreadable entries
+  (docs/fires-list.md#entry-like-lines).
+- `python3 tools/next_requirement_id.py <code>` prints the next free
+  requirement ID for a layer, counting `main`, the working tree, and open
+  issues and pull requests by the owner, a member or a collaborator; it
+  writes nothing and refuses rather than guess.
 
 ### Changed
 
@@ -67,6 +177,22 @@ New entries are files in changelog.d/; README's "Versioning & releases" says how
 - A break now includes raising the oldest supported version of a tool, and
   a release with a break says in its CHANGELOG section what to change
   (README.md).
+- `gantry build` prints the path of `week.html` between the site pages and
+  `index.html`, and exits 1 with `gantry: error: cannot render week.html:
+  ...` or `gantry: error: cannot write week.html: ...` when the week view
+  cannot be rendered or written; the index is then written without its
+  "Week view" link and the plan file is still written
+  (docs/worksite-page.md#every-site-and-the-index).
+- Changelog entries are files: a change adds
+  `changelog.d/<key>.<kind>.md` instead of a line under `## [Unreleased]`,
+  and `python3 tools/changelog.py release <version> <date>` compiles the
+  waiting files into the release's section; `check` and `preview` report
+  and show what is waiting (README.md).
+- `docs/requirements.md` now says to take a new requirement's ID from
+  `tools/next_requirement_id.py`, claim it in the issue's body, and that the
+  pull request merging second renumbers; IDs are never renumbered or reused
+  once they are on `main`. `docs/requirements-format.md` defines a number as
+  used once it is on the file's default branch.
 
 ## [0.1.0] — 2026-11-14
 

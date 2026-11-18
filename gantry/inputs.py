@@ -30,6 +30,7 @@ MESSAGES = {
     "no_priority": "{n} open leaves have no priority and count as P3",
     "no_priority_one": "1 open leaf has no priority and counts as P3",
     "unmatched": "estimates file {name!r} line {line}: #{n} names no WBS.md line",
+    "leading_zero": "; it has a leading zero, so it is read as Issue-{n}, not Issue-{bare}",
 }
 
 
@@ -37,13 +38,14 @@ MESSAGES = {
 class EstimatesSource:
     name: str
     date: date | None
+    bad_date: str | None = None  # the name's date text when it is not a valid date
 
 
 @dataclass(frozen=True)
 class Inputs:
     data: SiteData
     totals: Totals
-    estimates: EstimatesSource | None  # None: no estimates file was read
+    estimates: EstimatesSource | None  # None: no file was read, or it held no # table
 
 
 def scheduled(data) -> list[Leaf]:
@@ -84,17 +86,21 @@ def apply_inputs(roots, site, data, config) -> Inputs:
     report = list(found.report)
     rows, source = {}, None
     if found.path is not None:
-        read = read_estimates_file(roots, found.path, site.name, found.name, key=found.key)
-        report += read.report
-        if not any(e.kind == "estimates_unreadable" for e in read.report):
-            rows, source = read.rows, EstimatesSource(found.name, found.date)
+        estimates = read_estimates_file(roots, found.path, site.name, found.name, key=found.key)
+        report += estimates.report
+        if estimates.read:
+            rows, source = estimates.rows, EstimatesSource(found.name, found.date, found.bad_date)
     unit = config.default_unit_hours
 
     holders = {node.key: node for node in (*data.rows, *data.leaves)}
     for key, row in rows.items():
         if key not in holders:
-            report.append(ReportEntry(site.name, None, "estimates_row_unmatched", MESSAGES["unmatched"].format(
-                name=found.name, line=row.line, n=key.removeprefix("Issue-"))))
+            n = key.removeprefix("Issue-")
+            message = MESSAGES["unmatched"].format(name=found.name, line=row.line, n=n)
+            # The zero is kept: #012 joins only Issue-012, so say so (#108).
+            if len(n) > 1 and n.startswith("0"):
+                message += MESSAGES["leading_zero"].format(n=n, bare=n.lstrip("0") or "0")
+            report.append(ReportEntry(site.name, None, "estimates_row_unmatched", message))
 
     held = set(data.held_out)
     leaves = []

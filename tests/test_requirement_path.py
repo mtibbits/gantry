@@ -8,11 +8,11 @@ Sample literals are hand-derived from samples/lighthouse/.
 import copy
 import re
 import random
-import time
 from dataclasses import replace
 
 import pytest
 
+import gantry.path
 from gantry import build
 from gantry.config import load_config
 from gantry.inputs import scheduled
@@ -25,7 +25,7 @@ from gantry.model import HOURS_PER_DAY, ForeignOutcome, SiteData
 from gantry.render import CLASS_TOKENS
 from gantry.views.worksite import page_model, plan_finish_day
 from page_safety import HOSTILE, _strings, assert_no_external_resources, assert_page_safe
-from page_script.harness import Planted, open_page, run_function
+from page_script.harness import PageScriptError, Planted, open_page, run_function
 from sample_roles import READABLE, SMALL
 from test_build import heading_slugs
 from test_own_requirements import own_set
@@ -451,17 +451,86 @@ def test_hours_text_agrees_with_num():
                                                                                    "108"]
 
 
-def test_build_paths_scales():
+def test_build_paths_scales(monkeypatch):
+    count = reads = 0
+
+    class Key(str):
+        """A key that counts every hash and comparison made on it."""
+
+        def __hash__(self):
+            nonlocal count
+            count += 1
+            return str.__hash__(self)
+
+    def counting(op):
+        def method(self, other):
+            nonlocal count
+            count += 1
+            return op(self, other)
+        return method
+
+    for op in ("__eq__", "__ne__", "__lt__", "__le__", "__gt__", "__ge__"):
+        setattr(Key, op, counting(getattr(str, op)))
+
+    class Item(dict):
+        """An item that counts every field read made on it with []."""
+
+        def __getitem__(self, field):
+            nonlocal reads
+            reads += 1
+            return dict.__getitem__(self, field)
+
+    spent = {}  # name: [key tests inside it, field reads inside it, items handed to it]
+
+    def counted(name, fn):
+        tally = spent[name] = [0, 0, 0]
+
+        def wrapper(items):
+            keys, fields = count, reads
+            out = fn(items)
+            tally[0] += count - keys
+            tally[1] += reads - fields
+            tally[2] += len(items)
+            return out
+        return wrapper
+
+    for name, fn in (("work_order", work_order), ("heaviest", heaviest)):
+        monkeypatch.setattr(gantry.path, name, counted(name, fn))
+
     rng = random.Random(77)
-    n = 2000
-    items = [it(f"k{j}", rng.choice((1, 2, 6)), [f"k{p}" for p in rng.sample(range(j), min(j, 2))],
-                rng.randint(1, 4), j) for j in range(n)]
+    n = 500
+    items = [Item(it(Key(f"k{j}"), rng.choice((1, 2, 6)), [Key(f"k{p}") for p in rng.sample(range(j), min(j, 2))],
+                     rng.randint(1, 4), j)) for j in range(n)]
     links = [(p, item["key"]) for item in items for p in item["preds"]]
     serving = {f"R{r}": ([[f"k{j}", "direct"] for j in range(n) if (j + r) % 7], [], 0) for r in range(10)}
-    start = time.perf_counter()
+    before = count
     paths = build_paths(serving, items, unestimated=set(), links=links, foreign={})
-    assert time.perf_counter() - start < 2.0
-    assert all(len(p.order) <= n for p in paths.values())
+    total = count - before
+
+    size = sum(len(p.order) for p in paths.values())
+    wo, wo_reads, wo_in = spent["work_order"]
+    hv, _, hv_in = spent["heaviest"]
+    body = total - wo - hv
+    assert wo_in == hv_in == size, (f"work_order saw {wo_in} items and heaviest {hv_in} for {size} path leaves: "
+                                    "the wrappers no longer see each path's items exactly once")
+    assert wo >= wo_in, f"work_order made {wo} key tests on {wo_in} items: the count no longer sees it"
+    assert wo_reads >= wo_in, f"work_order made {wo_reads} field reads on {wo_in} items: the count no longer sees it"
+    assert hv >= hv_in, f"heaviest made {hv} key tests on {hv_in} items: the count no longer sees it"
+    # The heap makes about 21 key tests and 13 field reads per leaf; a scan over pending items on every pick
+    # makes hundreds of one or the other, and the count grows with n. Only hashing or comparing keys and []
+    # reads of item fields count: a scan over positional lists that touches neither escapes.
+    assert wo <= 70 * size, (f"work_order made {wo} key tests for {size} path leaves: "
+                             "it scans pending items on each pick")
+    assert wo_reads <= 40 * size, (f"work_order made {wo_reads} field reads for {size} path leaves: "
+                                   "it scans pending items on each pick")
+    assert hv <= 100 * size, f"heaviest made {hv} key tests for {size} path leaves: its walk is no longer linear"
+    assert body <= 50 * size, (f"build_paths made {body} key tests outside work_order and heaviest for {size} "
+                               "path leaves: its own walk or filter is no longer linear")
+
+    # The plain-str serving keys find their Key members because Key hashes and compares as str.
+    members = path_set([k for k, _ in serving["R3"][0]], serving["R3"][1], links, {item["key"] for item in items})
+    planned = plan([item for item in items if item["key"] in members], 1)
+    assert [k for k, _ in paths["R3"].order] == sorted(planned, key=lambda k: planned[k][0])
 
 
 def test_work_order_is_the_one_lane_plan():
@@ -605,6 +674,37 @@ def test_end_day_follows_lanes(node, sample_page):
         assert [e.text for e in page.query("#req-path .path-end")] == [worksite.path_end_text(17, 4)]
         page.drive("lanes", "1")
         assert [e.text for e in page.query("#req-path .path-end")] == [worksite.path_end_text(one, 1)]
+
+
+def test_redraw_keeps_box_node(node, sample_page):
+    path, _, _ = sample_page
+    with open_page(path) as page:
+        # The box is empty before a selection, so remember refuses: the set below is never empty.
+        with pytest.raises(PageScriptError, match="matches no element"):
+            page.remember("inside", "#req-path *")
+        page.drive("requirement", "lighthouse:FR-1")
+        page.remember("box", "#req-path")
+        page.remember("inside", "#req-path *")
+        # Each leg asserts its start state, so the drive is a change and not a default.
+        assert {g.attrs["aria-expanded"] for g in page.query(".g-toggle")} == {"false"}
+        page.drive("expand", "all")
+        assert {g.attrs["aria-expanded"] for g in page.query(".g-toggle")} == {"true"}
+        # same("box") fails first only if #req-path itself is re-created.
+        assert page.same("box"), "the epic redraw replaced #req-path"
+        assert page.same("inside"), "the epic redraw rebuilt the box"
+        assert [e.text for e in page.query("#req-path .path-end")] == [worksite.path_end_text(17, 4)]
+        page.drive("lanes", "1")
+        assert [e.text for e in page.query("#req-path .path-end")] == [worksite.path_end_text(29, 1)]
+        assert page.same("box"), "the lane change replaced #req-path"
+        assert page.same("inside"), "the lane change rebuilt the box"
+        # A new selection rebuilds the box: equal snapshots, new nodes. So snapshots cannot be
+        # the guard, and a same() that always answers true fails here.
+        kept = page.query("#req-path *")
+        page.drive("requirement", "lighthouse:FR-1")
+        page.drive("requirement", "lighthouse:FR-1")
+        assert page.query("#req-path *") == kept
+        assert page.same("box")
+        assert not page.same("inside")
 
 
 def test_box_hidden_without_selection(node, sample_page):

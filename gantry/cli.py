@@ -7,7 +7,9 @@ plan to <output_dir>/week-plan.json (#61); with
 `--site` it builds that one page, no index and no plan, reading that site's
 WBS.md and inputs, every requirements file and the portfolio file. Both
 print each written file's path, then a `trace <site>:` line for each written
-page whose site is in the trace or whose trace report has an entry (#20). `gantry portfolio` checks the
+page whose site is in the trace or whose trace report has an entry (#20);
+the full build then prints one `fires:` line, the count of fires and of
+sources not fully read (#32, docs/daily-screen.md). `gantry portfolio` checks the
 portfolio file the config names, without building (#22); `gantry fires`
 checks the fires list, without building (#30). There is no default
 config location: `--config` is required, and nothing here reads the
@@ -31,6 +33,7 @@ import sys
 from datetime import datetime
 
 from gantry.build import (
+    FIRES_STEP,
     build_all,
     clashes,
     read_site,
@@ -49,6 +52,10 @@ from gantry.roots import OutsideRoots
 from gantry.sites import config_roots, shown
 from gantry.stamp import stamp_text
 from gantry.trace import counts_line, load_catalog
+
+# The full build's last stdout line (#32): how many fires, and how many sources
+# were not fully read. It names no fire; docs/daily-screen.md#fires states it.
+FIRES_LINE = "fires: {n}; sources not fully read: {m}"
 
 
 def _parser():
@@ -184,6 +191,14 @@ def _build_all(config):
     for s in result.summaries:
         if s.trace_line is not None and config.output_dir / "sites" / f"{s.name}.html" in written:
             print(s.trace_line)
+    # Last, the fires line (#32): counts only, whether or not anything was written.
+    print(FIRES_LINE.format(n=len(result.fires.fires), m=result.fires.not_fully_read))
+    # A source that could not be read at all is named here: the line's counts alone cannot tell it from a
+    # healthy build with no fires list (#32).
+    for s in result.fires.sources:
+        if s.site is None and s.status == "not_read":
+            what = "fires not collected" if s.source == FIRES_STEP else f"fires source {s.source} is not read"
+            print(f"gantry: warning: {what}: {s.reason}", file=sys.stderr)
     for s in result.summaries:
         if s.status != "built":
             print(f"gantry: warning: site {shown(s.name)} is not built: {s.reason}", file=sys.stderr)
@@ -287,8 +302,8 @@ def _fires(args):
     if loaded is None:
         return 1
     config, roots, site_names = loaded
-    # fires_reference is the rule #32's build will use too: as_of at 00:00
-    # when the config sets it, else now.
+    # fires_reference is the rule the full build uses too (#32): as_of at
+    # 00:00 when the config sets it, else now.
     reference = fires_reference(config, datetime.now())
     result = read_fires_list(roots, config.fires_list, site_names, reference)
     if result.status == "not_configured":

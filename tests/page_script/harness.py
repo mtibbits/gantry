@@ -258,6 +258,16 @@ class Page(_Driver):
         _strings((name,), f"key({name!r}): the key name must be a string")
         self._request({"op": "key", "key": name})
 
+    def remember(self, name, selector):
+        """Keep, under `name`, the elements the selector matches now; return how many."""
+        _strings((name, selector), f"remember({name!r}, {selector!r}): name and selector must be strings")
+        return self._request({"op": "remember", "name": name, "selector": selector})
+
+    def same(self, name):
+        """Whether the selector remembered as `name` matches the same nodes, as many, in the same order."""
+        _strings((name,), f"same({name!r}): the name must be a string")
+        return self._request({"op": "same", "name": name})
+
 
 @contextmanager
 def open_page(path):
