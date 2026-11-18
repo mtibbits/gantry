@@ -642,6 +642,20 @@ def test_worksite_page_points_at_the_satisfies_key():
         (DOCS / "requirements-format.md").read_bytes().decode("utf-8").replace("\r", ""))
 
 
+def test_docs_state_the_unbracketed_list_rule():
+    # Both limbs of the rule (#114), each pinned in the one subsection that states it: section() stops only at a
+    # "## " line, so the worksite-page text is cut at its next "### " heading.
+    from helpers_docs import section
+
+    rules = section((DOCS / "requirements-format.md").read_bytes().decode("utf-8"), "## The `satisfies:` key")
+    page = section((DOCS / "worksite-page.md").read_bytes().decode("utf-8"), "### Title and metadata")
+    assert rules is not None and page is not None
+    page = page.split("\n### ", 1)[0]
+    for text in (rules, page):
+        flat = " ".join(text.split())
+        assert [phrase for phrase in ("directly after", "not a bracketed list") if phrase not in flat] == []
+
+
 def test_catalog_keeps_the_portfolio_it_read(tmp_path):
     # The full build plans the week from this one read (#61).
     from test_planner import install
