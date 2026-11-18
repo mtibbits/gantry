@@ -33,9 +33,12 @@ DATES = "dates include {n} unestimated leaves"
 DATES_ONE = "dates include 1 unestimated leaf"
 ESTIMATES_LINE = "Estimates read from {name}, dated {date}."
 ESTIMATES_UNDATED = "Estimates read from {name} (no date)."
+ESTIMATES_BAD_DATE = "Estimates read from {name} (its name's date {date} is not a valid date)."
 NON_TIME_LINE = "Not in any hour figure: {parts}"
 UNESTIMATED_LINE = "{n} leaves with {what} and no estimates-file hours are unestimated: {keys}"
 UNESTIMATED_LINE_ONE = "1 leaf with {what} and no estimates-file hours is unestimated: {keys}"
+UNESTIMATED_CAP = 20  # the most keys an unestimated line names (#108)
+UNESTIMATED_MORE = "{keys} and {more} more"
 SUMMARY = ("With {lanes}, all open work ends around working day {end} and the critical chain around day {crit}. "
            "The chain alone needs {chain} days; the work spread evenly across the lanes needs {even}. "
            "The lanes are busy {busy}% of the time.")
@@ -396,7 +399,8 @@ def summary_text(items, p, path, lanes, unest_site, unest_path, no_chain=SUMMARY
 
 def _panel(data):
     """The report as lines: issue-less leaves as one count, held-out leaves by
-    name, unestimated leaves as one line per est: class."""
+    name, unestimated leaves as one line per est: class, naming at most
+    UNESTIMATED_CAP of them."""
     held_at = {leaf.line: leaf.key for leaf in data.leaves if leaf.key in data.held_out}
     no_issue = sum(e.kind == "no_issue" for e in data.report)
     # By the leaf's own est: class, never by parsing the message.
@@ -417,7 +421,10 @@ def _panel(data):
             if kind not in grouped:
                 keys = unestimated[kind]
                 text = UNESTIMATED_LINE_ONE if len(keys) == 1 else UNESTIMATED_LINE
-                lines.append(text.format(n=len(keys), what=UNEST_WHAT[kind], keys=", ".join(keys)))
+                listed = ", ".join(keys[:UNESTIMATED_CAP])
+                if len(keys) > UNESTIMATED_CAP:
+                    listed = UNESTIMATED_MORE.format(keys=listed, more=len(keys) - UNESTIMATED_CAP)
+                lines.append(text.format(n=len(keys), what=UNEST_WHAT[kind], keys=listed))
                 grouped.add(kind)
         elif entry.kind == "waits_on_cycle":
             lines.append(WAITS_LINE.format(line=entry.line, key=held_at[entry.line]))
@@ -598,6 +605,8 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None, built
         traced = {**trace, "requirements": [recorded(r) for r in trace["requirements"]]}
     if source is None:
         estimates_line = None
+    elif source.bad_date is not None:
+        estimates_line = ESTIMATES_BAD_DATE.format(name=source.name, date=source.bad_date)
     elif source.date is None:
         estimates_line = ESTIMATES_UNDATED.format(name=source.name)
     else:
