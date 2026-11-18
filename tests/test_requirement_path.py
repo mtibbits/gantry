@@ -454,22 +454,27 @@ def test_build_paths_scales(monkeypatch):
     count = 0
 
     class Key(str):
-        """A key that counts every hash and equality test made on it."""
+        """A key that counts every hash and comparison made on it."""
 
         def __hash__(self):
             nonlocal count
             count += 1
             return str.__hash__(self)
 
-        def __eq__(self, other):
+    def counting(op):
+        def method(self, other):
             nonlocal count
             count += 1
-            return str.__eq__(self, other)
+            return op(self, other)
+        return method
+
+    for op in ("__eq__", "__ne__", "__lt__", "__le__", "__gt__", "__ge__"):
+        setattr(Key, op, counting(getattr(str, op)))
 
     spent = {}  # name: [count inside it, items handed to it]
 
-    def counted(fn):
-        tally = spent[fn.__name__] = [0, 0]
+    def counted(name, fn):
+        tally = spent[name] = [0, 0]
 
         def wrapper(items):
             before = count
@@ -479,8 +484,8 @@ def test_build_paths_scales(monkeypatch):
             return out
         return wrapper
 
-    for fn in (work_order, heaviest):
-        monkeypatch.setattr(f"gantry.path.{fn.__name__}", counted(fn))
+    for name, fn in (("work_order", work_order), ("heaviest", heaviest)):
+        monkeypatch.setattr(f"gantry.path.{name}", counted(name, fn))
 
     rng = random.Random(77)
     n = 500
@@ -498,14 +503,13 @@ def test_build_paths_scales(monkeypatch):
     assert wo >= wo_in, f"work_order made {wo} key tests on {wo_in} items: the count no longer sees it"
     assert hv >= hv_in, f"heaviest made {hv} key tests on {hv_in} items: the count no longer sees it"
     # The heap makes about 21 key tests per leaf; a scan that looks up or tests pending items by key on every
-    # pick makes hundreds (293 for a key scan here, and the count grows with n). Only hashing and == on keys
-    # count: a scan over positional lists or item fields that never hashes or == a key escapes this count, as
-    # do ordering comparisons (<, min, sorted) on keys.
+    # pick makes hundreds (293 for a key scan here, and the count grows with n). Only hashing and comparing
+    # keys count: a scan over positional lists or item fields that never hashes or compares a key escapes.
     assert wo <= 70 * size, (f"work_order made {wo} key tests for {size} path leaves: "
                              "it scans pending items on each pick")
     assert hv <= 100 * size, f"heaviest made {hv} key tests for {size} path leaves: its walk is no longer linear"
 
-    # Key objects compare equal to plain str.
+    # The plain-str serving keys find their Key members because Key hashes and compares as str.
     members = path_set([k for k, _ in serving["R3"][0]], serving["R3"][1], links, {item["key"] for item in items})
     planned = plan([item for item in items if item["key"] in members], 1)
     assert [k for k, _ in paths["R3"].order] == sorted(planned, key=lambda k: planned[k][0])
