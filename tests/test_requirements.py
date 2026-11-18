@@ -335,15 +335,33 @@ def test_quoted_or_unusually_indented_candidate(text, report):
     assert s.requirements == {}
 
 
-@pytest.mark.parametrize("text, line", [
-    ("- FR-1: a\n  > - FR-2: b\n", 2),
-    ("- FR-1: a\n\n  > - FR-2: b\n", 3),
+@pytest.mark.parametrize("text, line, why", [
+    ("- FR-1: a\n  > - FR-2: b\n", 2, "inside a block quote"),
+    ("- FR-1: a\n\n  > - FR-2: b\n", 3, "inside a block quote"),
+    ("- FR-1: a\n  " + NB + "- FR-2: b\n", 2, NBSP),
 ])
-def test_quoted_candidate_under_an_item(text, line):
-    # The quote is the cause, so no "not nested" reason, whether or not a blank line comes first.
+def test_quoted_candidate_under_an_item(text, line, why):
+    # The quote or the odd indent is the cause, so no "not nested" reason, whether or not a blank line comes first.
     s = parse(text)
-    assert rows(s) == [(line, "malformed_item", "'FR-2:' is not a requirement: inside a block quote")]
+    assert rows(s) == [(line, "malformed_item", "'FR-2:' is not a requirement: " + why)]
     assert list(s.requirements) == ["alpha:FR-1"]
+
+
+FENCE = "`" * 3
+
+
+@pytest.mark.parametrize("text, report", [
+    # A quoted fence closes where its quote ends, so an unclosed one hides nothing after the quote.
+    ("> " + FENCE + "\n> code\n\n- FR-1: a\n> - FR-2: b\n", [(5, "malformed_item", QUOTE.replace("FR-1", "FR-2"))]),
+    ("> " + FENCE + "\n> code\n\n- FR-1: a\n" + NB + "- FR-2: b\n",
+     [(5, "malformed_item", "'FR-2:' is not a requirement: " + NBSP)]),
+    ("> " + FENCE + "\n> code\n\n- FR-1: a\n  > - FR-2: b\n", [(5, "malformed_item", QUOTE.replace("FR-1", "FR-2"))]),
+    # A quoted fence closes only on a run of its own character, at least as long, with nothing after it.
+    ("> ````\n> " + FENCE + "\n> - FR-1: x\n> ````\n> - FR-2: y\n", [(5, "malformed_item", QUOTE.replace("FR-1", "FR-2"))]),
+])
+def test_quoted_fence_hides_only_its_own_lines(text, report):
+    s = parse(text)
+    assert rows(s) == report
 
 
 @pytest.mark.parametrize("text", [
@@ -976,6 +994,15 @@ def test_list_with_text_after_its_bracket(text, report, field, value):
     assert got == (rid(value) if isinstance(value, str) else value)
 
 
+def test_malformed_list_then_its_key_repeated():
+    # The first is not kept when it cannot be read: the report says neither is read.
+    s = parse("- UC-1: c {needs: [x] [y], needs: [FR-1]}\n- FR-1: a\n")
+    assert rows(s) == [(1, "malformed_meta", "needs: " + MALFORMED_LIST),
+                       (1, "malformed_meta", "key 'needs' is repeated in the meta block, and the first is "
+                                             "malformed; neither is read")]
+    assert s.requirements["alpha:UC-1"].needs == []
+
+
 def test_misplaced_item_is_dropped_before_its_block():
     # The wrong-layer item's own block is never read, so no further entry.
     s = parse("- BR-1: x {owner: y}\n- FR-1: z {refines: BR-1}\n")
@@ -1171,6 +1198,7 @@ def test_format_doc_states_report_causes():
         "a quoted ID item inside it is still reported",
         req.BARE_CR, "a bare carriage return is still reported there",
         "any character Python's `str.isspace()` accepts",
+        "with no line feed after it and text after it", "and the first is malformed; neither is read",
     ]
     assert [w for w in wanted if w not in doc] == []
 

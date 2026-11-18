@@ -142,8 +142,8 @@ there; when it is a candidate it is reported with the reason "inside a
 block quote", or "indented with U+00A0 (only spaces and tabs indent a list
 item)" for a no-break space (another character is named by its own code
 point), before any other reason. Such an item under a requirement is
-reported the same way, without "requirements are not nested": the quote,
-not the nesting, is the cause.
+reported the same way, without "requirements are not nested": the quote
+or the indent, not the nesting, is the cause.
 
 So, outside fences and comments, a typo of the shape letters, an optional
 `-`, digits, then a colon is never silently lost, also after a `>` or after
@@ -250,7 +250,8 @@ page:
   comment; a backslash before `<!--` is not read as an escape; a comment
   inside a block quote (`> <!--`) is not a block comment, so a quoted ID
   item inside it is still reported (a fence inside a block quote does hide
-  a quoted example: from a quoted fence line to the next one); and a list item
+  a quoted example, from its opening line to a closing run as for any
+  fence, or to the quote's end); and a list item
   whose text starts five or more columns past its marker, which a page shows
   as code, is still read as an item, as is one nested four or more columns
   past its enclosing item's text (a `- <!--` there is still reported), and
@@ -319,7 +320,8 @@ Reported, with the requirement still read:
 - `malformed_meta`: a block that cannot be read (an entry with no key, an
   unclosed `[` or quote, or a block with no closing `}` or with a brace
   inside it), any key other than `refines` and `needs`, a key
-  repeated in one block (the first is kept), a list given to `refines:`,
+  repeated in one block (the first is kept, unless it is a malformed list:
+  then "and the first is malformed; neither is read"), a list given to `refines:`,
   `needs: []`, a list with text after its `]` (`{needs: [FR-1] [FR-2]}`,
   reported "needs: a malformed list, with text after its ']'; it is not
   read", while the block's other keys are still read: which targets were
@@ -477,7 +479,7 @@ line, then in this order:
 | Kind | When |
 |---|---|
 | `unreadable` | the path does not exist ("the requirements file does not exist"), is not a file ("the requirements file is not a file"), cannot be read, or is not valid UTF-8; the set is empty |
-| `malformed_item` | a list item the reader cannot place: a candidate that is not a requirement (one "inside a block quote" or "indented with U+00A0" included), or a `Threshold:` or `Objective:` item that is not a statement, with its reasons; or a line holding a carriage return with no line feed after it |
+| `malformed_item` | a list item the reader cannot place: a candidate that is not a requirement (one "inside a block quote" or "indented with U+00A0" included), or a `Threshold:` or `Objective:` item that is not a statement, with its reasons; or a line holding a carriage return with no line feed after it and text after it |
 | `malformed_meta` | a meta block that cannot be read, or a key or value shape it does not allow, such as a list with text after its `]` ("a malformed list, with text after its ']'; it is not read"); a second meta block on one item, or one inside the text |
 | `malformed_link` | a link target that is not a requirement ID |
 | `malformed_comment` | an HTML comment the reader does not hide: in a requirement's text (read as written), before an ID (not read), or starting a list item without closing on its line; or a block comment with no `-->`, or whose list item ends first, which hides every line after it |

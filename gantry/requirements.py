@@ -160,17 +160,23 @@ def _width(line):
 
 
 def _quoted_code(lines, hidden):
-    """Per line, whether it lies in a fence inside a block quote: a fence line after quote
-    markers opens one, and the next such line closes it. A page shows those lines as code."""
-    flags, inside = [], False
+    """Per line, whether it lies in a fence inside a block quote, which a page shows as code.
+    A fence line after quote markers opens one; a later quoted run of the same character, at
+    least as long, with nothing after it closes it, and so does the end of the quote."""
+    flags, run = [], None  # run: the open quoted fence's opening run
     for line, h in zip(lines, hidden):
-        fence = False
-        if not h and line.lstrip()[:1] == ">":
-            lead = LEAD_RE.match(line).group()
-            fence = ">" in lead and FENCE_RE.fullmatch(line, len(lead)) is not None
-        flags.append(inside or fence)
-        if fence:
-            inside = not inside
+        if h or line.lstrip()[:1] != ">":
+            run = None  # not a quoted line: the quote, and any fence in it, has ended
+            flags.append(False)
+            continue
+        f = FENCE_RE.fullmatch(line, len(LEAD_RE.match(line).group()))
+        flags.append(run is not None or f is not None)
+        if f is None:
+            continue
+        if run is None:
+            run = f["run"]
+        elif f["run"][0] == run[0] and len(f["run"]) >= len(run) and not f["info"].strip():
+            run = None
     return flags
 
 
@@ -551,7 +557,7 @@ class _Reader:
             return None
         return c
 
-    def near_item(self, line, text, nested):
+    def near_item(self, line, text):
         """Report a line that is an item after a quote marker, or after whitespace other
         than a space or tab: a page shows no list item there, so it is never read."""
         first = text.lstrip(" \t")[:1]
@@ -564,11 +570,10 @@ class _Reader:
         why = []
         if ">" in lead:
             why.append(_WHY["quote"])
-            nested = False  # the quote is the cause
         odd = next((ch for ch in lead if ch.isspace() and ch not in " \t"), None)
         if odd is not None:
             why.append(_WHY["indent"].format(char=f"U+{ord(odd):04X}"))
-        self.candidate(line, m, nested, why)
+        self.candidate(line, m, False, why)  # the quote or the indent is the cause, not nesting
 
     def item(self, index, m, continuation, nested, listed, raw):
         """Read the item on line `index`. `listed` and `raw` are _scan's per-line flags: a
@@ -581,7 +586,7 @@ class _Reader:
             lines.append((k, text, sub, None if sub is None or raw[k] else _statement_word(sub["rest"])))
             if sub is None:
                 if not self.quoted_code[k]:
-                    self.near_item(self.first_line + k, text, nested=True)
+                    self.near_item(self.first_line + k, text)
             else:
                 self.candidate(self.first_line + k, sub, nested=True)
                 if _opens_comment(sub["rest"]):
@@ -715,16 +720,19 @@ class _Reader:
         if why is not None:
             self.add(line, "malformed_meta", f"the meta block {block.group(0)!r} cannot be read: {why}")
             return refines, needs
-        seen = set()
+        seen, malformed = set(), set()  # keys read, and those whose first value is a malformed list
         for key, value in entries:
             if key not in ("refines", "needs"):
                 self.add(line, "malformed_meta",
                          f"unknown key {key!r} in the meta block (a requirement's keys are refines and needs)")
                 continue
             if key in seen:
-                self.add(line, "malformed_meta", f"key {key!r} is repeated in the meta block; the first is kept")
+                outcome = ", and the first is malformed; neither is read" if key in malformed else "; the first is kept"
+                self.add(line, "malformed_meta", f"key {key!r} is repeated in the meta block{outcome}")
                 continue
             seen.add(key)
+            if value is None:
+                malformed.add(key)
             if key == "refines":
                 if value is None:
                     self.add(line, "malformed_meta", f"{key}: {MALFORMED_LIST}")
@@ -854,7 +862,7 @@ def parse_requirements(text, namespace, *, source, first_line=1, layers, br_name
             m = None  # a thematic break is not an item, so the lines indented after it are not its text
         if m is None:
             if not hidden[i] and not reader.quoted_code[i]:
-                reader.near_item(first_line + i, lines[i], nested=False)
+                reader.near_item(first_line + i, lines[i])
             i += 1
             continue
         # The item's text runs on through lines indented deeper than its marker,
