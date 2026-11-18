@@ -51,8 +51,6 @@ LIMITS_CAPTION_NO_CHAIN = ("At {hpd} agent-hours a day, all open work is {c} to 
                            "waits on another, so there is no critical chain, and with one operator the total sets "
                            "the finish date.")
 NO_CHAIN = "none: no open leaf waits on another"
-P0_NOTE = ("devagent's wbs order does not know P0 yet (mtibbits/devagent#889), so it ranks these leaves "
-           "differently: ")
 NO_LEAVES = "This site has no leaves."
 NO_OPEN = "This site has no open leaves."
 ALL_HELD = "Every open leaf waits on a dependency cycle, so nothing can be scheduled; the panel lists them."
@@ -660,8 +658,6 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None, built
             "non_time": NON_TIME_LINE.format(parts="; ".join(parts)) if parts else None,
             "no_tiers": None if has_tiers(work) else NO_TIERS,
             "stuck": _count_line(held, STUCK_LINE, STUCK_LINE_ONE) if held else None,
-            # Each P0 leaf and each leaf whose effective priority comes from one, in WBS order.
-            "p0": priority.p0_keys(work, eff) or None,
         },
         "texts": {"label": SCHEDULE_LABEL, "chain": CHAIN_LINE, "capacity": CAPACITY_LINE,
                   "includes": INCLUDES, "includes_one": INCLUDES_ONE, "dates": DATES, "dates_one": DATES_ONE,
@@ -1253,7 +1249,6 @@ def render_model(m, *, stamp="") -> str:
         LABEL=SCHEDULE_LABEL,
         FBOX_LEGEND=FBOX_LEGEND,
         STUCK=_note(m["notes"]["stuck"]),
-        P0=Markup(f'<p class="note">{esc(P0_NOTE)}{_mono(m["notes"]["p0"])}</p>') if m["notes"]["p0"] else "",
         LANE_OPTIONS=Markup(options),
         PANEL=Markup("".join(f"<li>{esc(line)}</li>" for line in panel)),
         SCHEDULE_ANCHORS=_anchors(m["anchors"]["schedule"]),

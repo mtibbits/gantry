@@ -55,5 +55,5 @@ def effective(leaves, links) -> dict[str, int]:
 
 def p0_keys(leaves, eff) -> list[str]:
     """The key of each of `leaves` whose effective rank in `eff` is 0, in the
-    given order: the P0 list the worksite page and the week plan share (#37)."""
+    given order: the week plan's P0 list (#37)."""
     return [leaf.key for leaf in leaves if eff.get(leaf.key) == 0]
