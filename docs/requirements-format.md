@@ -270,6 +270,9 @@ Its keys:
   list. A use case with no `needs:` key needs nothing and is not reported,
   so a use case may be written before its requirements.
 
+An empty entry, such as the one after a trailing comma
+(`{refines: SR-1, }`), is skipped, as devagent skips it.
+
 A target is a bare ID, in the file's own namespace, or a full ID
 (`ferry:SR-2`). A value or list entry may carry one layer of matching quotes
 (`'SR-1'` or `"SR-1"`), which is removed: devagent's writer quotes a value

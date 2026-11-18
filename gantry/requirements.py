@@ -467,6 +467,8 @@ def _block_entries(block):
         return None, "an unclosed [ or quote"
     entries = []
     for entry in parts:
+        if not entry.strip():
+            continue  # a trailing comma's empty entry: devagent skips it too
         key, colon, value = entry.partition(":")
         key = key.strip()
         if not colon or not _KEY_RE.fullmatch(key):

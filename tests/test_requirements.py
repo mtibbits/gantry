@@ -837,6 +837,18 @@ def test_meta_entry_with_no_key():
     assert entry.message == "the meta block '{refines: SR-1, SR-2}' cannot be read: an entry with no key"
 
 
+@pytest.mark.parametrize("text, key, field, value", [
+    ("- FR-1: a {refines: SR-1, }\n- SR-1: s\n", "alpha:FR-1", "refines", rid("SR-1")),
+    ("- FR-1: a {refines: SR-1,}\n- SR-1: s\n", "alpha:FR-1", "refines", rid("SR-1")),
+    ("- UC-1: a {needs: [FR-1], , }\n- FR-1: f\n", "alpha:UC-1", "needs", [rid("FR-1")]),
+])
+def test_empty_meta_entry_is_skipped(text, key, field, value):
+    # A trailing comma's empty entry is skipped, as devagent skips it (#112).
+    s = parse(text)
+    assert rows(s) == []
+    assert getattr(s.requirements[key], field) == value
+
+
 MALFORMED_LIST = "a malformed list, with text after its ']'; it is not read"
 
 
@@ -1053,7 +1065,7 @@ def test_format_doc_states_report_causes():
     wanted = [
         "the requirements file is not a file", "the requirements file does not exist",
         "a path under a file",
-        MALFORMED_LIST,
+        MALFORMED_LIST, "after a trailing comma",
     ]
     assert [w for w in wanted if w not in doc] == []
 
