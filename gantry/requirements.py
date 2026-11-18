@@ -15,13 +15,14 @@ freely. docs/requirements-format.md states the rules.
 """
 
 import re
+import stat
 from dataclasses import dataclass
 from itertools import chain
 from typing import NamedTuple
 
 # DEFAULT_BR_NAMESPACE is re-exported: its one home is gantry.config.
 from gantry.config import DEFAULT_BR_NAMESPACE, ID_TOKEN_RE, error_reason
-from gantry.roots import OutsideRoots, read_bytes_confined
+from gantry.roots import OutsideRoots, read_bytes_confined, stat_confined
 from gantry.sites import SiteWarning, shown
 
 # After Wiegers & Beatty: business requirement, business rule, use case,
@@ -785,10 +786,26 @@ def read_requirements(roots, path, namespace, *, layers, br_namespace) -> Requir
     read gives an empty set with one `unreadable` entry, never an exception."""
     _check_args(namespace, layers, br_namespace)
     source = str(path)
+    key = f"site.{namespace}.requirements"
 
-    text, reason = read_utf8(roots, path, "the requirements file", key=f"site.{namespace}.requirements")
-    if text is None:
+    def unreadable(reason):
         return RequirementSet(namespace, {}, [ReportEntry(source, None, "unreadable", reason)])
+
+    # stat first, so each cause reads alike on every operating system: the
+    # OS's text for a directory is "Permission denied" on Windows, and a path
+    # under a file is ENOTDIR on Linux but "not found" on Windows.
+    try:
+        st = stat_confined(roots, path, key=key)
+    except (FileNotFoundError, NotADirectoryError):
+        return unreadable("the requirements file does not exist")
+    except (OSError, ValueError, OutsideRoots) as e:
+        # ValueError: an embedded NUL, or a path too long for Windows.
+        return unreadable(f"cannot read the requirements file: {error_reason(e)}")
+    if not stat.S_ISREG(st.st_mode):
+        return unreadable("the requirements file is not a file")
+    text, reason = read_utf8(roots, path, "the requirements file", key=key)
+    if text is None:
+        return unreadable(reason)
     return parse_requirements(text, namespace, source=source, first_line=1,
                               layers=layers, br_namespace=br_namespace)
 

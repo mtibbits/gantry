@@ -65,7 +65,11 @@ check. A change to this grammar is raised on that issue first.
 
 A requirements file is read as UTF-8. A leading byte-order mark is accepted
 and skipped. A file that is not valid UTF-8 is reported `unreadable`, naming
-the byte where decoding failed.
+the byte where decoding failed. A path that names nothing, including a path
+under a file, is reported "the requirements file does not exist", and a
+directory "the requirements file is not a file". These two read the same on
+every operating system; any other failure to read names the operating
+system's reason ("cannot read the requirements file: ...").
 
 ## File shape
 
@@ -430,7 +434,7 @@ line, then in this order:
 
 | Kind | When |
 |---|---|
-| `unreadable` | the path does not exist, is not a file, or is not valid UTF-8; the set is empty |
+| `unreadable` | the path does not exist ("the requirements file does not exist"), is not a file ("the requirements file is not a file"), cannot be read, or is not valid UTF-8; the set is empty |
 | `malformed_item` | a list item the reader cannot place: a candidate that is not a requirement, or a `Threshold:` or `Objective:` item that is not a statement, with its reasons |
 | `malformed_meta` | a meta block that cannot be read, or a key or value shape it does not allow |
 | `malformed_link` | a link target that is not a requirement ID |

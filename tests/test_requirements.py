@@ -659,18 +659,33 @@ def _unreadable(tmp_path, case):
         bad = tmp_path / "bad.md"
         bad.write_bytes(b"- FR-1: caf\xe9\n")
         return bad
+    if case == "under-file":
+        file = tmp_path / "file.md"
+        file.write_bytes(b"- FR-1: a\n")
+        return file / "x.md"
     return tmp_path / "a\x00b.md"
 
 
-@pytest.mark.parametrize("case", ["missing", "directory", "not-utf8", "nul"])
+# Each cause reads alike on every operating system (#112): the OS's own text
+# differs (a directory is "Permission denied" on Windows, "Is a directory" on
+# Linux), so only a NUL keeps the OS's reason.
+UNREADABLE = {
+    "missing": "the requirements file does not exist",
+    "under-file": "the requirements file does not exist",
+    "directory": "the requirements file is not a file",
+    "not-utf8": "the requirements file is not valid UTF-8 at byte 11",
+}
+
+
+@pytest.mark.parametrize("case", ["missing", "under-file", "directory", "not-utf8", "nul"])
 def test_read_unreadable(tmp_path, case):
     path = _unreadable(tmp_path, case)
     s = read_requirements(roots_around(path), path, "alpha", layers=PROJECT_LAYERS, br_namespace="life")
     assert s.requirements == {}
     (entry,) = s.report
     assert (entry.kind, entry.line, entry.source) == ("unreadable", None, str(path))
-    if case == "not-utf8":
-        assert entry.message == "the requirements file is not valid UTF-8 at byte 11"
+    if case in UNREADABLE:
+        assert entry.message == UNREADABLE[case]
     else:
         assert entry.message.startswith("cannot read the requirements file: ")
 
@@ -1000,6 +1015,17 @@ def test_format_doc_states_rules():
         "is not a fence", "and no item encloses", "whose list item ends inside it",
         "may lazily continue an item", "a comment after such a line is not skipped",
         "is used once it is on the file's default branch",
+    ]
+    assert [w for w in wanted if w not in doc] == []
+
+
+def test_format_doc_states_report_causes():
+    # Each cause the reader names (#112) is stated in the format doc.
+    text = FORMAT_DOC.read_bytes().decode("utf-8")
+    doc = " ".join(text.split())
+    wanted = [
+        "the requirements file is not a file", "the requirements file does not exist",
+        "a path under a file",
     ]
     assert [w for w in wanted if w not in doc] == []
 
