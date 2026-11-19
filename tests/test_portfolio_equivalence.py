@@ -26,7 +26,6 @@ import update_expected_leaves as ue
 from gantry import portfolio_json as pj
 from gantry.portfolio_json import ProjectInput, map_document, read_portfolio
 from gantry.roots import directory_roots
-from gantry.wbs_stopgap import read_wbs
 from helpers_config import sample_projects, written_bytes
 from helpers_docs import heading_anchors, markdown_text, section
 from sample_roles import NO_WBS, READABLE, UNREADABLE
@@ -240,18 +239,26 @@ def test_fixtures_mode_writes_or_checks(tmp_path, monkeypatch, capsys):
     document = (json.dumps({"schema_version": "1.1", "generated_at": sp.FIXED_TIME, "projects": [],
                             "parse_report": []}) + "\n").encode("utf-8")
     monkeypatch.setattr(sp, "fixture_document", lambda devagent: document)
+    monkeypatch.setattr(sp, "SAMPLES_WRITTEN", tmp_path / "fx" / "samples.json")
+    monkeypatch.setattr(sp, "SAMPLES_PROVENANCE", tmp_path / "fx" / "samples_provenance.json")
+    monkeypatch.setattr(sp, "sample_fixture_document", lambda devagent: document)
     argv = ["--fixtures", "--devagent", str(checkout)]
     assert sp.main(argv + ["--check"]) == 1
     assert capsys.readouterr().out.splitlines() == ["sample_portfolio: written.json: missing",
-                                                    "sample_portfolio: provenance.json: missing"]
+                                                    "sample_portfolio: provenance.json: missing",
+                                                    "sample_portfolio: samples.json: missing",
+                                                    "sample_portfolio: samples_provenance.json: missing"]
     assert not (tmp_path / "fx").exists()
     assert sp.main(argv) == 0
     assert sp.WRITTEN.read_bytes() == document
+    assert sp.SAMPLES_WRITTEN.read_bytes() == document
     made = json.loads(sp.PROVENANCE.read_bytes().decode("utf-8"))
     assert list(made) == ["pin", "devagent_version", "schema_version", "generated_at", "sources"]
+    made = json.loads(sp.SAMPLES_PROVENANCE.read_bytes().decode("utf-8"))
+    assert list(made) == ["pin", "devagent_version", "schema_version", "generated_at", "inputs"]
     capsys.readouterr()
     assert sp.main(argv + ["--check"]) == 0
-    assert capsys.readouterr().out == "sample_portfolio: 2 fixture files match\n"
+    assert capsys.readouterr().out == "sample_portfolio: 4 fixture files match\n"
     sp.WRITTEN.write_bytes(document + b"\n")
     assert sp.main(argv + ["--check"]) == 1
     assert capsys.readouterr().out == "sample_portfolio: written.json: differs from what devagent writes\n"
@@ -304,7 +311,8 @@ def test_written_fixture_shape():
 
 
 def test_written_fixture_regenerates():
-    # --check compares both written.json and provenance.json with one aggregator run.
+    # --check compares written.json, provenance.json, samples.json and samples_provenance.json,
+    # with one aggregator run per document.
     checkout = hd.require_devagent()
     assert sp.main(["--fixtures", "--check", "--devagent", str(checkout)]) == 0
 
@@ -313,6 +321,13 @@ def test_written_fixture_passes_devagents_checker():
     checkout = hd.require_devagent()
     checker = checkout / "scripts" / "lib" / "portfolio-check.py"
     ran = subprocess.run([sys.executable, str(checker), str(sp.WRITTEN)], capture_output=True)
+    assert ran.returncode == 0, ran.stderr.decode("utf-8", "replace")
+
+
+def test_samples_fixture_passes_devagents_checker():
+    checkout = hd.require_devagent()
+    checker = checkout / "scripts" / "lib" / "portfolio-check.py"
+    ran = subprocess.run([sys.executable, str(checker), str(sp.SAMPLES_WRITTEN)], capture_output=True)
     assert ran.returncode == 0, ran.stderr.decode("utf-8", "replace")
 
 
@@ -370,6 +385,8 @@ def known(which):
 
 def stopgap_snapshot(site, path, namespaces):
     """The stopgap's reading of one WBS.md in the snapshot's form: read, or unreadable with its reason."""
+    from gantry.wbs_stopgap import read_wbs
+
     data = read_wbs(directory_roots([path.parent]), path, site)
     unreadable = [e.message for e in data.report if e.kind == "site_unreadable"]
     wrapped = ProjectInput(site, "unreadable" if unreadable else "read", unreadable[0] if unreadable else None, data)
@@ -727,6 +744,7 @@ def test_pin_move_recipe_names_the_new_tools_and_files(capsys):
     assert all("--fixtures" in w for w in commands if Path(w[1]).name == "sample_portfolio.py")
     capsys.readouterr()
     for name in ("tests/fixtures/portfolio/written.json", "tests/fixtures/portfolio/provenance.json",
+                 "tests/fixtures/portfolio/samples.json", "tests/fixtures/portfolio/samples_provenance.json",
                  "tests/fixtures/expected_leaves/", "known_differences.json",
                  "tests/fixtures/devagent_records/written/"):
         assert name in part, name

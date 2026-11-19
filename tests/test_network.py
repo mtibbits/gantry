@@ -5,17 +5,14 @@ Every literal is hand-derived from tests/fixtures/wbs/page.md and cycle.md.
 
 import time
 
+import helpers_portfolio as hp
 from gantry.network import build, critical_chain, heaviest_chain
 from gantry.render import slack_class
-from gantry.wbs_stopgap import parse_wbs
-from test_samples import ROOT
-
-FIXTURES = ROOT / "tests" / "fixtures" / "wbs"
 CRITICAL = ("Issue-2", "Issue-3", "Issue-4", "Issue-5", "Issue-9", "1.7")
 
 
 def network(name):
-    data = parse_wbs((FIXTURES / f"{name}.md").read_bytes().decode("utf-8"), "alpha")
+    data = hp.fixture_site(name)
     keys = [leaf.key for leaf in data.leaves if leaf.open and leaf.key not in data.held_out]
     return build(keys, data.links, {leaf.key: leaf.epic for leaf in data.leaves}), data
 

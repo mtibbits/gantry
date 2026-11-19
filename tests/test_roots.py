@@ -705,9 +705,9 @@ def test_estimates_link_out_is_unreadable_and_page_builds(tmp_path):
 def test_view_refuses_before_reading_a_template(tmp_path, monkeypatch):
     from gantry import render
     from gantry.views import worksite
-    from gantry.wbs_stopgap import parse_wbs
+    import helpers_portfolio as hp
 
-    m = worksite.page_model("alpha", parse_wbs("- [ ] A {issue: Issue-1}\n", "alpha"), default_unit_hours=6)
+    m = worksite.page_model("alpha", hp.site(hp.node("A", issue="Issue-1")), default_unit_hours=6)
     render.asset.cache_clear()
     try:
         monkeypatch.setattr(render, "package_roots", lambda: directory_roots([tmp_path]))

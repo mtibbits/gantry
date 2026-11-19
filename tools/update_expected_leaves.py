@@ -27,9 +27,7 @@ checkout at the pinned release. docs/worksite-page.md states the rules.
 
 import argparse
 import os
-import shutil
 import sys
-import tempfile
 from collections import Counter
 from itertools import zip_longest
 from pathlib import Path
@@ -172,11 +170,9 @@ def expected_fixtures() -> dict:
 def expected(devagent) -> dict:
     """{site: snapshot bytes} for the sample sites: the aggregator of the
     checkout `devagent` on a temporary copy of samples/, read by read_portfolio."""
-    with tempfile.TemporaryDirectory(prefix="expected-leaves-") as scratch:
-        copy = Path(scratch) / "samples"
-        shutil.copytree(sample_portfolio.SAMPLES, copy, ignore=shutil.ignore_patterns("out"))
-        document = sample_portfolio.make_sample(devagent, copy)
-        return snapshots(read_portfolio(directory_roots([copy]), document), sample_portfolio.read_pin())
+    pin = sample_portfolio.read_pin()
+    return sample_portfolio.on_samples_copy(
+        devagent, lambda copy, document: snapshots(read_portfolio(directory_roots([copy]), document), pin))
 
 
 def _files(devagent):

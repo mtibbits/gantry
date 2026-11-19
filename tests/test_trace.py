@@ -1,6 +1,6 @@
 """gantry/trace.py: `satisfies:` read from parsed leaves, the catalog and the
-per-site trace (#19). Every fixture is an inline string; no WBS.md is read
-except through parse_wbs in memory."""
+per-site trace (#19). Every fixture is inline: leaves are built with parsed meta
+values, as devagent's portfolio JSON holds them, and no WBS.md is read."""
 
 import re
 import time
@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+import helpers_portfolio as hp
 from gantry import requirements
 from gantry.config import load_config
 from gantry.model import FINISHED_GLYPHS, STATE_GLYPHS, Leaf
@@ -17,7 +18,7 @@ from gantry.sites import config_roots, load_sites
 from gantry.trace import (FIELDS, INSTALLATION_SCOPE, LEAF_SOURCE, MESSAGES, TRACE_KINDS, UNSERVED_SCOPE, WHY, Catalog,
                           ForeignLeaf, Serving, SiteTrace, TraceReport, UseCase, build_site_trace, load_catalog,
                           objective_ids, satisfies_ids)
-from gantry.wbs_stopgap import parse_wbs
+from gantry.portfolio_json import tag
 from helpers_config import write_site_tree
 from sample_roles import BUSY, SMALL
 from test_build import heading_slugs
@@ -25,7 +26,13 @@ from test_samples import GANTRY_SAMPLE, md_tables
 
 
 def leaf(key, line, glyph=" ", **meta):
-    """A parsed leaf; `meta` values are raw texts as the stopgap stores them."""
+    """A parsed leaf; `meta` values are as devagent parses them (a str, or a list for
+    bracket text) and are tagged as gantry/portfolio_json.py stores them."""
+    return raw_leaf(key, line, glyph, **{key_: tag(value) for key_, value in {"issue": key, **meta}.items()})
+
+
+def raw_leaf(key, line, glyph=" ", **meta):
+    """A leaf whose `meta` values are raw str texts: the never-raises defences on str values."""
     return Leaf(key, key, str(line), key, glyph, STATE_GLYPHS[glyph], glyph not in FINISHED_GLYPHS, None, (),
                 {"issue": key, **meta}, None, line)
 
@@ -93,12 +100,12 @@ def test_fields_partition_kinds():
 NS = frozenset({"gantry", "life"})
 
 
+# devagent parses the bracketed forms (bare or quoted entries) as a list and the
+# scalar forms (bare or quoted) as a str.
 @pytest.mark.parametrize("raw, ids", [
-    ("[gantry:FR-1, gantry:QA-2]", ["gantry:FR-1", "gantry:QA-2"]),
+    (["gantry:FR-1", "gantry:QA-2"], ["gantry:FR-1", "gantry:QA-2"]),
     ("gantry:FR-1", ["gantry:FR-1"]),
-    ('"gantry:FR-1"', ["gantry:FR-1"]),
-    ("[\"gantry:FR-1\", 'gantry:QA-2']", ["gantry:FR-1", "gantry:QA-2"]),
-])
+], ids=["list", "str"])
 def test_satisfies_forms_agree(raw, ids):
     got, problems = satisfies_ids(leaf("L1", 2, satisfies=raw), NS)
     assert problems == []
@@ -106,7 +113,7 @@ def test_satisfies_forms_agree(raw, ids):
 
 
 def test_satisfies_malformed_reported_and_ignored():
-    got, problems = satisfies_ids(leaf("L1", 3, satisfies="[FR-1, gantry:FR-01, a:b:FR-1, gantry:FR-2]"), NS)
+    got, problems = satisfies_ids(leaf("L1", 3, satisfies=["FR-1", "gantry:FR-01", "a:b:FR-1", "gantry:FR-2"]), NS)
     assert got == [rid("gantry:FR-2")]
     assert entries(problems) == [("malformed_satisfies", LEAF_SOURCE, 3)] * 3
     assert [p.message for p in problems] == [message("malformed_satisfies", entry=e)
@@ -124,9 +131,9 @@ def test_satisfies_unbracketed_list_reported():
     assert satisfies_ids(leaf("L2", 5, gantry="QA-2"), NS) == ([], [])
 
 
-def test_satisfies_from_stopgap_meta():
-    data = parse_wbs("- [ ] a {issue: Issue-7, satisfies: a:FR-1, a:QA-2}\n"
-                     "- [ ] b {issue: Issue-8, satisfies: [a:FR-1, a:QA-2]}\n", "a")
+def test_satisfies_from_parsed_meta():
+    data = hp.site(hp.node("a", issue="Issue-7", satisfies="a:FR-1", a="QA-2"),
+                   hp.node("b", issue="Issue-8", satisfies=["a:FR-1", "a:QA-2"]), name="a")
     first, second = data.leaves
     ids, problems = satisfies_ids(first, frozenset({"a"}))
     assert ids == [rid("a:FR-1")]
@@ -134,28 +141,29 @@ def test_satisfies_from_stopgap_meta():
     assert satisfies_ids(second, frozenset({"a"})) == ([rid("a:FR-1"), rid("a:QA-2")], [])
 
 
-@pytest.mark.parametrize("body, keys, extra, reported", [
-    ("issue: Issue-3, satisfies: [lighthouse:FR-1]", ["issue", "satisfies"], {"issue"}, []),
-    ("issue: Issue-3, satisfies: lighthouse:FR-1", ["issue", "satisfies"], {"issue"}, []),
-    ("satisfies: [lighthouse:FR-1], est: 2h", ["satisfies", "est"], {"est"}, []),
-    ("issue: Issue-3, satisfies: lighthouse:FR-1, harbor:FR-2", ["issue", "satisfies", "harbor"], {"harbor"},
+@pytest.mark.parametrize("meta, keys, extra, reported", [
+    ({"issue": "Issue-3", "satisfies": ["lighthouse:FR-1"]}, ["issue", "satisfies"], {"issue"}, []),
+    ({"issue": "Issue-3", "satisfies": "lighthouse:FR-1"}, ["issue", "satisfies"], {"issue"}, []),
+    ({"satisfies": ["lighthouse:FR-1"], "est": "2h"}, ["satisfies", "est"], {"est"}, []),
+    ({"issue": "Issue-3", "satisfies": "lighthouse:FR-1", "harbor": "FR-2"}, ["issue", "satisfies", "harbor"], {"harbor"},
      ["harbor"]),
-    ("issue: Issue-3, satisfies: lighthouse:FR-1, harbor:FR-2", ["issue", "satisfies", "harbor"], {"harbor", "issue"},
+    ({"issue": "Issue-3", "satisfies": "lighthouse:FR-1", "harbor": "FR-2"}, ["issue", "satisfies", "harbor"], {"harbor", "issue"},
      ["harbor"]),
-    ("satisfies: lighthouse:FR-1, issue: Issue-3, harbor: x", ["satisfies", "issue", "harbor"], {"harbor"}, []),
-    ("satisfies: lighthouse:FR-1, est: 2h", ["satisfies", "est"], {"est"}, ["est"]),
-    ("issue: Issue-3, satisfies: lighthouse:FR-1, issue: Y", ["issue", "satisfies"], {"issue"}, []),
-    ("satisfies: lighthouse:FR-1, objective: lighthouse:FR-1", ["satisfies", "objective"], {"objective"},
+    ({"satisfies": "lighthouse:FR-1", "issue": "Issue-3", "harbor": "x"}, ["satisfies", "issue", "harbor"], {"harbor"}, []),
+    ({"satisfies": "lighthouse:FR-1", "est": "2h"}, ["satisfies", "est"], {"est"}, ["est"]),
+    ({"issue": "Y", "satisfies": "lighthouse:FR-1"}, ["issue", "satisfies"], {"issue"}, []),
+    ({"satisfies": "lighthouse:FR-1", "objective": "lighthouse:FR-1"}, ["satisfies", "objective"], {"objective"},
      ["objective"]),
-    ("satisfies: lighthouse:FR-1, typo:FR-2, harbor:FR-3", ["satisfies", "typo", "harbor"], {"harbor"}, []),
-    ("issue: Issue-3, satisfies: lighthouse:FR-1, issue: Y, est: 2h", ["issue", "satisfies", "est"], {"est"}, ["est"]),
-    ("satisfies: [lighthouse:FR-1], lighthouse:FR-2", ["satisfies", "lighthouse"], set(), []),
+    ({"satisfies": "lighthouse:FR-1", "typo": "FR-2", "harbor": "FR-3"}, ["satisfies", "typo", "harbor"], {"harbor"}, []),
+    ({"issue": "Y", "satisfies": "lighthouse:FR-1", "est": "2h"}, ["issue", "satisfies", "est"], {"est"}, ["est"]),
+    ({"satisfies": ["lighthouse:FR-1"], "lighthouse": "FR-2"}, ["satisfies", "lighthouse"], set(), []),
 ], ids=["ac1", "ac2", "ac3", "ac4", "ac4-one-key", "ac5", "limit-est", "limit-repeat", "objective-site",
         "limit-unknown-second", "repeat-shifts", "limit-closed-bracket"])
-def test_unbracketed_list_only_directly_after_a_scalar_satisfies(body, keys, extra, reported):
+def test_unbracketed_list_only_directly_after_a_scalar_satisfies(meta, keys, extra, reported):
     # Only the key read directly after a satisfies that is not a bracketed list counts (#114). The limit-* legs
-    # are the known limits that docs/requirements-format.md states.
-    parsed = parse_wbs(f"- [ ] Leaf {{{body}}}\n", "lighthouse").leaves[0]
+    # are the known limits that docs/requirements-format.md states. devagent keeps one value of a repeated key,
+    # so limit-repeat and repeat-shifts hold no repeat any more; their ids name the written text they came from.
+    parsed = hp.site(hp.node("Leaf", **meta), name="lighthouse").leaves[0]
     assert list(parsed.meta) == keys
     ids, problems = satisfies_ids(parsed, frozenset({"lighthouse", *extra}))
     assert ids == [rid("lighthouse:FR-1")]
@@ -165,9 +173,9 @@ def test_unbracketed_list_only_directly_after_a_scalar_satisfies(body, keys, ext
 
 def test_satisfies_absent_empty_and_repeat():
     assert satisfies_ids(leaf("L1", 2), NS) == ([], [])
-    assert satisfies_ids(leaf("L1", 2, satisfies="[]"), NS) == ([], [])
-    assert satisfies_ids(leaf("L1", 2, satisfies="[a:FR-1, a:FR-1]"), NS) == ([rid("a:FR-1")], [])
-    ids, problems = satisfies_ids(leaf("L1", 2, satisfies="[open"), NS)
+    assert satisfies_ids(leaf("L1", 2, satisfies=[]), NS) == ([], [])
+    assert satisfies_ids(leaf("L1", 2, satisfies=["a:FR-1", "a:FR-1"]), NS) == ([rid("a:FR-1")], [])
+    ids, problems = satisfies_ids(leaf("L1", 2, satisfies="open"), NS)
     assert ids == []
     assert [(p.kind, p.message) for p in problems] == [
         ("malformed_satisfies", message("malformed_satisfies", entry="open"))]
@@ -346,7 +354,7 @@ def test_undefined_leaf_id_reasons(tmp_path):
     cat = catalog(tree(tmp_path, {"alpha": "- FR-1: a\n", "gamma": None}, portfolio="- BR-1: b\n"))
     leaves = [leaf("L1", 2, satisfies="alpha:FR-9"), leaf("L2", 3, satisfies="gamma:FR-1"),
               leaf("L3", 4, satisfies="zeta:FR-1"), leaf("L4", 5, satisfies="life:BR-9"),
-              leaf("L5", 6, satisfies="[alpha:FR-1, life:BR-1]")]
+              leaf("L5", 6, satisfies=["alpha:FR-1", "life:BR-1"])]
     t = build_site_trace("alpha", leaves, cat)
     assert t.site == "alpha" and t.in_trace
     assert t.leaf_ids == {"L5": (rid("alpha:FR-1"), rid("life:BR-1"))}
@@ -376,8 +384,8 @@ def test_sample_busy_leaf_resolves_br_id():
 
 def test_untraced_open_leaves(tmp_path):
     cat = catalog(tree(tmp_path, {"alpha": "- FR-1: a\n"}))
-    leaves = [leaf("L1", 2), leaf("L2", 3, satisfies="[]"), leaf("L3", 4, satisfies="alpha:FR-9"),
-              leaf("L4", 5, satisfies="FR-1"), leaf("L5", 6, satisfies="[FR-1, alpha:FR-1]"),
+    leaves = [leaf("L1", 2), leaf("L2", 3, satisfies=[]), leaf("L3", 4, satisfies="alpha:FR-9"),
+              leaf("L4", 5, satisfies="FR-1"), leaf("L5", 6, satisfies=["FR-1", "alpha:FR-1"]),
               leaf("L6", 7, "x"), leaf("L7", 8, "-")]
     t = build_site_trace("alpha", leaves, cat)
     assert t.report.untraced == ("L1", "L2", "L3", "L4")
@@ -465,7 +473,7 @@ HOSTILE = ['"', "'", "[", "]", "[,]", ":", "a:", ":FR-1", "life:BR-1" * 50, "alp
 
 def test_hostile_values_never_raise(tmp_path):
     cat = catalog(tree(tmp_path, {"alpha": "- FR-1: a\n"}, portfolio="- BR-1: b\n"))
-    leaves = [leaf(f"L{i}", i + 2, satisfies=raw, alpha="x", life="y") for i, raw in enumerate(HOSTILE)]
+    leaves = [raw_leaf(f"L{i}", i + 2, satisfies=raw, alpha="x", life="y") for i, raw in enumerate(HOSTILE)]
     report = build_site_trace("alpha", leaves, cat).report
     problems = [e for name in FIELDS for e in getattr(report, name)]
     assert problems
@@ -497,10 +505,10 @@ SERVING_LEAVES = [
     leaf("L1", 2, satisfies="alpha:FR-1"),
     leaf("L2", 3, "x", satisfies="alpha:FR-2"),
     leaf("L3", 4, "-", satisfies="alpha:FR-3"),
-    leaf("L4", 5, satisfies="[alpha:SR-1, alpha:FR-1]"),
+    leaf("L4", 5, satisfies=["alpha:SR-1", "alpha:FR-1"]),
     leaf("L5", 6, satisfies="alpha:CON-1"),
     leaf("L6", 7),
-    leaf("L7", 8, satisfies="[]"),
+    leaf("L7", 8, satisfies=[]),
     leaf("L8", 9, satisfies="zeta:FR-1"),
 ]
 
@@ -559,7 +567,7 @@ def test_con_never_unserved(tmp_path):
     t = serving_trace(tmp_path, [x for x in SERVING_LEAVES if x.key != "L5"])
     assert "alpha:CON-1" not in t.serving
     assert "alpha:CON-1" not in t.report.unserved
-    every = SERVING_LEAVES + [leaf("M1", 10, satisfies="[alpha:FR-3, alpha:QA-1, alpha:EI-1]")]
+    every = SERVING_LEAVES + [leaf("M1", 10, satisfies=["alpha:FR-3", "alpha:QA-1", "alpha:EI-1"])]
     every = [x for x in every if x.key != "L5"]
     assert serving_trace(tmp_path / "b", every).report.unserved == ()
 
@@ -685,7 +693,7 @@ def gate_trace(tmp_path, *leaves, text=GATE_REQ):
 
 
 def test_objective_gates_by_entry(tmp_path):
-    t = gate_trace(tmp_path, leaf("L1", 2, satisfies="[gantry:FR-1, gantry:FR-2]", objective="[gantry:FR-2]"))
+    t = gate_trace(tmp_path, leaf("L1", 2, satisfies=["gantry:FR-1", "gantry:FR-2"], objective=["gantry:FR-2"]))
     g = gating_of(t)
     assert g["gantry:FR-1"] == [("L1", D, True)]
     assert g["gantry:SR-1"] == [("L1", I, True)]
@@ -694,14 +702,14 @@ def test_objective_gates_by_entry(tmp_path):
 
 
 def test_objective_no_effect_when_gating_entry_reaches(tmp_path):
-    t = gate_trace(tmp_path, leaf("L1", 2, satisfies="[gantry:FR-2, gantry:SR-1]", objective="[gantry:SR-1]"))
+    t = gate_trace(tmp_path, leaf("L1", 2, satisfies=["gantry:FR-2", "gantry:SR-1"], objective=["gantry:SR-1"]))
     g = gating_of(t)
     assert g["gantry:SR-1"] == [("L1", D, True)]
     assert g["gantry:FR-2"] == [("L1", D, True)]
 
 
 def test_objective_through_use_case_needs(tmp_path):
-    t = gate_trace(tmp_path, leaf("L1", 2, satisfies="[gantry:FR-1, gantry:FR-2]", objective="gantry:FR-1"))
+    t = gate_trace(tmp_path, leaf("L1", 2, satisfies=["gantry:FR-1", "gantry:FR-2"], objective="gantry:FR-1"))
     g = gating_of(t)
     assert g["gantry:UC-1"] == [("L1", I, False)]
     assert g["gantry:UC-2"] == [("L1", I, True)]
@@ -717,7 +725,7 @@ def test_objective_entry_not_in_satisfies_reported(tmp_path):
 
 
 def test_objective_malformed_entry_reported(tmp_path):
-    t = gate_trace(tmp_path, leaf("L1", 4, satisfies="[gantry:FR-1, gantry:FR-2]", objective="[FR-2, open]"))
+    t = gate_trace(tmp_path, leaf("L1", 4, satisfies=["gantry:FR-1", "gantry:FR-2"], objective=["FR-2", "open"]))
     assert entries(t.report.malformed) == [("malformed_objective", LEAF_SOURCE, 4)] * 2
     assert [e.message for e in t.report.malformed] == [
         f"objective: entry {e!r} is not a full requirement ID (<namespace>:<code>-<n>); it is ignored"
@@ -726,7 +734,7 @@ def test_objective_malformed_entry_reported(tmp_path):
 
 
 def test_all_objective_leaf_still_serves(tmp_path):
-    ids = "[gantry:FR-1, gantry:FR-2]"
+    ids = ["gantry:FR-1", "gantry:FR-2"]
     t = gate_trace(tmp_path, leaf("L1", 2, satisfies=ids, objective=ids), leaf("L2", 3))
     plain = gate_trace(tmp_path / "b", leaf("L1", 2, satisfies=ids), leaf("L2", 3))
     assert t.leaf_ids == plain.leaf_ids
@@ -738,7 +746,7 @@ def test_all_objective_leaf_still_serves(tmp_path):
 
 
 def test_objective_without_satisfies(tmp_path):
-    t = gate_trace(tmp_path, leaf("L1", 2, objective="[gantry:FR-1, gantry:FR-2]"))
+    t = gate_trace(tmp_path, leaf("L1", 2, objective=["gantry:FR-1", "gantry:FR-2"]))
     assert entries(t.report.malformed) == [("unmatched_objective", LEAF_SOURCE, 2)] * 2
     assert t.report.untraced == ("L1",)
     assert t.serving == {}
@@ -747,16 +755,16 @@ def test_objective_without_satisfies(tmp_path):
 def test_objective_ids_never_raise_and_count_once():
     satisfied = [rid("a:FR-1"), rid("a:FR-2")]
     assert objective_ids(leaf("L1", 2), satisfied) == ([], [])
-    assert objective_ids(leaf("L1", 2, objective="[]"), satisfied) == ([], [])
-    assert objective_ids(leaf("L1", 2, objective="[a:FR-1, a:FR-1, 'a:FR-2']"), satisfied) == (
+    assert objective_ids(leaf("L1", 2, objective=[]), satisfied) == ([], [])
+    assert objective_ids(leaf("L1", 2, objective=["a:FR-1", "a:FR-1", "a:FR-2"]), satisfied) == (
         [rid("a:FR-1"), rid("a:FR-2")], [])
     for raw in ("[", "]", "{", "\x00", "a:FR-1]", "[[a:FR-1]]", "'", '"a:FR-1'):
-        objective_ids(leaf("L1", 2, objective=raw), satisfied)
+        objective_ids(raw_leaf("L1", 2, objective=raw), satisfied)
 
 
 def test_objective_unbracketed_list_reported():
-    data = parse_wbs("- [ ] a {issue: Issue-7, satisfies: [a:FR-1, a:FR-2], objective: a:FR-1, a:FR-2}\n"
-                     "- [ ] b {issue: Issue-8, satisfies: a:FR-1, a:FR-2, objective: [a:FR-1]}\n", "a")
+    data = hp.site(hp.node("a", issue="Issue-7", satisfies=["a:FR-1", "a:FR-2"], objective="a:FR-1", a="FR-2"),
+                   hp.node("b", issue="Issue-8", satisfies="a:FR-1", a="FR-2", objective=["a:FR-1"]), name="a")
     first, second = data.leaves
     ids, problems = satisfies_ids(first, frozenset({"a"}))
     assert (ids, problems) == ([rid("a:FR-1"), rid("a:FR-2")], [])
@@ -772,8 +780,8 @@ def test_objective_unbracketed_list_reported():
 
 
 def test_objective_on_a_parent_row_reported(tmp_path):
-    data = parse_wbs("- [ ] Epic {objective: gantry:FR-1}\n"
-                     "  - [ ] a {issue: Issue-7, satisfies: gantry:FR-1}\n", "gantry")
+    data = hp.site(hp.node("Epic", hp.node("a", issue="Issue-7", satisfies="gantry:FR-1"), objective="gantry:FR-1"),
+                   name="gantry")
     cat = catalog(tree(tmp_path, {"gantry": GATE_REQ}))
     t = build_site_trace("gantry", data.leaves, cat, rows=data.rows)
     assert entries(t.report.malformed) == [("objective_not_on_leaf", LEAF_SOURCE, 1)]
