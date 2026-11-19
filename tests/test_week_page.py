@@ -6,7 +6,9 @@ a leaf line, so "continues after" never passes a "continues " check.
 
 import copy
 import json
+import re
 from dataclasses import asdict
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -579,6 +581,141 @@ def test_legend_texts(tmp_path):
     assert [t.elements[i]["classes"] for i in find(t, "i", within=legend)] == [["sw", "crit"], ["sw", "near"]]
     # Between the lines and the day buttons.
     assert one(t, "id", "lines") < legend < one(t, "id", "days")
+
+
+# --- the box CSS (#170) -----------------------------------------------------------------------
+
+TEMPLATES = Path(__file__).resolve().parents[1] / "gantry" / "templates"
+STATE_OF = {cls: state for state, cls in STATE_CLASSES.items()} | {STATE_FALLBACK: "unheard_of"}
+# What a box's fill and outline must come to, by hand from the worksite's
+# precedence: fill by slack, outline by state, then xsite's colour and width
+# over the state's, keeping a held state's dash.
+SLACK_LOOK = {"crit": ("var(--crit)", "var(--crit)"), "near": ("var(--near)", "var(--crit)"),
+              "free": ("var(--sheet)", "var(--rule)"), None: ("var(--sheet)", "var(--rule)")}
+STATE_LOOK = {"st-wip": ("2px", "solid", "var(--ink)"), "st-stuck": ("2.5px", "dashed", "var(--held)"),
+              "st-blocked": ("2.5px", "dotted", "var(--held)"), "st-parked": ("2.5px", "dashed", "var(--muted)")}
+
+
+def expected_look(slack, state, xsite):
+    background, colour = SLACK_LOOK[slack]
+    width, style = "1px", "solid"
+    if state in STATE_LOOK:
+        width, style, colour = STATE_LOOK[state]
+    if xsite:
+        colour, width = "var(--xsite)", "2.5px"
+    return {"background": background, "border-color": colour, "border-style": style, "border-width": width}
+
+
+def css_rules(css):
+    """[(selector, [(property, value)])] of a sheet outside its @media blocks, in order."""
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    kept, i = [], 0
+    while (at := css.find("@media", i)) != -1:
+        kept.append(css[i:at])
+        j, depth = css.index("{", at) + 1, 1
+        while depth:
+            depth += {"{": 1, "}": -1}.get(css[j], 0)
+            j += 1
+        i = j
+    kept.append(css[i:])
+    rules = []
+    for selectors, body in re.findall(r"([^{}]+)\{([^{}]*)\}", "".join(kept)):
+        decls = [(m[1], m[2].strip()) for m in re.finditer(r"([\w-]+)\s*:\s*([^;]+)", body)]
+        rules += [(sel.strip(), decls) for sel in selectors.split(",")]
+    return rules
+
+
+def cascade(rules, pattern, classes, expand):
+    """{property: value} for an element with `classes`, over the rules whose selector fully
+    matches `pattern` (its `classes` group a run of .class): the most classes win, then the later."""
+    won = {}
+    for selector, decls in rules:
+        m = re.fullmatch(pattern, selector)
+        if m is None:
+            continue
+        need = set(m["classes"].split(".")[1:])
+        if not need <= set(classes):
+            continue
+        for prop, value in decls:
+            for p, v in expand(prop, value):
+                if p not in won or len(need) >= won[p][0]:
+                    won[p] = (len(need), v)
+    return {p: v for p, (_, v) in won.items()}
+
+
+def week_expand(prop, value):
+    if prop == "border":
+        width, style, colour = value.split()
+        return [("border-width", width), ("border-style", style), ("border-color", colour)]
+    return [(prop, value)] if prop in ("background", "border-color", "border-width", "border-style") else []
+
+
+def template_css(name):
+    return re.search(r"<style>(.*)</style>", (TEMPLATES / name).read_text(encoding="utf-8"), flags=re.S)[1]
+
+
+def week_look(classes):
+    return cascade(css_rules(template_css("week.html")), r"\.leaf(?P<classes>(?:\.[\w-]+)*)", classes, week_expand)
+
+
+def look_key(classes):
+    slack = next((c for c in classes if c in SLACK_CLASSES), None)
+    state = next(c for c in classes if c.startswith("st-"))
+    return slack, state, "xsite" in classes
+
+
+def test_week_box_css_combinations(tmp_path):
+    _, t, boxes = leaf_boxes(tmp_path)
+    seen = set()
+    for lines in boxes.values():
+        for i in lines:
+            classes = t.elements[i]["classes"]
+            seen.add(look_key(classes))
+            assert week_look(classes) == expected_look(*look_key(classes)), classes
+    assert len(seen) >= 6
+    assert {("crit", "st-wip", False), ("crit", "st-stuck", False), (None, "st-pending", True)} <= seen
+
+
+def test_week_box_css_full_matrix():
+    combos = [(slack, state, xsite) for slack in (*SLACK_CLASSES, None)
+              for state in (*STATE_CLASSES.values(), STATE_FALLBACK) for xsite in (False, True)]
+    keys = [f"Issue-{n}" for n in range(1, len(combos) + 1)]
+    plan = make_plan(days=[day(HORIZON[0], [block(1, "alpha", [(key, 1.0) for key in keys])])],
+                     leaves=[leaf_record("alpha", key, state=STATE_OF[state]) for key, (_, state, _) in zip(keys, combos)],
+                     sites=[site_record("alpha")])
+    result = make_result([("alpha", key, "T", None, {"waits_on_other_site": xsite})
+                          for key, (_, _, xsite) in zip(keys, combos)],
+                         page_models={"alpha": {"leaves": [{"key": key, "sclass": slack}
+                                                           for key, (slack, _, _) in zip(keys, combos)]}})
+    t = tree(render_week(plan, result, STAMP))
+    assert len(combos) == 48
+    for key, combo in zip(keys, combos):
+        (i,) = leaf_lines(t, key)
+        classes = t.elements[i]["classes"]
+        assert look_key(classes) == combo, key
+        assert week_look(classes) == expected_look(*combo), combo
+
+
+def test_worksite_css_agrees_with_week_table():
+    dash = {None: "solid", "6 3": "dashed", "2 3": "dotted"}
+    rules = css_rules(template_css("worksite.html"))
+
+    def fill(prop, value):
+        return [("background", value)] if prop == "fill" else []
+
+    def outline(prop, value):
+        if prop == "stroke-dasharray":
+            return [("border-style", dash[value])]
+        return {"stroke": [("border-color", value)], "stroke-width": [("border-width", f"{value}px")]}.get(prop, [])
+
+    for slack in (*SLACK_CLASSES, None):
+        for state in (*STATE_CLASSES.values(), STATE_FALLBACK):
+            for xsite in (False, True):
+                classes = [c for c in (slack, state, "xsite" if xsite else None) if c]
+                got = cascade(rules, r"\.node(?P<classes>(?:\.[\w-]+)*) \.box", classes, fill)
+                got |= {"border-style": "solid"} | cascade(rules, r"\.node(?P<classes>(?:\.[\w-]+)*) \.outline",
+                                                            classes, outline)
+                assert got == expected_look(slack, state, xsite), classes
 
 
 # --- AC 2: the as-of date is not a working day ---------------------------------------------
