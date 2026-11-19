@@ -222,17 +222,57 @@ def test_constructed_lanes_row_under_blocks():
     assert row > with_attr(t, "data-block")[-1]
     assert texts(t, "h3", within=row) == ["runs in a lane; no block needed"]
     first = leaf_lines(t, within=row)[0]
-    assert [texts(t, "span", [cls], first) for cls in ("site", "key", "hours")] == [["alpha"], ["Issue-2"], ["4 h"]]
+    assert [texts(t, "span", [cls], first) for cls in ("key", "hours")] == [["Issue-2"], ["4 h"]]
+    assert lane_groups(t, row) == [("alpha", ["Issue-2"])]
     # A block's leaves take their site from the block header.
     assert texts(t, "span", ["site"], with_attr(t, "data-block")[-1]) == []
+
+
+def lane_groups(t, row):
+    """[(site, [key, ...])] of a lanes row's site groups, in page order; each group's h4 names its site."""
+    groups = []
+    for g in find(t, "div", ["lane-site"], within=row):
+        assert texts(t, "h4", within=g) == [attr(t, g, "data-site")]
+        lines = leaf_lines(t, within=g)
+        assert {attr(t, i, "data-site") for i in lines} == {attr(t, g, "data-site")}
+        groups.append((attr(t, g, "data-site"), [attr(t, i, "data-leaf") for i in lines]))
+    return groups
 
 
 def test_mixed_site_lanes_row_names_each_site(tmp_path):
     t = tree(fixture_page(tmp_path, "unequal_rates"))
     rows = with_attr(t, "data-lanes")
-    lines = [i for row in rows for i in leaf_lines(t, within=row)]
-    assert any({attr(t, i, "data-site") for i in leaf_lines(t, within=row)} == {"a", "b"} for row in rows)
-    assert all(texts(t, "span", ["site"], i) == [attr(t, i, "data-site")] for i in lines)
+    assert any([site for site, _ in lane_groups(t, row)] in (["a", "b"], ["b", "a"]) for row in rows)
+    assert find(t, "span", ["site"]) == []
+
+
+def test_lanes_row_groups_by_site_constructed():
+    row = [lane("b", "1", 1.0), lane("a", "1", 1.0), lane("b", "2", 1.0)]
+    plan = make_plan(days=[day(HORIZON[0], lanes_row=row)],
+                     leaves=[leaf_record(e["site"], e["key"], need=0, rate=0.0) for e in row],
+                     sites=[site_record("a"), site_record("b")])
+    t = tree(render_week(plan, make_result(pages=("a", "b")), STAMP))
+    (lanes,) = with_attr(t, "data-lanes")
+    # First appearance, then plan order inside a site; sorted or config order would give a first.
+    assert lane_groups(t, lanes) == [("b", ["1", "2"]), ("a", ["1"])]
+    assert texts(t, "h4") == ["b", "a"]
+    assert find(t, "span", ["site"]) == []
+
+
+def test_lanes_row_groups_on_fixture(tmp_path):
+    result, html = fixture_build(tmp_path, "leaf_boxes")
+    t = tree(html)
+    checked = 0
+    for d in result.plan.days:
+        row = d["lanes_row"]
+        if not row:
+            continue
+        (day_el,) = with_attr(t, "data-day", d["date"])
+        (lanes,) = with_attr(t, "data-lanes", within=day_el)
+        order = list(dict.fromkeys(e["site"] for e in row))
+        assert lane_groups(t, lanes) == [(site, [e["key"] for e in row if e["site"] == site]) for site in order]
+        checked += order == ["b", "a"]
+    assert checked >= 1
 
 
 def test_constructed_split_leaf_continues():
@@ -1019,7 +1059,7 @@ def test_week_hostile(node, tmp_path):
     (line,) = leaf_lines(t, HOSTILE[2])
     assert {"tag-other", "st-other", "tier-other"} <= set(t.elements[line]["classes"])
     assert texts(t, "span", ["unest"], line) == ["unestimated"]
-    assert texts(t, "span", ["site"]) == [HOSTILE[3]]
+    assert texts(t, "h4") == [HOSTILE[3]]
     assert texts(t, "span", ["held"]) == ["held by " + HOSTILE[3]]
     with open_page(write(tmp_path, html)) as page:
         page.drive("days", "10")

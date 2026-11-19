@@ -161,7 +161,7 @@ def _placements(plan):
     return found
 
 
-def _box(page, entry, cont, show_site=False):
+def _box(page, entry, cont):
     """A placement as the worksite's leaf box: the top line, the title lines,
     the facts, then the model band."""
     site, key = entry["site"], entry["key"]
@@ -169,10 +169,8 @@ def _box(page, entry, cont, show_site=False):
     leaf = page.leaves.get((site, key))
     state, tier, tag = record["state"], record["tier"], record["tag"]
     b, cues = page.box(site, key, record)
-    # A lanes row mixes sites and has no site header, so its leaves name their own.
-    site_part = _span("site", site) if show_site else ""
     prio = f'{_span("prio", b.priority)}{esc(DOT)}' if b.priority is not None else ""
-    top = (f'<p class="top">{site_part}{_span("key", b.key)}'
+    top = (f'<p class="top">{_span("key", b.key)}'
            f'<span class="meta">{prio}{_span("hours", hours_text(entry["agent_hours"]))}</span></p>')
     ttl = f'<p class="ttl">{page.link(site, key, "".join(_span("tl", line) for line in b.title_lines))}</p>'
     parts = []
@@ -228,8 +226,8 @@ def _day(page, day, conts):
             text = RESERVED.format(start=r["start"], hours=hours_text(r["hours"]))
         head.append(_p("reserved", text))
 
-    def line(entry, show_site=False):
-        return _box(page, entry, next(conts[(entry["site"], entry["key"])]), show_site)
+    def line(entry):
+        return _box(page, entry, next(conts[(entry["site"], entry["key"])]))
 
     body = []
     for blk in day["blocks"]:
@@ -242,8 +240,14 @@ def _day(page, day, conts):
         body.append(_p("none", NO_BLOCKS))
     row = day["lanes_row"]
     if row:
-        body.append(f'<div class="lanes" data-lanes="{len(row)}"><h3>{esc(LANES_ROW)}</h3>'
-                    f'<ul>{"".join(line(entry, show_site=True) for entry in row)}</ul></div>')
+        # A lanes row mixes sites: one group per site, headed by its name, in
+        # first-appearance order, with plan order inside a site (#170).
+        groups = {}
+        for entry in row:
+            groups.setdefault(entry["site"], []).append(entry)
+        lanes = "".join(f'<div class="lane-site" data-site="{esc(site)}"><h4>{esc(site)}</h4>'
+                        f'<ul>{"".join(line(entry) for entry in entries)}</ul></div>' for site, entries in groups.items())
+        body.append(f'<div class="lanes" data-lanes="{len(row)}"><h3>{esc(LANES_ROW)}</h3>{lanes}</div>')
     pools = page.plan.pools
     body.append(_p("left", LEFT.format(attention_pool=pools[0]["name"],
                                        attention=hours_text(day["left"]["attention_hours"]),
