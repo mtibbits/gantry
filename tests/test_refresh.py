@@ -1233,3 +1233,79 @@ def test_planted_json_module_never_runs(tmp_path):
     assert refresh.refresh(config, step_timeout_seconds=120, build_command=no_p) == 1
     assert sentinel.exists()
 
+
+# --- Task 9: the end-to-end data root ---------------------------------------------------
+
+
+@pytest.fixture
+def git_hermetic(git_ready, monkeypatch):
+    """git through refresh(): no ambient GIT_* (git -C does not override an
+    exported GIT_DIR), no global or system config."""
+    for name in [n for n in os.environ if n.startswith("GIT_")]:
+        monkeypatch.delenv(name)
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+
+
+def page(repo):
+    """The live generation's page for the repo's site."""
+    current = (repo.refresh_dir / "current").read_bytes().decode("ascii")
+    return (repo.refresh_dir / "generations" / current / "sites" / f"{repo.site}.html").read_bytes().decode("utf-8")
+
+
+def repo_record(repo):
+    read = parse_update_record((repo.refresh_dir / "update.json").read_bytes())
+    assert read.status == "ok", read
+    return read.record
+
+
+def test_refresh_repo_shape(tmp_path, git_hermetic):
+    from helpers.refresh_repo import make_refresh_repo
+    from helpers_history import git
+
+    repo = make_refresh_repo(tmp_path)
+    assert git(repo.data, "rev-parse", "--is-shallow-repository").strip() == "false"
+    config = loaded(repo.config)
+    assert config.refresh.update == (("git", "-C", str(repo.data), "pull", "--ff-only"),)
+    assert not repo.refresh_dir.exists() and repo.wbs().is_file()
+
+
+def test_end_to_end_pull_then_unreachable_remote(tmp_path, git_hermetic, capsys):
+    from helpers.refresh_repo import make_refresh_repo
+
+    repo = make_refresh_repo(tmp_path)
+    config = loaded(repo.config)
+    repo.push_title("Keep the lamp log", "Keep the lamp journal")
+    assert refresh.refresh(config, step_timeout_seconds=120) == 0, capsys.readouterr().err
+    assert "Keep the lamp journal" in page(repo)
+    first = repo_record(repo)
+    live_before = (repo.refresh_dir / "current").read_bytes()
+
+    repo.push_title("Keep the lamp journal", "Keep the lamp diary")
+    repo.break_remote()
+    assert refresh.refresh(config, step_timeout_seconds=120) == 1
+    r = repo_record(repo)
+    assert r.ok is False and r.steps_run == 1
+    assert (r.failed_step.index, r.failed_step.program) == (1, "git")
+    assert r.failed_step.reason.startswith("exit ") and r.failed_step.reason != "exit 0"
+    assert r.last_ok_at == first.attempted_at
+    assert (repo.refresh_dir / "current").read_bytes() != live_before
+    assert "Keep the lamp journal" in page(repo) and "Keep the lamp diary" not in page(repo)
+
+
+def test_stale_index_lock_fails_the_update_until_removed(tmp_path, git_hermetic, capsys):
+    from helpers.refresh_repo import make_refresh_repo
+
+    repo = make_refresh_repo(tmp_path)
+    config = loaded(repo.config)
+    assert refresh.refresh(config, step_timeout_seconds=120) == 0, capsys.readouterr().err
+    repo.push_title("Keep the lamp log", "Keep the lamp journal")
+    lock = repo.data / ".git" / "index.lock"
+    lock.write_bytes(b"")
+    assert refresh.refresh(config, step_timeout_seconds=120) == 1
+    assert "Keep the lamp log" in page(repo) and "Keep the lamp journal" not in page(repo)
+    assert b"index.lock" in (repo.refresh_dir / "last-run.log").read_bytes()
+    lock.unlink()
+    assert refresh.refresh(config, step_timeout_seconds=120) == 0, capsys.readouterr().err
+    assert "Keep the lamp journal" in page(repo)
+
