@@ -189,6 +189,13 @@ EXCEPTIONS = {
     ("gantry/refresh.py", "os.environ"): REFRESH,
     ("gantry/refresh.py", "signal"): REFRESH,
     ("gantry/refresh.py", "signal.SIGKILL"): REFRESH,
+    ("gantry/refresh.py", "fcntl"): REFRESH,
+    ("gantry/refresh.py", "fcntl.flock"): REFRESH,
+    ("gantry/refresh.py", "fcntl.LOCK_EX"): REFRESH,
+    ("gantry/refresh.py", "fcntl.LOCK_NB"): REFRESH,
+    ("gantry/refresh.py", "msvcrt"): REFRESH,
+    ("gantry/refresh.py", "msvcrt.locking"): REFRESH,
+    ("gantry/refresh.py", "msvcrt.LK_NBLCK"): REFRESH,
 }
 
 # Every module the scan must parse: the 27 under gantry/ at 39f4afa. A later

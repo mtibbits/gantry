@@ -28,7 +28,14 @@ from datetime import datetime
 
 from gantry.build import strict_json_loads
 from gantry.config import error_reason
-from gantry.roots import OutsideRoots, find_program, read_bytes_confined
+from gantry.roots import OutsideRoots, find_program, open_confined, read_bytes_confined
+
+# Both lock branches stay in this file, so neither's allow-list entries in
+# tests/test_confine_scan.py go stale on the other host (the scan is static).
+if os.name == "nt":
+    import msvcrt
+else:
+    import fcntl
 
 RECORD_FILE = "update.json"
 RECORD_VERSION = 1
@@ -309,3 +316,43 @@ def run_step(argv, *, cwd, timeout, log, env=None) -> StepResult:
         raise
     return StepResult("exit", code)
 
+
+# --- the lock ----------------------------------------------------------------------------
+
+LOCK_FILE = "lock"
+# What the locking call raises when another process holds the lock (U5):
+# BlockingIOError on POSIX, PermissionError on Windows. Any other error, and
+# any error opening the file, is the job's own failure, never "skipped".
+LOCK_HELD = PermissionError if os.name == "nt" else BlockingIOError
+
+
+def _lock(handle):
+    """Lock the open lock file without waiting: byte 0 on Windows (msvcrt
+    locks from the current position), the whole file on POSIX."""
+    if os.name == "nt":
+        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+    else:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def acquire_lock(roots, folder):
+    """The open lock handle for `folder`/lock, or None when another run holds it.
+
+    The file is opened for append under the writable `refresh.dir` root with
+    links refused, and never written. The lock lives on the handle: it holds
+    until the handle is closed or its process ends, and no child inherits it
+    (children get no inherited descriptors). An error opening the file, or a
+    locking error other than LOCK_HELD, is raised.
+    """
+    handle = open_confined(roots, folder / LOCK_FILE, "ab", key=REFRESH_KEY, follow_links=False)
+    try:
+        handle.seek(0)
+        try:
+            _lock(handle)
+        except LOCK_HELD:
+            handle.close()
+            return None
+    except BaseException:
+        handle.close()
+        raise
+    return handle

@@ -6,6 +6,7 @@ tmp_path; the commit check refuses a tracked build.json or update.json.
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -25,7 +26,10 @@ from gantry.refresh import (
     record_bytes,
     run_step,
 )
-from gantry.roots import directory_roots
+from gantry.roots import LinkRefused, OutsideRoots, directory_roots
+from helpers_config import write_config
+from helpers_links import link_dir, symlink
+from test_samples import ROOT
 
 WINDOWS = os.name == "nt"
 
@@ -336,4 +340,107 @@ def test_bare_program_resolves_on_path_only(tmp_path, monkeypatch):
     assert run(work, probe_env("bin"), tmp_path / "relative") == StepResult("could not start", None)
     for name in ("parent-cwd", "step-cwd", "relative"):
         assert not (tmp_path / name).exists(), name
+
+
+# --- Task 5: the lock -----------------------------------------------------------------
+
+# Takes the refresh lock in another process, says so, and keeps it until killed.
+HOLDER = """
+    import sys, time
+    from pathlib import Path
+    sys.path.insert(0, sys.argv[1])
+    from gantry.refresh import acquire_lock
+    from gantry.roots import directory_roots
+    folder = Path(sys.argv[2])
+    handle = acquire_lock(directory_roots([], writable=[folder]), folder)
+    print("held" if handle is not None else "not held", flush=True)
+    time.sleep(120)
+"""
+
+
+@pytest.fixture
+def lock_holder(tmp_path):
+    """hold(folder) -> the Popen of a process holding folder's refresh lock; every one is killed at teardown."""
+    procs = []
+
+    def hold(folder):
+        holder = script(tmp_path / "helpers", "holder", HOLDER)
+        proc = subprocess.Popen([sys.executable, str(holder), str(ROOT), str(folder)],
+                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE)
+        procs.append(proc)
+        assert proc.stdout.readline().strip() == b"held"
+        return proc
+
+    yield hold
+    for proc in procs:
+        proc.kill()
+        proc.wait()
+        proc.stdout.close()
+
+
+def writable(folder):
+    return directory_roots([], writable=[folder])
+
+
+def test_lock_excludes_a_second_taker(tmp_path):
+    roots = writable(tmp_path)
+    first = refresh.acquire_lock(roots, tmp_path)
+    assert first is not None
+    try:
+        assert refresh.acquire_lock(roots, tmp_path) is None
+    finally:
+        first.close()
+    again = refresh.acquire_lock(roots, tmp_path)
+    assert again is not None
+    again.close()
+
+
+def test_lock_dies_with_its_holder(tmp_path, lock_holder):
+    proc = lock_holder(tmp_path)
+    assert refresh.acquire_lock(writable(tmp_path), tmp_path) is None
+    proc.kill()
+    proc.wait()
+    handle = refresh.acquire_lock(writable(tmp_path), tmp_path)
+    assert handle is not None
+    handle.close()
+
+
+def test_lock_is_taken_from_byte_0_and_stays_empty(tmp_path, monkeypatch):
+    # msvcrt.locking locks from the current position, and "ab" opens at the
+    # end: a lock file an older run left non-empty must still be locked at 0.
+    (tmp_path / "lock").write_bytes(b"older")
+    positions, real = [], refresh._lock
+
+    def spy(handle):
+        positions.append(handle.tell())
+        return real(handle)
+
+    monkeypatch.setattr(refresh, "_lock", spy)
+    handle = refresh.acquire_lock(writable(tmp_path), tmp_path)
+    handle.close()
+    assert positions == [0]
+    fresh = tmp_path / "fresh"
+    fresh.mkdir()
+    handle = refresh.acquire_lock(writable(fresh), fresh)
+    handle.close()
+    assert (fresh / "lock").read_bytes() == b""
+
+
+def test_unopenable_lock_raises_not_none(tmp_path, monkeypatch):
+    def refuse(roots, path, *args, **kwargs):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(refresh, "open_confined", refuse)
+    with pytest.raises(PermissionError):
+        refresh.acquire_lock(writable(tmp_path), tmp_path)
+
+
+def test_link_at_lock_is_refused(tmp_path):
+    target = tmp_path / "target"
+    target.write_bytes(b"keep")
+    symlink(target, tmp_path / "lock")
+    with pytest.raises(OutsideRoots) as e:
+        refresh.acquire_lock(writable(tmp_path), tmp_path)
+    assert isinstance(e.value, LinkRefused)
+    assert target.read_bytes() == b"keep"
 
