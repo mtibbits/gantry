@@ -1,0 +1,749 @@
+{
+  "pin": "devagent--v3.0.0",
+  "schema_version": "1.1",
+  "site": "est",
+  "status": "read",
+  "reason": null,
+  "nodes": [
+    {
+      "line": 3,
+      "row": true,
+      "key": "Issue-1",
+      "issue": "Issue-1",
+      "outline": "1",
+      "title": "Estimated work",
+      "glyph": " ",
+      "state": "pending",
+      "open": null,
+      "priority": null,
+      "epic": null,
+      "parent": null,
+      "meta": {
+        "issue": "Issue-1",
+        "est": "100h"
+      },
+      "depends_on": [],
+      "rank": null,
+      "est": null,
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 4,
+      "row": false,
+      "key": "Issue-2",
+      "issue": "Issue-2",
+      "outline": "1.1",
+      "title": "A",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": "Issue-1",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-2",
+        "est": "3h"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "time",
+        3.0,
+        3.0,
+        3.0,
+        "h"
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 5,
+      "row": false,
+      "key": "Issue-3",
+      "issue": "Issue-3",
+      "outline": "1.2",
+      "title": "B",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": "Issue-1",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-3",
+        "est": "1.5d"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "time",
+        9.0,
+        9.0,
+        1.5,
+        "d"
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 6,
+      "row": false,
+      "key": "Issue-4",
+      "issue": "Issue-4",
+      "outline": "1.3",
+      "title": "C",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": "Issue-1",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-4",
+        "est": "2.5pr"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "non_time",
+        null,
+        null,
+        2.5,
+        "pr"
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 7,
+      "row": false,
+      "key": "Issue-5",
+      "issue": "Issue-5",
+      "outline": "1.4",
+      "title": "D",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": "Issue-1",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-5",
+        "est": "2-3d"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "unparseable",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 8,
+      "row": false,
+      "key": "Issue-13",
+      "issue": "Issue-13",
+      "outline": "1.5",
+      "title": "K",
+      "glyph": "x",
+      "state": "done",
+      "open": false,
+      "priority": null,
+      "epic": "Issue-1",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-13"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 9,
+      "row": false,
+      "key": "Issue-20",
+      "issue": "Issue-20",
+      "outline": "1.6",
+      "title": "P",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": "P0",
+      "epic": "Issue-1",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-20",
+        "priority": "P0",
+        "depends_on": [
+          "Issue-21"
+        ]
+      },
+      "depends_on": [
+        [
+          "Issue-21",
+          "local",
+          "est",
+          "Issue-21"
+        ]
+      ],
+      "rank": 0,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 10,
+      "row": false,
+      "key": "Issue-21",
+      "issue": "Issue-21",
+      "outline": "1.7",
+      "title": "Q",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": "Issue-1",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-21"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 11,
+      "row": false,
+      "key": "Issue-22",
+      "issue": "Issue-22",
+      "outline": "1.8",
+      "title": "Hi one",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": "P1",
+      "epic": "Issue-1",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-22",
+        "priority": "P1"
+      },
+      "depends_on": [],
+      "rank": 1,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 12,
+      "row": false,
+      "key": "Issue-23",
+      "issue": "Issue-23",
+      "outline": "1.9",
+      "title": "Hi two",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": "P2",
+      "epic": "Issue-1",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-23",
+        "priority": "P2"
+      },
+      "depends_on": [],
+      "rank": 2,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 13,
+      "row": false,
+      "key": "Issue-24",
+      "issue": "Issue-24",
+      "outline": "1.10",
+      "title": "Odd",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": "P5",
+      "epic": "Issue-1",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-24",
+        "priority": "P5"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 14,
+      "row": false,
+      "key": "Issue-25",
+      "issue": "Issue-25",
+      "outline": "1.11",
+      "title": "Odder",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": "P-1",
+      "epic": "Issue-1",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-25",
+        "priority": "P-1"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 15,
+      "row": true,
+      "key": "Issue-6",
+      "issue": "Issue-6",
+      "outline": "2",
+      "title": "Unestimated work",
+      "glyph": " ",
+      "state": "pending",
+      "open": null,
+      "priority": null,
+      "epic": null,
+      "parent": null,
+      "meta": {
+        "issue": "Issue-6"
+      },
+      "depends_on": [],
+      "rank": null,
+      "est": null,
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 16,
+      "row": false,
+      "key": "Issue-7",
+      "issue": "Issue-7",
+      "outline": "2.1",
+      "title": "E",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": "Issue-6",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-7",
+        "est": "?3d"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "unparseable",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 17,
+      "row": false,
+      "key": "Issue-8",
+      "issue": "Issue-8",
+      "outline": "2.2",
+      "title": "F",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": "Issue-6",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-8",
+        "est": "0h"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "unparseable",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 18,
+      "row": false,
+      "key": "Issue-9",
+      "issue": "Issue-9",
+      "outline": "2.3",
+      "title": "G",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": "Issue-6",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-9",
+        "est": "3H"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "unparseable",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 19,
+      "row": false,
+      "key": "Issue-10",
+      "issue": "Issue-10",
+      "outline": "2.4",
+      "title": "H",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": "Issue-6",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-10",
+        "est": "48pr"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "non_time",
+        null,
+        null,
+        48.0,
+        "pr"
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 20,
+      "row": false,
+      "key": "Issue-11",
+      "issue": "Issue-11",
+      "outline": "2.5",
+      "title": "I",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": "Issue-6",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-11",
+        "est": "?w"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "placeholder",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 21,
+      "row": false,
+      "key": "Issue-12",
+      "issue": "Issue-12",
+      "outline": "2.6",
+      "title": "J",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": "Issue-6",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-12"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 22,
+      "row": false,
+      "key": "Issue-30",
+      "issue": "Issue-30",
+      "outline": "2.7",
+      "title": "Loop one",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": "Issue-6",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-30",
+        "est": "5h",
+        "depends_on": [
+          "Issue-31"
+        ]
+      },
+      "depends_on": [
+        [
+          "Issue-31",
+          "local",
+          "est",
+          "Issue-31"
+        ]
+      ],
+      "rank": 3,
+      "est": [
+        "time",
+        5.0,
+        5.0,
+        5.0,
+        "h"
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 23,
+      "row": false,
+      "key": "Issue-31",
+      "issue": "Issue-31",
+      "outline": "2.8",
+      "title": "Loop two",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": "Issue-6",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-31",
+        "est": "5h",
+        "depends_on": [
+          "Issue-30"
+        ]
+      },
+      "depends_on": [
+        [
+          "Issue-30",
+          "local",
+          "est",
+          "Issue-30"
+        ]
+      ],
+      "rank": 3,
+      "est": [
+        "time",
+        5.0,
+        5.0,
+        5.0,
+        "h"
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 24,
+      "row": false,
+      "key": "Issue-32",
+      "issue": "Issue-32",
+      "outline": "2.9",
+      "title": "Waiter",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": "Issue-6",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-32",
+        "est": "5h",
+        "depends_on": [
+          "Issue-30"
+        ]
+      },
+      "depends_on": [
+        [
+          "Issue-30",
+          "local",
+          "est",
+          "Issue-30"
+        ]
+      ],
+      "rank": 3,
+      "est": [
+        "time",
+        5.0,
+        5.0,
+        5.0,
+        "h"
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    }
+  ],
+  "links": [
+    [
+      "Issue-21",
+      "Issue-20"
+    ],
+    [
+      "Issue-31",
+      "Issue-30"
+    ],
+    [
+      "Issue-30",
+      "Issue-31"
+    ],
+    [
+      "Issue-30",
+      "Issue-32"
+    ]
+  ],
+  "held_out": [
+    "Issue-30",
+    "Issue-31",
+    "Issue-32"
+  ],
+  "report": [
+    [
+      13,
+      "bad_priority",
+      "WBS.md line 13: priority 'P5' is not P0, P1, P2, P3 or P4; it counts as P3"
+    ],
+    [
+      14,
+      "bad_priority",
+      "WBS.md line 14: priority 'P-1' is not P0, P1, P2, P3 or P4; it counts as P3"
+    ],
+    [
+      22,
+      "cycle",
+      "WBS.md line 22: dependency cycle among 'Issue-30', 'Issue-31'"
+    ],
+    [
+      22,
+      "waits_on_cycle",
+      "WBS.md line 22: 'Issue-30' is held out: it is in, or waits on, a dependency cycle"
+    ],
+    [
+      23,
+      "waits_on_cycle",
+      "WBS.md line 23: 'Issue-31' is held out: it is in, or waits on, a dependency cycle"
+    ],
+    [
+      24,
+      "waits_on_cycle",
+      "WBS.md line 24: 'Issue-32' is held out: it is in, or waits on, a dependency cycle"
+    ]
+  ],
+  "devagent": []
+}

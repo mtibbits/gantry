@@ -1,0 +1,18 @@
+{
+  "pin": "devagent--v3.0.0",
+  "schema_version": "1.1",
+  "site": "not_utf8",
+  "status": "unreadable",
+  "reason": "WBS.md could not be read: UnicodeDecodeError: invalid continuation byte at byte 15",
+  "nodes": [],
+  "links": [],
+  "held_out": [],
+  "report": [
+    [
+      null,
+      "site_unreadable",
+      "WBS.md could not be read: UnicodeDecodeError: invalid continuation byte at byte 15"
+    ]
+  ],
+  "devagent": []
+}

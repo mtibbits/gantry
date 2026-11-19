@@ -1,0 +1,6820 @@
+{
+  "schema": "devagent-portfolio",
+  "schema_version": "1.1",
+  "generated_at": "2026-01-12T09:30:00Z",
+  "projects": [
+    {
+      "project": "cycle",
+      "status": "read",
+      "status_reason": null,
+      "wbs_title": "Cycle",
+      "nodes": [
+        {
+          "id": "n1",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "A",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 2,
+          "issue": "Issue-1",
+          "meta": {
+            "issue": "Issue-1",
+            "depends_on": [
+              "Issue-2"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Issue-2",
+              "scope": "local",
+              "project": "cycle",
+              "issue": "Issue-2",
+              "resolved": true
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n2",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "B",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 3,
+          "issue": "Issue-2",
+          "meta": {
+            "issue": "Issue-2",
+            "depends_on": [
+              "Issue-1"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Issue-1",
+              "scope": "local",
+              "project": "cycle",
+              "issue": "Issue-1",
+              "resolved": true
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n3",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "C",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 4,
+          "issue": "Issue-3",
+          "meta": {
+            "issue": "Issue-3",
+            "priority": "P1",
+            "depends_on": [
+              "Issue-2",
+              "Issue-9"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Issue-2",
+              "scope": "local",
+              "project": "cycle",
+              "issue": "Issue-2",
+              "resolved": true
+            },
+            {
+              "raw": "Issue-9",
+              "scope": "local",
+              "project": "cycle",
+              "issue": "Issue-9",
+              "resolved": true
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n4",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "D",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 5,
+          "issue": "Issue-4",
+          "meta": {
+            "issue": "Issue-4",
+            "priority": "P1",
+            "depends_on": [
+              "Issue-5"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Issue-5",
+              "scope": "local",
+              "project": "cycle",
+              "issue": "Issue-5",
+              "resolved": true
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n5",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "E",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 6,
+          "issue": "Issue-5",
+          "meta": {
+            "issue": "Issue-5"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n6",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "F",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 7,
+          "issue": "Issue-6",
+          "meta": {
+            "issue": "Issue-6",
+            "depends_on": [
+              "Issue-7"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Issue-7",
+              "scope": "local",
+              "project": "cycle",
+              "issue": "Issue-7",
+              "resolved": true
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n7",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "G",
+          "state": "done",
+          "glyph": "x",
+          "source_line": 8,
+          "issue": "Issue-7",
+          "meta": {
+            "issue": "Issue-7",
+            "depends_on": [
+              "Issue-6"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Issue-6",
+              "scope": "local",
+              "project": "cycle",
+              "issue": "Issue-6",
+              "resolved": true
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n8",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "I",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 9,
+          "issue": "Issue-9",
+          "meta": {
+            "issue": "Issue-9"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        }
+      ],
+      "issues": [
+        {
+          "issue": "Issue-1",
+          "nodes": [
+            "n1"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-2",
+          "nodes": [
+            "n2"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-3",
+          "nodes": [
+            "n3"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-4",
+          "nodes": [
+            "n4"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-5",
+          "nodes": [
+            "n5"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-6",
+          "nodes": [
+            "n6"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-7",
+          "nodes": [
+            "n7"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-9",
+          "nodes": [
+            "n8"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        }
+      ],
+      "rollup": {
+        "by_state": {
+          "pending": {
+            "leaves": 7,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 7
+          },
+          "done": {
+            "leaves": 1,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 1
+          },
+          "skipped": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "stuck": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "in_progress": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "blocked_external": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "parked": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          }
+        },
+        "remaining": {
+          "leaves": 7,
+          "estimated": 0,
+          "estimated_derived": 0,
+          "unestimated": 7,
+          "low_hours": 0,
+          "high_hours": 0,
+          "non_time": {}
+        }
+      }
+    },
+    {
+      "project": "empty",
+      "status": "read",
+      "status_reason": null,
+      "wbs_title": "Empty",
+      "nodes": [],
+      "issues": [],
+      "rollup": {
+        "by_state": {
+          "pending": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "done": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "skipped": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "stuck": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "in_progress": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "blocked_external": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "parked": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          }
+        },
+        "remaining": {
+          "leaves": 0,
+          "estimated": 0,
+          "estimated_derived": 0,
+          "unestimated": 0,
+          "low_hours": 0,
+          "high_hours": 0,
+          "non_time": {}
+        }
+      }
+    },
+    {
+      "project": "fences",
+      "status": "read",
+      "status_reason": null,
+      "wbs_title": "Fences",
+      "nodes": [
+        {
+          "id": "n9",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "Before",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 2,
+          "issue": "Issue-1",
+          "meta": {
+            "issue": "Issue-1"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n10",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "After inline span",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 16,
+          "issue": "Issue-2",
+          "meta": {
+            "issue": "Issue-2"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n11",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "After unclosed fence",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 18,
+          "issue": "Issue-3",
+          "meta": {
+            "issue": "Issue-3"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        }
+      ],
+      "issues": [
+        {
+          "issue": "Issue-1",
+          "nodes": [
+            "n9"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-2",
+          "nodes": [
+            "n10"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-3",
+          "nodes": [
+            "n11"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        }
+      ],
+      "rollup": {
+        "by_state": {
+          "pending": {
+            "leaves": 3,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 3
+          },
+          "done": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "skipped": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "stuck": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "in_progress": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "blocked_external": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "parked": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          }
+        },
+        "remaining": {
+          "leaves": 3,
+          "estimated": 0,
+          "estimated_derived": 0,
+          "unestimated": 3,
+          "low_hours": 0,
+          "high_hours": 0,
+          "non_time": {}
+        }
+      }
+    },
+    {
+      "project": "ids",
+      "status": "read",
+      "status_reason": null,
+      "wbs_title": "Ids",
+      "nodes": [
+        {
+          "id": "n12",
+          "parent": null,
+          "depth": 1,
+          "leaf": false,
+          "text": "Ferry works",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 2,
+          "issue": "Issue-Fork-1",
+          "meta": {
+            "issue": "Issue-Fork-1"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": null,
+          "ready_via_parent_row": null
+        },
+        {
+          "id": "n13",
+          "parent": "n12",
+          "depth": 2,
+          "leaf": true,
+          "text": "Dock",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 3,
+          "issue": "Issue-Fork-2",
+          "meta": {
+            "issue": "Issue-Fork-2",
+            "priority": "P0"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n14",
+          "parent": "n12",
+          "depth": 2,
+          "leaf": true,
+          "text": "Ramp",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 4,
+          "issue": "Issue-Fork-2",
+          "meta": {
+            "issue": "Issue-Fork-2",
+            "priority": "P9"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n15",
+          "parent": "n12",
+          "depth": 2,
+          "leaf": true,
+          "text": "Unnamed leaf",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 5,
+          "issue": null,
+          "meta": {},
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n16",
+          "parent": "n12",
+          "depth": 2,
+          "leaf": true,
+          "text": "Second unnamed leaf",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 6,
+          "issue": null,
+          "meta": {},
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n17",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "Signals",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 7,
+          "issue": "1.3",
+          "meta": {
+            "issue": "1.3"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n18",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "Lights",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 8,
+          "issue": "Issue-3",
+          "meta": {
+            "issue": "Issue-3",
+            "depends_on": "Issue-Fork-2"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Issue-Fork-2",
+              "scope": "local",
+              "project": "ids",
+              "issue": "Issue-Fork-2",
+              "resolved": true
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n19",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "Horns",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 9,
+          "issue": "Issue-4",
+          "meta": {
+            "issue": "Issue-4",
+            "depends_on": [
+              "Issue-3",
+              "1.4",
+              "Issue-99"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Issue-3",
+              "scope": "local",
+              "project": "ids",
+              "issue": "Issue-3",
+              "resolved": true
+            },
+            {
+              "raw": "1.4",
+              "scope": "local",
+              "project": "ids",
+              "issue": "1.4",
+              "resolved": false
+            },
+            {
+              "raw": "Issue-99",
+              "scope": "local",
+              "project": "ids",
+              "issue": "Issue-99",
+              "resolved": false
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        }
+      ],
+      "issues": [
+        {
+          "issue": "Issue-Fork-1",
+          "nodes": [
+            "n12"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-Fork-2",
+          "nodes": [
+            "n13",
+            "n14"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "1.3",
+          "nodes": [
+            "n17"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-3",
+          "nodes": [
+            "n18"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-4",
+          "nodes": [
+            "n19"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        }
+      ],
+      "rollup": {
+        "by_state": {
+          "pending": {
+            "leaves": 7,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 7
+          },
+          "done": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "skipped": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "stuck": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "in_progress": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "blocked_external": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "parked": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          }
+        },
+        "remaining": {
+          "leaves": 7,
+          "estimated": 0,
+          "estimated_derived": 0,
+          "unestimated": 7,
+          "low_hours": 0,
+          "high_hours": 0,
+          "non_time": {}
+        }
+      }
+    },
+    {
+      "project": "nesting",
+      "status": "read",
+      "status_reason": null,
+      "wbs_title": "Nesting",
+      "nodes": [
+        {
+          "id": "n20",
+          "parent": null,
+          "depth": 1,
+          "leaf": false,
+          "text": "Foundations",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 2,
+          "issue": "Issue-1",
+          "meta": {
+            "issue": "Issue-1"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": null,
+          "ready_via_parent_row": null
+        },
+        {
+          "id": "n21",
+          "parent": "n20",
+          "depth": 2,
+          "leaf": false,
+          "text": "Pour",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 3,
+          "issue": "Issue-2",
+          "meta": {
+            "issue": "Issue-2"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": null,
+          "ready_via_parent_row": null
+        },
+        {
+          "id": "n22",
+          "parent": "n21",
+          "depth": 3,
+          "leaf": true,
+          "text": "Mix",
+          "state": "done",
+          "glyph": "x",
+          "source_line": 4,
+          "issue": "Issue-3",
+          "meta": {
+            "issue": "Issue-3"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n23",
+          "parent": "n21",
+          "depth": 3,
+          "leaf": true,
+          "text": "Cure",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 5,
+          "issue": null,
+          "meta": {
+            "priority": "P2"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n24",
+          "parent": "n20",
+          "depth": 2,
+          "leaf": true,
+          "text": "Formwork",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 6,
+          "issue": "Issue-4",
+          "meta": {
+            "issue": "Issue-4"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n25",
+          "parent": "n20",
+          "depth": 2,
+          "leaf": true,
+          "text": "Odd indent",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 7,
+          "issue": "Issue-5",
+          "meta": {
+            "issue": "Issue-5"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n26",
+          "parent": null,
+          "depth": 1,
+          "leaf": false,
+          "text": "Frame",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 8,
+          "issue": null,
+          "meta": {},
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": null,
+          "ready_via_parent_row": null
+        },
+        {
+          "id": "n27",
+          "parent": "n26",
+          "depth": 4,
+          "leaf": true,
+          "text": "Deep jump",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 9,
+          "issue": "Issue-6",
+          "meta": {
+            "issue": "Issue-6"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n28",
+          "parent": "n26",
+          "depth": 2,
+          "leaf": true,
+          "text": "Brace {in} title",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 10,
+          "issue": "Issue-7",
+          "meta": {
+            "issue": "Issue-7",
+            "satisfies": "a:X",
+            "a": "Y"
+          },
+          "meta_unknown_keys": [
+            "a"
+          ],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [
+            "a:X"
+          ],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n29",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "Lone top-level leaf",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 11,
+          "issue": null,
+          "meta": {},
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        }
+      ],
+      "issues": [
+        {
+          "issue": "Issue-1",
+          "nodes": [
+            "n20"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-2",
+          "nodes": [
+            "n21"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-3",
+          "nodes": [
+            "n22"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-4",
+          "nodes": [
+            "n24"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-5",
+          "nodes": [
+            "n25"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-6",
+          "nodes": [
+            "n27"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-7",
+          "nodes": [
+            "n28"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        }
+      ],
+      "rollup": {
+        "by_state": {
+          "pending": {
+            "leaves": 6,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 6
+          },
+          "done": {
+            "leaves": 1,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 1
+          },
+          "skipped": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "stuck": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "in_progress": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "blocked_external": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "parked": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          }
+        },
+        "remaining": {
+          "leaves": 6,
+          "estimated": 0,
+          "estimated_derived": 0,
+          "unestimated": 6,
+          "low_hours": 0,
+          "high_hours": 0,
+          "non_time": {}
+        }
+      }
+    },
+    {
+      "project": "not_utf8",
+      "status": "unreadable",
+      "status_reason": "WBS.md could not be read: UnicodeDecodeError: invalid continuation byte at byte 15",
+      "wbs_title": null,
+      "nodes": [],
+      "issues": [],
+      "rollup": null
+    },
+    {
+      "project": "page",
+      "status": "read",
+      "status_reason": null,
+      "wbs_title": "Page",
+      "nodes": [
+        {
+          "id": "n30",
+          "parent": null,
+          "depth": 1,
+          "leaf": false,
+          "text": "Ground works",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 2,
+          "issue": "Issue-1",
+          "meta": {
+            "issue": "Issue-1"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": null,
+          "ready_via_parent_row": null
+        },
+        {
+          "id": "n31",
+          "parent": "n30",
+          "depth": 2,
+          "leaf": true,
+          "text": "Survey",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 3,
+          "issue": "Issue-2",
+          "meta": {
+            "issue": "Issue-2"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n32",
+          "parent": "n30",
+          "depth": 2,
+          "leaf": true,
+          "text": "Dig",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 4,
+          "issue": "Issue-3",
+          "meta": {
+            "issue": "Issue-3",
+            "depends_on": [
+              "Issue-2"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Issue-2",
+              "scope": "local",
+              "project": "page",
+              "issue": "Issue-2",
+              "resolved": true
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n33",
+          "parent": "n30",
+          "depth": 2,
+          "leaf": true,
+          "text": "Pour",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 5,
+          "issue": "Issue-4",
+          "meta": {
+            "issue": "Issue-4",
+            "depends_on": [
+              "Issue-3",
+              "Issue-2"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Issue-3",
+              "scope": "local",
+              "project": "page",
+              "issue": "Issue-3",
+              "resolved": true
+            },
+            {
+              "raw": "Issue-2",
+              "scope": "local",
+              "project": "page",
+              "issue": "Issue-2",
+              "resolved": true
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n34",
+          "parent": "n30",
+          "depth": 2,
+          "leaf": true,
+          "text": "Cure",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 6,
+          "issue": "Issue-5",
+          "meta": {
+            "issue": "Issue-5",
+            "depends_on": [
+              "Issue-4"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Issue-4",
+              "scope": "local",
+              "project": "page",
+              "issue": "Issue-4",
+              "resolved": true
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n35",
+          "parent": "n30",
+          "depth": 2,
+          "leaf": true,
+          "text": "Permit",
+          "state": "done",
+          "glyph": "x",
+          "source_line": 7,
+          "issue": "Issue-6",
+          "meta": {
+            "issue": "Issue-6"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n36",
+          "parent": "n30",
+          "depth": 2,
+          "leaf": true,
+          "text": "Seal",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 8,
+          "issue": "Issue-9",
+          "meta": {
+            "issue": "Issue-9",
+            "depends_on": [
+              "Issue-5"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Issue-5",
+              "scope": "local",
+              "project": "page",
+              "issue": "Issue-5",
+              "resolved": true
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n37",
+          "parent": "n30",
+          "depth": 2,
+          "leaf": true,
+          "text": "Polish",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 9,
+          "issue": null,
+          "meta": {
+            "depends_on": [
+              "Issue-9"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Issue-9",
+              "scope": "local",
+              "project": "page",
+              "issue": "Issue-9",
+              "resolved": true
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n38",
+          "parent": null,
+          "depth": 1,
+          "leaf": false,
+          "text": "Frame",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 10,
+          "issue": "Issue-10",
+          "meta": {
+            "issue": "Issue-10",
+            "depends_on": [
+              "gamma:Issue-1"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "gamma:Issue-1",
+              "scope": "foreign",
+              "project": "gamma",
+              "issue": "Issue-1",
+              "resolved": false
+            }
+          ],
+          "ready": null,
+          "ready_via_parent_row": null
+        },
+        {
+          "id": "n39",
+          "parent": "n38",
+          "depth": 2,
+          "leaf": true,
+          "text": "Walls",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 11,
+          "issue": "Issue-11",
+          "meta": {
+            "issue": "Issue-11"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n40",
+          "parent": "n38",
+          "depth": 2,
+          "leaf": true,
+          "text": "Roof",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 12,
+          "issue": "Issue-12",
+          "meta": {
+            "issue": "Issue-12",
+            "depends_on": [
+              "Issue-11",
+              "Issue-6"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Issue-11",
+              "scope": "local",
+              "project": "page",
+              "issue": "Issue-11",
+              "resolved": true
+            },
+            {
+              "raw": "Issue-6",
+              "scope": "local",
+              "project": "page",
+              "issue": "Issue-6",
+              "resolved": true
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n41",
+          "parent": "n38",
+          "depth": 2,
+          "leaf": true,
+          "text": "Brace",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 13,
+          "issue": "Issue-13",
+          "meta": {
+            "issue": "Issue-13",
+            "depends_on": [
+              "Issue-4"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Issue-4",
+              "scope": "local",
+              "project": "page",
+              "issue": "Issue-4",
+              "resolved": true
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n42",
+          "parent": "n38",
+          "depth": 2,
+          "leaf": true,
+          "text": "Fence",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 14,
+          "issue": "Issue-7",
+          "meta": {
+            "issue": "Issue-7",
+            "priority": "P1",
+            "depends_on": [
+              "Issue-13"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Issue-13",
+              "scope": "local",
+              "project": "page",
+              "issue": "Issue-13",
+              "resolved": true
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n43",
+          "parent": "n38",
+          "depth": 2,
+          "leaf": true,
+          "text": "Gutters",
+          "state": "in_progress",
+          "glyph": "~",
+          "source_line": 15,
+          "issue": "Issue-14",
+          "meta": {
+            "issue": "Issue-14",
+            "depends_on": [
+              "Issue-13",
+              "Issue-99"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Issue-13",
+              "scope": "local",
+              "project": "page",
+              "issue": "Issue-13",
+              "resolved": true
+            },
+            {
+              "raw": "Issue-99",
+              "scope": "local",
+              "project": "page",
+              "issue": "Issue-99",
+              "resolved": false
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n44",
+          "parent": "n38",
+          "depth": 2,
+          "leaf": true,
+          "text": "Sweep",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 16,
+          "issue": null,
+          "meta": {},
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n45",
+          "parent": "n38",
+          "depth": 2,
+          "leaf": true,
+          "text": "Trim",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 17,
+          "issue": "Issue-15",
+          "meta": {
+            "issue": "Issue-15",
+            "depends_on": [
+              "beta:Issue-3"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "beta:Issue-3",
+              "scope": "foreign",
+              "project": "beta",
+              "issue": "Issue-3",
+              "resolved": false
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n46",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "Sign",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 18,
+          "issue": "Issue-20",
+          "meta": {
+            "issue": "Issue-20"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        }
+      ],
+      "issues": [
+        {
+          "issue": "Issue-1",
+          "nodes": [
+            "n30"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-2",
+          "nodes": [
+            "n31"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-3",
+          "nodes": [
+            "n32"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-4",
+          "nodes": [
+            "n33"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-5",
+          "nodes": [
+            "n34"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-6",
+          "nodes": [
+            "n35"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-9",
+          "nodes": [
+            "n36"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-10",
+          "nodes": [
+            "n38"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-11",
+          "nodes": [
+            "n39"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-12",
+          "nodes": [
+            "n40"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-13",
+          "nodes": [
+            "n41"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-7",
+          "nodes": [
+            "n42"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-14",
+          "nodes": [
+            "n43"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-15",
+          "nodes": [
+            "n45"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-20",
+          "nodes": [
+            "n46"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        }
+      ],
+      "rollup": {
+        "by_state": {
+          "pending": {
+            "leaves": 13,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 13
+          },
+          "done": {
+            "leaves": 1,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 1
+          },
+          "skipped": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "stuck": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "in_progress": {
+            "leaves": 1,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 1
+          },
+          "blocked_external": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "parked": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          }
+        },
+        "remaining": {
+          "leaves": 14,
+          "estimated": 0,
+          "estimated_derived": 0,
+          "unestimated": 14,
+          "low_hours": 0,
+          "high_hours": 0,
+          "non_time": {}
+        }
+      }
+    },
+    {
+      "project": "priority",
+      "status": "read",
+      "status_reason": null,
+      "wbs_title": "Priority",
+      "nodes": [
+        {
+          "id": "n47",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "Base",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 2,
+          "issue": "Issue-1",
+          "meta": {
+            "issue": "Issue-1",
+            "priority": "P3"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n48",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "Middle",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 3,
+          "issue": "Issue-2",
+          "meta": {
+            "issue": "Issue-2",
+            "priority": "P3",
+            "depends_on": [
+              "Issue-1"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Issue-1",
+              "scope": "local",
+              "project": "priority",
+              "issue": "Issue-1",
+              "resolved": true
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n49",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "Top",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 4,
+          "issue": "Issue-3",
+          "meta": {
+            "issue": "Issue-3",
+            "priority": "P1",
+            "depends_on": [
+              "Issue-2"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Issue-2",
+              "scope": "local",
+              "project": "priority",
+              "issue": "Issue-2",
+              "resolved": true
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n50",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "Gate",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 5,
+          "issue": "Issue-4",
+          "meta": {
+            "issue": "Issue-4",
+            "priority": "P3"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n51",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "Closed",
+          "state": "done",
+          "glyph": "x",
+          "source_line": 6,
+          "issue": "Issue-5",
+          "meta": {
+            "issue": "Issue-5",
+            "depends_on": [
+              "Issue-4"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Issue-4",
+              "scope": "local",
+              "project": "priority",
+              "issue": "Issue-4",
+              "resolved": true
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n52",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "Urgent",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 7,
+          "issue": "Issue-6",
+          "meta": {
+            "issue": "Issue-6",
+            "priority": "P1",
+            "depends_on": [
+              "Issue-5"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Issue-5",
+              "scope": "local",
+              "project": "priority",
+              "issue": "Issue-5",
+              "resolved": true
+            }
+          ],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n53",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "Far",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 8,
+          "issue": "Issue-7",
+          "meta": {
+            "issue": "Issue-7",
+            "priority": "P3"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n54",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "Remote",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 9,
+          "issue": "Issue-8",
+          "meta": {
+            "issue": "Issue-8",
+            "priority": "P1",
+            "depends_on": [
+              "beta:Issue-7"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "beta:Issue-7",
+              "scope": "foreign",
+              "project": "beta",
+              "issue": "Issue-7",
+              "resolved": false
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        }
+      ],
+      "issues": [
+        {
+          "issue": "Issue-1",
+          "nodes": [
+            "n47"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-2",
+          "nodes": [
+            "n48"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-3",
+          "nodes": [
+            "n49"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-4",
+          "nodes": [
+            "n50"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-5",
+          "nodes": [
+            "n51"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-6",
+          "nodes": [
+            "n52"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-7",
+          "nodes": [
+            "n53"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-8",
+          "nodes": [
+            "n54"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        }
+      ],
+      "rollup": {
+        "by_state": {
+          "pending": {
+            "leaves": 7,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 7
+          },
+          "done": {
+            "leaves": 1,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 1
+          },
+          "skipped": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "stuck": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "in_progress": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "blocked_external": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "parked": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          }
+        },
+        "remaining": {
+          "leaves": 7,
+          "estimated": 0,
+          "estimated_derived": 0,
+          "unestimated": 7,
+          "low_hours": 0,
+          "high_hours": 0,
+          "non_time": {}
+        }
+      }
+    },
+    {
+      "project": "refs",
+      "status": "read",
+      "status_reason": null,
+      "wbs_title": "Refs",
+      "nodes": [
+        {
+          "id": "n55",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "One",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 2,
+          "issue": "Issue-1",
+          "meta": {
+            "issue": "Issue-1"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n56",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "Two",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 3,
+          "issue": "Issue-2",
+          "meta": {
+            "issue": "Issue-2",
+            "depends_on": [
+              "alpha:Issue-1",
+              "beta:Issue-1",
+              "Alpha:Issue-1"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "alpha:Issue-1",
+              "scope": "foreign",
+              "project": "alpha",
+              "issue": "Issue-1",
+              "resolved": false
+            },
+            {
+              "raw": "beta:Issue-1",
+              "scope": "foreign",
+              "project": "beta",
+              "issue": "Issue-1",
+              "resolved": false
+            },
+            {
+              "raw": "Alpha:Issue-1",
+              "scope": "foreign",
+              "project": "Alpha",
+              "issue": "Issue-1",
+              "resolved": false
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n57",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "Three",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 4,
+          "issue": "Issue-3",
+          "meta": {
+            "issue": "Issue-3",
+            "depends_on": [
+              "beta: Issue-1",
+              "https://x",
+              "a:b:c",
+              ":Issue-1"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "beta: Issue-1",
+              "scope": "local",
+              "project": "refs",
+              "issue": "beta: Issue-1",
+              "resolved": false
+            },
+            {
+              "raw": "https://x",
+              "scope": "local",
+              "project": "refs",
+              "issue": "https://x",
+              "resolved": false
+            },
+            {
+              "raw": "a:b:c",
+              "scope": "local",
+              "project": "refs",
+              "issue": "a:b:c",
+              "resolved": false
+            },
+            {
+              "raw": ":Issue-1",
+              "scope": "local",
+              "project": "refs",
+              "issue": ":Issue-1",
+              "resolved": false
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n58",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "Four",
+          "state": "done",
+          "glyph": "x",
+          "source_line": 5,
+          "issue": "Issue-4",
+          "meta": {
+            "issue": "Issue-4",
+            "priority": "P7",
+            "depends_on": [
+              "Issue-99",
+              "a:b:c"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Issue-99",
+              "scope": "local",
+              "project": "refs",
+              "issue": "Issue-99",
+              "resolved": false
+            },
+            {
+              "raw": "a:b:c",
+              "scope": "local",
+              "project": "refs",
+              "issue": "a:b:c",
+              "resolved": false
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        }
+      ],
+      "issues": [
+        {
+          "issue": "Issue-1",
+          "nodes": [
+            "n55"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-2",
+          "nodes": [
+            "n56"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-3",
+          "nodes": [
+            "n57"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-4",
+          "nodes": [
+            "n58"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        }
+      ],
+      "rollup": {
+        "by_state": {
+          "pending": {
+            "leaves": 3,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 3
+          },
+          "done": {
+            "leaves": 1,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 1
+          },
+          "skipped": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "stuck": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "in_progress": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "blocked_external": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "parked": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          }
+        },
+        "remaining": {
+          "leaves": 3,
+          "estimated": 0,
+          "estimated_derived": 0,
+          "unestimated": 3,
+          "low_hours": 0,
+          "high_hours": 0,
+          "non_time": {}
+        }
+      }
+    },
+    {
+      "project": "rows",
+      "status": "read",
+      "status_reason": null,
+      "wbs_title": "Rows",
+      "nodes": [
+        {
+          "id": "n59",
+          "parent": null,
+          "depth": 1,
+          "leaf": false,
+          "text": "Survey",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 2,
+          "issue": "Issue-1",
+          "meta": {
+            "issue": "Issue-1",
+            "priority": "P1"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": null,
+          "ready_via_parent_row": null
+        },
+        {
+          "id": "n60",
+          "parent": "n59",
+          "depth": 2,
+          "leaf": true,
+          "text": "Measure",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 3,
+          "issue": "Issue-2",
+          "meta": {
+            "issue": "Issue-2",
+            "priority": "P3"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n61",
+          "parent": "n59",
+          "depth": 2,
+          "leaf": true,
+          "text": "Mark",
+          "state": "done",
+          "glyph": "x",
+          "source_line": 4,
+          "issue": "Issue-3",
+          "meta": {
+            "issue": "Issue-3"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n62",
+          "parent": null,
+          "depth": 1,
+          "leaf": false,
+          "text": "Build",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 5,
+          "issue": "Issue-10",
+          "meta": {
+            "issue": "Issue-10",
+            "priority": "high",
+            "depends_on": [
+              "Issue-1"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Issue-1",
+              "scope": "local",
+              "project": "rows",
+              "issue": "Issue-1",
+              "resolved": true
+            }
+          ],
+          "ready": null,
+          "ready_via_parent_row": null
+        },
+        {
+          "id": "n63",
+          "parent": "n62",
+          "depth": 2,
+          "leaf": true,
+          "text": "Walls",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 6,
+          "issue": "Issue-11",
+          "meta": {
+            "issue": "Issue-11",
+            "depends_on": [
+              "Issue-10"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Issue-10",
+              "scope": "local",
+              "project": "rows",
+              "issue": "Issue-10",
+              "resolved": true
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": true
+        },
+        {
+          "id": "n64",
+          "parent": "n62",
+          "depth": 2,
+          "leaf": true,
+          "text": "Roof",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 7,
+          "issue": "Issue-12",
+          "meta": {
+            "issue": "Issue-12"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": false,
+          "ready_via_parent_row": true
+        },
+        {
+          "id": "n65",
+          "parent": null,
+          "depth": 1,
+          "leaf": false,
+          "text": "Finish",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 8,
+          "issue": "Issue-20",
+          "meta": {
+            "issue": "Issue-20",
+            "depends_on": [
+              "Issue-21"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Issue-21",
+              "scope": "local",
+              "project": "rows",
+              "issue": "Issue-21",
+              "resolved": true
+            }
+          ],
+          "ready": null,
+          "ready_via_parent_row": null
+        },
+        {
+          "id": "n66",
+          "parent": "n65",
+          "depth": 2,
+          "leaf": true,
+          "text": "Paint",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 9,
+          "issue": "Issue-21",
+          "meta": {
+            "issue": "Issue-21"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n67",
+          "parent": "n65",
+          "depth": 2,
+          "leaf": true,
+          "text": "Clean",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 10,
+          "issue": "Issue-22",
+          "meta": {
+            "issue": "Issue-22",
+            "depends_on": [
+              "Issue-30"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Issue-30",
+              "scope": "local",
+              "project": "rows",
+              "issue": "Issue-30",
+              "resolved": true
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": true
+        },
+        {
+          "id": "n68",
+          "parent": null,
+          "depth": 1,
+          "leaf": false,
+          "text": "Done row",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 11,
+          "issue": "Issue-30",
+          "meta": {
+            "issue": "Issue-30"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": null,
+          "ready_via_parent_row": null
+        },
+        {
+          "id": "n69",
+          "parent": "n68",
+          "depth": 2,
+          "leaf": true,
+          "text": "Swept",
+          "state": "done",
+          "glyph": "x",
+          "source_line": 12,
+          "issue": "Issue-31",
+          "meta": {
+            "issue": "Issue-31"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n70",
+          "parent": null,
+          "depth": 1,
+          "leaf": false,
+          "text": "Shut",
+          "state": "done",
+          "glyph": "x",
+          "source_line": 13,
+          "issue": "Issue-40",
+          "meta": {
+            "issue": "Issue-40",
+            "depends_on": [
+              "Issue-12"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Issue-12",
+              "scope": "local",
+              "project": "rows",
+              "issue": "Issue-12",
+              "resolved": true
+            }
+          ],
+          "ready": null,
+          "ready_via_parent_row": null
+        },
+        {
+          "id": "n71",
+          "parent": "n70",
+          "depth": 2,
+          "leaf": true,
+          "text": "Leftover",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 14,
+          "issue": "Issue-41",
+          "meta": {
+            "issue": "Issue-41"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n72",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "Trim",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 15,
+          "issue": "Issue-50",
+          "meta": {
+            "issue": "Issue-50",
+            "depends_on": [
+              "Issue-40"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Issue-40",
+              "scope": "local",
+              "project": "rows",
+              "issue": "Issue-40",
+              "resolved": true
+            }
+          ],
+          "ready": true,
+          "ready_via_parent_row": true
+        }
+      ],
+      "issues": [
+        {
+          "issue": "Issue-1",
+          "nodes": [
+            "n59"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-2",
+          "nodes": [
+            "n60"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-3",
+          "nodes": [
+            "n61"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-10",
+          "nodes": [
+            "n62"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-11",
+          "nodes": [
+            "n63"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-12",
+          "nodes": [
+            "n64"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-20",
+          "nodes": [
+            "n65"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-21",
+          "nodes": [
+            "n66"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-22",
+          "nodes": [
+            "n67"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-30",
+          "nodes": [
+            "n68"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-31",
+          "nodes": [
+            "n69"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-40",
+          "nodes": [
+            "n70"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-41",
+          "nodes": [
+            "n71"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-50",
+          "nodes": [
+            "n72"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        }
+      ],
+      "rollup": {
+        "by_state": {
+          "pending": {
+            "leaves": 7,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 7
+          },
+          "done": {
+            "leaves": 2,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 2
+          },
+          "skipped": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "stuck": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "in_progress": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "blocked_external": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "parked": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          }
+        },
+        "remaining": {
+          "leaves": 7,
+          "estimated": 0,
+          "estimated_derived": 0,
+          "unestimated": 7,
+          "low_hours": 0,
+          "high_hours": 0,
+          "non_time": {}
+        }
+      }
+    },
+    {
+      "project": "states",
+      "status": "read",
+      "status_reason": null,
+      "wbs_title": "States",
+      "nodes": [
+        {
+          "id": "n73",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "Base",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 2,
+          "issue": "Issue-1",
+          "meta": {
+            "issue": "Issue-1"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n74",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "Stuck",
+          "state": "stuck",
+          "glyph": "!",
+          "source_line": 3,
+          "issue": "Issue-2",
+          "meta": {
+            "issue": "Issue-2",
+            "depends_on": [
+              "Issue-1"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Issue-1",
+              "scope": "local",
+              "project": "states",
+              "issue": "Issue-1",
+              "resolved": true
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n75",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "After stuck",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 4,
+          "issue": "Issue-3",
+          "meta": {
+            "issue": "Issue-3",
+            "depends_on": [
+              "Issue-2"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Issue-2",
+              "scope": "local",
+              "project": "states",
+              "issue": "Issue-2",
+              "resolved": true
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n76",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "Blocked",
+          "state": "blocked_external",
+          "glyph": "?",
+          "source_line": 5,
+          "issue": "Issue-4",
+          "meta": {
+            "issue": "Issue-4"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n77",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "After blocked",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 6,
+          "issue": "Issue-5",
+          "meta": {
+            "issue": "Issue-5",
+            "depends_on": [
+              "Issue-4"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Issue-4",
+              "scope": "local",
+              "project": "states",
+              "issue": "Issue-4",
+              "resolved": true
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n78",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "Parked",
+          "state": "parked",
+          "glyph": "P",
+          "source_line": 7,
+          "issue": "Issue-6",
+          "meta": {
+            "issue": "Issue-6"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n79",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "After parked",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 8,
+          "issue": "Issue-7",
+          "meta": {
+            "issue": "Issue-7",
+            "depends_on": [
+              "Issue-6"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Issue-6",
+              "scope": "local",
+              "project": "states",
+              "issue": "Issue-6",
+              "resolved": true
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        }
+      ],
+      "issues": [
+        {
+          "issue": "Issue-1",
+          "nodes": [
+            "n73"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-2",
+          "nodes": [
+            "n74"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-3",
+          "nodes": [
+            "n75"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-4",
+          "nodes": [
+            "n76"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-5",
+          "nodes": [
+            "n77"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-6",
+          "nodes": [
+            "n78"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-7",
+          "nodes": [
+            "n79"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        }
+      ],
+      "rollup": {
+        "by_state": {
+          "pending": {
+            "leaves": 4,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 4
+          },
+          "done": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "skipped": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "stuck": {
+            "leaves": 1,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 1
+          },
+          "in_progress": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "blocked_external": {
+            "leaves": 1,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 1
+          },
+          "parked": {
+            "leaves": 1,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 1
+          }
+        },
+        "remaining": {
+          "leaves": 7,
+          "estimated": 0,
+          "estimated_derived": 0,
+          "unestimated": 7,
+          "low_hours": 0,
+          "high_hours": 0,
+          "non_time": {}
+        }
+      }
+    },
+    {
+      "project": "est",
+      "status": "read",
+      "status_reason": null,
+      "wbs_title": "Est",
+      "nodes": [
+        {
+          "id": "n80",
+          "parent": null,
+          "depth": 1,
+          "leaf": false,
+          "text": "Estimated work",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 3,
+          "issue": "Issue-1",
+          "meta": {
+            "issue": "Issue-1",
+            "est": "100h"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": "100h",
+            "class": "time",
+            "low_hours": 100,
+            "high_hours": 100,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": null,
+          "ready_via_parent_row": null
+        },
+        {
+          "id": "n81",
+          "parent": "n80",
+          "depth": 2,
+          "leaf": true,
+          "text": "A",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 4,
+          "issue": "Issue-2",
+          "meta": {
+            "issue": "Issue-2",
+            "est": "3h"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": "3h",
+            "class": "time",
+            "low_hours": 3,
+            "high_hours": 3,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n82",
+          "parent": "n80",
+          "depth": 2,
+          "leaf": true,
+          "text": "B",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 5,
+          "issue": "Issue-3",
+          "meta": {
+            "issue": "Issue-3",
+            "est": "1.5d"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": "1.5d",
+            "class": "time",
+            "low_hours": 12,
+            "high_hours": 12,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n83",
+          "parent": "n80",
+          "depth": 2,
+          "leaf": true,
+          "text": "C",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 6,
+          "issue": "Issue-4",
+          "meta": {
+            "issue": "Issue-4",
+            "est": "2.5pr"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": "2.5pr",
+            "class": "non-time",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": 2.5,
+            "unit": "pr",
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n84",
+          "parent": "n80",
+          "depth": 2,
+          "leaf": true,
+          "text": "D",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 7,
+          "issue": "Issue-5",
+          "meta": {
+            "issue": "Issue-5",
+            "est": "2-3d"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": "2-3d",
+            "class": "unparseable",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n85",
+          "parent": "n80",
+          "depth": 2,
+          "leaf": true,
+          "text": "K",
+          "state": "done",
+          "glyph": "x",
+          "source_line": 8,
+          "issue": "Issue-13",
+          "meta": {
+            "issue": "Issue-13"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n86",
+          "parent": "n80",
+          "depth": 2,
+          "leaf": true,
+          "text": "P",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 9,
+          "issue": "Issue-20",
+          "meta": {
+            "issue": "Issue-20",
+            "priority": "P0",
+            "depends_on": [
+              "Issue-21"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Issue-21",
+              "scope": "local",
+              "project": "est",
+              "issue": "Issue-21",
+              "resolved": true
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n87",
+          "parent": "n80",
+          "depth": 2,
+          "leaf": true,
+          "text": "Q",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 10,
+          "issue": "Issue-21",
+          "meta": {
+            "issue": "Issue-21"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n88",
+          "parent": "n80",
+          "depth": 2,
+          "leaf": true,
+          "text": "Hi one",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 11,
+          "issue": "Issue-22",
+          "meta": {
+            "issue": "Issue-22",
+            "priority": "P1"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n89",
+          "parent": "n80",
+          "depth": 2,
+          "leaf": true,
+          "text": "Hi two",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 12,
+          "issue": "Issue-23",
+          "meta": {
+            "issue": "Issue-23",
+            "priority": "P2"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n90",
+          "parent": "n80",
+          "depth": 2,
+          "leaf": true,
+          "text": "Odd",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 13,
+          "issue": "Issue-24",
+          "meta": {
+            "issue": "Issue-24",
+            "priority": "P5"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n91",
+          "parent": "n80",
+          "depth": 2,
+          "leaf": true,
+          "text": "Odder",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 14,
+          "issue": "Issue-25",
+          "meta": {
+            "issue": "Issue-25",
+            "priority": "P-1"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n92",
+          "parent": null,
+          "depth": 1,
+          "leaf": false,
+          "text": "Unestimated work",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 15,
+          "issue": "Issue-6",
+          "meta": {
+            "issue": "Issue-6"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": null,
+          "ready_via_parent_row": null
+        },
+        {
+          "id": "n93",
+          "parent": "n92",
+          "depth": 2,
+          "leaf": true,
+          "text": "E",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 16,
+          "issue": "Issue-7",
+          "meta": {
+            "issue": "Issue-7",
+            "est": "?3d"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": "?3d",
+            "class": "unparseable",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n94",
+          "parent": "n92",
+          "depth": 2,
+          "leaf": true,
+          "text": "F",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 17,
+          "issue": "Issue-8",
+          "meta": {
+            "issue": "Issue-8",
+            "est": "0h"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": "0h",
+            "class": "time",
+            "low_hours": 0,
+            "high_hours": 0,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n95",
+          "parent": "n92",
+          "depth": 2,
+          "leaf": true,
+          "text": "G",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 18,
+          "issue": "Issue-9",
+          "meta": {
+            "issue": "Issue-9",
+            "est": "3H"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": "3H",
+            "class": "non-time",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": 3,
+            "unit": "H",
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n96",
+          "parent": "n92",
+          "depth": 2,
+          "leaf": true,
+          "text": "H",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 19,
+          "issue": "Issue-10",
+          "meta": {
+            "issue": "Issue-10",
+            "est": "48pr"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": "48pr",
+            "class": "non-time",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": 48,
+            "unit": "pr",
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n97",
+          "parent": "n92",
+          "depth": 2,
+          "leaf": true,
+          "text": "I",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 20,
+          "issue": "Issue-11",
+          "meta": {
+            "issue": "Issue-11",
+            "est": "?w"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": "?w",
+            "class": "placeholder",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n98",
+          "parent": "n92",
+          "depth": 2,
+          "leaf": true,
+          "text": "J",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 21,
+          "issue": "Issue-12",
+          "meta": {
+            "issue": "Issue-12"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n99",
+          "parent": "n92",
+          "depth": 2,
+          "leaf": true,
+          "text": "Loop one",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 22,
+          "issue": "Issue-30",
+          "meta": {
+            "issue": "Issue-30",
+            "est": "5h",
+            "depends_on": [
+              "Issue-31"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": "5h",
+            "class": "time",
+            "low_hours": 5,
+            "high_hours": 5,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Issue-31",
+              "scope": "local",
+              "project": "est",
+              "issue": "Issue-31",
+              "resolved": true
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n100",
+          "parent": "n92",
+          "depth": 2,
+          "leaf": true,
+          "text": "Loop two",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 23,
+          "issue": "Issue-31",
+          "meta": {
+            "issue": "Issue-31",
+            "est": "5h",
+            "depends_on": [
+              "Issue-30"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": "5h",
+            "class": "time",
+            "low_hours": 5,
+            "high_hours": 5,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Issue-30",
+              "scope": "local",
+              "project": "est",
+              "issue": "Issue-30",
+              "resolved": true
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n101",
+          "parent": "n92",
+          "depth": 2,
+          "leaf": true,
+          "text": "Waiter",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 24,
+          "issue": "Issue-32",
+          "meta": {
+            "issue": "Issue-32",
+            "est": "5h",
+            "depends_on": [
+              "Issue-30"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": "5h",
+            "class": "time",
+            "low_hours": 5,
+            "high_hours": 5,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Issue-30",
+              "scope": "local",
+              "project": "est",
+              "issue": "Issue-30",
+              "resolved": true
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        }
+      ],
+      "issues": [
+        {
+          "issue": "Issue-1",
+          "nodes": [
+            "n80"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-2",
+          "nodes": [
+            "n81"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-3",
+          "nodes": [
+            "n82"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-4",
+          "nodes": [
+            "n83"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-5",
+          "nodes": [
+            "n84"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-13",
+          "nodes": [
+            "n85"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-20",
+          "nodes": [
+            "n86"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-21",
+          "nodes": [
+            "n87"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-22",
+          "nodes": [
+            "n88"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-23",
+          "nodes": [
+            "n89"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-24",
+          "nodes": [
+            "n90"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-25",
+          "nodes": [
+            "n91"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-6",
+          "nodes": [
+            "n92"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-7",
+          "nodes": [
+            "n93"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-8",
+          "nodes": [
+            "n94"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-9",
+          "nodes": [
+            "n95"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-10",
+          "nodes": [
+            "n96"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-11",
+          "nodes": [
+            "n97"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-12",
+          "nodes": [
+            "n98"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-30",
+          "nodes": [
+            "n99"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-31",
+          "nodes": [
+            "n100"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-32",
+          "nodes": [
+            "n101"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        }
+      ],
+      "rollup": {
+        "by_state": {
+          "pending": {
+            "leaves": 19,
+            "estimated": 6,
+            "estimated_derived": 0,
+            "unestimated": 13
+          },
+          "done": {
+            "leaves": 1,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 1
+          },
+          "skipped": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "stuck": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "in_progress": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "blocked_external": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "parked": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          }
+        },
+        "remaining": {
+          "leaves": 19,
+          "estimated": 6,
+          "estimated_derived": 0,
+          "unestimated": 13,
+          "low_hours": 30,
+          "high_hours": 30,
+          "non_time": {
+            "pr": 50.5,
+            "H": 3
+          }
+        }
+      }
+    },
+    {
+      "project": "h_values",
+      "status": "read",
+      "status_reason": null,
+      "wbs_title": "h values",
+      "nodes": [
+        {
+          "id": "n102",
+          "parent": null,
+          "depth": 1,
+          "leaf": false,
+          "text": "Epic",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 2,
+          "issue": "Issue-1",
+          "meta": {
+            "issue": "Issue-1"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": null,
+          "ready_via_parent_row": null
+        },
+        {
+          "id": "n103",
+          "parent": "n102",
+          "depth": 2,
+          "leaf": true,
+          "text": "Case 2",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 3,
+          "issue": "Issue-2",
+          "meta": {
+            "issue": "Issue-2",
+            "h": "3"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": 3,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n104",
+          "parent": "n102",
+          "depth": 2,
+          "leaf": true,
+          "text": "Case 3",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 4,
+          "issue": "Issue-3",
+          "meta": {
+            "issue": "Issue-3",
+            "h": "3"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": 3,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n105",
+          "parent": "n102",
+          "depth": 2,
+          "leaf": true,
+          "text": "Case 4",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 5,
+          "issue": "Issue-4",
+          "meta": {
+            "issue": "Issue-4",
+            "h": "3"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": 3,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n106",
+          "parent": "n102",
+          "depth": 2,
+          "leaf": true,
+          "text": "Case 5",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 6,
+          "issue": "Issue-5",
+          "meta": {
+            "issue": "Issue-5",
+            "h": "5"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n107",
+          "parent": "n102",
+          "depth": 2,
+          "leaf": true,
+          "text": "Case 6",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 7,
+          "issue": "Issue-6",
+          "meta": {
+            "issue": "Issue-6",
+            "h": "2.5"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n108",
+          "parent": "n102",
+          "depth": 2,
+          "leaf": true,
+          "text": "Case 7",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 8,
+          "issue": "Issue-7",
+          "meta": {
+            "issue": "Issue-7",
+            "h": "high"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n109",
+          "parent": "n102",
+          "depth": 2,
+          "leaf": true,
+          "text": "Case 8",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 9,
+          "issue": "Issue-8",
+          "meta": {
+            "issue": "Issue-8",
+            "h": "3 "
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n110",
+          "parent": "n102",
+          "depth": 2,
+          "leaf": true,
+          "text": "Case 9",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 10,
+          "issue": "Issue-9",
+          "meta": {
+            "issue": "Issue-9",
+            "h": ""
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n111",
+          "parent": "n102",
+          "depth": 2,
+          "leaf": true,
+          "text": "Case 10",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 11,
+          "issue": "Issue-10",
+          "meta": {
+            "issue": "Issue-10",
+            "h": "+3",
+            "priority": "P9"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n112",
+          "parent": "n102",
+          "depth": 2,
+          "leaf": true,
+          "text": "Case 11",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 12,
+          "issue": "Issue-11",
+          "meta": {
+            "issue": "Issue-11",
+            "h": "03"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n113",
+          "parent": "n102",
+          "depth": 2,
+          "leaf": true,
+          "text": "Case 12",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 13,
+          "issue": "Issue-12",
+          "meta": {
+            "issue": "Issue-12",
+            "h": "-1"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n114",
+          "parent": "n102",
+          "depth": 2,
+          "leaf": true,
+          "text": "Case 13",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 14,
+          "issue": "Issue-13",
+          "meta": {
+            "issue": "Issue-13",
+            "h": "３"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n115",
+          "parent": "n102",
+          "depth": 2,
+          "leaf": true,
+          "text": "Case 14",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 15,
+          "issue": "Issue-14",
+          "meta": {
+            "issue": "Issue-14",
+            "h": "'3'"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n116",
+          "parent": "n102",
+          "depth": 2,
+          "leaf": true,
+          "text": "Case 15",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 16,
+          "issue": "Issue-15",
+          "meta": {
+            "issue": "Issue-15",
+            "h": [
+              "3",
+              "4"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n117",
+          "parent": "n102",
+          "depth": 2,
+          "leaf": true,
+          "text": "Case 16",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 17,
+          "issue": "Issue-16",
+          "meta": {
+            "issue": "Issue-16",
+            "h": [
+              "3"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n118",
+          "parent": null,
+          "depth": 1,
+          "leaf": false,
+          "text": "Row with h",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 18,
+          "issue": "Issue-17",
+          "meta": {
+            "issue": "Issue-17",
+            "h": "2"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": 2,
+          "depends_on": [],
+          "ready": null,
+          "ready_via_parent_row": null
+        },
+        {
+          "id": "n119",
+          "parent": "n118",
+          "depth": 2,
+          "leaf": true,
+          "text": "Under the row",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 19,
+          "issue": "Issue-18",
+          "meta": {
+            "issue": "Issue-18"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n120",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "Done with h",
+          "state": "done",
+          "glyph": "x",
+          "source_line": 20,
+          "issue": "Issue-19",
+          "meta": {
+            "issue": "Issue-19",
+            "h": "high"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n121",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "Skipped with h",
+          "state": "skipped",
+          "glyph": "-",
+          "source_line": 21,
+          "issue": "Issue-20",
+          "meta": {
+            "issue": "Issue-20",
+            "h": "high"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n122",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "No h",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 22,
+          "issue": "Issue-21",
+          "meta": {
+            "issue": "Issue-21"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        }
+      ],
+      "issues": [
+        {
+          "issue": "Issue-1",
+          "nodes": [
+            "n102"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-2",
+          "nodes": [
+            "n103"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-3",
+          "nodes": [
+            "n104"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-4",
+          "nodes": [
+            "n105"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-5",
+          "nodes": [
+            "n106"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-6",
+          "nodes": [
+            "n107"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-7",
+          "nodes": [
+            "n108"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-8",
+          "nodes": [
+            "n109"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-9",
+          "nodes": [
+            "n110"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-10",
+          "nodes": [
+            "n111"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-11",
+          "nodes": [
+            "n112"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-12",
+          "nodes": [
+            "n113"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-13",
+          "nodes": [
+            "n114"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-14",
+          "nodes": [
+            "n115"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-15",
+          "nodes": [
+            "n116"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-16",
+          "nodes": [
+            "n117"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-17",
+          "nodes": [
+            "n118"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-18",
+          "nodes": [
+            "n119"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-19",
+          "nodes": [
+            "n120"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-20",
+          "nodes": [
+            "n121"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-21",
+          "nodes": [
+            "n122"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        }
+      ],
+      "rollup": {
+        "by_state": {
+          "pending": {
+            "leaves": 17,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 17
+          },
+          "done": {
+            "leaves": 1,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 1
+          },
+          "skipped": {
+            "leaves": 1,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 1
+          },
+          "stuck": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "in_progress": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "blocked_external": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "parked": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          }
+        },
+        "remaining": {
+          "leaves": 17,
+          "estimated": 0,
+          "estimated_derived": 0,
+          "unestimated": 17,
+          "low_hours": 0,
+          "high_hours": 0,
+          "non_time": {}
+        }
+      }
+    },
+    {
+      "project": "edges",
+      "status": "read",
+      "status_reason": null,
+      "wbs_title": "Edges",
+      "nodes": [
+        {
+          "id": "n123",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "Done est",
+          "state": "done",
+          "glyph": "x",
+          "source_line": 8,
+          "issue": "Issue-5",
+          "meta": {
+            "issue": "Issue-5",
+            "est": "2-3d"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": "2-3d",
+            "class": "unparseable",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n124",
+          "parent": null,
+          "depth": 1,
+          "leaf": false,
+          "text": "Row est",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 9,
+          "issue": "Issue-6",
+          "meta": {
+            "issue": "Issue-6",
+            "est": "2-3d"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": "2-3d",
+            "class": "unparseable",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": null,
+          "ready_via_parent_row": null
+        },
+        {
+          "id": "n125",
+          "parent": "n124",
+          "depth": 2,
+          "leaf": true,
+          "text": "Open child",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 10,
+          "issue": "Issue-7",
+          "meta": {
+            "issue": "Issue-7"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n126",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "Order",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 11,
+          "issue": "Issue-8",
+          "meta": {
+            "issue": "Issue-8",
+            "depends_on": [
+              "Zeta-9",
+              "Alpha-1"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Zeta-9",
+              "scope": "local",
+              "project": "edges",
+              "issue": "Zeta-9",
+              "resolved": false
+            },
+            {
+              "raw": "Alpha-1",
+              "scope": "local",
+              "project": "edges",
+              "issue": "Alpha-1",
+              "resolved": false
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n127",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "List issue",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 12,
+          "issue": null,
+          "meta": {
+            "issue": [
+              "Issue-9"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n128",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "Open h",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 13,
+          "issue": "Issue-10",
+          "meta": {
+            "issue": "Issue-10",
+            "h": "3"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": 3,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n129",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "List priority",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 14,
+          "issue": "Issue-11",
+          "meta": {
+            "issue": "Issue-11",
+            "priority": [
+              "P1",
+              "P2"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n130",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "Quoted priority",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 15,
+          "issue": "Issue-12",
+          "meta": {
+            "issue": "Issue-12",
+            "priority": " P1 "
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        }
+      ],
+      "issues": [
+        {
+          "issue": "Issue-5",
+          "nodes": [
+            "n123"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-6",
+          "nodes": [
+            "n124"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-7",
+          "nodes": [
+            "n125"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-8",
+          "nodes": [
+            "n126"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-10",
+          "nodes": [
+            "n128"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-11",
+          "nodes": [
+            "n129"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-12",
+          "nodes": [
+            "n130"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        }
+      ],
+      "rollup": {
+        "by_state": {
+          "pending": {
+            "leaves": 6,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 6
+          },
+          "done": {
+            "leaves": 1,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 1
+          },
+          "skipped": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "stuck": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "in_progress": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "blocked_external": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "parked": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          }
+        },
+        "remaining": {
+          "leaves": 6,
+          "estimated": 0,
+          "estimated_derived": 0,
+          "unestimated": 6,
+          "low_hours": 0,
+          "high_hours": 0,
+          "non_time": {}
+        }
+      }
+    }
+  ],
+  "parse_report": [
+    {
+      "project": "cycle",
+      "source_line": 2,
+      "kind": "dep_cycle",
+      "message": "dependency cycle: Issue-1 (line 2), Issue-2 (line 3)"
+    },
+    {
+      "project": "cycle",
+      "source_line": 7,
+      "kind": "dep_cycle",
+      "message": "dependency cycle: Issue-6 (line 7), Issue-7 (line 8)"
+    },
+    {
+      "project": "fences",
+      "source_line": 17,
+      "kind": "parser_warning",
+      "message": "wbs-parser: unclosed code fence at line 17 ignored; lines after it are parsed as WBS nodes"
+    },
+    {
+      "project": "ids",
+      "source_line": 4,
+      "kind": "duplicate_issue",
+      "message": "issue 'Issue-Fork-2' also appears at line 3"
+    },
+    {
+      "project": "ids",
+      "source_line": 5,
+      "kind": "leaf_no_issue",
+      "message": "leaf 'Unnamed leaf' has no issue"
+    },
+    {
+      "project": "ids",
+      "source_line": 6,
+      "kind": "leaf_no_issue",
+      "message": "leaf 'Second unnamed leaf' has no issue"
+    },
+    {
+      "project": "ids",
+      "source_line": 9,
+      "kind": "dep_unresolved",
+      "message": "depends_on '1.4' matches no issue in this project"
+    },
+    {
+      "project": "ids",
+      "source_line": 9,
+      "kind": "dep_unresolved",
+      "message": "depends_on 'Issue-99' matches no issue in this project"
+    },
+    {
+      "project": "ids",
+      "source_line": 10,
+      "kind": "near_miss_line",
+      "message": "looks like a node but is not one: - [X] Unknown glyph"
+    },
+    {
+      "project": "ids",
+      "source_line": 11,
+      "kind": "near_miss_line",
+      "message": "looks like a node but is not one: - [ ]"
+    },
+    {
+      "project": "nesting",
+      "source_line": 5,
+      "kind": "leaf_no_issue",
+      "message": "leaf 'Cure' has no issue"
+    },
+    {
+      "project": "nesting",
+      "source_line": 10,
+      "kind": "unknown_meta_key",
+      "message": "unknown metadata key 'a'"
+    },
+    {
+      "project": "nesting",
+      "source_line": 11,
+      "kind": "leaf_no_issue",
+      "message": "leaf 'Lone top-level leaf' has no issue"
+    },
+    {
+      "project": "page",
+      "source_line": 9,
+      "kind": "leaf_no_issue",
+      "message": "leaf 'Polish' has no issue"
+    },
+    {
+      "project": "page",
+      "source_line": 10,
+      "kind": "dep_unresolved",
+      "message": "depends_on 'gamma:Issue-1' names project 'gamma', which is not configured"
+    },
+    {
+      "project": "page",
+      "source_line": 15,
+      "kind": "dep_unresolved",
+      "message": "depends_on 'Issue-99' matches no issue in this project"
+    },
+    {
+      "project": "page",
+      "source_line": 16,
+      "kind": "leaf_no_issue",
+      "message": "leaf 'Sweep' has no issue"
+    },
+    {
+      "project": "page",
+      "source_line": 17,
+      "kind": "dep_unresolved",
+      "message": "depends_on 'beta:Issue-3' names project 'beta', which is not configured"
+    },
+    {
+      "project": "priority",
+      "source_line": 9,
+      "kind": "dep_unresolved",
+      "message": "depends_on 'beta:Issue-7' names project 'beta', which is not configured"
+    },
+    {
+      "project": "refs",
+      "source_line": 3,
+      "kind": "dep_unresolved",
+      "message": "depends_on 'Alpha:Issue-1' names project 'Alpha', which is not configured"
+    },
+    {
+      "project": "refs",
+      "source_line": 3,
+      "kind": "dep_unresolved",
+      "message": "depends_on 'alpha:Issue-1' names project 'alpha', which is not configured"
+    },
+    {
+      "project": "refs",
+      "source_line": 3,
+      "kind": "dep_unresolved",
+      "message": "depends_on 'beta:Issue-1' names project 'beta', which is not configured"
+    },
+    {
+      "project": "refs",
+      "source_line": 4,
+      "kind": "dep_unresolved",
+      "message": "depends_on ':Issue-1' matches no issue in this project"
+    },
+    {
+      "project": "refs",
+      "source_line": 4,
+      "kind": "dep_unresolved",
+      "message": "depends_on 'a:b:c' matches no issue in this project"
+    },
+    {
+      "project": "refs",
+      "source_line": 4,
+      "kind": "dep_unresolved",
+      "message": "depends_on 'beta: Issue-1' matches no issue in this project"
+    },
+    {
+      "project": "refs",
+      "source_line": 4,
+      "kind": "dep_unresolved",
+      "message": "depends_on 'https://x' matches no issue in this project"
+    },
+    {
+      "project": "refs",
+      "source_line": 5,
+      "kind": "dep_unresolved",
+      "message": "depends_on 'Issue-99' matches no issue in this project"
+    },
+    {
+      "project": "refs",
+      "source_line": 5,
+      "kind": "dep_unresolved",
+      "message": "depends_on 'a:b:c' matches no issue in this project"
+    },
+    {
+      "project": "rows",
+      "source_line": 9,
+      "kind": "dep_cycle",
+      "message": "dependency cycle: Issue-21 (line 9)"
+    },
+    {
+      "project": "rows",
+      "source_line": 13,
+      "kind": "parent_done_leaf_pending",
+      "message": "parent is marked done but leaves under it are pending: line 14"
+    },
+    {
+      "project": "est",
+      "source_line": 7,
+      "kind": "est_unparseable",
+      "message": "est \"2-3d\" is not a time, non-time or placeholder estimate"
+    },
+    {
+      "project": "est",
+      "source_line": 16,
+      "kind": "est_unparseable",
+      "message": "est \"?3d\" is not a time, non-time or placeholder estimate"
+    },
+    {
+      "project": "est",
+      "source_line": 22,
+      "kind": "dep_cycle",
+      "message": "dependency cycle: Issue-30 (line 22), Issue-31 (line 23)"
+    },
+    {
+      "project": "h_values",
+      "source_line": 6,
+      "kind": "h_malformed",
+      "message": "h \"5\" is not one digit 0-4; h reads as null"
+    },
+    {
+      "project": "h_values",
+      "source_line": 7,
+      "kind": "h_malformed",
+      "message": "h \"2.5\" is not one digit 0-4; h reads as null"
+    },
+    {
+      "project": "h_values",
+      "source_line": 8,
+      "kind": "h_malformed",
+      "message": "h \"high\" is not one digit 0-4; h reads as null"
+    },
+    {
+      "project": "h_values",
+      "source_line": 9,
+      "kind": "h_malformed",
+      "message": "h \"3 \" is not one digit 0-4; h reads as null"
+    },
+    {
+      "project": "h_values",
+      "source_line": 10,
+      "kind": "h_malformed",
+      "message": "h \"\" is not one digit 0-4; h reads as null"
+    },
+    {
+      "project": "h_values",
+      "source_line": 11,
+      "kind": "h_malformed",
+      "message": "h \"+3\" is not one digit 0-4; h reads as null"
+    },
+    {
+      "project": "h_values",
+      "source_line": 12,
+      "kind": "h_malformed",
+      "message": "h \"03\" is not one digit 0-4; h reads as null"
+    },
+    {
+      "project": "h_values",
+      "source_line": 13,
+      "kind": "h_malformed",
+      "message": "h \"-1\" is not one digit 0-4; h reads as null"
+    },
+    {
+      "project": "h_values",
+      "source_line": 14,
+      "kind": "h_malformed",
+      "message": "h \"３\" is not one digit 0-4; h reads as null"
+    },
+    {
+      "project": "h_values",
+      "source_line": 15,
+      "kind": "h_malformed",
+      "message": "h \"'3'\" is not one digit 0-4; h reads as null"
+    },
+    {
+      "project": "h_values",
+      "source_line": 16,
+      "kind": "h_malformed",
+      "message": "h [\"3\", \"4\"] is not one digit 0-4; h reads as null"
+    },
+    {
+      "project": "h_values",
+      "source_line": 17,
+      "kind": "h_malformed",
+      "message": "h [\"3\"] is not one digit 0-4; h reads as null"
+    },
+    {
+      "project": "h_values",
+      "source_line": 20,
+      "kind": "h_malformed",
+      "message": "h \"high\" is not one digit 0-4; h reads as null"
+    },
+    {
+      "project": "h_values",
+      "source_line": 21,
+      "kind": "h_malformed",
+      "message": "h \"high\" is not one digit 0-4; h reads as null"
+    },
+    {
+      "project": "edges",
+      "source_line": 2,
+      "kind": "near_miss_line",
+      "message": "looks like a node but is not one: - [xx] two chars"
+    },
+    {
+      "project": "edges",
+      "source_line": 3,
+      "kind": "near_miss_line",
+      "message": "looks like a node but is not one: -[x] no space"
+    },
+    {
+      "project": "edges",
+      "source_line": 4,
+      "kind": "near_miss_line",
+      "message": "looks like a node but is not one: * [ ] star"
+    },
+    {
+      "project": "edges",
+      "source_line": 5,
+      "kind": "near_miss_line",
+      "message": "looks like a node but is not one: + [ ] plus"
+    },
+    {
+      "project": "edges",
+      "source_line": 6,
+      "kind": "near_miss_line",
+      "message": "looks like a node but is not one: - [See the design](docs/design.md)"
+    },
+    {
+      "project": "edges",
+      "source_line": 8,
+      "kind": "est_unparseable",
+      "message": "est \"2-3d\" is not a time, non-time or placeholder estimate"
+    },
+    {
+      "project": "edges",
+      "source_line": 9,
+      "kind": "est_unparseable",
+      "message": "est \"2-3d\" is not a time, non-time or placeholder estimate"
+    },
+    {
+      "project": "edges",
+      "source_line": 11,
+      "kind": "dep_unresolved",
+      "message": "depends_on 'Alpha-1' matches no issue in this project"
+    },
+    {
+      "project": "edges",
+      "source_line": 11,
+      "kind": "dep_unresolved",
+      "message": "depends_on 'Zeta-9' matches no issue in this project"
+    },
+    {
+      "project": "edges",
+      "source_line": 12,
+      "kind": "issue_malformed",
+      "message": "issue [\"Issue-9\"] is not a string; the node carries no issue"
+    },
+    {
+      "project": "edges",
+      "source_line": 13,
+      "kind": "meta_unreadable",
+      "message": "'h' opens '[' with no ']'; the rest of the block is read as its value"
+    }
+  ]
+}

@@ -30,3 +30,14 @@ def built_sample_history():
     require_git()
     code, _, err = run_sample_history()
     assert code == 0, err
+
+
+@pytest.fixture(scope="session")
+def sample_document(tmp_path_factory):
+    """devagent's portfolio JSON over a samples copy, made once per session by
+    the pinned aggregator (#83): (the document's path, the samples copy).
+
+    Skips without a devagent checkout, or fails under CI (tests/helpers_devagent.py)."""
+    from helpers_portfolio import build_sample_document
+
+    return build_sample_document(tmp_path_factory.mktemp("sample_portfolio"))

@@ -1,0 +1,18 @@
+{
+  "pin": "devagent--v3.0.0",
+  "schema_version": "1.1",
+  "site": "empty",
+  "status": "read",
+  "reason": null,
+  "nodes": [],
+  "links": [],
+  "held_out": [],
+  "report": [
+    [
+      null,
+      "no_nodes",
+      "WBS.md has no node lines"
+    ]
+  ],
+  "devagent": []
+}

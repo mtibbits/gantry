@@ -24,8 +24,9 @@ Gantry depends on devagent's formats as of one release, named in
 `tests/devagent.pin`: today `devagent--v3.0.0`, whose
 `.claude-plugin/plugin.json` version is `3.0.0`, the oldest devagent the
 README supports. Every source line cited on this page is a line of that
-release. Moving the pin is a change of its own (#83), made with the fixtures
-regenerated ([Fixtures and the contract test](#fixtures-and-the-contract-test)).
+release. Moving the pin is a change of its own, made with every file that
+records the pin regenerated
+([Fixtures and the contract test](#fixtures-and-the-contract-test)).
 
 ## Where the records are
 
@@ -283,7 +284,29 @@ is known; for an extracted archive pass `--commit`):
 python3 tools/devagent_record_fixtures.py --devagent <checkout>
 python3 tools/devagent_record_fixtures.py --devagent <checkout> --samples samples/harbor
 python3 tools/devagent_record_fixtures.py --devagent <checkout> --check
+python3 tools/sample_portfolio.py --fixtures --devagent <checkout>
+python3 tools/sample_portfolio.py --fixtures --check --devagent <checkout>
+python3 tools/update_expected_leaves.py --devagent <checkout>
+python3 tools/update_expected_leaves.py --check --devagent <checkout>
 ```
+
+A pin move regenerates all of these in one change, because each records the
+pin and a test holds it equal to `tests/devagent.pin`:
+
+- `tests/fixtures/devagent_records/written/`, each folder's record files and
+  its `provenance.json`, and the copies under `samples/harbor/`: the first
+  two commands.
+- `tests/fixtures/portfolio/written.json` and
+  `tests/fixtures/portfolio/provenance.json`: devagent's portfolio JSON over
+  Gantry's `WBS.md` fixtures (`tools/sample_portfolio.py --fixtures`).
+- `tests/fixtures/expected_leaves/`: the six sample snapshots and the 14
+  under `fixture/` (`tools/update_expected_leaves.py`). Run it after the
+  line above, since the fixture snapshots are read from `written.json`.
+  `known_differences.json` in that folder is kept by hand; review it against
+  the new snapshots.
+
+[worksite-page.md](worksite-page.md#reading-devagents-portfolio-json)
+describes the portfolio fixture, the snapshots and their tests.
 
 The writers need devagent's own toolchain: bash, awk, sed, `mktemp`, GNU
 `date -Iseconds`, GNU `chmod --reference` (`scripts/lib/log.sh:56`) and
@@ -311,8 +334,11 @@ steps; only the Ubuntu legs run the test.
 
 Gantry has asked devagent for a per-issue stuck flag and next-step field in
 its portfolio JSON (mtibbits/devagent#725, emitted by mtibbits/devagent#726).
-Once devagent emits them and Gantry reads that JSON (#12, #83), **whether an
-issue is STUCK** and **its next step** can come from there. **The parked
+Once devagent emits them and Gantry reads that JSON (#12), **whether an
+issue is STUCK** and **its next step** can come from there. The portfolio
+reader (`gantry/portfolio_json.py`) reads the document's nodes and report
+today and not its per-issue entries (`projects[].issues`); reading those is
+#12's. **The parked
 state, the STUCK marker's reason and time, whether a checklist shows
 progress, and the plan's next task** stay with this module unless devagent
 emits them too. The callers' types do not change shape when a source moves.

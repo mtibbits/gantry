@@ -1,0 +1,336 @@
+{
+  "pin": "devagent--v3.0.0",
+  "schema_version": "1.1",
+  "site": "edges",
+  "status": "read",
+  "reason": null,
+  "nodes": [
+    {
+      "line": 8,
+      "row": false,
+      "key": "Issue-5",
+      "issue": "Issue-5",
+      "outline": "1",
+      "title": "Done est",
+      "glyph": "x",
+      "state": "done",
+      "open": false,
+      "priority": null,
+      "epic": null,
+      "parent": null,
+      "meta": {
+        "issue": "Issue-5",
+        "est": "2-3d"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "unparseable",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 9,
+      "row": true,
+      "key": "Issue-6",
+      "issue": "Issue-6",
+      "outline": "2",
+      "title": "Row est",
+      "glyph": " ",
+      "state": "pending",
+      "open": null,
+      "priority": null,
+      "epic": null,
+      "parent": null,
+      "meta": {
+        "issue": "Issue-6",
+        "est": "2-3d"
+      },
+      "depends_on": [],
+      "rank": null,
+      "est": null,
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 10,
+      "row": false,
+      "key": "Issue-7",
+      "issue": "Issue-7",
+      "outline": "2.1",
+      "title": "Open child",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": "Issue-6",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-7"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 11,
+      "row": false,
+      "key": "Issue-8",
+      "issue": "Issue-8",
+      "outline": "3",
+      "title": "Order",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": null,
+      "parent": null,
+      "meta": {
+        "issue": "Issue-8",
+        "depends_on": [
+          "Zeta-9",
+          "Alpha-1"
+        ]
+      },
+      "depends_on": [
+        [
+          "Zeta-9",
+          "local",
+          "edges",
+          "Zeta-9"
+        ],
+        [
+          "Alpha-1",
+          "local",
+          "edges",
+          "Alpha-1"
+        ]
+      ],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 12,
+      "row": false,
+      "key": "4",
+      "issue": null,
+      "outline": "4",
+      "title": "List issue",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": null,
+      "parent": null,
+      "meta": {
+        "issue": [
+          "Issue-9"
+        ]
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 13,
+      "row": false,
+      "key": "Issue-10",
+      "issue": "Issue-10",
+      "outline": "5",
+      "title": "Open h",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": null,
+      "parent": null,
+      "meta": {
+        "issue": "Issue-10",
+        "h": "3"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": 3,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 14,
+      "row": false,
+      "key": "Issue-11",
+      "issue": "Issue-11",
+      "outline": "6",
+      "title": "List priority",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": [
+        "P1",
+        "P2"
+      ],
+      "epic": null,
+      "parent": null,
+      "meta": {
+        "issue": "Issue-11",
+        "priority": [
+          "P1",
+          "P2"
+        ]
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 15,
+      "row": false,
+      "key": "Issue-12",
+      "issue": "Issue-12",
+      "outline": "7",
+      "title": "Quoted priority",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": " P1 ",
+      "epic": null,
+      "parent": null,
+      "meta": {
+        "issue": "Issue-12",
+        "priority": " P1 "
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    }
+  ],
+  "links": [],
+  "held_out": [],
+  "report": [
+    [
+      2,
+      "skipped_line",
+      "WBS.md line 2: looks like a node but is not one: - [xx] two chars"
+    ],
+    [
+      3,
+      "skipped_line",
+      "WBS.md line 3: looks like a node but is not one: -[x] no space"
+    ],
+    [
+      4,
+      "skipped_line",
+      "WBS.md line 4: looks like a node but is not one: * [ ] star"
+    ],
+    [
+      5,
+      "skipped_line",
+      "WBS.md line 5: looks like a node but is not one: + [ ] plus"
+    ],
+    [
+      6,
+      "skipped_line",
+      "WBS.md line 6: looks like a node but is not one: - [See the design](docs/design.md)"
+    ],
+    [
+      11,
+      "unresolved_ref",
+      "WBS.md line 11: depends_on entry 'Zeta-9' names no issue: id in this file"
+    ],
+    [
+      11,
+      "unresolved_ref",
+      "WBS.md line 11: depends_on entry 'Alpha-1' names no issue: id in this file"
+    ],
+    [
+      14,
+      "bad_priority",
+      "WBS.md line 14: priority ['P1', 'P2'] is not P0, P1, P2, P3 or P4; it counts as P3"
+    ],
+    [
+      15,
+      "bad_priority",
+      "WBS.md line 15: priority ' P1 ' is not P0, P1, P2, P3 or P4; it counts as P3"
+    ]
+  ],
+  "devagent": [
+    [
+      8,
+      "est_unparseable",
+      "est \"2-3d\" is not a time, non-time or placeholder estimate"
+    ],
+    [
+      9,
+      "est_unparseable",
+      "est \"2-3d\" is not a time, non-time or placeholder estimate"
+    ],
+    [
+      12,
+      "issue_malformed",
+      "issue [\"Issue-9\"] is not a string; the node carries no issue"
+    ],
+    [
+      13,
+      "meta_unreadable",
+      "'h' opens '[' with no ']'; the rest of the block is read as its value"
+    ]
+  ]
+}
