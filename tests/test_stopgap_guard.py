@@ -9,11 +9,15 @@ A use is one of two things in a test file's syntax tree:
   1. an identifier named parse_wbs, read_wbs or wbs_stopgap: a name, an
      attribute, an import (module or alias) or a def;
   2. a string, or the literal head of an f-string, that is a direct argument of
-     a call and names the module gantry.wbs_stopgap or something in it
-     (importlib.import_module, __import__, a monkeypatch or mock.patch target).
+     a call and holds one of those names as a dotted part: the module or
+     anything in it (importlib.import_module, __import__), or a patch target
+     (monkeypatch.setattr(build, "read_wbs", ...), mock.patch("gantry.build.read_wbs"),
+     getattr(build, "read_wbs")).
 A comment, a docstring, or a string anywhere else (a set, a path) is not a use.
-LIMIT: a module name assembled at run time (f"{pkg}.wbs_stopgap", a variable)
-is not seen; CONTROLS pins that.
+LIMIT: a name assembled at run time (f"{pkg}.wbs_stopgap", a variable) is not
+seen; CONTROLS pins that. Nor is a name in a string that is not a direct call
+argument, as in sys.modules["gantry.wbs_stopgap"] or __import__("gantry",
+fromlist=["wbs_stopgap"]).
 
 The scan walks the files on disk, untracked ones included, so a new test is
 caught before it is committed (tests/test_confine_scan.py scans the same way).
@@ -38,7 +42,8 @@ def _names_stopgap(dotted):
 
 
 def _names_module(text):
-    return text == MODULE or text.startswith(MODULE + ".")
+    """A dotted target with a stopgap name in it: gantry.wbs_stopgap, gantry.build.read_wbs, .wbs_stopgap, read_wbs."""
+    return _names_stopgap(text.lstrip("."))
 
 
 def _literal_head(arg):
@@ -152,6 +157,11 @@ CONTROLS = (
     ('x = f"{parse_wbs}"\n', [(1, "parse_wbs", "<module>")]),
     ("@pytest.mark.parametrize('a', [1])\ndef test_d(a):\n    parse_wbs(a)\n", [(3, "parse_wbs", "test_d")]),
     ("class TestK:\n    def test_k(self):\n        parse_wbs(1)\n", [(3, "parse_wbs", "TestK")]),
+    ('def test_p(monkeypatch):\n    monkeypatch.setattr(build, "read_wbs", lambda *a: None)\n',
+     [(2, "read_wbs", "test_p")]),
+    ('@mock.patch("gantry.build.read_wbs")\ndef test_q(m):\n    pass\n', [(1, "gantry.build.read_wbs", "test_q")]),
+    ('getattr(build, "parse_wbs")\n', [(1, "parse_wbs", "<module>")]),
+    ('importlib.import_module(".wbs_stopgap", "gantry")\n', [(1, ".wbs_stopgap", "<module>")]),
     # Not uses.
     ("# parse_wbs\nx = 1\n", []),
     ('def f():\n    """Calls parse_wbs on the text."""\n', []),
