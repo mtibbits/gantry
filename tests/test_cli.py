@@ -783,12 +783,20 @@ def test_portfolio_config_error_exits_1(tmp_path, capsys):
     assert err.startswith("gantry: error:")
 
 
-@pytest.mark.parametrize("command", ["portfolio", "fires"])
+@pytest.mark.parametrize("command", ["portfolio", "fires", "refresh"])
 def test_check_command_no_config_exits_2(capsys, command):
     with pytest.raises(SystemExit) as exc:
         main([command])
     assert exc.value.code == 2
     assert "--config" in capsys.readouterr().err
+
+
+def test_refresh_config_error_exits_1(tmp_path, capsys):
+    config = write_config(tmp_path / "cfg", foo="1")
+    assert main(["refresh", "--config", str(config)]) == 1
+    out, err = capsys.readouterr()
+    assert out == "" and err.startswith(f"gantry: error: {config}: ") and "'foo'" in err
+    assert not (tmp_path / "cfg" / "refresh").exists()
 
 
 def test_portfolio_unreadable_names_no_path(tmp_path, capsys):

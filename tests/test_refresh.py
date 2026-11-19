@@ -27,7 +27,7 @@ from gantry.refresh import (
     run_step,
 )
 from gantry.roots import LinkRefused, OutsideRoots, directory_roots
-from helpers_config import literal, write_config, written_bytes
+from helpers_config import copy_samples, literal, write_config, write_site_tree, written_bytes
 from helpers_links import link_dir, symlink
 from test_samples import ROOT
 
@@ -1072,4 +1072,164 @@ def test_windows_open_file_defers_the_delete(tmp_path, stand_in, file_holder):
     proc.wait()
     assert run(config, stand_in) == 0
     assert not generation.exists()
+
+
+# --- Task 8: gantry refresh and the real build ------------------------------------------
+
+
+def absolute_sample_config(tmp_path, update=()):
+    """(config path, samples copy): a config outside the copy, every path
+    absolute, reading the copy's sites, with a [refresh] table."""
+    import tomllib
+
+    copy = copy_samples(tmp_path)
+    raw = tomllib.loads((copy / "gantry.sample.toml").read_bytes().decode("utf-8"))
+    inst = tmp_path / "inst"
+    inst.mkdir()
+    lines = [
+        "config_version = 1",
+        f"devagent_config = {literal(copy / raw['devagent_config'])}",
+        f"output_dir = {literal(inst / 'out')}",
+        f"as_of = {raw['as_of'].isoformat()}",
+        f"portfolio_file = {literal(copy / raw['portfolio_file'])}",
+        f"fires_list = {literal(copy / raw['fires_list'])}",
+    ]
+    for name, table in raw.get("site", {}).items():
+        lines.append(f"\n[site.{name}]")
+        lines += [f"{key} = {literal(copy / value) if isinstance(value, str) else str(value).lower()}"
+                  for key, value in table.items()]
+    commands = ", ".join("[" + ", ".join(literal(word) for word in command) + "]" for command in update)
+    lines.append(f"\n[refresh]\ndir = {literal(inst / 'refresh')}\nupdate = [{commands}]")
+    path = inst / "gantry.toml"
+    path.write_bytes(("\n".join(lines) + "\n").encode("utf-8"))
+    return path, copy
+
+
+def loaded(path):
+    from gantry.config import load_config
+
+    return load_config(path)
+
+
+# Runs one refresh in a child: `-P -c BOOT <gantry root> <config> <seconds>`.
+BOOT = ("import sys; sys.path.insert(0, sys.argv[1]); from gantry.config import load_config; "
+        "from gantry.refresh import refresh; "
+        "sys.exit(refresh(load_config(sys.argv[2]), step_timeout_seconds=float(sys.argv[3])))")
+
+
+def launch(config_path, env, cwd, seconds=120):
+    return subprocess.run([sys.executable, "-P", "-c", BOOT, str(ROOT), str(config_path), str(seconds)],
+                          env=env, cwd=cwd, stdin=subprocess.DEVNULL, capture_output=True, timeout=600)
+
+
+def minimal_env(tmp_path):
+    """Only PATH, naming an empty folder (and SYSTEMROOT on Windows)."""
+    empty = tmp_path / "empty-path"
+    empty.mkdir(exist_ok=True)
+    env = {"PATH": str(empty)}
+    if WINDOWS:
+        env["SYSTEMROOT"] = os.environ["SYSTEMROOT"]
+    return env
+
+
+def test_sample_config_refresh(tmp_path, capsys):
+    from gantry.build import marker_bytes
+    from gantry.cli import main
+    from sample_roles import NOT_BUILT, READABLE
+
+    path, _ = absolute_sample_config(tmp_path)
+    config = loaded(path)
+    assert main(["refresh", "--config", str(path)]) == 0, capsys.readouterr().err
+    current, generation = live(config)
+    assert ID_SHAPE.fullmatch(current)
+    assert (generation / "build.json").read_bytes() == marker_bytes(0)
+    pages = {p.stem for p in (generation / "sites").glob("*.html")}
+    assert len(READABLE) == 4 and pages == set(READABLE) and not pages & NOT_BUILT
+    index = (generation / "index.html").read_bytes().decode("utf-8")
+    assert "built " in index and "sample data as of" not in index
+    assert not (tmp_path / "inst" / "out").exists()
+
+
+def test_failed_update_still_builds_and_swaps(tmp_path, capsys):
+    from gantry.cli import main
+
+    path, _ = absolute_sample_config(tmp_path, update=[["gantry-35-no-such-program"]])
+    assert main(["refresh", "--config", str(path)]) == 1
+    _, generation = live(loaded(path))
+    assert (generation / "index.html").is_file()
+    assert record(loaded(path)).failed_step.reason == "could not start"
+
+
+def test_build_exit_1_on_purpose_is_swapped_in(tmp_path, capsys):
+    from gantry.build import marker_bytes
+    from gantry.cli import main
+
+    path = write_site_tree(tmp_path / "tree", {"alpha": None}, tail='\n[refresh]\ndir = "refresh"\n')
+    config = loaded(path)
+    assert main(["refresh", "--config", str(path)]) == 1
+    _, generation = live(config)
+    assert (generation / "index.html").is_file()
+    assert (generation / "build.json").read_bytes() == marker_bytes(1)
+    last = record(config).last_build
+    assert (last.ok, last.exit, last.swap) == (False, 1, "swapped")
+    assert "gantry: error: build exited 1; its generation was swapped in\n" in capsys.readouterr().err
+
+
+def test_removed_project_has_no_page_after_the_next_refresh(tmp_path, capsys):
+    from gantry.cli import main
+    from sample_roles import READABLE, SMALL
+
+    path, copy = absolute_sample_config(tmp_path)
+    config = loaded(path)
+    assert main(["refresh", "--config", str(path)]) == 0, capsys.readouterr().err
+    assert (live(config)[1] / "sites" / f"{SMALL}.html").is_file()
+    devagent = copy / "devagent" / "config.toml"
+    text = devagent.read_bytes().decode("utf-8")
+    pattern = r"^\[project\." + SMALL + r"(\.[^\]]*)?\]\n(?:^(?!\[).*\n)*"
+    removed = re.sub(pattern, "", text, flags=re.M)
+    assert removed != text and f"project.{SMALL}" not in removed
+    devagent.write_bytes(removed.encode("utf-8"))
+    assert main(["refresh", "--config", str(path)]) == 0, capsys.readouterr().err
+    pages = {p.stem for p in (live(config)[1] / "sites").glob("*.html")}
+    assert pages == set(READABLE) - {SMALL}
+
+
+def test_refresh_in_a_minimal_environment(tmp_path):
+    path, _ = absolute_sample_config(tmp_path)
+    work = tmp_path / "work"
+    work.mkdir()
+    result = launch(path, minimal_env(tmp_path), work)
+    assert result.returncode == 0, result.stderr
+    assert ID_SHAPE.fullmatch(live(loaded(path))[0])
+
+
+@pytest.mark.skipif(not WINDOWS, reason="taskkill.exe is a Windows program")
+def test_windows_minimal_environment_still_stops_the_tree(tmp_path):
+    argv, beat = heartbeat_step(tmp_path)
+    path, _ = absolute_sample_config(tmp_path, update=[argv])
+    work = tmp_path / "work"
+    work.mkdir()
+    result = launch(path, minimal_env(tmp_path), work, seconds=2)
+    assert result.returncode == 1, result.stderr
+    assert record(loaded(path)).failed_step.reason == "timed out"
+    assert_heartbeat_stopped(beat)
+
+
+def test_planted_json_module_never_runs(tmp_path):
+    path, _ = absolute_sample_config(tmp_path)
+    config = loaded(path)
+    sentinel = tmp_path / "sentinel"
+    planted = ("open(" + repr(str(sentinel)) + ", 'wb').close()\n"
+               "raise ImportError('planted json')\n").encode("utf-8")
+    work = tmp_path / "work"
+    for folder in (tmp_path / "inst", work, rdir(config)):
+        folder.mkdir(exist_ok=True)
+        (folder / "json.py").write_bytes(planted)
+    result = launch(path, minimal_env(tmp_path), work)
+    assert result.returncode == 0, result.stderr
+    assert ID_SHAPE.fullmatch(live(config)[0]) and not sentinel.exists()
+    # Control: the same build without -P imports the planted json.py.
+    no_p = [sys.executable, "-m", "gantry", "build", "--config", str(path)]
+    assert refresh.refresh(config, step_timeout_seconds=120, build_command=no_p) == 1
+    assert sentinel.exists()
 

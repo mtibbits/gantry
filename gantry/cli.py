@@ -1,6 +1,6 @@
 """The gantry command line: `gantry build --config FILE [--site NAME]
-[--output-dir DIR]`, `gantry portfolio --config FILE` and `gantry fires
---config FILE`.
+[--output-dir DIR]`, `gantry portfolio --config FILE`, `gantry fires
+--config FILE` and `gantry refresh --config FILE`.
 
 `gantry build` builds every configured site's page, the week view
 (<output_dir>/week.html, #38), the strategic page
@@ -22,7 +22,12 @@ relative DIR resolving against the working directory; a refusal of its value
 names the flag. With it, a full build that wrote the index writes `build.json`
 (gantry/build.py's completion marker, holding the exit code) as its last file,
 without printing its path; `--site` writes no marker. An empty DIR is a usage
-error. Exit codes:
+error.
+
+`gantry refresh` (#35) runs the refresh job once: under a lock in the
+config's `[refresh] dir`, the update commands, the update record, a build of
+a new generation in a child process and the swap (gantry/refresh.py,
+docs/refresh-and-serve.md). Exit codes:
 
 - 0: the full build wrote the week view, the strategic page, the index and
   at least one site page; `--site` wrote its page; `portfolio` found no
@@ -36,6 +41,10 @@ error. Exit codes:
   included), or the config sets no portfolio_file; `fires` read the fires
   list with a report entry, could not read it, or the config sets no
   fires_list (`fires` exits 0 only for status `read`);
+- 0 for `refresh`: the update succeeded, the build exited 0 and its
+  generation was swapped in, or another run holds the lock (skipped);
+  1: anything else, including a config error or a config with no
+  `[refresh] dir`;
 - 2: a usage error (argparse's own, or an empty `--output-dir`).
 """
 
@@ -64,6 +73,7 @@ from gantry.config import ConfigError, error_reason, load_config
 from gantry.fires_list import entry_age, fires_reference, read_fires_list, still_a_fire
 from gantry.planner import PLAN_FILE, plan_to_json, write_plan
 from gantry.portfolio_file import PORTFOLIO_LABEL, SECTIONS, format_entry, read_portfolio_file, report_entries
+from gantry.refresh import refresh
 from gantry.roots import OutsideRoots
 from gantry.sites import config_roots, shown
 from gantry.stamp import stamp_text
@@ -115,8 +125,17 @@ def _parser():
         "fire, the counts, one line per report entry and the status. Exit 0 when the status "
         "is read, 1 otherwise.",
     )
+    refresh_command = commands.add_parser(
+        "refresh",
+        help="update the data, build a new generation and swap it in (the scheduled job)",
+        description="Run the refresh job once: under a lock in the config's [refresh] dir, run its update "
+        "commands, record the update in update.json, build a new generation in a child process and swap "
+        "it in through current. Exit 0 when the update succeeded and the build exited 0 and was swapped "
+        "in, or when another run holds the lock; 1 otherwise.",
+    )
     _add_config(portfolio)
     _add_config(fires)
+    _add_config(refresh_command)
     return parser
 
 
@@ -375,10 +394,22 @@ def _fires(args):
     return 0 if result.status == "read" else 1
 
 
+def _refresh(args):
+    _utf8_streams()
+    try:
+        config = load_config(args.config)
+    except ConfigError as e:
+        print(f"gantry: error: {e}", file=sys.stderr)
+        return 1
+    return refresh(config)
+
+
 def main(argv=None):
     args = _parser().parse_args(argv)
     if args.command == "portfolio":
         return _portfolio(args)
     if args.command == "fires":
         return _fires(args)
+    if args.command == "refresh":
+        return _refresh(args)
     return _build(args)
