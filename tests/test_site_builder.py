@@ -19,7 +19,7 @@ import sample_portfolio as sp
 import update_expected_leaves as ue
 from gantry import deps
 from gantry.model import ParsedValue
-from gantry.portfolio_json import map_document
+from gantry.portfolio_json import ProjectInput, map_document
 from helpers_config import append_bytes, copy_samples, sample_projects
 from sample_roles import BUSY, NO_WBS, READABLE, UNREADABLE
 from test_samples import ROOT
@@ -205,3 +205,39 @@ def test_sample_site_reads_each_readable_sample():
         assert hp.sample_site(name).leaves, name
     with pytest.raises(ValueError, match=NO_WBS):
         hp.sample_site(NO_WBS)
+
+
+# --- agreement with the stopgap (Task 5; #12 deletes it) ---------------------------------------
+
+AGREEMENT = [p["project"] for p in hp.written_doc()["projects"] if p["status"] == "read"] + list(hp.DESCRIBED)
+
+
+def known_rows(name):
+    entries = json.loads(ue.KNOWN.read_bytes().decode("utf-8"))
+    return [(e["where"], e["stopgap"], e["snapshot"]) for e in entries if e["set"] == "fixtures" and e["site"] == name]
+
+
+def alpha_snapshot(data):
+    return ue.snapshot_of(ProjectInput("alpha", "read", None, data), (), pin=hd.read_pin()[0], schema_version="1.1",
+                          namespaces=frozenset({"alpha"}))
+
+
+def test_agreement_covers_every_read_fixture_and_description():
+    assert len(AGREEMENT) == len(set(AGREEMENT)) == 15
+    assert set(AGREEMENT) == {*sp.FIXTURE_SOURCES} - {"not_utf8"} | set(hp.DESCRIBED)
+    assert [name for name in AGREEMENT if known_rows(name)] == ["ids", "edges"]
+
+
+@pytest.mark.parametrize("name", AGREEMENT)
+def test_fixture_sites_agree_with_the_stopgap(name):
+    # The builder's sites read like the stopgap's reading of the same text, renamed alpha,
+    # but for the listed devagent-reading differences (known_differences.json).
+    from gantry.wbs_stopgap import parse_wbs
+
+    if name in hp.DESCRIBED:
+        source, data = hp.DESCRIBED[name][0], hp.described_site(name)
+    else:
+        source, data = sp.FIXTURE_SOURCES[name], hp.fixture_site(name)
+    stopgap = parse_wbs((ROOT / source).read_bytes().decode("utf-8"), "alpha")
+    found = ue.diff_snapshots(alpha_snapshot(stopgap), alpha_snapshot(data))
+    assert [tuple(row) for row in found] == known_rows(name)
