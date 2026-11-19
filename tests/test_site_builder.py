@@ -7,14 +7,21 @@ site data through hp.site_of, which maps the document with #83's
 map_document. These tests pin the builder to what devagent writes.
 """
 
+import json
 import re
 
 import pytest
 
+import commit_check
+import helpers_devagent as hd
 import helpers_portfolio as hp
+import sample_portfolio as sp
+import update_expected_leaves as ue
 from gantry import deps
 from gantry.model import ParsedValue
 from gantry.portfolio_json import map_document
+from helpers_config import append_bytes, copy_samples, sample_projects
+from sample_roles import BUSY, NO_WBS, READABLE, UNREADABLE
 from test_samples import ROOT
 
 # devagent's report kinds that the builder writes, as auto_report does.
@@ -99,9 +106,9 @@ def test_explicit_lines_and_bad_order():
 
 def test_fixture_doc_narrows_and_renames():
     doc = hp.written_doc()
-    before = hp.sp.dumps(doc)
+    before = sp.dumps(doc)
     narrowed = hp.narrow(doc, "refs", "alpha")
-    assert hp.sp.dumps(doc) == before
+    assert sp.dumps(doc) == before
     assert hp.fixture_doc("refs") == narrowed
     assert [p["project"] for p in narrowed["projects"]] == ["alpha"]
     written = [e for e in doc["parse_report"] if e["project"] == "refs"]
@@ -141,3 +148,60 @@ def test_described_fixtures_are_in_line():
         data = hp.described_site(name)
         lines = [n.line for n in (*data.leaves, *data.rows)]
         assert min(lines) == start, name
+
+
+# --- the committed sample document (Task 3) ---------------------------------------------------
+
+
+def test_samples_fixture_inputs_are_current():
+    tag, _ = hd.read_pin()
+    made = json.loads(sp.SAMPLES_PROVENANCE.read_bytes().decode("utf-8"))
+    assert made["pin"] == tag
+    assert list(made["inputs"]) == list(sp.sample_inputs())
+    assert sp.stale_inputs() == [], (
+        "samples/ changed since tests/fixtures/portfolio/samples.json was written; regenerate it: "
+        f"python3 tools/sample_portfolio.py --fixtures --devagent <a devagent checkout at {tag}>")
+
+
+def test_samples_fixture_staleness_is_seen(tmp_path):
+    copy = copy_samples(tmp_path)
+    assert sp.stale_inputs(copy) == []
+    append_bytes(copy / BUSY / "WBS.md", "- [ ] Late addition {issue: Issue-99}\n")
+    assert sp.stale_inputs(copy) == [f"samples/{BUSY}/WBS.md"]
+
+
+def test_samples_fixture_shape():
+    tag, version = hd.read_pin()
+    raw = sp.SAMPLES_WRITTEN.read_bytes()
+    assert raw.endswith(b"}\n") and b"\r" not in raw
+    doc = hp.sample_doc()
+    assert hp.sample_doc() is not doc
+    assert [p["project"] for p in doc["projects"]] == sample_projects()
+    status = {p["project"]: p["status"] for p in doc["projects"]}
+    assert (status[NO_WBS], status[UNREADABLE]) == ("no_wbs", "unreadable")
+    assert {status[name] for name in READABLE} == {"read"}
+    assert doc["generated_at"] == sp.FIXED_TIME
+    assert len(doc["parse_report"]) == 12
+    mapped = map_document(doc)
+    assert sum(len(p.data.leaves) + len(p.data.rows) for p in mapped.projects) == 52
+    made = json.loads(sp.SAMPLES_PROVENANCE.read_bytes().decode("utf-8"))
+    assert list(made) == ["pin", "devagent_version", "schema_version", "generated_at", "inputs"]
+    assert (made["pin"], made["devagent_version"]) == (tag, version)
+    assert (made["schema_version"], made["generated_at"]) == (doc["schema_version"], sp.FIXED_TIME)
+    assert made["inputs"][f"samples/{NO_WBS}/WBS.md"] is None
+    for path in (sp.SAMPLES_WRITTEN, sp.SAMPLES_PROVENANCE):
+        assert commit_check.path_form_hits(path.read_bytes().decode("utf-8")) == [], path.name
+
+
+def test_samples_fixture_matches_the_snapshots():
+    made = ue.snapshots(map_document(hp.sample_doc()), hd.read_pin()[0])
+    assert list(made) == sample_projects()
+    for name, data in made.items():
+        assert data == (ue.OUT / f"{name}.json").read_bytes(), name
+
+
+def test_sample_site_reads_each_readable_sample():
+    for name in sorted(READABLE):
+        assert hp.sample_site(name).leaves, name
+    with pytest.raises(ValueError, match=NO_WBS):
+        hp.sample_site(NO_WBS)

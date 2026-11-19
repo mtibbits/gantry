@@ -1,0 +1,2605 @@
+{
+  "schema": "devagent-portfolio",
+  "schema_version": "1.1",
+  "generated_at": "2026-01-12T09:30:00Z",
+  "projects": [
+    {
+      "project": "harbor",
+      "status": "read",
+      "status_reason": null,
+      "wbs_title": "Harbor",
+      "nodes": [
+        {
+          "id": "n1",
+          "parent": null,
+          "depth": 1,
+          "leaf": false,
+          "text": "Quay operations",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 3,
+          "issue": "Issue-1",
+          "meta": {
+            "issue": "Issue-1"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": null,
+          "ready_via_parent_row": null
+        },
+        {
+          "id": "n2",
+          "parent": "n1",
+          "depth": 2,
+          "leaf": true,
+          "text": "Survey the quay wall",
+          "state": "done",
+          "glyph": "x",
+          "source_line": 4,
+          "issue": "Issue-3",
+          "meta": {
+            "issue": "Issue-3",
+            "priority": "P2"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n3",
+          "parent": "n1",
+          "depth": 2,
+          "leaf": true,
+          "text": "Order the crane rails",
+          "state": "done",
+          "glyph": "x",
+          "source_line": 5,
+          "issue": "Issue-4",
+          "meta": {
+            "issue": "Issue-4"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n4",
+          "parent": "n1",
+          "depth": 2,
+          "leaf": true,
+          "text": "Pour the crane footings",
+          "state": "done",
+          "glyph": "x",
+          "source_line": 6,
+          "issue": "Issue-5",
+          "meta": {
+            "issue": "Issue-5",
+            "priority": "P3"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n5",
+          "parent": "n1",
+          "depth": 2,
+          "leaf": true,
+          "text": "Erect crane one",
+          "state": "in_progress",
+          "glyph": "~",
+          "source_line": 7,
+          "issue": "Issue-6",
+          "meta": {
+            "issue": "Issue-6",
+            "priority": "P1",
+            "est": "?w",
+            "depends_on": [
+              "quarry:Issue-3"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": "?w",
+            "class": "placeholder",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "quarry:Issue-3",
+              "scope": "foreign",
+              "project": "quarry",
+              "issue": "Issue-3",
+              "resolved": true
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n6",
+          "parent": "n1",
+          "depth": 2,
+          "leaf": true,
+          "text": "Brief the crane crew",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 8,
+          "issue": null,
+          "meta": {
+            "priority": "P1",
+            "est": "1h"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": "1h",
+            "class": "time",
+            "low_hours": 1,
+            "high_hours": 1,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n7",
+          "parent": "n1",
+          "depth": 2,
+          "leaf": true,
+          "text": "Erect crane two",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 9,
+          "issue": "Issue-7",
+          "meta": {
+            "issue": "Issue-7",
+            "priority": "P2",
+            "est": "?w",
+            "depends_on": [
+              "Issue-6"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": "?w",
+            "class": "placeholder",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Issue-6",
+              "scope": "local",
+              "project": "harbor",
+              "issue": "Issue-6",
+              "resolved": true
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n8",
+          "parent": "n1",
+          "depth": 2,
+          "leaf": true,
+          "text": "Load-test both cranes",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 10,
+          "issue": "Issue-8",
+          "meta": {
+            "issue": "Issue-8",
+            "priority": "P4"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n9",
+          "parent": "n1",
+          "depth": 2,
+          "leaf": true,
+          "text": "Lease a floating crane",
+          "state": "skipped",
+          "glyph": "-",
+          "source_line": 11,
+          "issue": "Issue-9",
+          "meta": {
+            "issue": "Issue-9"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n10",
+          "parent": null,
+          "depth": 1,
+          "leaf": false,
+          "text": "Warehouse",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 12,
+          "issue": "Issue-2",
+          "meta": {
+            "issue": "Issue-2"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": null,
+          "ready_via_parent_row": null
+        },
+        {
+          "id": "n11",
+          "parent": "n10",
+          "depth": 2,
+          "leaf": true,
+          "text": "Clear the yard",
+          "state": "done",
+          "glyph": "x",
+          "source_line": 13,
+          "issue": "Issue-10",
+          "meta": {
+            "issue": "Issue-10",
+            "priority": "P3"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n12",
+          "parent": "n10",
+          "depth": 2,
+          "leaf": true,
+          "text": "Lay the slab",
+          "state": "done",
+          "glyph": "x",
+          "source_line": 14,
+          "issue": "Issue-11",
+          "meta": {
+            "issue": "Issue-11"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n13",
+          "parent": "n10",
+          "depth": 2,
+          "leaf": true,
+          "text": "Raise the frame",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 15,
+          "issue": "Issue-12",
+          "meta": {
+            "issue": "Issue-12",
+            "priority": "P1",
+            "est": "?w",
+            "depends_on": [
+              "Issue-6"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": "?w",
+            "class": "placeholder",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Issue-6",
+              "scope": "local",
+              "project": "harbor",
+              "issue": "Issue-6",
+              "resolved": true
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n14",
+          "parent": "n10",
+          "depth": 2,
+          "leaf": true,
+          "text": "Clad the walls",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 16,
+          "issue": "Issue-13",
+          "meta": {
+            "issue": "Issue-13",
+            "priority": "P2"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n15",
+          "parent": "n10",
+          "depth": 2,
+          "leaf": true,
+          "text": "Fit the doors",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 17,
+          "issue": "Issue-14",
+          "meta": {
+            "issue": "Issue-14"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n16",
+          "parent": "n10",
+          "depth": 2,
+          "leaf": true,
+          "text": "Wire the lighting",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 18,
+          "issue": "Issue-15",
+          "meta": {
+            "issue": "Issue-15",
+            "priority": "P3"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n17",
+          "parent": "n10",
+          "depth": 2,
+          "leaf": true,
+          "text": "Commission the warehouse",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 19,
+          "issue": "Issue-16",
+          "meta": {
+            "issue": "Issue-16",
+            "priority": "P4",
+            "depends_on": [
+              "Issue-12",
+              "Issue-15"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Issue-12",
+              "scope": "local",
+              "project": "harbor",
+              "issue": "Issue-12",
+              "resolved": true
+            },
+            {
+              "raw": "Issue-15",
+              "scope": "local",
+              "project": "harbor",
+              "issue": "Issue-15",
+              "resolved": true
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        }
+      ],
+      "issues": [
+        {
+          "issue": "Issue-1",
+          "nodes": [
+            "n1"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-3",
+          "nodes": [
+            "n2"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-4",
+          "nodes": [
+            "n3"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-5",
+          "nodes": [
+            "n4"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-6",
+          "nodes": [
+            "n5"
+          ],
+          "stuck": null,
+          "checklist": "open",
+          "next_step": "draft",
+          "next_step_number": 2
+        },
+        {
+          "issue": "Issue-7",
+          "nodes": [
+            "n7"
+          ],
+          "stuck": null,
+          "checklist": "open",
+          "next_step": "draft",
+          "next_step_number": 2
+        },
+        {
+          "issue": "Issue-8",
+          "nodes": [
+            "n8"
+          ],
+          "stuck": null,
+          "checklist": "open",
+          "next_step": "draft",
+          "next_step_number": 2
+        },
+        {
+          "issue": "Issue-9",
+          "nodes": [
+            "n9"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-2",
+          "nodes": [
+            "n10"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-10",
+          "nodes": [
+            "n11"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-11",
+          "nodes": [
+            "n12"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-12",
+          "nodes": [
+            "n13"
+          ],
+          "stuck": null,
+          "checklist": "open",
+          "next_step": "draft",
+          "next_step_number": 2
+        },
+        {
+          "issue": "Issue-13",
+          "nodes": [
+            "n14"
+          ],
+          "stuck": {
+            "step": "2 draft",
+            "reason": "The harbour crane is waiting for a spare part.",
+            "since": "2026-01-12 09:30"
+          },
+          "checklist": "open",
+          "next_step": "draft",
+          "next_step_number": 2
+        },
+        {
+          "issue": "Issue-14",
+          "nodes": [
+            "n15"
+          ],
+          "stuck": {
+            "step": "2 draft",
+            "reason": "The tide table for the north quay is missing.",
+            "since": "2026-01-12T09:30:00+00:00"
+          },
+          "checklist": "open",
+          "next_step": "draft",
+          "next_step_number": 2
+        },
+        {
+          "issue": "Issue-15",
+          "nodes": [
+            "n16"
+          ],
+          "stuck": null,
+          "checklist": "open",
+          "next_step": "pull",
+          "next_step_number": 0
+        },
+        {
+          "issue": "Issue-16",
+          "nodes": [
+            "n17"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        }
+      ],
+      "rollup": {
+        "by_state": {
+          "pending": {
+            "leaves": 8,
+            "estimated": 1,
+            "estimated_derived": 0,
+            "unestimated": 7
+          },
+          "done": {
+            "leaves": 5,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 5
+          },
+          "skipped": {
+            "leaves": 1,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 1
+          },
+          "stuck": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "in_progress": {
+            "leaves": 1,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 1
+          },
+          "blocked_external": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "parked": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          }
+        },
+        "remaining": {
+          "leaves": 9,
+          "estimated": 1,
+          "estimated_derived": 0,
+          "unestimated": 8,
+          "low_hours": 1,
+          "high_hours": 1,
+          "non_time": {}
+        }
+      }
+    },
+    {
+      "project": "orchard",
+      "status": "read",
+      "status_reason": null,
+      "wbs_title": "Orchard",
+      "nodes": [
+        {
+          "id": "n18",
+          "parent": null,
+          "depth": 1,
+          "leaf": false,
+          "text": "Planting",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 3,
+          "issue": null,
+          "meta": {},
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": null,
+          "ready_via_parent_row": null
+        },
+        {
+          "id": "n19",
+          "parent": "n18",
+          "depth": 2,
+          "leaf": true,
+          "text": "Test the soil",
+          "state": "done",
+          "glyph": "x",
+          "source_line": 4,
+          "issue": "Issue-1",
+          "meta": {
+            "issue": "Issue-1",
+            "est": "2d"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": "2d",
+            "class": "time",
+            "low_hours": 16,
+            "high_hours": 16,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n20",
+          "parent": "n18",
+          "depth": 2,
+          "leaf": true,
+          "text": "Order saplings",
+          "state": "done",
+          "glyph": "x",
+          "source_line": 5,
+          "issue": "Issue-2",
+          "meta": {
+            "issue": "Issue-2",
+            "est": "1w"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": "1w",
+            "class": "time",
+            "low_hours": 40,
+            "high_hours": 40,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n21",
+          "parent": "n18",
+          "depth": 2,
+          "leaf": true,
+          "text": "Plant the north rows",
+          "state": "done",
+          "glyph": "x",
+          "source_line": 6,
+          "issue": "Issue-3",
+          "meta": {
+            "issue": "Issue-3",
+            "est": "3d"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": "3d",
+            "class": "time",
+            "low_hours": 24,
+            "high_hours": 24,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n22",
+          "parent": "n18",
+          "depth": 2,
+          "leaf": true,
+          "text": "Plant the south rows",
+          "state": "in_progress",
+          "glyph": "~",
+          "source_line": 7,
+          "issue": "Issue-4",
+          "meta": {
+            "issue": "Issue-4",
+            "est": "?w"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": "?w",
+            "class": "placeholder",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n23",
+          "parent": "n18",
+          "depth": 2,
+          "leaf": true,
+          "text": "Stake the young trees",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 8,
+          "issue": null,
+          "meta": {
+            "est": "5pt",
+            "depends_on": [
+              "marsh:Issue-2"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": "5pt",
+            "class": "non-time",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": 5,
+            "unit": "pt",
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "marsh:Issue-2",
+              "scope": "foreign",
+              "project": "marsh",
+              "issue": "Issue-2",
+              "resolved": false
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n24",
+          "parent": null,
+          "depth": 1,
+          "leaf": false,
+          "text": "Irrigation",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 9,
+          "issue": null,
+          "meta": {
+            "depends_on": [
+              "lighthouse:Issue-4",
+              "ferry:Issue-2"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "lighthouse:Issue-4",
+              "scope": "foreign",
+              "project": "lighthouse",
+              "issue": "Issue-4",
+              "resolved": true
+            },
+            {
+              "raw": "ferry:Issue-2",
+              "scope": "foreign",
+              "project": "ferry",
+              "issue": "Issue-2",
+              "resolved": false
+            }
+          ],
+          "ready": null,
+          "ready_via_parent_row": null
+        },
+        {
+          "id": "n25",
+          "parent": "n24",
+          "depth": 2,
+          "leaf": true,
+          "text": "Dig the trench",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 10,
+          "issue": "Issue-5",
+          "meta": {
+            "issue": "Issue-5",
+            "est": "2w",
+            "depends_on": [
+              "harbor:Issue-2"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": "2w",
+            "class": "time",
+            "low_hours": 80,
+            "high_hours": 80,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "harbor:Issue-2",
+              "scope": "foreign",
+              "project": "harbor",
+              "issue": "Issue-2",
+              "resolved": true
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": true
+        },
+        {
+          "id": "n26",
+          "parent": "n24",
+          "depth": 2,
+          "leaf": true,
+          "text": "Lay the drip lines",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 11,
+          "issue": "Issue-6",
+          "meta": {
+            "issue": "Issue-6",
+            "est": "8pt",
+            "depends_on": [
+              "2.1",
+              "bakery:Issue-1"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": "8pt",
+            "class": "non-time",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": 8,
+            "unit": "pt",
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "2.1",
+              "scope": "local",
+              "project": "orchard",
+              "issue": "2.1",
+              "resolved": false
+            },
+            {
+              "raw": "bakery:Issue-1",
+              "scope": "foreign",
+              "project": "bakery",
+              "issue": "Issue-1",
+              "resolved": false
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n27",
+          "parent": "n24",
+          "depth": 2,
+          "leaf": true,
+          "text": "Check the pressure",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 12,
+          "issue": null,
+          "meta": {
+            "est": "?w"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": "?w",
+            "class": "placeholder",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n28",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "Mulch the beds",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 13,
+          "issue": null,
+          "meta": {
+            "depends_on": [
+              "lighthouse:Issue-40"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "lighthouse:Issue-40",
+              "scope": "foreign",
+              "project": "lighthouse",
+              "issue": "Issue-40",
+              "resolved": false
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        }
+      ],
+      "issues": [
+        {
+          "issue": "Issue-1",
+          "nodes": [
+            "n19"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-2",
+          "nodes": [
+            "n20"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-3",
+          "nodes": [
+            "n21"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-4",
+          "nodes": [
+            "n22"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-5",
+          "nodes": [
+            "n25"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-6",
+          "nodes": [
+            "n26"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        }
+      ],
+      "rollup": {
+        "by_state": {
+          "pending": {
+            "leaves": 5,
+            "estimated": 1,
+            "estimated_derived": 0,
+            "unestimated": 4
+          },
+          "done": {
+            "leaves": 3,
+            "estimated": 3,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "skipped": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "stuck": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "in_progress": {
+            "leaves": 1,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 1
+          },
+          "blocked_external": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "parked": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          }
+        },
+        "remaining": {
+          "leaves": 6,
+          "estimated": 1,
+          "estimated_derived": 0,
+          "unestimated": 5,
+          "low_hours": 80,
+          "high_hours": 80,
+          "non_time": {
+            "pt": 13
+          }
+        }
+      }
+    },
+    {
+      "project": "quarry",
+      "status": "read",
+      "status_reason": null,
+      "wbs_title": "Quarry",
+      "nodes": [
+        {
+          "id": "n29",
+          "parent": null,
+          "depth": 1,
+          "leaf": false,
+          "text": "Access road",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 3,
+          "issue": null,
+          "meta": {},
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": null,
+          "ready_via_parent_row": null
+        },
+        {
+          "id": "n30",
+          "parent": "n29",
+          "depth": 2,
+          "leaf": true,
+          "text": "Survey the route",
+          "state": "done",
+          "glyph": "x",
+          "source_line": 4,
+          "issue": "Issue-1",
+          "meta": {
+            "issue": "Issue-1",
+            "priority": "P2"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n31",
+          "parent": "n29",
+          "depth": 2,
+          "leaf": true,
+          "text": "Clear the scrub",
+          "state": "done",
+          "glyph": "x",
+          "source_line": 5,
+          "issue": "Issue-2",
+          "meta": {
+            "issue": "Issue-2"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n32",
+          "parent": "n29",
+          "depth": 2,
+          "leaf": true,
+          "text": "Grade the road",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 6,
+          "issue": "Issue-3",
+          "meta": {
+            "issue": "Issue-3",
+            "priority": "P1",
+            "h": "0",
+            "depends_on": [
+              "harbor:Issue-3"
+            ],
+            "satisfies": "lighthouse:FR-2"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [
+            "lighthouse:FR-2"
+          ],
+          "h": 0,
+          "depends_on": [
+            {
+              "raw": "harbor:Issue-3",
+              "scope": "foreign",
+              "project": "harbor",
+              "issue": "Issue-3",
+              "resolved": true
+            }
+          ],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n33",
+          "parent": "n29",
+          "depth": 2,
+          "leaf": true,
+          "text": "Reopen the weighbridge",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 7,
+          "issue": "Issue-8",
+          "meta": {
+            "issue": "Issue-8",
+            "priority": "P0",
+            "depends_on": [
+              "Issue-9",
+              "quarry:Issue-9"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Issue-9",
+              "scope": "local",
+              "project": "quarry",
+              "issue": "Issue-9",
+              "resolved": true
+            },
+            {
+              "raw": "quarry:Issue-9",
+              "scope": "local",
+              "project": "quarry",
+              "issue": "Issue-9",
+              "resolved": true
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n34",
+          "parent": "n29",
+          "depth": 2,
+          "leaf": true,
+          "text": "Calibrate the weighbridge",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 8,
+          "issue": "Issue-9",
+          "meta": {
+            "issue": "Issue-9",
+            "h": "4",
+            "depends_on": [
+              "harbor:Issue-7"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": 4,
+          "depends_on": [
+            {
+              "raw": "harbor:Issue-7",
+              "scope": "foreign",
+              "project": "harbor",
+              "issue": "Issue-7",
+              "resolved": true
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n35",
+          "parent": null,
+          "depth": 1,
+          "leaf": false,
+          "text": "Extraction",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 9,
+          "issue": null,
+          "meta": {},
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": null,
+          "ready_via_parent_row": null
+        },
+        {
+          "id": "n36",
+          "parent": "n35",
+          "depth": 2,
+          "leaf": true,
+          "text": "Blast the first bench",
+          "state": "done",
+          "glyph": "x",
+          "source_line": 10,
+          "issue": "Issue-4",
+          "meta": {
+            "issue": "Issue-4",
+            "priority": "P3"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n37",
+          "parent": "n35",
+          "depth": 2,
+          "leaf": true,
+          "text": "Haul the first loads",
+          "state": "in_progress",
+          "glyph": "~",
+          "source_line": 11,
+          "issue": "Issue-5",
+          "meta": {
+            "issue": "Issue-5",
+            "depends_on": [
+              "Issue-3"
+            ],
+            "h": "2"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": 2,
+          "depends_on": [
+            {
+              "raw": "Issue-3",
+              "scope": "local",
+              "project": "quarry",
+              "issue": "Issue-3",
+              "resolved": true
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n38",
+          "parent": "n35",
+          "depth": 2,
+          "leaf": true,
+          "text": "Crush the aggregate",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 12,
+          "issue": "Issue-7",
+          "meta": {
+            "issue": "Issue-7",
+            "priority": "P2",
+            "depends_on": [
+              "Issue-99",
+              "harbor:1.2"
+            ],
+            "h": "high"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Issue-99",
+              "scope": "local",
+              "project": "quarry",
+              "issue": "Issue-99",
+              "resolved": false
+            },
+            {
+              "raw": "harbor:1.2",
+              "scope": "foreign",
+              "project": "harbor",
+              "issue": "1.2",
+              "resolved": false
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        }
+      ],
+      "issues": [
+        {
+          "issue": "Issue-1",
+          "nodes": [
+            "n30"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-2",
+          "nodes": [
+            "n31"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-3",
+          "nodes": [
+            "n32"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-8",
+          "nodes": [
+            "n33"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-9",
+          "nodes": [
+            "n34"
+          ],
+          "stuck": {
+            "step": "4 scope",
+            "reason": "The calibration weights are on loan to another site.",
+            "since": "2026-01-14T08:00:00+00:00"
+          },
+          "checklist": "open",
+          "next_step": "scope",
+          "next_step_number": 4
+        },
+        {
+          "issue": "Issue-4",
+          "nodes": [
+            "n36"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-5",
+          "nodes": [
+            "n37"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-7",
+          "nodes": [
+            "n38"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        }
+      ],
+      "rollup": {
+        "by_state": {
+          "pending": {
+            "leaves": 4,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 4
+          },
+          "done": {
+            "leaves": 3,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 3
+          },
+          "skipped": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "stuck": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "in_progress": {
+            "leaves": 1,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 1
+          },
+          "blocked_external": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "parked": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          }
+        },
+        "remaining": {
+          "leaves": 5,
+          "estimated": 0,
+          "estimated_derived": 0,
+          "unestimated": 5,
+          "low_hours": 0,
+          "high_hours": 0,
+          "non_time": {}
+        }
+      }
+    },
+    {
+      "project": "lighthouse",
+      "status": "read",
+      "status_reason": null,
+      "wbs_title": "Lighthouse",
+      "nodes": [
+        {
+          "id": "n39",
+          "parent": null,
+          "depth": 1,
+          "leaf": false,
+          "text": "Restore the lamp room",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 3,
+          "issue": null,
+          "meta": {},
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": null,
+          "ready_via_parent_row": null
+        },
+        {
+          "id": "n40",
+          "parent": "n39",
+          "depth": 2,
+          "leaf": true,
+          "text": "Strip the old paint",
+          "state": "done",
+          "glyph": "x",
+          "source_line": 4,
+          "issue": "Issue-1",
+          "meta": {
+            "issue": "Issue-1"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n41",
+          "parent": "n39",
+          "depth": 2,
+          "leaf": true,
+          "text": "Replace the glazing",
+          "state": "done",
+          "glyph": "x",
+          "source_line": 5,
+          "issue": "Issue-2",
+          "meta": {
+            "issue": "Issue-2"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n42",
+          "parent": "n39",
+          "depth": 2,
+          "leaf": true,
+          "text": "Rewire the lamp",
+          "state": "done",
+          "glyph": "x",
+          "source_line": 6,
+          "issue": "Issue-3",
+          "meta": {
+            "issue": "Issue-3",
+            "satisfies": "lighthouse:SR-1"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [
+            "lighthouse:SR-1"
+          ],
+          "h": null,
+          "depends_on": [],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n43",
+          "parent": "n39",
+          "depth": 2,
+          "leaf": true,
+          "text": "Render <b>this</b> & \"that\" as text",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 7,
+          "issue": "Issue-4",
+          "meta": {
+            "issue": "Issue-4"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n44",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "Repaint the keeper's door",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 8,
+          "issue": "Issue-5",
+          "meta": {
+            "issue": "Issue-5"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n45",
+          "parent": null,
+          "depth": 1,
+          "leaf": false,
+          "text": "Keep the lamp log",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 9,
+          "issue": null,
+          "meta": {},
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": null,
+          "ready_via_parent_row": null
+        },
+        {
+          "id": "n46",
+          "parent": "n45",
+          "depth": 2,
+          "leaf": true,
+          "text": "Choose the logbook format",
+          "state": "done",
+          "glyph": "x",
+          "source_line": 10,
+          "issue": "Issue-6",
+          "meta": {
+            "issue": "Issue-6",
+            "satisfies": "lighthouse:FR-1"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [
+            "lighthouse:FR-1"
+          ],
+          "h": null,
+          "depends_on": [],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n47",
+          "parent": "n45",
+          "depth": 2,
+          "leaf": true,
+          "text": "Record a nightly check",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 11,
+          "issue": "Issue-7",
+          "meta": {
+            "issue": "Issue-7",
+            "est": "3w",
+            "satisfies": [
+              "lighthouse:FR-1",
+              "life:BR-1",
+              "lighthouse:QA-1",
+              "lighthouse:UC-1"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": "3w",
+            "class": "time",
+            "low_hours": 120,
+            "high_hours": 120,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [
+            "lighthouse:FR-1",
+            "life:BR-1",
+            "lighthouse:QA-1",
+            "lighthouse:UC-1"
+          ],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n48",
+          "parent": "n45",
+          "depth": 2,
+          "leaf": true,
+          "text": "Bind the first logbook",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 12,
+          "issue": "Issue-8",
+          "meta": {
+            "issue": "Issue-8",
+            "est": "1w",
+            "depends_on": [
+              "Issue-7"
+            ],
+            "satisfies": [
+              "lighthouse:SR-1",
+              "lighthouse:UC-3",
+              "lighthouse:FR-3"
+            ]
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": "1w",
+            "class": "time",
+            "low_hours": 40,
+            "high_hours": 40,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [
+            "lighthouse:SR-1",
+            "lighthouse:UC-3",
+            "lighthouse:FR-3"
+          ],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Issue-7",
+              "scope": "local",
+              "project": "lighthouse",
+              "issue": "Issue-7",
+              "resolved": true
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n49",
+          "parent": "n45",
+          "depth": 2,
+          "leaf": true,
+          "text": "Train the relief keeper",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 13,
+          "issue": "Issue-9",
+          "meta": {
+            "issue": "Issue-9",
+            "est": "3d",
+            "depends_on": [
+              "Issue-8"
+            ],
+            "satisfies": "lighthouse:FR-90"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": "3d",
+            "class": "time",
+            "low_hours": 24,
+            "high_hours": 24,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [
+            "lighthouse:FR-90"
+          ],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Issue-8",
+              "scope": "local",
+              "project": "lighthouse",
+              "issue": "Issue-8",
+              "resolved": true
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n50",
+          "parent": "n45",
+          "depth": 2,
+          "leaf": true,
+          "text": "Print the log pages",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 14,
+          "issue": "Issue-10",
+          "meta": {
+            "issue": "Issue-10",
+            "est": "2d",
+            "depends_on": [
+              "Issue-7",
+              "Issue-12"
+            ],
+            "satisfies": "lighthouse:FR-1"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": "2d",
+            "class": "time",
+            "low_hours": 16,
+            "high_hours": 16,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [
+            "lighthouse:FR-1"
+          ],
+          "h": null,
+          "depends_on": [
+            {
+              "raw": "Issue-7",
+              "scope": "local",
+              "project": "lighthouse",
+              "issue": "Issue-7",
+              "resolved": true
+            },
+            {
+              "raw": "Issue-12",
+              "scope": "local",
+              "project": "lighthouse",
+              "issue": "Issue-12",
+              "resolved": true
+            }
+          ],
+          "ready": false,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n51",
+          "parent": "n45",
+          "depth": 2,
+          "leaf": true,
+          "text": "Shelve the old logbooks",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 15,
+          "issue": "Issue-11",
+          "meta": {
+            "issue": "Issue-11",
+            "est": "1d",
+            "satisfies": [
+              "lighthouse:SR-1",
+              "lighthouse:FR-3"
+            ],
+            "objective": "lighthouse:FR-3"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": "1d",
+            "class": "time",
+            "low_hours": 8,
+            "high_hours": 8,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [
+            "lighthouse:SR-1",
+            "lighthouse:FR-3"
+          ],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        },
+        {
+          "id": "n52",
+          "parent": "n45",
+          "depth": 2,
+          "leaf": true,
+          "text": "Order the blank pages",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 16,
+          "issue": "Issue-12",
+          "meta": {
+            "issue": "Issue-12",
+            "est": "1d",
+            "satisfies": "lighthouse:QA-1"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": "1d",
+            "class": "time",
+            "low_hours": 8,
+            "high_hours": 8,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [
+            "lighthouse:QA-1"
+          ],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false
+        }
+      ],
+      "issues": [
+        {
+          "issue": "Issue-1",
+          "nodes": [
+            "n40"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-2",
+          "nodes": [
+            "n41"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-3",
+          "nodes": [
+            "n42"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-4",
+          "nodes": [
+            "n43"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-5",
+          "nodes": [
+            "n44"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-6",
+          "nodes": [
+            "n46"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-7",
+          "nodes": [
+            "n47"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-8",
+          "nodes": [
+            "n48"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-9",
+          "nodes": [
+            "n49"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-10",
+          "nodes": [
+            "n50"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-11",
+          "nodes": [
+            "n51"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-12",
+          "nodes": [
+            "n52"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        }
+      ],
+      "rollup": {
+        "by_state": {
+          "pending": {
+            "leaves": 8,
+            "estimated": 6,
+            "estimated_derived": 0,
+            "unestimated": 2
+          },
+          "done": {
+            "leaves": 4,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 4
+          },
+          "skipped": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "stuck": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "in_progress": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "blocked_external": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "parked": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          }
+        },
+        "remaining": {
+          "leaves": 8,
+          "estimated": 6,
+          "estimated_derived": 0,
+          "unestimated": 2,
+          "low_hours": 216,
+          "high_hours": 216,
+          "non_time": {}
+        }
+      }
+    },
+    {
+      "project": "bakery",
+      "status": "no_wbs",
+      "status_reason": "the devdoc dir has no WBS.md",
+      "wbs_title": null,
+      "nodes": [],
+      "issues": [],
+      "rollup": null
+    },
+    {
+      "project": "marsh",
+      "status": "unreadable",
+      "status_reason": "WBS.md could not be read: UnicodeDecodeError: invalid continuation byte at byte 88",
+      "wbs_title": null,
+      "nodes": [],
+      "issues": [],
+      "rollup": null
+    }
+  ],
+  "parse_report": [
+    {
+      "project": "harbor",
+      "source_line": 8,
+      "kind": "leaf_no_issue",
+      "message": "leaf 'Brief the crane crew' has no issue"
+    },
+    {
+      "project": "orchard",
+      "source_line": 8,
+      "kind": "leaf_no_issue",
+      "message": "leaf 'Stake the young trees' has no issue"
+    },
+    {
+      "project": "orchard",
+      "source_line": 8,
+      "kind": "dep_unresolved",
+      "message": "depends_on 'marsh:Issue-2' names project 'marsh', whose WBS was not read (unreadable)"
+    },
+    {
+      "project": "orchard",
+      "source_line": 9,
+      "kind": "dep_unresolved",
+      "message": "depends_on 'ferry:Issue-2' names project 'ferry', which is not configured"
+    },
+    {
+      "project": "orchard",
+      "source_line": 11,
+      "kind": "dep_unresolved",
+      "message": "depends_on '2.1' matches no issue in this project"
+    },
+    {
+      "project": "orchard",
+      "source_line": 11,
+      "kind": "dep_unresolved",
+      "message": "depends_on 'bakery:Issue-1' names project 'bakery', whose WBS was not read (no_wbs)"
+    },
+    {
+      "project": "orchard",
+      "source_line": 12,
+      "kind": "leaf_no_issue",
+      "message": "leaf 'Check the pressure' has no issue"
+    },
+    {
+      "project": "orchard",
+      "source_line": 13,
+      "kind": "leaf_no_issue",
+      "message": "leaf 'Mulch the beds' has no issue"
+    },
+    {
+      "project": "orchard",
+      "source_line": 13,
+      "kind": "dep_unresolved",
+      "message": "depends_on 'lighthouse:Issue-40' matches no issue in project 'lighthouse'"
+    },
+    {
+      "project": "quarry",
+      "source_line": 12,
+      "kind": "dep_unresolved",
+      "message": "depends_on 'Issue-99' matches no issue in this project"
+    },
+    {
+      "project": "quarry",
+      "source_line": 12,
+      "kind": "dep_unresolved",
+      "message": "depends_on 'harbor:1.2' matches no issue in project 'harbor'"
+    },
+    {
+      "project": "quarry",
+      "source_line": 12,
+      "kind": "h_malformed",
+      "message": "h \"high\" is not one digit 0-4; h reads as null"
+    }
+  ]
+}

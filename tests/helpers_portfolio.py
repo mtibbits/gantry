@@ -15,6 +15,7 @@ from it: conftest's `node` fixture would clash.
 """
 
 import copy
+import json
 from pathlib import Path
 
 import helpers_devagent as hd
@@ -233,3 +234,13 @@ DESCRIBED = {
 def described_site(name, site="alpha"):
     _, start, nodes = DESCRIBED[name]
     return site_of(document(project(site, *nodes, start=start)))
+
+
+def sample_doc() -> dict:
+    """tests/fixtures/portfolio/samples.json, parsed: a fresh copy on every call."""
+    return json.loads(sp.SAMPLES_WRITTEN.read_bytes().decode("utf-8"))
+
+
+def sample_site(site):
+    """SiteData of one sample site, as the committed sample document holds it."""
+    return site_of(sample_doc(), site)

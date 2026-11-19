@@ -1,0 +1,15 @@
+{
+  "pin": "devagent--v3.0.0",
+  "devagent_version": "3.0.0",
+  "schema_version": "1.1",
+  "generated_at": "2026-01-12T09:30:00Z",
+  "inputs": {
+    "samples/devagent/config.toml": "81ccade27ad4bc3ec2bd74809d1903f0d0d91a5b598ca6f84226714ec55f4152",
+    "samples/harbor/WBS.md": "2be524bfdaf65b9ca91f011d4e6dd716d054e858d9c41dc90a857514ad563e37",
+    "samples/orchard/WBS.md": "4ea0bbece481150b0db7b65d814c513486ade6498cc092ad4ee3a8f1b1418aa9",
+    "samples/quarry/WBS.md": "c081bfeda37e53bc30ff59d3f2fc134d1d6a02d2c0c02983b30df2f5de8f570f",
+    "samples/lighthouse/WBS.md": "87eea32e8655be0928c64e7ff51ae4c31d11b2d58c5b805a693a68a19a369838",
+    "samples/bakery/WBS.md": null,
+    "samples/marsh/WBS.md": "88c985e0254fb1fe141939267ffd7bf75fdd6feec6e2e108b1bac7ef1a329e82"
+  }
+}

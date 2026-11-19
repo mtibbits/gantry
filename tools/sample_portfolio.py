@@ -14,8 +14,12 @@ tracks no file in it.
 
 --fixtures writes tests/fixtures/portfolio/written.json, the aggregator's
 document over the WBS texts in FIXTURE_SOURCES with `generated_at` set to a
-fixed time, and provenance.json beside it. --check writes nothing: it
-regenerates both and prints one line per file that differs or is missing.
+fixed time, and provenance.json beside it; then samples.json, the
+aggregator's document over a copy of samples/ with the same fixed time, and
+samples_provenance.json, the sha256 of each input it read (#84). --check
+writes nothing: it regenerates all four and prints one line per file that
+differs or is missing. Run --fixtures before tools/update_expected_leaves.py
+when the pin moves.
 
 Exit 0 done; 1 the aggregator failed, a folder was refused, or --check found
 a difference; 2 a usage error, no bash, or --devagent is not a devagent
@@ -28,6 +32,7 @@ It imports nothing from gantry, so it runs before any install.
 """
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -35,6 +40,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -57,6 +63,9 @@ SAMPLES = ROOT / "samples"
 FIXTURES = ROOT / "tests" / "fixtures" / "portfolio"
 WRITTEN = FIXTURES / "written.json"
 PROVENANCE = FIXTURES / "provenance.json"
+# The sample document, committed so the sample-site tests run without a checkout (#84).
+SAMPLES_WRITTEN = FIXTURES / "samples.json"
+SAMPLES_PROVENANCE = FIXTURES / "samples_provenance.json"
 # Where the aggregator writes its document, under the devagent home.
 DOCUMENT = ("portfolio", "portfolio.json")
 OUT = "devagent/out"  # the sample devagent home, relative to the samples folder
@@ -179,6 +188,16 @@ def make_sample(devagent, samples=SAMPLES) -> Path:
     return run_aggregator(devagent, home, out)
 
 
+def on_samples_copy(devagent, read, samples=SAMPLES):
+    """`read(copy, document)` where `copy` is a temporary copy of `samples`
+    (every folder named out left behind) and `document` the sample document
+    make_sample wrote there; the copy is gone when this returns."""
+    with tempfile.TemporaryDirectory(prefix="sample-portfolio-copy-") as scratch:
+        copy = Path(scratch) / "samples"
+        shutil.copytree(_absolute(samples), copy, ignore=shutil.ignore_patterns("out"))
+        return read(copy, make_sample(devagent, copy))
+
+
 def dumps(doc) -> bytes:
     """devagent's own form (scripts/lib/portfolio.py, dumps): UTF-8, LF, two-space indent."""
     return (json.dumps(doc, ensure_ascii=False, indent=2, allow_nan=False) + "\n").encode("utf-8")
@@ -234,17 +253,64 @@ def provenance(devagent, document=None) -> bytes:
     return dumps(data)
 
 
+def sample_fixture_document(devagent, samples=SAMPLES) -> bytes:
+    """The aggregator's document over a copy of `samples`, `generated_at` fixed."""
+    doc = on_samples_copy(devagent, lambda copy, document: json.loads(document.read_bytes().decode("utf-8")),
+                          samples)
+    doc["generated_at"] = FIXED_TIME
+    return dumps(doc)
+
+
+def sample_inputs(samples=SAMPLES) -> dict:
+    """{"samples/<path>": sha256 hex or None}: the devagent config, then each
+    configured project's WBS.md in config order (None when it has none)."""
+    samples = _absolute(samples)
+    home = samples / "devagent"
+    config = home / "config.toml"
+    inputs = {"samples/devagent/config.toml": hashlib.sha256(config.read_bytes()).hexdigest()}
+    for name, table in tomllib.loads(config.read_bytes().decode("utf-8"))["project"].items():
+        folder = Path(os.path.normpath(home / table["devdoc_dir"]))
+        if not folder.is_dir() or not folder.is_relative_to(samples):
+            raise Refused(f"project {name}: devdoc_dir is not a folder of the samples")
+        wbs = folder / "WBS.md"
+        key = "samples/" + wbs.relative_to(samples).as_posix()
+        inputs[key] = hashlib.sha256(wbs.read_bytes()).hexdigest() if wbs.is_file() else None
+    return inputs
+
+
+def stale_inputs(samples=SAMPLES) -> list[str]:
+    """The inputs whose hash differs from samples_provenance.json, or that only one side has."""
+    now = sample_inputs(samples)
+    then = json.loads(SAMPLES_PROVENANCE.read_bytes().decode("utf-8"))["inputs"]
+    return sorted(path for path in now.keys() | then.keys() if now.get(path, 0) != then.get(path, 0))
+
+
+def sample_provenance(devagent, document) -> bytes:
+    """What samples.json was made from; `document` is sample_fixture_document's bytes."""
+    doc = json.loads(document.decode("utf-8"))
+    data = {"pin": read_pin(), "devagent_version": checkout_version(devagent),
+            "schema_version": doc["schema_version"], "generated_at": doc["generated_at"],
+            "inputs": sample_inputs()}
+    return dumps(data)
+
+
+def _counts(document):
+    doc = json.loads(document.decode("utf-8"))
+    return (f"{len(doc['projects'])} projects, {sum(len(p['nodes']) for p in doc['projects'])} nodes, "
+            f"{len(doc['parse_report'])} report entries")
+
+
 def _fixtures(devagent, check):
     document = fixture_document(devagent)
-    made = {WRITTEN: document, PROVENANCE: provenance(devagent, document)}
+    samples = sample_fixture_document(devagent)
+    made = {WRITTEN: document, PROVENANCE: provenance(devagent, document),
+            SAMPLES_WRITTEN: samples, SAMPLES_PROVENANCE: sample_provenance(devagent, samples)}
     if not check:
         for path, data in made.items():
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(data)
-        doc = json.loads(document.decode("utf-8"))
-        print(f"sample_portfolio: wrote {WRITTEN.name} ({len(doc['projects'])} projects, "
-              f"{sum(len(p['nodes']) for p in doc['projects'])} nodes, {len(doc['parse_report'])} report entries) "
-              f"and {PROVENANCE.name}")
+        print(f"sample_portfolio: wrote {WRITTEN.name} ({_counts(document)}) and {PROVENANCE.name} "
+              f"and {SAMPLES_WRITTEN.name} ({_counts(samples)}) and {SAMPLES_PROVENANCE.name}")
         return 0
     lines = compare(((path.name, path, data) for path, data in made.items()), "differs from what devagent writes")
     for line in lines:
