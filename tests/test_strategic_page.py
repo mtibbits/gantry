@@ -2,6 +2,7 @@
 report panel, page safety and repeatability. The model's values are in
 tests/test_strategic.py."""
 
+import math
 import subprocess
 import sys
 
@@ -267,6 +268,70 @@ def test_report_panel_lists_entries(tmp_path):
     for s in strings:
         assert path_form_hits(s) == [], s[:80]
         assert str(tmp_path) not in s and tmp_path.as_posix() not in s
+
+
+def test_report_panel_names_the_file(tmp_path):
+    """An entry about the whole file (no section) is labelled "the portfolio file", never by its path."""
+    copy = samples(tmp_path)
+    (copy / "portfolio.md").unlink()
+    text, result = page(copy)
+    (entry,) = result.portfolio_entries
+    assert entry.section is None and entry.kind == "portfolio_unreadable"
+    t = tree(text)
+    assert [text_of(t, li) for li in find(t, "li", within=by_id(t, "report"))] == [
+        f"the portfolio file: {format_entry(entry)}"]
+    assert [r["section"] for r in page_data(text)["report"]] == ["the portfolio file"]
+
+
+def test_data_block_matches_model(tmp_path):
+    """The gantry-data block is the page's machine-readable contract: each panel's entry carries the
+    model's unrounded figures, and the totals, as-of date and report carry theirs."""
+    from gantry.strategic import strategic_model
+
+    copy = samples(tmp_path, "harbor = 35, orchard = 30, quarry = 20, bakery = 10, ferry = 5")
+    replace_bytes(copy / "portfolio.md", 'issue = "Issue-5"', 'issue = "Issue-99"')
+    text, result = page(copy)
+    data, model = page_data(text), strategic_model(result)
+
+    def same(a, b):
+        return a == b if a is None or b is None else math.isclose(a, b)
+
+    assert [p["site"] for p in data["panels"]] == list(model.panels)
+    for entry in data["panels"]:
+        p = model.panels[entry["site"]]
+        b = p.backlog
+        assert (entry["status"], entry["reason"], entry["open_leaves"], entry["held_out"], entry["estimates"],
+                entry["intended"], entry["serves"]) == ("built" if p.built else "not_built", p.reason, p.open_leaves,
+                                                       p.held_out, p.estimates, p.intended, list(p.serves))
+        assert same(entry["comparable"], p.comparable) and same(entry["gap"], p.gap), entry["site"]
+        assert same(entry["backlog_share"], b.share if b else None), entry["site"]
+        if b is not None:
+            assert (entry["unestimated_count"], entry["non_time"], entry["non_time_split"]) == (
+                b.unestimated_count, b.non_time, b.non_time_split)
+    # Literals, so a value the block and the model both lost would still fail.
+    harbor = next(e for e in data["panels"] if e["site"] == BUSY)
+    assert math.isclose(harbor["comparable"], 35 / 85 * 100)
+    assert math.isclose(harbor["gap"], abs(130 / 424 * 100 - 35 / 85 * 100))
+    assert harbor["serves"] == ["life:BR-1", "life:BR-2"] and harbor["held_out"] == 0
+    assert (data["as_of"], data["portfolio"]) == ("2026-01-20", "configured")
+    assert data["totals"]["not_built_share"] == 10 and data["totals"]["not_in_config_share"] == 5
+    assert data["totals"]["unestimated_count"] == model.total_unestimated
+    assert [(r["kind"], r["line"], r["key_path"], r["message"]) for r in data["report"]] == [
+        (e.kind, e.line, e.key_path, e.message) for e in model.report]
+    assert any(r["line"] is not None for r in data["report"])
+    bare = samples(tmp_path / "bare")
+    replace_bytes(bare / "gantry.sample.toml", 'portfolio_file = "portfolio.md"\n', "")
+    assert page_data(page(bare)[0])["portfolio"] == "not configured"
+
+
+def test_not_built_name_is_shown_escaped(tmp_path):
+    """A not-built project's name is printed as on stderr: a tab in it is escaped (I4)."""
+    copy = samples(tmp_path)
+    append_bytes(copy / "devagent" / "config.toml", '\n[project."bad\\tname"]\ndevdoc_dir = "../ghost"\n')
+    text, _ = page(copy)
+    t = tree(text)
+    assert "bad\\tname" in [name for name, _ in panels(t)]
+    assert "bad\tname" in page_data(text)["projects"]
 
 
 def test_report_panel_empty(tmp_path):

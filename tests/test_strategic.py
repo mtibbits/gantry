@@ -178,6 +178,17 @@ def test_headline_two_site_tie_is_not_float_noise(tmp_path):
     assert model.headline.site == "a"
 
 
+def test_headline_gaps_a_hundredth_apart_do_not_tie(tmp_path):
+    """The tie is for floating-point error only: harbor's gap (about 10.0004 points) and quarry's
+    (about 10.0145) are not a tie, so quarry, later in config order, is the headline."""
+    model = strategic_model(build(samples(tmp_path, "harbor = 20.66, orchard = 21.23, quarry = 17.09, "
+                                                    "lighthouse = 41.02")))
+    found = gaps(model)
+    assert 0.01 < found[UNESTIMATED] - found[BUSY] < 0.02
+    assert max(found.values()) == found[UNESTIMATED]
+    assert model.headline.site == UNESTIMATED
+
+
 def test_headline_ranks_unrounded_gaps(tmp_path):
     """Two gaps that both show as 7 points: the larger unrounded one wins, though it is later in config order."""
     model = strategic_model(build(samples(tmp_path, "harbor = 31, orchard = 21, quarry = 14, lighthouse = 34")))
