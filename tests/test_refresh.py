@@ -27,7 +27,7 @@ from gantry.refresh import (
     run_step,
 )
 from gantry.roots import LinkRefused, OutsideRoots, directory_roots
-from helpers_config import write_config
+from helpers_config import literal, write_config, written_bytes
 from helpers_links import link_dir, symlink
 from test_samples import ROOT
 
@@ -584,4 +584,492 @@ def test_discard_removes_one_and_ignores_errors(tmp_path, monkeypatch):
     refresh.discard(writable(tmp_path), generation)
     assert not generation.exists()
     refresh.discard(writable(tmp_path), generation)  # already gone: no error
+
+
+# --- Task 7: refresh(), one run ----------------------------------------------------------
+
+# The build's stand-in: `<mode> --output-dir <generation>`, run in [refresh] dir.
+STAND_IN = """
+    import os, shutil, sys, time
+    mode, out = sys.argv[1], sys.argv[3]
+    if mode == "sleep":
+        time.sleep(60)
+    os.makedirs(out, exist_ok=True)
+    if os.path.exists("update.json"):
+        shutil.copyfile("update.json", os.path.join(out, "update.json"))
+    with open(os.path.join(out, "index.html"), "wb") as handle:
+        handle.write(("index " + mode).encode("ascii"))
+    print("build-token-" + mode, flush=True)
+    if mode == "raise-after-index":
+        raise RuntimeError("planted")
+    markers = {"ok": b'{"build_version": 1, "exit": 0}\\n', "mismatch": b'{"build_version": 1, "exit": 0}\\n',
+               "exit2": b'{"build_version": 1, "exit": 2}\\n', "garbage": b"garbage"}
+    if mode in markers:
+        with open(os.path.join(out, "build.json"), "wb") as handle:
+            handle.write(markers[mode])
+    sys.exit({"ok": 0, "no-marker": 0, "mismatch": 1, "exit2": 2, "garbage": 0}[mode])
+"""
+# An update command: append its argument to a relative file, then exit with the second (default 0).
+APPEND = """
+    import sys
+    with open("order.txt", "ab") as handle:
+        handle.write(sys.argv[1].encode("ascii"))
+    print("update-token-" + sys.argv[1], flush=True)
+    sys.exit(int(sys.argv[2]) if len(sys.argv) > 2 else 0)
+"""
+
+
+@pytest.fixture
+def stand_in(tmp_path):
+    """stand_in(mode) -> the stand-in build command for that mode."""
+    path = script(tmp_path / "helpers", "stand_in", STAND_IN)
+    return lambda mode: [sys.executable, str(path), mode]
+
+
+@pytest.fixture
+def append(tmp_path):
+    """append(n, code=0) -> an update command appending n to the config folder's order.txt."""
+    path = script(tmp_path / "helpers", "append", APPEND)
+    return lambda n, code=0: [sys.executable, str(path), str(n), str(code)]
+
+
+def installation(tmp_path, update=(), refresh_dir='"refresh"'):
+    """A loaded config with a [refresh] table whose dir does not exist yet."""
+    from gantry.config import load_config
+
+    commands = ", ".join("[" + ", ".join(literal(word) for word in command) + "]" for command in update)
+    tail = f"\n[refresh]\ndir = {refresh_dir}\nupdate = [{commands}]\n"
+    return load_config(write_config(tmp_path / "inst", tail=tail))
+
+
+def rdir(config):
+    """The config's [refresh] dir as a concrete Path."""
+    from pathlib import Path
+
+    return Path(config.refresh.dir)
+
+
+def run(config, stand_in, mode="ok", **kwargs):
+    kwargs.setdefault("step_timeout_seconds", 120)
+    return refresh.refresh(config, build_command=stand_in(mode), **kwargs)
+
+
+def record(config):
+    read = parse_update_record((rdir(config) / "update.json").read_bytes())
+    assert read.status == "ok", read
+    return read.record
+
+
+def live(config):
+    """(the live generation's id, its folder)."""
+    current = (rdir(config) / "current").read_bytes().decode("ascii")
+    return current, rdir(config) / "generations" / current
+
+
+def generations(config):
+    return sorted(os.listdir(rdir(config) / "generations"))
+
+
+def aware(text):
+    from datetime import datetime
+
+    parsed = datetime.fromisoformat(text)
+    return parsed.tzinfo is not None and parsed.utcoffset() is not None
+
+
+SEEDED_OK_AT = "2026-01-02T03:04:05+00:00"
+SEEDED_BUILD = LastBuild("2026-01-02T03:05:00+00:00", True, 0, "swapped")
+
+
+def seed(config, data=None):
+    """An earlier record with a fixed old last_ok_at (or `data` as given)."""
+    folder = rdir(config)
+    folder.mkdir(parents=True, exist_ok=True)
+    if data is None:
+        data = record_bytes(UpdateRecord(1, SEEDED_OK_AT, True, 0, None, SEEDED_OK_AT, 15, SEEDED_BUILD))
+    (folder / "update.json").write_bytes(data)
+
+
+def test_three_commands_run_in_order(tmp_path, stand_in, append):
+    config = installation(tmp_path, [append(1), append(2), append(3)])
+    assert run(config, stand_in) == 0
+    assert (tmp_path / "inst" / "order.txt").read_bytes() == b"123"
+    r = record(config)
+    assert (r.ok, r.steps_run, r.failed_step, r.interval_minutes) == (True, 3, None, 15)
+    assert r.last_ok_at == r.attempted_at and aware(r.attempted_at)
+    assert (r.last_build.ok, r.last_build.exit, r.last_build.swap) == (True, 0, "swapped")
+    assert aware(r.last_build.at)
+    _, generation = live(config)
+    assert (generation / "index.html").read_bytes() == b"index ok"
+
+
+def test_second_command_failing_stops_the_update(tmp_path, stand_in, append, capsys):
+    config = installation(tmp_path, [append(1), append(2, 1), append(3)])
+    seed(config)
+    assert run(config, stand_in) == 1
+    assert (tmp_path / "inst" / "order.txt").read_bytes() == b"12"
+    r = record(config)
+    program = os.path.basename(sys.executable)
+    assert r.failed_step == FailedStep(2, program, "exit 1") and r.steps_run == 2 and r.ok is False
+    assert r.last_ok_at == SEEDED_OK_AT
+    assert r.last_build.swap == "swapped" and live(config)[1].is_dir()
+    assert f"gantry: error: update step 2 ({program}): exit 1\n" in capsys.readouterr().err
+
+
+def test_timed_out_command_is_recorded_and_its_tree_stopped(tmp_path, stand_in):
+    argv, beat = heartbeat_step(tmp_path)
+    config = installation(tmp_path, [argv])
+    assert run(config, stand_in, step_timeout_seconds=2) == 1
+    assert record(config).failed_step.reason == "timed out"
+    assert_heartbeat_stopped(beat)
+
+
+def test_missing_program_is_could_not_start(tmp_path, stand_in):
+    config = installation(tmp_path, [["gantry-35-no-such-program", "pull"]])
+    assert run(config, stand_in) == 1
+    r = record(config)
+    assert r.failed_step == FailedStep(1, "gantry-35-no-such-program", "could not start") and r.steps_run == 1
+    assert r.last_ok_at is None and r.last_build.swap == "swapped"
+
+
+def test_empty_update_is_a_success_of_zero_steps(tmp_path, stand_in):
+    config = installation(tmp_path)
+    assert run(config, stand_in) == 0
+    r = record(config)
+    assert (r.ok, r.steps_run, r.failed_step) == (True, 0, None) and r.last_ok_at == r.attempted_at
+
+
+def test_missing_refresh_dir_is_created(tmp_path, stand_in):
+    config = installation(tmp_path)
+    assert not rdir(config).exists()
+    assert run(config, stand_in) == 0
+    assert sorted(os.listdir(rdir(config))) == ["current", "generations", "last-run.log", "lock", "update.json"]
+    assert (rdir(config) / "lock").read_bytes() == b""
+
+
+def test_record_holds_no_path_or_output_and_the_log_holds_both(tmp_path, stand_in, append):
+    from commit_check import path_form_hits
+
+    config = installation(tmp_path, [append(7)])
+    assert run(config, stand_in) == 0
+    log = (rdir(config) / "last-run.log").read_bytes()
+    assert b"update-token-7" in log and b"build-token-ok" in log
+    data = record_bytes(record(config)).decode("utf-8")
+    assert (rdir(config) / "update.json").read_bytes().decode("utf-8") == data
+    assert "token" not in data and str(tmp_path) not in data and path_form_hits(data) == []
+    quiet = installation(tmp_path)  # the same folder, no update command
+    assert run(quiet, stand_in) == 0
+    assert b"update-token-7" not in (rdir(config) / "last-run.log").read_bytes()
+
+
+def test_the_build_sees_this_runs_failed_update(tmp_path, stand_in, append, monkeypatch):
+    config = installation(tmp_path, [append(1, 1)])
+    seed(config)
+    targets, real = [], refresh.write_confined
+
+    def spy(roots, path, data, **kwargs):
+        targets.append(os.path.basename(path))
+        return real(roots, path, data, **kwargs)
+
+    monkeypatch.setattr(refresh, "write_confined", spy)
+    assert run(config, stand_in) == 1
+    assert targets == ["update.json", "current", "update.json"]
+    _, generation = live(config)
+    seen = parse_update_record((generation / "update.json").read_bytes()).record
+    final = record(config)
+    assert seen.attempted_at == final.attempted_at and seen.ok is False and seen.last_build == SEEDED_BUILD
+    assert final.last_build != SEEDED_BUILD and final.last_build.swap == "swapped"
+
+
+FAILING = {
+    # mode: (step limit, expected last_build.exit, the build-failed reason)
+    "no-marker": (120, 0, "no matching completion marker (exit 0)"),
+    "mismatch": (120, 1, "no matching completion marker (exit 1)"),
+    "exit2": (120, 2, "exit 2"),
+    "garbage": (120, 0, "no matching completion marker (exit 0)"),
+    "raise-after-index": (120, 1, "no matching completion marker (exit 1)"),
+    "sleep": (2, None, "timed out"),
+    "missing-program": (120, None, "could not start"),
+}
+
+
+@pytest.mark.parametrize("mode", sorted(FAILING))
+def test_forced_build_failures_leave_the_live_generation(tmp_path, stand_in, capsys, mode):
+    config = installation(tmp_path)
+    assert run(config, stand_in) == 0
+    current, generation = live(config)
+    before = written_bytes(generation)
+    capsys.readouterr()
+    limit, code, why = FAILING[mode]
+    if mode == "missing-program":
+        result = refresh.refresh(config, step_timeout_seconds=limit, build_command=["gantry-35-no-such-build"])
+    else:
+        result = run(config, stand_in, mode, step_timeout_seconds=limit)
+    assert result == 1
+    assert live(config) == (current, generation) and written_bytes(generation) == before
+    assert generations(config) == [current]
+    assert record(config).last_build.ok is False
+    assert (record(config).last_build.exit, record(config).last_build.swap) == (code, "not swapped")
+    assert f"gantry: error: build failed: {why}\n" in capsys.readouterr().err
+
+
+def test_build_exit_1_with_its_marker_is_swapped_in(tmp_path, stand_in, capsys, monkeypatch):
+    config = installation(tmp_path)
+    exit1 = script(tmp_path / "helpers", "exit1", """
+        import os, sys
+        out = sys.argv[2]
+        os.makedirs(out, exist_ok=True)
+        with open(os.path.join(out, "build.json"), "wb") as handle:
+            handle.write(b'{"build_version": 1, "exit": 1}\\n')
+        sys.exit(1)
+    """)
+    assert refresh.refresh(config, step_timeout_seconds=120, build_command=[sys.executable, str(exit1)]) == 1
+    assert (record(config).last_build.ok, record(config).last_build.exit, record(config).last_build.swap) == (
+        False, 1, "swapped")
+    assert "gantry: error: build exited 1; its generation was swapped in\n" in capsys.readouterr().err
+
+
+def test_three_refreshes_keep_two_generations(tmp_path, stand_in):
+    config = installation(tmp_path)
+    ids = []
+    for _ in range(3):
+        assert run(config, stand_in) == 0
+        ids.append(live(config)[0])
+    assert generations(config) == sorted(ids[1:])
+    other = installation(tmp_path / "middle")
+    assert run(other, stand_in) == 0
+    first = live(other)[0]
+    assert run(other, stand_in, "exit2") == 1
+    assert run(other, stand_in) == 0
+    assert generations(other) == sorted([first, live(other)[0]])
+
+
+def test_failed_swap_is_recorded(tmp_path, stand_in, capsys, monkeypatch):
+    config = installation(tmp_path)
+    assert run(config, stand_in) == 0
+    current, _ = live(config)
+    real = refresh.write_confined
+
+    def refuse_current(roots, path, data, **kwargs):
+        if os.path.basename(path) == "current":
+            raise PermissionError(13, "held open")
+        return real(roots, path, data, **kwargs)
+
+    monkeypatch.setattr(refresh, "write_confined", refuse_current)
+    monkeypatch.setattr(refresh, "SWAP_RETRY_SECONDS", 0.2)
+    capsys.readouterr()
+    assert run(config, stand_in) == 1
+    assert live(config)[0] == current and generations(config) == [current]
+    assert (record(config).last_build.ok, record(config).last_build.swap) == (False, "swap failed")
+    assert "gantry: error: swap failed: current could not be replaced in 0.2 s\n" in capsys.readouterr().err
+
+
+def test_undeletable_generation_waits_for_the_next_run(tmp_path, stand_in, monkeypatch):
+    config = installation(tmp_path)
+    assert run(config, stand_in) == 0
+    oldest = live(config)[0]
+    assert run(config, stand_in) == 0
+    real = refresh.rmtree_confined
+
+    def refuse_oldest(roots, path, **kwargs):
+        if os.path.basename(path) == oldest:
+            raise PermissionError(13, "in use")
+        return real(roots, path, **kwargs)
+
+    monkeypatch.setattr(refresh, "rmtree_confined", refuse_oldest)
+    assert run(config, stand_in) == 0
+    assert len(generations(config)) == 3 and oldest in generations(config)
+    monkeypatch.setattr(refresh, "rmtree_confined", real)
+    assert run(config, stand_in) == 0
+    assert len(generations(config)) == 2 and oldest not in generations(config)
+
+
+def test_undetermined_current_skips_the_sweep(tmp_path, stand_in):
+    config = installation(tmp_path)
+    assert run(config, stand_in) == 0
+    assert run(config, stand_in) == 0
+    (rdir(config) / "current").write_bytes(b"../x")
+    assert run(config, stand_in) == 0
+    new, generation = live(config)
+    assert generation.is_dir() and len(generations(config)) == 3
+
+
+def snapshot(folder):
+    return {p.relative_to(folder).as_posix(): (p.read_bytes() if p.is_file() else None)
+            for p in sorted(folder.rglob("*"))}
+
+
+def test_a_running_refresh_is_skipped(tmp_path, stand_in, lock_holder, capsys):
+    config = installation(tmp_path)
+    assert run(config, stand_in) == 0
+    before = snapshot(rdir(config))
+    proc = lock_holder(rdir(config))
+    capsys.readouterr()
+    assert run(config, stand_in) == 0
+    out, err = capsys.readouterr()
+    assert out == "skipped: a refresh is still running\n" and err == ""
+    assert snapshot(rdir(config)) == before
+    proc.kill()
+    proc.wait()
+    assert run(config, stand_in) == 0
+    assert live(config)[0] != before["current"].decode("ascii")
+
+
+NO_DIR = ("gantry: error: {config}: [refresh] dir is not set; add a [refresh] table with dir = \"<path>\" "
+          "to run gantry refresh (docs/refresh-and-serve.md)\n")
+
+
+def test_no_refresh_dir_is_a_config_error(tmp_path, stand_in, capsys):
+    from gantry.config import load_config
+
+    config = load_config(write_config(tmp_path / "inst"))
+    assert run(config, stand_in) == 1
+    assert capsys.readouterr().err == NO_DIR.format(config=config.path)
+    assert not (tmp_path / "inst" / "out").exists()
+
+
+def test_refresh_dir_holding_the_config_is_a_config_error(tmp_path, stand_in, capsys):
+    config = installation(tmp_path, refresh_dir='"."')
+    assert run(config, stand_in) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("gantry: error: ") and "key 'refresh.dir' contains the config file itself" in err
+    assert not (tmp_path / "inst" / "generations").exists()
+
+
+@pytest.mark.parametrize("data", [b"{", b'{"record_version": 2}'], ids=["unreadable", "unknown_version"])
+def test_unreadable_previous_record_does_not_stop_the_run(tmp_path, stand_in, capsys, data):
+    config = installation(tmp_path)
+    seed(config, data)
+    assert run(config, stand_in) == 0
+    status = "unreadable" if data == b"{" else "unknown_version"
+    warning = f"gantry: warning: previous update.json is {status}: "
+    assert warning in capsys.readouterr().err
+    log = (rdir(config) / "last-run.log").read_bytes().decode("utf-8")
+    assert warning in log and "last_ok_at starts again" in log
+    r = record(config)
+    assert r.last_ok_at == r.attempted_at and r.last_build.swap == "swapped"
+
+
+def _raise_for(monkeypatch, name, leaf, error):
+    real = getattr(refresh, name)
+
+    def shim(roots, path, *args, **kwargs):
+        if os.path.basename(path) == leaf:
+            raise error
+        return real(roots, path, *args, **kwargs)
+
+    monkeypatch.setattr(refresh, name, shim)
+
+
+JOB_FILE_FAILURES = {
+    "refresh-folder": ("mkdir_confined", "refresh"),
+    "generations-folder": ("mkdir_confined", "generations"),
+    "lock": ("open_confined", "lock"),
+    "last-run-log": ("open_confined", "last-run.log"),
+}
+
+
+@pytest.mark.parametrize("case", sorted(JOB_FILE_FAILURES))
+def test_job_file_failures_return_1(tmp_path, stand_in, capsys, monkeypatch, case):
+    config = installation(tmp_path)
+    name, leaf = JOB_FILE_FAILURES[case]
+    _raise_for(monkeypatch, name, leaf, PermissionError(13, "Permission denied"))
+    assert run(config, stand_in) == 1
+    out, err = capsys.readouterr()
+    assert err.startswith("gantry: error: ") and "Permission denied" in err and "skipped" not in out
+    assert not (rdir(config) / "update.json").exists()
+
+
+def test_link_at_lock_is_refused_by_the_run(tmp_path, stand_in, capsys):
+    config = installation(tmp_path)
+    rdir(config).mkdir()
+    target = tmp_path / "target"
+    target.write_bytes(b"keep")
+    symlink(target, rdir(config) / "lock")
+    assert run(config, stand_in) == 1
+    assert "gantry: error: " in capsys.readouterr().err and target.read_bytes() == b"keep"
+
+
+def test_link_at_last_run_log_is_refused(tmp_path, stand_in, capsys):
+    config = installation(tmp_path)
+    assert run(config, stand_in) == 0
+    before = (rdir(config) / "update.json").read_bytes()
+    (rdir(config) / "last-run.log").unlink()
+    symlink(rdir(config) / "update.json", rdir(config) / "last-run.log")
+    capsys.readouterr()
+    assert run(config, stand_in) == 1
+    assert "gantry: error: " in capsys.readouterr().err
+    assert (rdir(config) / "update.json").read_bytes() == before
+
+
+# Windows only: an open file blocks a rename onto it and its deletion (U3, U4).
+HOLD = """
+    import sys, time
+    handle = open(sys.argv[1], "rb")
+    print("held", flush=True)
+    time.sleep(float(sys.argv[2]))
+    handle.close()
+    time.sleep(60)
+"""
+OPEN_FILE_BLOCKS = "an open file blocks rename and delete only on Windows"
+
+
+@pytest.fixture
+def file_holder(tmp_path):
+    """hold(path, seconds) -> a process holding path open for that long; all killed at teardown."""
+    procs = []
+
+    def hold(path, seconds=120):
+        holder = script(tmp_path / "helpers", "hold", HOLD)
+        proc = subprocess.Popen([sys.executable, str(holder), str(path), str(seconds)],
+                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE)
+        procs.append(proc)
+        assert proc.stdout.readline().strip() == b"held"
+        return proc
+
+    yield hold
+    for proc in procs:
+        proc.kill()
+        proc.wait()
+        proc.stdout.close()
+
+
+@pytest.mark.skipif(not WINDOWS, reason=OPEN_FILE_BLOCKS)
+def test_windows_swap_fails_while_current_is_held_open(tmp_path, stand_in, file_holder, capsys):
+    config = installation(tmp_path)
+    assert run(config, stand_in) == 0
+    current, _ = live(config)
+    file_holder(rdir(config) / "current")
+    capsys.readouterr()
+    assert run(config, stand_in) == 1
+    assert "gantry: error: swap failed: " in capsys.readouterr().err
+    assert live(config)[0] == current and generations(config) == [current]
+    assert record(config).last_build.swap == "swap failed"
+
+
+@pytest.mark.skipif(not WINDOWS, reason=OPEN_FILE_BLOCKS)
+def test_windows_swap_succeeds_once_current_is_released(tmp_path, stand_in, file_holder):
+    config = installation(tmp_path)
+    assert run(config, stand_in) == 0
+    current, _ = live(config)
+    file_holder(rdir(config) / "current", 0.5)
+    assert run(config, stand_in) == 0
+    assert live(config)[0] != current
+
+
+@pytest.mark.skipif(not WINDOWS, reason=OPEN_FILE_BLOCKS)
+def test_windows_open_file_defers_the_delete(tmp_path, stand_in, file_holder):
+    config = installation(tmp_path)
+    assert run(config, stand_in) == 0
+    oldest, generation = live(config)
+    assert run(config, stand_in) == 0
+    proc = file_holder(generation / "index.html")
+    assert run(config, stand_in) == 0
+    # Only the folder is asserted: a failed Windows rmtree half-deletes, and
+    # what is left differs by Python version (spike O2).
+    assert generation.is_dir()
+    proc.kill()
+    proc.wait()
+    assert run(config, stand_in) == 0
+    assert not generation.exists()
 

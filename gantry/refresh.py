@@ -26,21 +26,23 @@ import signal
 import subprocess
 import sys
 import time
-from dataclasses import dataclass
-from datetime import datetime
+from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 
 from gantry.build import MARKER_FILE, marker_exit, strict_json_loads
-from gantry.config import error_reason
+from gantry.config import ConfigError, error_reason
 from gantry.roots import (
     OutsideRoots,
     find_program,
     gantry_root,
     list_confined,
+    mkdir_confined,
     open_confined,
     read_bytes_confined,
     rmtree_confined,
     write_confined,
 )
+from gantry.sites import config_roots
 
 # Both lock branches stay in this file, so neither's allow-list entries in
 # tests/test_confine_scan.py go stale on the other host (the scan is static).
@@ -480,3 +482,151 @@ def sweep(roots, folder, keep):
         if GENERATION_ID_RE.fullmatch(entry.name) is None:
             continue
         discard(roots, generations / entry.name)
+
+
+# --- one run -----------------------------------------------------------------------------
+
+LOG_FILE = "last-run.log"
+NO_DIR = ("{config}: [refresh] dir is not set; add a [refresh] table with dir = \"<path>\" "
+          "to run gantry refresh (docs/refresh-and-serve.md)")
+SKIPPED = "skipped: a refresh is still running"
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _why(e) -> str:
+    """A failure's reason: a refusal's own text (it names the key), else the OSError's."""
+    return str(e) if isinstance(e, OutsideRoots) else _one_line(error_reason(e))
+
+
+def _error(message, log=None):
+    """`gantry: error: <message>` on stderr, and in the log once it is open."""
+    line = f"gantry: error: {message}"
+    print(line, file=sys.stderr)
+    if log is not None:
+        log_line(log, line)
+
+
+def _program(word) -> str:
+    """A failed step's program: the base name of the command's first word."""
+    return os.path.basename(word) or word or "(empty)"
+
+
+def _step_reason(result) -> str:
+    return f"exit {result.code}" if result.kind == "exit" else result.kind
+
+
+def refresh(config, *, step_timeout_seconds=None, build_command=None) -> int:
+    """One refresh run for a loaded config; the exit status. Never raises
+    OSError: every failure of the job's own files is a `gantry: error:` line
+    and 1. `step_timeout_seconds` overrides `[refresh] step_timeout_minutes`
+    for each update command and the build; `build_command` replaces the real
+    build (tests' stand-ins). docs/refresh-and-serve.md states the run."""
+    folder = config.refresh.dir
+    if folder is None:
+        _error(NO_DIR.format(config=config.path))
+        return 1
+    try:
+        roots = config_roots(config, purpose="refresh")
+    except ConfigError as e:
+        _error(str(e))
+        return 1
+    for path in (folder, folder / GENERATIONS):
+        try:
+            mkdir_confined(roots, path, key=REFRESH_KEY)
+        except (OSError, ValueError, OutsideRoots) as e:
+            _error(f"cannot create {path}: {_why(e)}")
+            return 1
+    try:
+        lock = acquire_lock(roots, folder)
+    except (OSError, ValueError, OutsideRoots) as e:
+        _error(f"cannot open {folder / LOCK_FILE}: {_why(e)}")
+        return 1
+    if lock is None:
+        print(SKIPPED)
+        return 0
+    try:
+        # The log is opened, and the earlier state read, only under the lock.
+        try:
+            log = open_confined(roots, folder / LOG_FILE, "wb", key=REFRESH_KEY, follow_links=False)
+        except (OSError, ValueError, OutsideRoots) as e:
+            _error(f"cannot open {folder / LOG_FILE}: {_why(e)}")
+            return 1
+        with log:
+            limit = step_timeout_seconds
+            if limit is None:
+                limit = config.refresh.step_timeout_minutes * 60
+            return _locked_run(config, roots, folder, log, limit, build_command)
+    finally:
+        lock.close()
+
+
+def _locked_run(config, roots, folder, log, limit, build_command) -> int:
+    previous = read_update_record(roots, folder / RECORD_FILE)
+    if previous.status in ("unreadable", "unknown_version"):
+        line = (f"gantry: warning: previous {RECORD_FILE} is {previous.status}: {previous.reason}; "
+                "last_ok_at starts again")
+        print(line, file=sys.stderr)
+        log_line(log, line)
+    earlier = previous.record if previous.status == "ok" else None
+
+    # The update: each command in the config's folder, stopping at the first failure.
+    attempted_at = _now()
+    steps_run, failed = 0, None
+    for index, command in enumerate(config.refresh.update, start=1):
+        steps_run = index
+        result = run_step(list(command), cwd=config.path.parent, timeout=limit, log=log)
+        if result != StepResult("exit", 0):
+            failed = FailedStep(index, _program(command[0]), _step_reason(result))
+            _error(f"update step {index} ({failed.program}): {failed.reason}", log)
+            break
+    ok = failed is None
+    last_ok_at = attempted_at if ok else (earlier.last_ok_at if earlier is not None else None)
+    first = UpdateRecord(RECORD_VERSION, attempted_at, ok, steps_run, failed, last_ok_at,
+                         config.refresh.interval_minutes, earlier.last_build if earlier is not None else None)
+    # Record 1, before the build, so the build reads this run's update; none follows a failed write.
+    why = write_retrying(roots, folder / RECORD_FILE, record_bytes(first))
+    if why is not None:
+        _error(f"cannot write {RECORD_FILE}: {why}", log)
+        return 1
+
+    # The build, into a new generation, in its own child process.
+    generation_id = new_generation_id(datetime.now(timezone.utc))
+    generation = folder / GENERATIONS / generation_id
+    result = run_step(build_argv(config, build_command, generation), cwd=folder, timeout=limit, log=log,
+                      env=build_env(os.environ))
+    built_at = _now()
+    code = result.code if result.kind == "exit" else None
+    swapped, earlier_id = False, None
+    if accepted(roots, generation, result):
+        earlier_id = read_current(roots, folder)
+        swapped = swap(roots, folder, generation_id)
+        if not swapped:
+            _error(f"swap failed: current could not be replaced in {SWAP_RETRY_SECONDS:g} s", log)
+            discard(roots, generation)
+        state = "swapped" if swapped else "swap failed"
+        if swapped and code == 1:
+            _error("build exited 1; its generation was swapped in", log)
+    else:
+        if result.kind != "exit":
+            reason = result.kind
+        elif code not in (0, 1):
+            reason = f"exit {code}"
+        else:
+            reason = f"no matching completion marker (exit {code})"
+        _error(f"build failed: {reason}", log)
+        discard(roots, generation)
+        state = "not swapped"
+
+    # Record 2: record 1 with this run's build.
+    last_build = LastBuild(built_at, swapped and code == 0, code, state)
+    why = write_retrying(roots, folder / RECORD_FILE, record_bytes(replace(first, last_build=last_build)))
+    if why is not None:
+        _error(f"cannot write {RECORD_FILE}: {why}", log)
+        return 1
+    if swapped and earlier_id is not UNDETERMINED:
+        sweep(roots, folder, keep={generation_id} | ({earlier_id} if earlier_id else set()))
+    return 0 if ok and last_build.ok else 1
+
