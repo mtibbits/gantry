@@ -55,7 +55,6 @@ from gantry.roots import OutsideRoots
 from gantry.sites import config_roots, shown
 from gantry.stamp import stamp_text
 from gantry.trace import counts_line, load_catalog
-from gantry.views.strategic import STRATEGIC_FILE
 
 # The full build's last stdout line (#32): how many fires, and how many sources
 # were not fully read. It names no fire; docs/daily-screen.md#fires states it.
@@ -212,8 +211,8 @@ def _build_all(config):
     if plan_error is not None:
         print(f"gantry: error: cannot write {PLAN_FILE}: {plan_error}", file=sys.stderr)
     if result.strategic_error is not None:
-        # One form for a model, render or write failure; the index then has no headline, shares or link (#23).
-        print(f"gantry: error: cannot write {STRATEGIC_FILE}: {result.strategic_error}", file=sys.stderr)
+        # "cannot render" or "cannot write", as the week view's line; the index has no headline, shares or link (#23).
+        print(f"gantry: error: {result.strategic_error}", file=sys.stderr)
     if index_error is not None:
         # The index, or the output folder itself, cannot be written.
         print(f"gantry: error: cannot write {index}: {index_error}", file=sys.stderr)

@@ -220,11 +220,14 @@ The file is always named "the portfolio file", never by its path.
 
 ## When the page cannot be written
 
-The model, the render and the write are one step. If any of them fails, the
-build prints `gantry: error: cannot write strategic.html: <reason>` on
-stderr (a fault making or rendering the page reads
-`render error: {type}: {message}`), writes the index without the page's
-headline, shares or link, and exits 1
+The model, the render and the write are one step. If the model or the
+render fails, the build prints
+`gantry: error: cannot render strategic.html: <type>: <message>` on stderr
+(`<type>` alone when the message is empty); if the write fails, it prints
+`gantry: error: cannot write strategic.html: <reason>`. These are the week
+view's forms ([week-plan.md](week-plan.md#the-week-view-page)). Either way
+the build writes the index without the page's headline, shares or link, and
+exits 1
 ([worksite-page.md](worksite-page.md#every-site-and-the-index)). An older
 `strategic.html` from an earlier run stays in the output folder, unlinked,
 with its old stamp, until the next build that writes the page replaces it.

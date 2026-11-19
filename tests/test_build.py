@@ -413,6 +413,7 @@ STDERR_FORMS = (
     "gantry: error: cannot write week-plan.json: <reason>",
     "gantry: error: cannot render week.html: <type>: <message>",
     "gantry: error: cannot write week.html: <reason>",
+    "gantry: error: cannot render strategic.html: <type>: <message>",
     "gantry: error: cannot write strategic.html: <reason>",
     "gantry: error: no site page was written",
 )
@@ -684,12 +685,25 @@ def test_strategic_render_failure(tmp_path, monkeypatch):
     copy = plan_install(tmp_path)
     monkeypatch.setattr(strategic, "strategic_model", broken)
     result, written, error = build.write_all(build_all(load_config(copy / "gantry.toml")))
-    assert error is None and result.strategic_error == "render error: ValueError: x"
+    # The week view's form (#38): a render fault is "cannot render", not "cannot write".
+    assert error is None and result.strategic_error == "cannot render strategic.html: ValueError: x"
     assert copy / "out" / "strategic.html" not in written and not (copy / "out" / "strategic.html").exists()
     assert headline_and_links((copy / "out" / "index.html").read_bytes().decode("utf-8")) == ("", [("Week view", "week.html")])
     code, _, stderr = run_main("--config", str(copy / "gantry.toml"))
     assert code == 1
-    assert stderr.splitlines()[-1] == "gantry: error: cannot write strategic.html: render error: ValueError: x"
+    assert stderr.splitlines()[-1] == "gantry: error: cannot render strategic.html: ValueError: x"
+
+
+def test_strategic_render_failure_without_message(tmp_path, monkeypatch):
+    from gantry import views
+
+    def broken(*args, **kwargs):
+        raise ValueError()
+
+    copy = plan_install(tmp_path)
+    monkeypatch.setattr(views.strategic, "render_strategic", broken)
+    result, _, error = build.write_all(build_all(load_config(copy / "gantry.toml")))
+    assert error is None and result.strategic_error == "cannot render strategic.html: ValueError"
 
 
 def test_strategic_error_prints_between_plan_and_index(tmp_path):
@@ -840,7 +854,7 @@ def test_build_homes_name_the_plan_file(capsys):
     readme = " ".join((ROOT / "README.md").read_bytes().decode("utf-8").split())
     assert "its page paths (`index.html`, `strategic.html`, `sites/<name>.html`, `week.html`)" in readme
     doc = " ".join((ROOT / "docs" / "worksite-page.md").read_bytes().decode("utf-8").split())
-    assert "Six more lines can follow on stderr" in doc
+    assert "Seven more lines can follow on stderr" in doc
     for rel in ("docs/worksite-page.md", "docs/config.md", "commands/build.md", "gantry/cli.py"):
         text = " ".join((ROOT / rel).read_bytes().decode("utf-8").split())
         assert "the week page cannot be rendered or written" in text, rel

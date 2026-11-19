@@ -1137,7 +1137,7 @@ index with its reason and on stderr as
   then fails on its own and the index is still written.
 
 A reason names the site and a config key or file kind, never an absolute
-path. Six more lines can follow on stderr:
+path. Seven more lines can follow on stderr:
 
 - `gantry: error: cannot write <index path>: <reason>`: the index cannot be
   written. When the output folder itself cannot be made, this is the only
@@ -1156,13 +1156,15 @@ path. Six more lines can follow on stderr:
   cannot be written. It comes before the index's line, names no path, and
   is not attempted when the output folder itself cannot be made; when only
   the index cannot be written, the plan file still is;
-- `gantry: error: cannot write strategic.html: <reason>`: strategic.html
-  cannot be made or written (a fault making or rendering it reads
-  `render error: {type}: {message}`). It comes after the plan file's line
-  and before the index's, names no path, and is not attempted when the
-  output folder itself cannot be made. The index is then written without
-  the page's headline, shares or link, and an older `strategic.html`
-  stays in place, unlinked, with its old stamp;
+- `gantry: error: cannot render strategic.html: <type>: <message>`, or
+  `gantry: error: cannot render strategic.html: <type>` when the message is
+  empty: the strategic page (#23) cannot be made or rendered;
+- `gantry: error: cannot write strategic.html: <reason>`: the strategic
+  page cannot be written. Either strategic line names no path, comes after
+  the plan file's line and before the index's, and is not attempted when
+  the output folder itself cannot be made. The index is then written
+  without the page's headline, shares or link, and an older
+  `strategic.html` stays in place, unlinked, with its old stamp;
 - `gantry: error: no site page was written`.
 
 | Exit | When |

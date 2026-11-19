@@ -45,6 +45,10 @@ NOT_A_FOLDER = "{what} is not a folder"
 WEEK_WRITE_ERROR = "cannot write week.html: {why}"
 WEEK_RENDER_ERROR = "cannot render week.html: {type}: {message}"
 WEEK_RENDER_ERROR_BARE = "cannot render week.html: {type}"
+# strategic.html's, in the week view's forms (#23): a model or render fault, or a write fault.
+STRATEGIC_WRITE_ERROR = "cannot write strategic.html: {why}"
+STRATEGIC_RENDER_ERROR = "cannot render strategic.html: {type}: {message}"
+STRATEGIC_RENDER_ERROR_BARE = "cannot render strategic.html: {type}"
 
 
 @dataclass(frozen=True)
@@ -88,7 +92,8 @@ class BuildResult:
     # Set by write_all when the week view (#38) could not be rendered or written:
     # the clause after "gantry: error: ". The index is then written without its link.
     week_error: str | None = None
-    # Set by write_all when strategic.html could not be made or written (#23): why, naming no path.
+    # Set by write_all when strategic.html could not be made or written (#23): the clause after
+    # "gantry: error: ", naming no path. The index is then written without its headline, shares or link.
     strategic_error: str | None = None
     # The full build's fires (#32), each read once per run; a --site build fills none, and
     # neither does a full build whose fires step failed before reading them (fires names it).
@@ -462,20 +467,23 @@ def _write_strategic(result, roots, out):
     """Write strategic.html from one StrategicModel, made after the site
     pages are written so "built" means what the index says (#23).
 
-    Returns (the index's slots, None), or ({}, why) when the model, the
-    render or the write failed: the index then gets no headline, shares or
-    strategic link, so it never links a page that was not written.
+    Returns (the index's slots, None), or ({}, the error clause) when the
+    model, the render or the write failed: the index then gets no headline,
+    shares or strategic link, so it never links a page that was not written.
+    The clause is "cannot render strategic.html: ..." for a model or render
+    fault and "cannot write strategic.html: ..." for a write fault, as the
+    week view's are (#38).
     """
     try:
         model = strategic.strategic_model(result)
         text = views_strategic.render_strategic(result, model)
         slots = views_strategic.index_slots(model)
     except Exception as e:
-        return {}, render_reason(e, roots)
+        return {}, render_reason(e, roots, (STRATEGIC_RENDER_ERROR, STRATEGIC_RENDER_ERROR_BARE))
     try:
         write_page(roots, out, views_strategic.STRATEGIC_PAGE, text)
     except (OSError, OutsideRoots) as e:
-        return {}, why_not_written(e, roots)
+        return {}, STRATEGIC_WRITE_ERROR.format(why=why_not_written(e, roots))
     return slots, None
 
 
