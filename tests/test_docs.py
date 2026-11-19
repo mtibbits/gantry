@@ -28,6 +28,7 @@ from helpers_docs import (
     view_item,
     view_line_problems,
 )
+from test_samples import md_tables
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -535,3 +536,135 @@ def test_concepts_page():
 def test_view_item_matches_the_whole_label():
     readme = "- **Week view page**: another item\n- **Week view**: the week (planned)\n"
     assert view_item(readme, "Week view") == ["- **Week view**: the week (planned)"]
+
+
+# --- the refresh job's doc (#35) -----------------------------------------------------
+
+REFRESH_DOC = ROOT / "docs" / "refresh-and-serve.md"
+REFRESH_ANCHORS = ("what-one-run-does", "the-refresh-folder", "the-update-record", "exit-codes", "scheduling",
+                   "the-update-list", "first-day-failures")
+
+
+def _exit_rows(text):
+    """{code: meaning} from the doc's exit-code table."""
+    (table,) = md_tables(section(text, "## Exit codes"))
+    return {int(code): meaning for code, meaning in table.rows}
+
+
+def test_refresh_doc_covers_the_setup_points():
+    import dataclasses
+
+    from gantry.refresh import READ_STATUSES, FailedStep, LastBuild, UpdateRecord
+
+    text = markdown_text(REFRESH_DOC)
+    assert [a for a in REFRESH_ANCHORS if a not in heading_anchors(text)] == []
+    folder = section(text, "## The refresh folder")
+    for entry in ("`lock`", "`update.json`", "`last-run.log`", "`current`", "`generations/<id>`"):
+        assert entry in folder, entry
+    record = section(text, "## The update record")
+    for cls in (UpdateRecord, FailedStep, LastBuild):
+        for field in dataclasses.fields(cls):
+            assert f"`{field.name}`" in record, (cls.__name__, field.name)
+    for status in READ_STATUSES:
+        assert f"`{status}`" in record, status
+    assert "`interval_minutes`" in text
+    for needed in ("--ff-only", "index.lock", "--depth"):
+        assert needed in section(text, "## The update list") + section(text, "## First-day failures"), needed
+    rows = _exit_rows(text)
+    assert sorted(rows) == [0, 1, 2]
+    assert "skipped" in rows[0] and "swapped in" in rows[0]
+    assert "config error" in rows[1] and "failed update" in rows[1] and "swap" in rows[1]
+    assert "usage error" in rows[2]
+
+
+def _refresh_command_lines(text):
+    """Every `gantry refresh` command line in the doc's fenced blocks, as
+    (kind, line): ("systemd", the text after ExecStart=), ("schtasks", the
+    text inside /TR "...") or ("plain", the whole line)."""
+    found, fence = [], None
+    for line in text.split("\n"):
+        if line.startswith("```"):
+            fence = None if fence else line
+            continue
+        if not fence or "gantry refresh" not in line:
+            continue
+        kind = "plain"
+        if "ExecStart=" in line:
+            kind, line = "systemd", line.split("ExecStart=", 1)[1]
+        elif '/TR "' in line:
+            kind, line = "schtasks", line.split('/TR "', 1)[1].rsplit('"', 1)[0].replace('\\"', '"')
+        found.append((kind, line))
+    return found
+
+
+def test_refresh_doc_commands_parse():
+    import shlex
+
+    from gantry.cli import _parser
+
+    found = _refresh_command_lines(markdown_text(REFRESH_DOC))
+    assert {kind for kind, _ in found} == {"plain", "systemd", "schtasks"}
+    for _, line in found:
+        words = shlex.split(line)
+        at = words.index("gantry")
+        args = _parser().parse_args(words[at + 1:])
+        assert (args.command, args.config) == ("refresh", "<config>"), line
+
+
+def test_refresh_doc_scheduler_examples_hold_no_path_or_host():
+    from commit_check import path_form_hits
+
+    scheduling = section(markdown_text(REFRESH_DOC), "## Scheduling")
+    assert "ExecStart=" in scheduling and "schtasks /Create" in scheduling and "/TR " in scheduling
+    for placeholder in ("<python>", "<config>"):
+        assert placeholder in scheduling, placeholder
+    assert path_form_hits(scheduling) == []
+    assert not re.search(r"https?://|\\\\|@[a-z]", scheduling)
+
+
+def test_refresh_doc_record_examples_read():
+    from gantry.refresh import parse_update_record
+
+    text = markdown_text(REFRESH_DOC)
+    blocks = re.findall(r"^```json\n(.*?)^```$", section(text, "## The update record"), flags=re.M | re.S)
+    assert len(blocks) == 2
+    reads = [parse_update_record(block.encode("utf-8")) for block in blocks]
+    assert [r.status for r in reads] == ["ok", "ok"], reads
+    assert reads[1].record.last_ok_at is None and reads[1].record.last_build is None
+
+
+PROMISE_HOMES = {
+    "README.md": lambda text: section(text, "## Your data stays private"),
+    "docs/requirements.md": lambda text: next(line for line in text.split("\n\n") if "BRule-3:" in line),
+    "SECURITY.md": lambda text: text.split("\n## ", 1)[0],
+}
+
+
+def test_network_promise_names_refresh():
+    for name, part in PROMISE_HOMES.items():
+        whole = markdown_text(ROOT / name)
+        text = " ".join(part(whole).split())
+        assert "itself opens no network connection" in text, name
+        assert "`gantry refresh`" in text, name
+        text = " ".join(whole.split())
+        assert "commands make no network connection" not in text, name
+        assert "makes no network connection" not in text, name
+        assert "Gantry sends nothing anywhere" not in text, name
+
+
+def test_no_provisional_for_35_left():
+    for name in ("gantry/roots.py", "gantry/sites.py"):
+        text = " ".join(markdown_text(ROOT / name).split())
+        assert "provisional for #35" not in text, name
+    roots = markdown_text(ROOT / "gantry" / "roots.py")
+    for function in ("replace_confined", "remove_confined"):
+        body = roots.split(f"def {function}(", 1)[1].split("\ndef ", 1)[0]
+        assert "No Gantry command calls it today" in " ".join(body.split()), function
+
+
+def test_refresh_doc_install_step_uses_the_release_tag_and_survives_a_reboot():
+    scheduling = section(markdown_text(REFRESH_DOC), "## Scheduling")
+    tag = re.search(r"`(gantry--v<version>)`", markdown_text(ROOT / "README.md")).group(1)
+    assert f"checkout {tag}" in scheduling
+    assert "loginctl enable-linger" in scheduling and "/RU" in scheduling
+

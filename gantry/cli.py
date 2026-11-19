@@ -1,5 +1,6 @@
-"""The gantry command line: `gantry build --config FILE [--site NAME]`,
-`gantry portfolio --config FILE` and `gantry fires --config FILE`.
+"""The gantry command line: `gantry build --config FILE [--site NAME]
+[--output-dir DIR]`, `gantry portfolio --config FILE`, `gantry fires
+--config FILE` and `gantry refresh --config FILE`.
 
 `gantry build` builds every configured site's page, the week view
 (<output_dir>/week.html, #38), the strategic page
@@ -14,7 +15,19 @@ sources not fully read (#32, docs/daily-screen.md). `gantry portfolio` checks th
 portfolio file the config names, without building (#22); `gantry fires`
 checks the fires list, without building (#30). There is no default
 config location: `--config` is required, and nothing here reads the
-environment or the home folder to find one. Exit codes:
+environment or the home folder to find one.
+
+`--output-dir DIR` (#35) replaces the config's `output_dir` for the run, a
+relative DIR resolving against the working directory; a refusal of its value
+names the flag. With it, a full build that wrote the index writes `build.json`
+(gantry/build.py's completion marker, holding the exit code) as its last file,
+without printing its path; `--site` writes no marker. An empty DIR is a usage
+error.
+
+`gantry refresh` (#35) runs the refresh job once: under a lock in the
+config's `[refresh] dir`, the update commands, the update record, a build of
+a new generation in a child process and the swap (gantry/refresh.py,
+docs/refresh-and-serve.md). Exit codes:
 
 - 0: the full build wrote the week view, the strategic page, the index and
   at least one site page; `--site` wrote its page; `portfolio` found no
@@ -28,15 +41,24 @@ environment or the home folder to find one. Exit codes:
   included), or the config sets no portfolio_file; `fires` read the fires
   list with a report entry, could not read it, or the config sets no
   fires_list (`fires` exits 0 only for status `read`);
-- 2: a usage error (argparse's own).
+- 2: a usage error (argparse's own, or an empty `--output-dir`).
+
+`refresh` exits 0 when the update succeeded, the build exited 0 and its
+generation was swapped in, or another run holds the lock (skipped); 1 for
+anything else, including a config error or a config with no
+`[refresh] dir`; 2 for a usage error.
 """
 
 import argparse
+import os
 import sys
+from dataclasses import replace
 from datetime import datetime
+from pathlib import PurePath
 
 from gantry.build import (
     FIRES_STEP,
+    MARKER_FILE,
     build_all,
     clashes,
     read_site,
@@ -44,6 +66,7 @@ from gantry.build import (
     render_site,
     site_list,
     write_all,
+    write_marker,
     write_page,
     why_not_written,
 )
@@ -83,6 +106,12 @@ def _parser():
         metavar="NAME",
         help="build only that site's worksite page, and no week view, no strategic page, no index and no plan",
     )
+    build.add_argument(
+        "--output-dir",
+        metavar="DIR",
+        help="write into DIR instead of the config's output_dir (relative to the working directory); a full "
+        "build then writes build.json, holding its exit code, as its last file",
+    )
     portfolio = commands.add_parser(
         "portfolio",
         help="check the portfolio file the config names, without building",
@@ -96,8 +125,17 @@ def _parser():
         "fire, the counts, one line per report entry and the status. Exit 0 when the status "
         "is read, 1 otherwise.",
     )
+    refresh_command = commands.add_parser(
+        "refresh",
+        help="update the data, build a new generation and swap it in (the scheduled job)",
+        description="Run the refresh job once: under a lock in the config's [refresh] dir, run its update "
+        "commands, record the update in update.json, build a new generation in a child process and swap "
+        "it in through current. Exit 0 when the update succeeded and the build exited 0 and was swapped "
+        "in, or when another run holds the lock; 1 otherwise.",
+    )
     _add_config(portfolio)
     _add_config(fires)
+    _add_config(refresh_command)
     return parser
 
 
@@ -118,9 +156,9 @@ def _utf8_streams():
             stream.reconfigure(encoding="utf-8", errors="backslashreplace", newline="\n")
 
 
-def _build_site(config, roots, sites, name):
+def _build_site(config, roots, sites, name, flag=False):
     def fail(message):
-        print(f"gantry: error: --site {shown(name)}: {message}", file=sys.stderr)
+        print(f"gantry: error: --site {shown(name)}: {_flagged(message, flag)}", file=sys.stderr)
         return 1
 
     site = next((s for s in sites if s.name == name), None)
@@ -175,11 +213,37 @@ def _write_plan(result, text):
     return path, None
 
 
-def _build_all(config):
+# How a refusal names output_dir, and how it names the flag that replaced it (#35).
+FLAG_TEXTS = (
+    ("key 'output_dir'", "--output-dir"),
+    ("output_dir is outside the configured roots", "--output-dir is outside the configured roots"),
+    ("output_dir is not a folder", "--output-dir is not a folder"),
+)
+
+
+def _flagged(text, flag):
+    """With --output-dir, a refusal of the flag's value (containment, a write
+    outside the roots, a file where the folder goes) names the flag, not the
+    key it replaced (#35). Only errors raised after the flag replaced
+    output_dir pass through here."""
+    if not flag:
+        return text
+    for key_text, flag_text in FLAG_TEXTS:
+        text = text.replace(key_text, flag_text)
+    return text
+
+
+def _config_error(e, flag):
+    print(f"gantry: error: {_flagged(str(e), flag)}", file=sys.stderr)
+
+
+def _build_all(config, *, marker=False):
+    """The full build. With `marker` (--output-dir), a build that wrote the
+    index writes build.json last, holding the exit code (#35)."""
     try:
         result = build_all(config)
     except ConfigError as e:
-        print(f"gantry: error: {e}", file=sys.stderr)
+        _config_error(e, marker)
         return 1
     _warn(result.warnings)
     # The plan's text is made here, before any view is rendered from the result.
@@ -205,37 +269,60 @@ def _build_all(config):
             print(f"gantry: warning: {what}: {s.reason}", file=sys.stderr)
     for s in result.summaries:
         if s.status != "built":
-            print(f"gantry: warning: site {shown(s.name)} is not built: {s.reason}", file=sys.stderr)
+            print(f"gantry: warning: site {shown(s.name)} is not built: {_flagged(s.reason, marker)}",
+                  file=sys.stderr)
     if result.week_error is not None:
-        print(f"gantry: error: {result.week_error}", file=sys.stderr)
+        print(f"gantry: error: {_flagged(result.week_error, marker)}", file=sys.stderr)
     if plan_error is not None:
-        print(f"gantry: error: cannot write {PLAN_FILE}: {plan_error}", file=sys.stderr)
+        print(f"gantry: error: cannot write {PLAN_FILE}: {_flagged(plan_error, marker)}", file=sys.stderr)
     if result.strategic_error is not None:
         # "cannot render" or "cannot write", as the week view's line; the index has no headline, shares or link (#23).
-        print(f"gantry: error: {result.strategic_error}", file=sys.stderr)
+        print(f"gantry: error: {_flagged(result.strategic_error, marker)}", file=sys.stderr)
     if index_error is not None:
-        # The index, or the output folder itself, cannot be written.
-        print(f"gantry: error: cannot write {index}: {index_error}", file=sys.stderr)
+        # The index, or the output folder itself, cannot be written: no marker.
+        print(f"gantry: error: cannot write {index}: {_flagged(index_error, marker)}", file=sys.stderr)
         return 1
     if not result.pages:
         print("gantry: error: no site page was written", file=sys.stderr)
-        return 1
-    return 0 if plan_error is None and result.week_error is None and result.strategic_error is None else 1
+        code = 1
+    else:
+        code = 0 if plan_error is None and result.week_error is None and result.strategic_error is None else 1
+    if marker:
+        # The last write: after the plan file, never printed (the fires line stays last on stdout).
+        try:
+            write_marker(result.roots, config.output_dir, code)
+        except (OSError, OutsideRoots) as e:
+            why = _flagged(why_not_written(e, result.roots), marker)
+            print(f"gantry: error: cannot write {MARKER_FILE}: {why}", file=sys.stderr)
+            return 1
+    return code
 
 
 def _build(args):
     _utf8_streams()
+    flag = args.output_dir is not None
+    if flag and not args.output_dir.strip():
+        print("gantry: error: --output-dir is empty", file=sys.stderr)
+        return 2
     try:
         config = load_config(args.config)
-        if args.site is None:
-            return _build_all(config)
+    except ConfigError as e:
+        # The config file's own faults keep their key's name, flag or not.
+        _config_error(e, False)
+        return 1
+    if flag:
+        # Replaced once: roots, sample mode, the stamp, writes and messages all read config.output_dir.
+        config = replace(config, output_dir=PurePath(os.path.abspath(args.output_dir)))
+    if args.site is None:
+        return _build_all(config, marker=flag)
+    try:
         roots = config_roots(config)
         sites, warnings = site_list(config, roots)
     except ConfigError as e:
-        print(f"gantry: error: {e}", file=sys.stderr)
+        _config_error(e, flag)
         return 1
     _warn(warnings)
-    return _build_site(config, roots, sites, args.site)
+    return _build_site(config, roots, sites, args.site, flag)
 
 
 # This command reads no WBS.md, so it cannot find the milestone leaf; the full
@@ -329,10 +416,26 @@ def _fires(args):
     return 0 if result.status == "read" else 1
 
 
+def _refresh(args):
+    # Imported here: refresh's subprocess, signal and secrets would otherwise
+    # load on every command, the build child each refresh starts included.
+    from gantry.refresh import refresh
+
+    _utf8_streams()
+    try:
+        config = load_config(args.config)
+    except ConfigError as e:
+        _config_error(e, False)
+        return 1
+    return refresh(config)
+
+
 def main(argv=None):
     args = _parser().parse_args(argv)
     if args.command == "portfolio":
         return _portfolio(args)
     if args.command == "fires":
         return _fires(args)
+    if args.command == "refresh":
+        return _refresh(args)
     return _build(args)

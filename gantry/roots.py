@@ -292,6 +292,42 @@ def program_on_path(name, environ) -> bool:
     return shutil.which(name, path=environ.get("PATH", os.defpath)) is not None
 
 
+# The extensions a bare program name is tried with on Windows when the
+# environment sets no PATHEXT, or an empty one.
+DEFAULT_PATHEXT = ".COM;.EXE;.BAT;.CMD"
+
+
+def find_program(name, environ) -> str | None:
+    """The program a child started with `environ` should run for `name`, or None.
+
+    A name holding a path separator is returned as given. Otherwise each
+    ABSOLUTE entry of `environ`'s PATH is tried in order (a missing PATH is
+    os.defpath; relative and empty entries are skipped), on Windows with each
+    PATHEXT extension, and the first existing executable file is returned.
+    Never the current folder and never shutil.which, which on Windows searches
+    the current folder first: with shell=False, Windows' CreateProcess searches
+    the interpreter's folder and the parent's current folder before PATH, so
+    a program planted in the scheduler's start-in folder would otherwise run
+    (#35).
+    """
+    if os.sep in name or (os.altsep and os.altsep in name):
+        return name
+    names = [name]
+    if os.name == "nt":
+        extensions = ([e for e in environ.get("PATHEXT", "").split(os.pathsep) if e]
+                      or DEFAULT_PATHEXT.split(os.pathsep))
+        if not any(name.lower().endswith(e.lower()) for e in extensions):
+            names = [name + e for e in extensions]
+    for entry in environ.get("PATH", os.defpath).split(os.pathsep):
+        if not entry or not os.path.isabs(entry):
+            continue
+        for candidate in names:
+            path = os.path.join(entry, candidate)
+            if os.path.isfile(path) and os.access(path, os.X_OK):
+                return path
+    return None
+
+
 def outside(roots, base) -> list[Root]:
     """The roots that are not `base` or under it, both sides resolved and
     case-normalised; the package root is never listed."""
@@ -312,7 +348,7 @@ def open_confined(roots, path, mode="r", *, key, site=None, follow_links=True, e
 
     `follow_links=False` refuses a path with a link component below its root
     with LinkRefused, without opening the target (gantry/devagent_records.py). A
-    write mode is provisional for #35's lock file.
+    write mode opens the refresh job's lock and log (#35).
     """
     write = any(c in mode for c in "wax+")
     resolved = _check(roots, path, key=key, site=site, write=write)
@@ -399,14 +435,14 @@ def write_confined(roots, path, data: bytes, *, key, site=None):
 
 
 def replace_confined(roots, src, dst, *, key, site=None):
-    """os.replace under a writable root (provisional for #35)."""
+    """os.replace under a writable root. No Gantry command calls it today."""
     source = _check_entry(roots, src, key=key, site=site)
     target = _check_entry(roots, dst, key=key, site=site)
     os.replace(source, target)
 
 
 def remove_confined(roots, path, *, key, site=None):
-    """os.remove under a writable root (provisional for #35)."""
+    """os.remove under a writable root. No Gantry command calls it today."""
     resolved = _check_entry(roots, path, key=key, site=site)
     os.remove(resolved)
 
@@ -440,7 +476,7 @@ def _makedirs(path):
 
 
 def rmtree_confined(roots, path, *, key, site=None):
-    """shutil.rmtree under a writable root (provisional for #35); like
-    shutil.rmtree, it refuses a link."""
+    """shutil.rmtree under a writable root (the refresh job's sweep, #35);
+    like shutil.rmtree, it refuses a link."""
     resolved = _check_entry(roots, path, key=key, site=site)
     shutil.rmtree(resolved)

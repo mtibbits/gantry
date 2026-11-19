@@ -1,7 +1,7 @@
 """The installation config: one TOML file that says where an installation's
 data lives (#7). docs/config.md is its reference.
 
-Every key is a row of KEYS, SITE_KEYS or REQUIREMENTS_KEYS. A later issue
+Every key is a row of KEYS, SITE_KEYS, REQUIREMENTS_KEYS or REFRESH_KEYS. A later issue
 adds a key by adding a row here, a field that load_config fills, a row in
 docs/config.md (tests enforce both) and a sample entry.
 """
@@ -54,6 +54,7 @@ KEYS = (
     Key("fires_check_days", "int_min_1", False, 3, "#30", "`fires_check_days`"),
     Key("requirements", "table", False, None, "#15", "`[requirements]`"),
     Key("site", "table", False, None, "#7", "`[site.<name>]`"),
+    Key("refresh", "table", False, None, "#35", "`[refresh]`"),
 )
 
 SITE_KEYS = (
@@ -65,6 +66,15 @@ SITE_KEYS = (
 REQUIREMENTS_KEYS = (
     Key("br_namespace", "id_token", False, DEFAULT_BR_NAMESPACE, "#15", "`br_namespace`"),
 )
+
+# The refresh job's table (#35): gantry refresh reads it; a build reads only `dir`, as a root.
+REFRESH_KEYS = (
+    Key("dir", "path", False, None, "#35", "`dir`", "directory"),
+    Key("interval_minutes", "int_1_to_1440", False, 15, "#35", "`interval_minutes`"),
+    Key("update", "commands", False, (), "#35", "`update`"),
+    Key("step_timeout_minutes", "int_1_to_1440", False, 10, "#35", "`step_timeout_minutes`"),
+)
+_REFRESH_KEYS_BY_NAME = {key.name: key for key in REFRESH_KEYS}
 
 _KEYS_BY_NAME = {key.name: key for key in KEYS}
 
@@ -89,6 +99,17 @@ class RequirementsSettings:
 
 
 @dataclass(frozen=True)
+class RefreshSettings:
+    """The `[refresh]` table, defaults filled; `update` is a tuple of commands,
+    each a tuple of words."""
+
+    dir: PurePath | None
+    interval_minutes: int
+    update: tuple[tuple[str, ...], ...]
+    step_timeout_minutes: int
+
+
+@dataclass(frozen=True)
 class Config:
     path: PurePath
     config_version: int
@@ -101,6 +122,7 @@ class Config:
     requirements: RequirementsSettings
     sites: dict[str, SiteOverride]
     fires_check_days: int
+    refresh: RefreshSettings
     # Not a key: true when the file wrote as_of, so a run can tell a pinned
     # date from the load-time default (#30's reference time).
     as_of_pinned: bool
@@ -163,9 +185,16 @@ def resolve_path(raw: str, base_dir, *, flavour: str) -> PurePath:
 
 # --- types -----------------------------------------------------------------------
 
+# The most minutes a [refresh] key may name (a day): interval_minutes and
+# step_timeout_minutes. update.json's reader holds its recorded interval to
+# the same bound.
+REFRESH_MINUTES_MAX = 1440
+
 _KIND_TEXT = {
     "int": "an integer",
     "int_min_1": "an integer, 1 or more",
+    "int_1_to_1440": f"an integer from 1 to {REFRESH_MINUTES_MAX}",
+    "commands": "a list of commands, each a non-empty list of strings",
     "path": "a path string",
     "date": "a TOML date (YYYY-MM-DD)",
     "positive_number": "a positive number",
@@ -215,6 +244,13 @@ def _kind_ok(kind: str, value) -> bool:
         return isinstance(value, int) and not isinstance(value, bool)
     if kind == "int_min_1":
         return _kind_ok("int", value) and value >= 1
+    if kind == "int_1_to_1440":
+        return _kind_ok("int", value) and 1 <= value <= REFRESH_MINUTES_MAX
+    if kind == "commands":
+        return isinstance(value, list) and all(
+            isinstance(command, list) and command and all(isinstance(word, str) for word in command)
+            for command in value
+        )
     if kind == "path":
         return isinstance(value, str) and value != ""
     if kind == "date":
@@ -327,6 +363,11 @@ def load_config(path) -> Config:
     if problem:
         raise fail(problem)
 
+    refresh_table = raw.get("refresh", {})
+    problem = _table_problem(refresh_table, REFRESH_KEYS, "refresh.")
+    if problem:
+        raise fail(problem)
+
     site_tables = raw.get("site", {})
     for name, table in site_tables.items():
         dotted = f"site.{name}"
@@ -360,6 +401,7 @@ def load_config(path) -> Config:
         )
         for name, table in site_tables.items()
     }
+    refresh_dir = resolved("refresh.dir", refresh_table.get("dir"))
     as_of = raw.get("as_of")
     as_of_pinned = as_of is not None
     if as_of is None:
@@ -378,5 +420,14 @@ def load_config(path) -> Config:
         ),
         sites=sites,
         fires_check_days=raw.get("fires_check_days", _KEYS_BY_NAME["fires_check_days"].default),
+        refresh=RefreshSettings(
+            dir=refresh_dir,
+            interval_minutes=refresh_table.get(
+                "interval_minutes", _REFRESH_KEYS_BY_NAME["interval_minutes"].default),
+            update=tuple(tuple(command) for command in refresh_table.get(
+                "update", _REFRESH_KEYS_BY_NAME["update"].default)),
+            step_timeout_minutes=refresh_table.get(
+                "step_timeout_minutes", _REFRESH_KEYS_BY_NAME["step_timeout_minutes"].default),
+        ),
         as_of_pinned=as_of_pinned,
     )
