@@ -10,10 +10,10 @@ names it with `fires_list` ([config reference](config.md#keys)).
 repository.** The sample in this repository (`samples/fires.md`) is
 fictional.
 
-Today `gantry fires` checks the file ([Checking the file](#checking-the-file)).
-No build reads it yet: the fire collector (#32) will read it in every
-build, and the daily page (#34) will show it. Gantry never writes to the
-file.
+`gantry fires` checks the file ([Checking the file](#checking-the-file)).
+Every full build reads it once and collects its fires
+([daily-screen.md](daily-screen.md#fires)), and the daily page (#34) will
+show them. Gantry never writes to the file.
 
 ## Entries
 
@@ -298,8 +298,8 @@ other three means the list may hold a fire Gantry could not see. One shape
 reads `read` and still hides a fire: a two- or three-space bullet under an
 entry whose box comes after a mark, which is a note
 ([Entry-like lines](#entry-like-lines)). The fire
-collector (#32) and the daily page (#34) will apply that rule; no page shows
-the fires list yet.
+collector applies that rule ([daily-screen.md](daily-screen.md#statuses-and-nothing-on-fire)),
+and the daily page (#34) will; no page shows the fires list yet.
 
 ## Checking the file
 
@@ -331,8 +331,9 @@ It exits 0 when the status is `read`; 1 when it is `read_with_problems`,
 `not_read` or `not_configured` (the last also says so on stderr), or when
 the installation config or the devagent config it names is invalid; and 2
 on a usage error such as a missing `--config`. It only reads, so the
-operator or a script can run it at any time. `gantry build` does not read
-the file yet (#32).
+operator or a script can run it at any time. `gantry build` reads the
+file too, for its fires, and prints only their count
+([The stdout line](daily-screen.md#the-stdout-line)).
 
 ## Editing from a phone
 

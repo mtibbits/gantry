@@ -32,10 +32,13 @@ MESSAGES = {
     "later": "{read!r} is later",
     "same_date": "{read!r} has the same date and sorts later",
     "undated": "its name has no date",
+    "bad_date": "its name's date {date} is not a valid date",
     "missing": "site.{site}.estimates: the file does not exist",
     "unlisted": "the planning directory cannot be listed: {reason}",
     "cannot_read": "estimates file {name!r} cannot be read: {reason}",
     "not_utf8": "estimates file {name!r} is not valid UTF-8 at byte {at}",
+    "no_table": "estimates file {name!r} has no line that starts a table whose first header cell is '#', "
+                "so no rows were read",
     "column_missing": "estimates file {name!r}: a table has no {column!r} column (first on line {line})",
     "cell_bad": "estimates file {name!r} line {line}: hours {cell!r} is not a number or a range above 0; "
                 "#{n} gives no hours",
@@ -50,6 +53,7 @@ class Found:
     date: date | None  # from the name; None when it has none
     report: tuple[ReportEntry, ...]
     key: str = "estimates file"  # how a refusal names it: a configured file by its key
+    bad_date: str | None = None  # the name's date text when it is not a valid date
 
 
 @dataclass(frozen=True)
@@ -67,6 +71,7 @@ class EstimatesRow:
 class EstimatesFile:
     rows: dict[str, EstimatesRow]  # keyed Issue-<digits as written>
     report: tuple[ReportEntry, ...]
+    read: bool  # False: the file cannot be read or has no # table, so it gives nothing
 
 
 def _entry(site, kind, message):
@@ -74,14 +79,15 @@ def _entry(site, kind, message):
 
 
 def _name_date(name):
-    """The date a file name gives, or None."""
+    """(date, bad): the date a file name gives, or None, and the name's date
+    text when it is not a valid date, or None."""
     m = DATED_RE.fullmatch(name)
     if not m:
-        return None
+        return None, None
     try:
-        return date.fromisoformat(m.group("date"))
+        return date.fromisoformat(m.group("date")), None
     except ValueError:
-        return None
+        return None, m.group("date")
 
 
 def find_estimates_file(roots, site, config) -> Found:
@@ -100,7 +106,8 @@ def find_estimates_file(roots, site, config) -> Found:
                 _entry(site.name, "estimates_unreadable", MESSAGES["missing"].format(site=site.name)),))
         except (OSError, ValueError, OutsideRoots):
             pass  # read_estimates_file reports why it cannot be opened
-        return Found(path, path.name, _name_date(path.name), (), key)
+        d, bad = _name_date(path.name)
+        return Found(path, path.name, d, (), key, bad)
     if site.planning_dir is None:
         return Found(None, None, None, ())
     try:
@@ -112,14 +119,14 @@ def find_estimates_file(roots, site, config) -> Found:
         return Found(None, None, None, (
             _entry(site.name, "estimates_unreadable", MESSAGES["unlisted"].format(reason=reason)),))
     dates = {n: _name_date(n) for n in names}
-    dated = [(d, n) for n, d in dates.items() if d is not None]
+    dated = [(d, n) for n, (d, _) in dates.items() if d is not None]
     report = []
     read = max(dated) if dated else None
-    for n, d in dates.items():
+    for n, (d, bad) in dates.items():
         if read is not None and n == read[1]:
             continue
         if d is None:
-            why = MESSAGES["undated"]
+            why = MESSAGES["bad_date"].format(date=bad) if bad is not None else MESSAGES["undated"]
         elif d < read[0]:
             why = MESSAGES["later"].format(read=read[1])
         else:
@@ -160,15 +167,16 @@ def read_estimates_file(roots, path, site: str, name: str, *, key="estimates fil
     except (OSError, ValueError, OutsideRoots) as e:
         reason = error_reason(e) or "unknown error"
         return EstimatesFile({}, (_entry(site, "estimates_unreadable",
-                                         MESSAGES["cannot_read"].format(name=name, reason=reason)),))
+                                         MESSAGES["cannot_read"].format(name=name, reason=reason)),), False)
     try:
         text = data.decode("utf-8")
     except UnicodeDecodeError as e:
         return EstimatesFile({}, (_entry(site, "estimates_unreadable",
-                                         MESSAGES["not_utf8"].format(name=name, at=e.start)),))
+                                         MESSAGES["not_utf8"].format(name=name, at=e.start)),), False)
     text = text.removeprefix("\ufeff")
     rows, report, missing = {}, [], set()
     columns = None  # {column: index} while inside a # table
+    seen_table = False  # whether any line started a # table
     # Split on "\n" only: str.splitlines() would also split inside a cell (U2).
     for number, line in enumerate(text.split("\n"), 1):
         line = line.removesuffix("\r")
@@ -177,6 +185,7 @@ def read_estimates_file(roots, path, site: str, name: str, *, key="estimates fil
             continue
         cells = _cells(line)
         if cells[0] == "#":
+            seen_table = True
             columns = {}
             for i, c in enumerate(cells):
                 columns.setdefault(c, i)
@@ -208,4 +217,6 @@ def read_estimates_file(roots, path, site: str, name: str, *, key="estimates fil
                     name=name, line=number, cell=cell("hours") or "", n=n)))
         lo, hi = hours if hours is not None else (None, None)
         rows[key] = EstimatesRow(number, cell("effort"), lo, hi, cell("thinking"), cell("checking"), cell("flags"))
-    return EstimatesFile(rows, tuple(report))
+    if not seen_table:
+        report.append(_entry(site, "estimates_no_table", MESSAGES["no_table"].format(name=name)))
+    return EstimatesFile(rows, tuple(report), seen_table)

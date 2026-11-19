@@ -357,6 +357,10 @@ def test_demo_builds_byte_identical(tmp_path, monkeypatch):
     assert (again[1] / PLAN_FILE).read_bytes() == one
 
 
+# The fixtures with a fire: cross_site and p0 hold open P0 leaves (#32).
+FIXTURE_FIRES_LINES = {"cross_site": "fires: 1; sources not fully read: 1", "p0": "fires: 4; sources not fully read: 1"}
+
+
 @pytest.mark.parametrize("base", FIXTURE_NAMES)
 def test_fixture_builds_byte_identical(tmp_path, base):
     files = []
@@ -364,7 +368,9 @@ def test_fixture_builds_byte_identical(tmp_path, base):
         folder = install(tmp_path, base)
         code, stdout, stderr = run_main("--config", str(folder / "gantry.toml"))
         assert code == 0, stderr
-        assert stdout.splitlines()[-1] == str(folder / "out" / PLAN_FILE)
+        # The plan file, then the fires line (#32); no fixture sets fires_list.
+        assert stdout.splitlines()[-2:] == [str(folder / "out" / PLAN_FILE), FIXTURE_FIRES_LINES.get(
+            base, "fires: 0; sources not fully read: 1")]
         files.append((folder / "out" / PLAN_FILE).read_bytes())
     assert files[0] == files[1]
     document = json.loads(files[0].decode("utf-8"))
@@ -410,7 +416,8 @@ def test_write_failure_exits_1(tmp_path, monkeypatch):
     assert sorted(p.name for p in out.iterdir()) == ["index.html", "sites", "strategic.html", PLAN_FILE, "week.html"]
     assert list((out / PLAN_FILE).iterdir()) == []
     assert stdout.splitlines() == [str(out / "sites" / "a.html"), str(out / "sites" / "b.html"),
-                                   str(out / "week.html"), str(out / "strategic.html"), str(out / "index.html")]
+                                   str(out / "week.html"), str(out / "strategic.html"), str(out / "index.html"),
+                                   "fires: 0; sources not fully read: 1"]
     # The view still received the plan.
     assert len(seen) == 1 and isinstance(seen[0], planner.WeekPlan) and seen[0].status == "planned"
 

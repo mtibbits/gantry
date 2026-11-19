@@ -36,9 +36,10 @@ Decisions:
 - D6 a repeated entry on one leaf counts once, unreported.
 - D7 a cycle within one file is the reader's; this module reports a cycle
   spanning namespaces once, at the member first in catalog order.
-- D8 with a `satisfies` key present, every other key equal to a known
-  namespace is reported as a probable unbracketed list, unless it follows
-  `objective:`, whose own report names it (#79).
+- D8 a key equal to a known namespace is reported as a probable unbracketed
+  list only when it is the key directly after `satisfies`, in the leaf's
+  key order, and `satisfies` is not a bracketed list (#114); one after
+  `objective:` is objective_ids' to report (#79).
 - D9 a leaf's `objective:` (#79) names IDs of its `satisfies:`; each serving
   entry is gating unless only those IDs reach the requirement. An entry not in
   `satisfies:`, or malformed, is reported and ignored.
@@ -53,7 +54,7 @@ from dataclasses import dataclass, replace
 from gantry import requirements
 from gantry.inputs import scheduled
 from gantry.links import id_href, leaf_href
-from gantry.model import meta_values
+from gantry.model import meta_scalar, meta_values
 from gantry.portfolio_file import PORTFOLIO_LABEL, Portfolio, PortfolioEntry, read_portfolio_file
 from gantry.requirements import (PROJECT_LAYERS, ReportEntry, ReqId, Requirement, RequirementSet, in_trace_sites,
                                  parse_id, read_requirements)
@@ -241,12 +242,12 @@ def satisfies_ids(leaf, namespaces) -> tuple[list[ReqId], list[ReportEntry]]:
                                         MESSAGES["malformed_satisfies"].format(entry=entry)))
         elif rid not in ids:
             ids.append(rid)
-    if "satisfies" in meta:
-        split = _split_keys(meta, namespaces)
-        for key in meta:
-            if key != "satisfies" and key in namespaces and split.get(key) != "objective":
-                problems.append(ReportEntry(LEAF_SOURCE, leaf.line, "unbracketed_list",
-                                            MESSAGES["unbracketed_list"].format(key=key)))
+    if meta_scalar(meta.get("satisfies")) is not None:
+        keys = list(meta)
+        after = keys.index("satisfies") + 1
+        if after < len(keys) and keys[after] in namespaces:
+            problems.append(ReportEntry(LEAF_SOURCE, leaf.line, "unbracketed_list",
+                                        MESSAGES["unbracketed_list"].format(key=keys[after])))
     return ids, problems
 
 

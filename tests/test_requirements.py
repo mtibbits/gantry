@@ -246,6 +246,7 @@ def test_second_indented_sibling_after_blank_is_nested():
         ("-\n  text\n\n  - FR-2: b\n", [], "FR-2", 4),
         # A thematic break inside the item does not end it.
         ("- FR-1: a\n\n  * * *\n\n  - FR-2: b\n", ["alpha:FR-1"], "FR-2", 5),
+        ("- FR-1: a\n  * * *\n  - FR-2: b\n", ["alpha:FR-1"], "FR-2", 3),
         # A list surely starts after a heading, after an HTML block's blank line, or after a list.
         ("# H\n- a\n\n  - FR-1: x\n", [], "FR-1", 4),
         ("<div>\n\n- a\n\n  - FR-1: x\n", [], "FR-1", 5),
@@ -278,6 +279,10 @@ def test_enclosing_item_spans_blank_lines(text, keys, id, line):
         ("* * *\n\n   - FR-1: a\n", ["alpha:FR-1"]),
         ("- FR-1: a\n\n* * *\n\n  - FR-2: b\n", ["alpha:FR-1", "alpha:FR-2"]),
         ("- Notes\n- - -\n\n  - FR-1: a\n", ["alpha:FR-1"]),
+        # Nor does it start an item, so the lines indented after it are not its text (#112).
+        ("* * *\n  - FR-1: a\n", ["alpha:FR-1"]),
+        ("- - -\n  - FR-1: a\n", ["alpha:FR-1"]),
+        ("- FR-1: a\n- - -\n  - FR-2: b\n", ["alpha:FR-1", "alpha:FR-2"]),
         # Only a line that surely starts a list encloses: not one that continues a paragraph, and
         # not one inside an HTML block. A page nests the last leg; the reader reads it as written.
         ("Para\n2. x\n\n   - FR-1: a\n", ["alpha:FR-1"]),
@@ -302,6 +307,116 @@ def test_item_under_a_prose_bullet_is_nested():
     (entry,) = s.report
     assert (entry.line, entry.kind) == (2, "malformed_item")
     assert "requirements are not nested" in entry.message
+
+
+NB = chr(0xA0)
+QUOTE = "'FR-1:' is not a requirement: inside a block quote"
+NBSP = "indented with U+00A0 (only spaces and tabs indent a list item)"
+
+
+@pytest.mark.parametrize("text, report", [
+    ("> - FR-1: a\n", [(1, "malformed_item", QUOTE)]),
+    (">- FR-1: a\n", [(1, "malformed_item", QUOTE)]),
+    ("> > - FR-1: a\n", [(1, "malformed_item", QUOTE)]),
+    ("  > - FR-1: a\n", [(1, "malformed_item", QUOTE)]),
+    (NB + "- FR-1: a\n", [(1, "malformed_item", "'FR-1:' is not a requirement: " + NBSP)]),
+    ("  " + NB + "- FR-1: a\n", [(1, "malformed_item", "'FR-1:' is not a requirement: " + NBSP)]),
+    ("> " + NB + "- FR-1: a\n", [(1, "malformed_item", QUOTE + "; " + NBSP)]),
+    # An ASCII text with no '>' still gets the check (a form feed is whitespace).
+    ("\f- FR-1: a\n", [(1, "malformed_item", "'FR-1:' is not a requirement: " + NBSP.replace("U+00A0", "U+000C"))]),
+    ("> - FR12: a\n",
+     [(1, "malformed_item", "'FR12:' is not a requirement: inside a block quote; no '-' between the code and the number")]),
+    ("# H\n\n> - FR-1: a\n", [(3, "malformed_item", QUOTE)]),
+    # A quoted comment is not a block comment, so the item inside it is reported.
+    ("> <!--\n> - FR-1: a\n> -->\n", [(2, "malformed_item", QUOTE)]),
+])
+def test_quoted_or_unusually_indented_candidate(text, report):
+    # An ID item in a block quote, or indented with a no-break space, is never silently lost (#112).
+    s = parse(text)
+    assert rows(s) == report
+    assert s.requirements == {}
+
+
+@pytest.mark.parametrize("text, line, why", [
+    ("- FR-1: a\n  > - FR-2: b\n", 2, "inside a block quote"),
+    ("- FR-1: a\n\n  > - FR-2: b\n", 3, "inside a block quote"),
+    ("- FR-1: a\n  " + NB + "- FR-2: b\n", 2, NBSP),
+])
+def test_quoted_candidate_under_an_item(text, line, why):
+    # The quote or the odd indent is the cause, so no "not nested" reason, whether or not a blank line comes first.
+    s = parse(text)
+    assert rows(s) == [(line, "malformed_item", "'FR-2:' is not a requirement: " + why)]
+    assert list(s.requirements) == ["alpha:FR-1"]
+
+
+NOT_NESTED = "requirements are not nested"
+
+
+@pytest.mark.parametrize("text, report, keys", [
+    # An item that starts on another list item's line is looked inside, quoted or not.
+    ("- > - FR-1: a\n", [(1, "malformed_item", QUOTE)], []),
+    ("* > - FR-1: a\n", [(1, "malformed_item", QUOTE)], []),
+    ("1. > - FR-1: a\n", [(1, "malformed_item", QUOTE)], []),
+    ("- FR-9: x\n  - > - FR-1: a\n", [(2, "malformed_item", QUOTE)], ["alpha:FR-9"]),
+    ("- - FR-1: a\n", [(1, "malformed_item", "'FR-1:' is not a requirement: " + NOT_NESTED)], []),
+    ("- x\n- - FR-1: a\n", [(2, "malformed_item", "'FR-1:' is not a requirement: " + NOT_NESTED)], []),
+    ("> - - FR-1: a\n", [(1, "malformed_item", QUOTE)], []),
+    ("- > - > - FR-1: a\n", [(1, "malformed_item", QUOTE)], []),
+    ("- 3. FR-1: a\n", [(1, "malformed_item", "'FR-1:' is not a requirement: an ordered list item (a requirement "
+                                            "uses -, * or +); " + NOT_NESTED)], []),
+    # Prose inside: nothing is reported.
+    ("- - note\n", [], []),
+    ("- 2024. was a good year\n", [], []),
+    ("- > a quoted note\n", [], []),
+])
+def test_item_on_another_items_line(text, report, keys):
+    s = parse(text)
+    assert rows(s) == report
+    assert list(s.requirements) == keys
+
+
+FENCE = "`" * 3
+
+
+def Q(n, id="FR-1"):
+    return (n, "malformed_item", QUOTE.replace("FR-1", id))
+
+
+@pytest.mark.parametrize("text, report", [
+    # A fence inside a block quote hides nothing: an ID item in a quoted example is reported, never lost.
+    ("> " + FENCE + "text\n> - FR-1: a\n> " + FENCE + "\n", [Q(2)]),
+    ("> > " + FENCE + "\n> > - FR-1: a\n> > " + FENCE + "\n", [Q(2)]),
+    ("> ````\n> " + FENCE + "\n> - FR-1: x\n> ````\n> - FR-2: y\n", [Q(3), Q(5, "FR-2")]),
+    ("> " + FENCE + "\n> code\n\n- FR-1: a\n> - FR-2: b\n", [Q(5, "FR-2")]),
+    ("> " + FENCE + "\n> code\n\n- FR-1: a\n" + NB + "- FR-2: b\n",
+     [(5, "malformed_item", "'FR-2:' is not a requirement: " + NBSP)]),
+    ("> " + FENCE + "\n> code\n>\t" + FENCE + "\n> - FR-1: a\n", [Q(4)]),
+    ("> > " + FENCE + "\n> - FR-1: a\n", [Q(2)]),
+    (">\t\t> " + FENCE + "\n> > - FR-1: a\n", [Q(2)]),
+    ("> - x\n>   " + FENCE + "\n> - FR-1: a\n", [Q(3)]),
+    ("- FR-9: x\n  > " + FENCE + "\n> - FR-1: a\n", [Q(3)]),
+    ("- FR-9: x\n    > " + FENCE + "\n    > - FR-1: a\n    > " + FENCE + "\n", [Q(3)]),
+])
+def test_quoted_fence_hides_nothing(text, report):
+    s = parse(text)
+    assert rows(s) == report
+
+
+@pytest.mark.parametrize("text", [
+    "> - note: x\n",
+    NB + "- note: x\n",
+    "> FR-1: a\n",
+    "```text\n> - FR-1: a\n```\n",
+    "<!--\n> - FR-1: a\n-->\n",
+    NB + "\n",
+    "  " + NB + "\n",
+    # Just outside the grammar: U+200B is not whitespace.
+    chr(0x200B) + "- FR-1: a\n",
+])
+def test_quoted_or_unusually_indented_prose_is_silent(text):
+    s = parse(text)
+    assert rows(s) == []
+    assert s.requirements == {}
 
 
 def test_nested_items_block_is_not_the_parents():
@@ -624,6 +739,13 @@ def test_hostile_comment_files_are_fast():
     assert time.perf_counter() - start < 2
 
 
+def test_many_blocks_on_one_item_are_fast():
+    # Each block is checked against the item's line ends once (#112): never per block, per line.
+    start = time.perf_counter()
+    parse("- FR-1: x {refines: SR-1}\n" + "  {a: b}\n" * 20_000)
+    assert time.perf_counter() - start < 2
+
+
 HOSTILE = [
     "- " + "a" * 100_000,
     "- " + "a-" * 50_000,
@@ -638,6 +760,10 @@ HOSTILE = [
     "- FR-1: x " + "<!-- a --> " * 9_000,
     "<!--" * 25_000,
     "- FR-1: x " + "`` ` " * 20_000 + "<!--",
+    ">" * 100_000 + " - FR-1: x",
+    "- " * 50_000 + "FR-1: x",
+    "- > " * 25_000 + "x",
+    chr(0xA0) * 100_000 + "- FR-1: x",
 ]
 
 
@@ -659,18 +785,33 @@ def _unreadable(tmp_path, case):
         bad = tmp_path / "bad.md"
         bad.write_bytes(b"- FR-1: caf\xe9\n")
         return bad
+    if case == "under-file":
+        file = tmp_path / "file.md"
+        file.write_bytes(b"- FR-1: a\n")
+        return file / "x.md"
     return tmp_path / "a\x00b.md"
 
 
-@pytest.mark.parametrize("case", ["missing", "directory", "not-utf8", "nul"])
+# Each cause reads alike on every operating system (#112): the OS's own text
+# differs (a directory is "Permission denied" on Windows, "Is a directory" on
+# Linux), so only a NUL keeps the OS's reason.
+UNREADABLE = {
+    "missing": "the requirements file does not exist",
+    "under-file": "the requirements file does not exist",
+    "directory": "the requirements file is not a file",
+    "not-utf8": "the requirements file is not valid UTF-8 at byte 11",
+}
+
+
+@pytest.mark.parametrize("case", ["missing", "under-file", "directory", "not-utf8", "nul"])
 def test_read_unreadable(tmp_path, case):
     path = _unreadable(tmp_path, case)
     s = read_requirements(roots_around(path), path, "alpha", layers=PROJECT_LAYERS, br_namespace="life")
     assert s.requirements == {}
     (entry,) = s.report
     assert (entry.kind, entry.line, entry.source) == ("unreadable", None, str(path))
-    if case == "not-utf8":
-        assert entry.message == "the requirements file is not valid UTF-8 at byte 11"
+    if case in UNREADABLE:
+        assert entry.message == UNREADABLE[case]
     else:
         assert entry.message.startswith("cannot read the requirements file: ")
 
@@ -786,6 +927,37 @@ def test_section_line_numbers():
     assert "on line 40;" in entry.message
 
 
+@pytest.mark.parametrize("ws", [chr(0xA0), chr(0x2028), chr(0x1C)])
+def test_unicode_whitespace_line_ends_the_text(ws):
+    # A line of only whitespace, Unicode whitespace included, is blank (#112): it ends the text.
+    s = parse("- FR-1: a\n  b\n  " + ws + "\n  c\n")
+    assert _fr1(s).text == "a b"
+    assert rows(s) == []
+
+
+@pytest.mark.parametrize("text, texts, report_lines", [
+    # A CR-only file is one line: FR-1 keeps no CR and no text of FR-2.
+    ("- FR-1: a\r- FR-2: b\r", {"alpha:FR-1": "a"}, [1]),
+    ("- FR-1: a\r\n- FR-2: b\r- FR-3: c\n", {"alpha:FR-1": "a", "alpha:FR-2": "b"}, [2]),
+    # CRLF, and a bare CR with only whitespace after it, lose nothing.
+    ("- FR-1: a\r\n- FR-2: b\r\n", {"alpha:FR-1": "a", "alpha:FR-2": "b"}, []),
+    ("- FR-1: a\r\r\n", {"alpha:FR-1": "a"}, []),
+])
+def test_bare_carriage_return(text, texts, report_lines):
+    # A CR with no LF after it cuts its line and is reported, never silently joined (#112).
+    s = parse(text)
+    assert {k: r.text for k, r in s.requirements.items()} == texts
+    assert not any("\r" in r.text for r in s.requirements.values())
+    assert rows(s) == [(n, "malformed_item", req.BARE_CR) for n in report_lines]
+
+
+def test_bare_carriage_return_counts_from_first_line():
+    s = parse_requirements("- BR-1: a\r- BR-2: b", "life", source="portfolio", first_line=40, layers={"BR"},
+                           br_namespace="life")
+    assert list(s.requirements) == ["life:BR-1"]
+    assert rows(s) == [(40, "malformed_item", req.BARE_CR)]
+
+
 def test_report_order():
     s = parse("- FR-1: x {refines: SR-7, owner: y}\n- FR12: bad\n- FR-2: y {refines: FR-2}\n")
     got = [(e.line, e.kind) for e in s.report]
@@ -820,6 +992,72 @@ def test_broken_opener_beside_a_block_leaves_the_block_read():
 def test_meta_entry_with_no_key():
     (entry,) = parse("- FR-1: x {refines: SR-1, SR-2}\n- SR-1: y\n").report
     assert entry.message == "the meta block '{refines: SR-1, SR-2}' cannot be read: an entry with no key"
+
+
+@pytest.mark.parametrize("text, key, field, value", [
+    ("- FR-1: a {refines: SR-1, }\n- SR-1: s\n", "alpha:FR-1", "refines", rid("SR-1")),
+    ("- FR-1: a {refines: SR-1,}\n- SR-1: s\n", "alpha:FR-1", "refines", rid("SR-1")),
+    ("- UC-1: a {needs: [FR-1], , }\n- FR-1: f\n", "alpha:UC-1", "needs", [rid("FR-1")]),
+])
+def test_empty_meta_entry_is_skipped(text, key, field, value):
+    # A trailing comma's empty entry is skipped, as devagent skips it (#112).
+    s = parse(text)
+    assert rows(s) == []
+    assert getattr(s.requirements[key], field) == value
+
+
+MALFORMED_LIST = req.MALFORMED_LIST
+
+
+@pytest.mark.parametrize("text, report, field, value", [
+    ("- UC-1: c {needs: [FR-1] [FR-2]}\n- FR-1: a\n- FR-2: b\n",
+     [(1, "malformed_meta", "needs: " + MALFORMED_LIST)], ("alpha:UC-1", "needs"), []),
+    ("- UC-1: c {needs: [FR-1] x}\n- FR-1: a\n",
+     [(1, "malformed_meta", "needs: " + MALFORMED_LIST)], ("alpha:UC-1", "needs"), []),
+    ("- FR-1: a {refines: [SR-1] [SR-2]}\n- SR-1: s\n",
+     [(1, "malformed_meta", "refines: " + MALFORMED_LIST)], ("alpha:FR-1", "refines"), None),
+    # Per key: the block's other keys are still read.
+    ("- FR-1: a {refines: SR-1, note: [x] [y]}\n- SR-1: s\n",
+     [(1, "malformed_meta", "unknown key 'note' in the meta block (a requirement's keys are refines and needs)")],
+     ("alpha:FR-1", "refines"), "SR-1"),
+    # The misplaced check stays first.
+    ("- FR-1: a {needs: [x] [y]}\n",
+     [(1, "misplaced", "needs: on alpha:FR-1, which is not a use case; it is not read")],
+     ("alpha:FR-1", "needs"), []),
+])
+def test_list_with_text_after_its_bracket(text, report, field, value):
+    # A list whose ']' is not its value's end is malformed, not empty (#112).
+    s = parse(text)
+    assert rows(s) == report
+    got = getattr(s.requirements[field[0]], field[1])
+    assert got == (rid(value) if isinstance(value, str) else value)
+
+
+NEITHER = "key '{}' is repeated in the meta block; the first is not read, so neither is"
+
+
+@pytest.mark.parametrize("text, first, key", [
+    ("- UC-1: c {needs: [x] [y], needs: [FR-1]}\n- FR-1: a\n", (1, "malformed_meta", "needs: " + MALFORMED_LIST),
+     "needs"),
+    ("- FR-2: c {refines: [SR-1], refines: SR-1}\n- SR-1: a\n",
+     (1, "malformed_meta", "refines: takes one target, not a list; it is not read"), "refines"),
+    ("- FR-2: c {needs: [x] [y], needs: [FR-1]}\n- FR-1: a\n",
+     (1, "misplaced", "needs: on alpha:FR-2, which is not a use case; it is not read"), "needs"),
+    # A first value whose target is rejected is not read either.
+    ("- FR-2: c {refines: life:BR-1, refines: SR-1}\n- SR-1: a\n",
+     (1, "misplaced", "refines: life:BR-1 is in the installation namespace 'life', "
+                      "which only the portfolio file may link to; it is not read"), "refines"),
+    ("- FR-2: c {refines: nope, refines: SR-1}\n- SR-1: a\n",
+     (1, "malformed_link", "refines: 'nope' is not a requirement ID"), "refines"),
+    ("- UC-1: c {needs: [nope], needs: [FR-1]}\n- FR-1: a\n",
+     (1, "malformed_link", "needs: 'nope' is not a requirement ID"), "needs"),
+])
+def test_unread_key_then_repeated(text, first, key):
+    # The first is not kept when it was not read: the report says neither is read.
+    s = parse(text)
+    assert sorted(rows(s)) == sorted([first, (1, "malformed_meta", NEITHER.format(key))])
+    r = next(r for r in s.requirements.values() if r.id.number == 2 or r.id.code == "UC")
+    assert (r.refines, r.needs) == (None, [])
 
 
 def test_misplaced_item_is_dropped_before_its_block():
@@ -1004,6 +1242,27 @@ def test_format_doc_states_rules():
     assert [w for w in wanted if w not in doc] == []
 
 
+def test_format_doc_states_report_causes():
+    # Each cause the reader names (#112) is stated in the format doc.
+    text = FORMAT_DOC.read_bytes().decode("utf-8")
+    doc = " ".join(text.split())
+    wanted = [
+        "the requirements file is not a file", "the requirements file does not exist",
+        "a path under a file",
+        MALFORMED_LIST, "after a trailing comma", "any other block that ends a line of the text",
+        "the lines indented after it are not its text",
+        "> - FR-3: inside a block quote", NBSP, "zero-width space", "> - Q3: revenue",
+        "a quoted ID item inside either is still reported",
+        req.BARE_CR, "a bare carriage return is still reported there",
+        "any character Python's `str.isspace()` accepts",
+        "with no line feed after it and text after it", "the first is not read, so neither is",
+        "a fence inside a block quote (`> ```` `) hides nothing", "show such an example in an unquoted fence",
+        "outside fences and comments as the reader pairs them",
+        "candidate that starts on another list item's line, after its marker",
+    ]
+    assert [w for w in wanted if w not in doc] == []
+
+
 def test_format_doc_examples_read_clean():
     blocks = doc_blocks(FORMAT_DOC.read_bytes().decode("utf-8"))
     project = [body for info, body in blocks if info == "markdown"]
@@ -1042,6 +1301,30 @@ def SECOND(n, word):
 
 def INSIDE(n):
     return (n, "malformed_meta", "a meta block inside the text; it stays in the text and is not read")
+
+
+SECOND_BLOCK = (1, "malformed_meta", "a second meta block on one item; it stays in the text and is not read")
+TWO = "- SR-1: s\n- SR-2: t\n"
+
+
+@pytest.mark.parametrize("text, report, fr_text, refines", [
+    # Both on continuation lines: the own text's LAST block is read (3a, 3b).
+    ("- FR-2: b\n  {refines: SR-1}\n  {refines: SR-2}\n", [SECOND_BLOCK], "b {refines: SR-1}", "SR-2"),
+    ("- FR-2: b\n  c {refines: SR-1}\n  d {refines: SR-2}\n", [SECOND_BLOCK], "b c {refines: SR-1} d", "SR-2"),
+    # The first line's block is read.
+    ("- FR-2: b {refines: SR-1}\n  {refines: SR-2}\n", [SECOND_BLOCK], "b {refines: SR-2}", "SR-1"),
+    # A mid-line block is still inside the text.
+    ("- FR-2: b\n  x {refines: SR-1} y\n  {refines: SR-2}\n", [INSIDE(1)], "b x {refines: SR-1} y", "SR-2"),
+    # A block ending a nested item's line is a second block too.
+    ("- FR-2: a {refines: SR-1}\n  - sub {refines: SR-2}\n  - more\n", [SECOND_BLOCK],
+     "a - sub {refines: SR-2} - more", "SR-1"),
+])
+def test_second_block_wherever_the_first_sits(text, report, fr_text, refines):
+    # When a block is read, another block that ends a line is a second block, wherever the read one sits (#112).
+    s = parse(text + TWO)
+    assert rows(s) == report
+    r = s.requirements["alpha:FR-2"]
+    assert (r.text, r.refines) == (fr_text, rid(refines))
 
 
 def fields(r):

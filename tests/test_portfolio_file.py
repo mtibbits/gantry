@@ -131,6 +131,106 @@ def test_settings_in_a_comment_are_not_read(tmp_path):
     assert p.settings_read is False
 
 
+# A heading may be indented up to three spaces, as CommonMark has it; four
+# spaces, or a tab before the first '#', is not a heading (#118).
+INDENTS = [(" ", True), ("  ", True), ("   ", True), ("    ", False), ("\t", False), (" \t", False)]
+INDENT_IDS = ["1sp", "2sp", "3sp", "4sp", "tab", "sp-tab"]
+BR1 = "- BR-1: Keep the household running.\n"
+
+
+@pytest.mark.parametrize(("indent", "is_heading"), INDENTS, ids=INDENT_IDS)
+def test_indented_settings_heading(tmp_path, indent, is_heading):
+    p = write(tmp_path, commented("## Settings\n", indent + "## Settings\n"))
+    if is_heading:
+        assert entries(p) == []
+        assert p.settings_read is True
+        assert p.key_lines["capacity.agent_lanes"] == 16
+    else:
+        assert entries(p) == [("no_settings", SETTINGS, None, None)]
+        assert p.settings_read is False
+
+
+@pytest.mark.parametrize(("indent", "is_heading"), INDENTS, ids=INDENT_IDS)
+def test_indented_br_heading(tmp_path, indent, is_heading):
+    p = write(tmp_path, commented("## Business requirements\n", indent + "## Business requirements\n"))
+    if is_heading:
+        assert entries(p) == []
+        assert list(p.brs.requirements) == ["life:BR-1"]
+        assert p.brs.requirements["life:BR-1"].line == 7
+    else:
+        assert entries(p) == [("no_br_section", BRS, None, None)]
+        assert p.brs.requirements == {}
+
+
+@pytest.mark.parametrize(("heading", "brs"), [
+    ("  ## Notes", ["life:BR-1"]),
+    (" # Appendix", ["life:BR-1"]),
+    ("   ## Notes", ["life:BR-1"]),
+    ("\n   ## Notes\n", ["life:BR-1"]),
+    ("   ### Detail", ["life:BR-1", "life:BR-2"]),
+    ("    ## Notes", ["life:BR-1", "life:BR-2"]),
+    ("\t## Notes", ["life:BR-1", "life:BR-2"]),
+], ids=["l2-2sp", "l1-1sp", "l2-3sp", "l2-3sp-spaced", "l3-3sp", "l2-4sp", "l2-tab"])
+def test_indented_heading_ends_the_br_section(tmp_path, heading, brs):
+    # Indentation is counted from the line, not from the BR-1 list item (#118).
+    p = write(tmp_path, commented(BR1, BR1 + heading + "\n- BR-2: Second.\n"))
+    assert entries(p) == []
+    assert list(p.brs.requirements) == brs
+    assert p.settings_read is True
+
+
+SECOND_SETTINGS = "a second '## Settings' heading; only the first (line 9) is read"
+SECOND_TOML = "a second toml block under '## Settings'; only the first (line 11) is read"
+
+
+@pytest.mark.parametrize(("old", "new", "tail", "entry", "message"), [
+    ("", "", "\n  ## Settings\n\n```toml\nportfolio_version = 2\n```\n",
+     ("duplicate_section", SETTINGS, 19, None), SECOND_SETTINGS),
+    ("", "", "\n   ## Settings\n\nNothing.\n", ("duplicate_section", SETTINGS, 19, None), SECOND_SETTINGS),
+    ("## Settings\n", " ## Business requirements\n\n- BR-2: Second.\n\n## Settings\n", "",
+     ("duplicate_section", BRS, 9, None),
+     "a second '## Business requirements' heading; only the first (line 5) is read"),
+    ("", "", "\n    ## Settings\n\n```toml\nportfolio_version = 2\n```\n",
+     ("duplicate_section", SETTINGS, 21, None), SECOND_TOML),
+], ids=["settings-2sp-block", "settings-3sp-bare", "br-1sp", "settings-4sp-control"])
+def test_indented_second_heading_is_a_duplicate(tmp_path, old, new, tail, entry, message):
+    p = write(tmp_path, commented(old, new) + tail)
+    assert entries(p) == [entry]
+    assert p.report[0].message == message
+    assert p.settings_read is True
+    assert list(p.brs.requirements) == ["life:BR-1"]
+
+
+@pytest.mark.parametrize(("tail", "read"), [
+    ("  # Appendix", False),
+    ("  ## Notes", False),
+    ("    # Appendix", True),
+], ids=["l1-2sp", "l2-2sp", "l1-4sp"])
+def test_indented_heading_ends_the_settings_section(tmp_path, tail, read):
+    # The line sits between '## Settings' and its toml block, so it ends the
+    # section before the block.
+    p = write(tmp_path, commented("## Settings\n", "## Settings\n\n" + tail + "\n"))
+    if read:
+        assert entries(p) == []
+        assert p.settings_read is True
+    else:
+        assert entries(p) == [("no_settings", SETTINGS, None, None)]
+        assert p.settings_read is False
+
+
+def test_indented_heading_silences_the_checks_below_it(tmp_path):
+    # BR-01 is malformed, but it sits below a heading that ends the section.
+    p = write(tmp_path, commented(BR1, BR1 + "  ## Notes\n- BR-01: Zero.\n"))
+    assert entries(p) == []
+    assert list(p.brs.requirements) == ["life:BR-1"]
+
+
+def test_indented_heading_moves_a_comment_out_of_the_br_section(tmp_path):
+    p = write(tmp_path, commented(BR1, BR1 + "\n  ## Notes\n\n<!--\n"))
+    assert entries(p) == [("malformed_comment", None, 11, None), ("no_settings", SETTINGS, None, None)]
+    assert p.report[0].message == UNCLOSED
+
+
 UNCLOSED = "an HTML comment with no closing '-->' hides every line after it"
 
 
@@ -534,6 +634,35 @@ def test_block_default_follows_a_larger_minimum(tmp_path):
     assert p.capacity.block_default_hours == 3
 
 
+HUGE = "1" * 400
+
+
+@pytest.mark.parametrize(
+    ("key", "rule", "default"),
+    [
+        ("capacity.block_min_hours", "a finite number above 0", 1),
+        ("capacity.block_start_cost_hours", "a finite number, 0 or more", 0.25),
+        ("thresholds.share_gap_points", "a finite number above 0", 10),
+        ("capacity.block_default_hours", "a finite number, at least block_min_hours", 2),
+    ],
+)
+def test_huge_int_setting_is_bad_value(tmp_path, key, rule, default):
+    # An int too large to convert to a float is not finite (#117).
+    table, name = key.split(".")
+    p = write(tmp_path, f"## Settings\n\n```toml\nportfolio_version = 1\n[{table}]\n{name} = {HUGE}\n```\n")
+    assert bad_values(p) == {key: (6, f"must be {rule}, not a very large integer; the default {default} is used")}
+    assert getattr(getattr(p, table), name) == default
+
+
+def test_huge_int_attention_day_still_bad_value(tmp_path):
+    # The day's own 0-to-24 check refused a huge int before #117 too.
+    p = write(tmp_path, f"## Settings\n\n```toml\nportfolio_version = 1\n[capacity]\n"
+                        f"attention_hours = {{ mon = {HUGE} }}\n```\n")
+    assert bad_values(p) == {"capacity.attention_hours.mon": (
+        6, "must be a finite number from 0 to 24, not a very large integer; the day reads 0")}
+    assert p.capacity.attention_hours["mon"] == 0
+
+
 @pytest.mark.parametrize(
     ("value", "read"),
     [
@@ -565,8 +694,15 @@ def test_reserved_exceeds_capacity(tmp_path):
     assert p.report[0].message == "reserved blocks on mon total 5 hours, more than its 4 attention hours"
     assert [(r.day, r.start, r.hours, r.label, r.line) for r in p.capacity.reserved] == [
         ("mon", "09:00", 3, None, 19), ("mon", "13:00", 2, "Standing meeting", 24), ("tue", "09:00", 2, None, 30)]
-    # A 400-digit hours value is a valid number: reported, never raised.
+    # A 400-digit hours value is not finite (#117): its block is reported and
+    # set aside, so nothing exceeds capacity. Never raised.
     p = write(tmp_path, fixture_with("reserved_exceeds_capacity.md", "hours = 3\n", "hours = 1" + "0" * 400 + "\n"))
+    assert [(e.kind, e.key_path, e.message) for e in p.report] == [
+        ("bad_value", "capacity.reserved[1].hours",
+         "must be a finite number above 0, not a very large integer; the reserved block is set aside")]
+    # A 21-digit hours value converts to a float, so it is a valid number: its
+    # total is named, never formatted.
+    p = write(tmp_path, fixture_with("reserved_exceeds_capacity.md", "hours = 3\n", "hours = 1" + "0" * 20 + "\n"))
     assert [e.message for e in p.report] == [
         "reserved blocks on mon total a very large number of hours, more than its 4 attention hours"]
 
@@ -689,16 +825,22 @@ def test_bad_allocation(tmp_path):
         f"share {BUSY} must be a number, 0 or more, not a boolean; this allocation is not used",
     ]
     assert p.allocations == []
-    # A 400-digit share is reported, never raised; a missing shares table is
-    # reported on its allocation's header line.
-    text = fixture_with("bad_allocation.md", "orchard = 49", "orchard = 1" + "0" * 400)
-    text = text.replace("[[allocation]]\nfrom = 2026-04-06\n[allocation.shares]\nharbor = true\norchard = 100\n",
-                        "[[allocation]]\nfrom = 2026-04-06\n")
+    # A 400-digit share is not finite (#117): reported as that share, never
+    # raised; a missing shares table is reported on its allocation's header line.
+    no_shares = ("[[allocation]]\nfrom = 2026-04-06\n[allocation.shares]\nharbor = true\norchard = 100\n",
+                 "[[allocation]]\nfrom = 2026-04-06\n")
+    text = fixture_with("bad_allocation.md", "orchard = 49", "orchard = 1" + "0" * 400).replace(*no_shares)
     p = write(tmp_path, text)
     assert [(e.line, e.key_path, e.message) for e in p.report][0] == (
-        20, "allocation[1].shares", "the shares sum to a very large number, not 100; this allocation is not used")
+        20, "allocation[1].shares.orchard",
+        "share orchard must be a number, 0 or more, not a very large integer; this allocation is not used")
     assert [(e.line, e.key_path, e.message) for e in p.report][-1] == (
         35, "allocation[4].shares", "no shares table; this allocation is not used")
+    # A 21-digit share converts to a float, so it is a valid number: the sum
+    # is named, never formatted.
+    p = write(tmp_path, fixture_with("bad_allocation.md", "orchard = 49", "orchard = 1" + "0" * 20).replace(*no_shares))
+    assert [(e.line, e.key_path, e.message) for e in p.report][0] == (
+        20, "allocation[1].shares", "the shares sum to a very large number, not 100; this allocation is not used")
 
 
 def test_shares_within_tolerance(tmp_path):
@@ -995,6 +1137,32 @@ def _doc_default(default):
 
 def doc_text(path):
     return path.read_bytes().decode("utf-8")
+
+
+def test_doc_states_huge_int_not_finite():
+    # #117: a 400-digit value is refused like inf and nan only where the rule
+    # says a finite number; an integer key's rule never does.
+    assert ("where a rule says a finite number, so is an integer too large to convert to a float"
+            in " ".join(doc_text(PORTFOLIO_DOC).split()))
+    assert [k.path for k in pf.SETTINGS_KEYS if k.rule in (pf._INT_0, pf._INT_1) and "finite" in k.rule] == []
+
+
+def test_doc_states_heading_indent():
+    # #118: a heading may be indented up to three spaces, as CommonMark has it.
+    text = " ".join(doc_text(PORTFOLIO_DOC).split())
+    for clause in [
+        "A heading is an ATX heading: up to three spaces from the start of the line, then one to six `#`",
+        "That is CommonMark's indent",
+        "four or more spaces, or a tab before the first `#`",
+        "Fences keep the requirements format's indentation rule, not this one",
+        "an indented `## Notes` ends the business-requirements section",
+        "with their checks, are not read",
+        "between `## Settings` and its toml block hides the block",
+        "Indentation is counted from the line, not from an enclosing list item",
+        "four or more columns (spaces, or a tab) under a list item is not a heading",
+    ]:
+        assert clause in text, clause
+    assert "A heading is an ATX heading at the start of a line" not in text
 
 
 def test_doc_rows_match_registry():

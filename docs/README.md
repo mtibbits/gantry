@@ -21,6 +21,9 @@ and how to try the demo.
 - [fires-list.md](fires-list.md): the fires list, the operator's private
   list of fires that are not leaves yet, its entries and how they end, and
   how `gantry fires` checks it.
+- [daily-screen.md](daily-screen.md): the daily screen; today the fires
+  every full build collects across sites, what each status means, and the
+  `fires:` line the build prints.
 - [week-plan.md](week-plan.md): how Gantry estimates each leaf's attention
   need, how the build plans the week, what `week-plan.json` holds and what
   the week view page shows.

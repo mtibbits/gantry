@@ -2,7 +2,9 @@
 that are not leaves yet (#30). docs/fires-list.md states the rules.
 
 The module owns its report kinds and its report entry, never
-gantry.model's: the fire collector (#32) merges the two reports. Every
+gantry.model's: no site's report holds a fires-list entry, and the full
+build keeps the list it read, report included, on its result for the fire
+collector (#32) and the daily page (#34). Every
 `line` is a 1-based file line. No message holds a path: the file is always
 "the fires list", named by its config key.
 """

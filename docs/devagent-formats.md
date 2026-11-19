@@ -13,9 +13,10 @@ notices when devagent's writers change shape.
 (`samples/harbor/Issue-N/` and `tests/fixtures/devagent_records/`) are
 fictional.
 
-No build reads the records yet: the fire collector (#32) reads each site's
-records once per build, and the warm-up list (#33) and the time thieves (#29)
-use the same result.
+The full build reads each site's records once: the fire collector (#32)
+reads its STUCK markers and checklists
+([daily-screen.md](daily-screen.md#stuck-markers)), and the warm-up list
+(#33) and the time thieves (#29) will use the same result.
 
 ## The pinned release
 

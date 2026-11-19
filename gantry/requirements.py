@@ -6,22 +6,23 @@ A requirements file is Markdown; a requirement is an unordered list item whose
 text starts with a bare ID and a colon (`- FR-12: <text>`). Lines in fences and
 block HTML comments are hidden. A requirement may hold one `Threshold:` and one
 `Objective:` statement, a list item directly under it (#79). Every other line is
-prose, except an ID-shaped item that is not a requirement, a statement-shaped
-item that is not a statement, or an HTML comment the reader does not hide,
-which is reported.
+prose, except an ID-shaped item that is not a requirement (one after a `>` or a
+no-break space included), a statement-shaped item that is not a statement, or an
+HTML comment the reader does not hide, which is reported.
 The module has its own meta-block reader and fence pairing and shares no code
 with gantry/wbs_stopgap.py or gantry/model.py, so #12 can delete the stopgap
 freely. docs/requirements-format.md states the rules.
 """
 
 import re
+import stat
 from dataclasses import dataclass
 from itertools import chain
 from typing import NamedTuple
 
 # DEFAULT_BR_NAMESPACE is re-exported: its one home is gantry.config.
 from gantry.config import DEFAULT_BR_NAMESPACE, ID_TOKEN_RE, error_reason
-from gantry.roots import OutsideRoots, read_bytes_confined
+from gantry.roots import OutsideRoots, read_bytes_confined, stat_confined
 from gantry.sites import SiteWarning, shown
 
 # After Wiegers & Beatty: business requirement, business rule, use case,
@@ -54,6 +55,9 @@ BREAK_RE = re.compile(r"[ \t]*([-*_])(?:[ \t]*\1){2,}[ \t]*")  # fullmatch: a th
 HEADING_START_RE = re.compile(r"[ \t]*#{1,6}(?:[ \t]|$)")  # match, at most 3 columns in: an ATX heading
 HTML_START_RE = re.compile(r"[ \t]*</?[A-Za-z]")  # match, at most 3 columns in: an HTML block may start
 FENCE_RE = re.compile(r"[ \t]*(?P<run>`{3,}|~{3,})(?P<info>.*)")  # fullmatch
+LEAD_RE = re.compile(r"[\s>]*")  # .match: quote markers and Unicode whitespace before an item's marker
+STEP_RE = re.compile(r"(?P<lead>[\s>]*)(?P<marker>[-*+]|[0-9]{1,9}[.)])[ \t]+")  # .match: one more marker
+NEAR_RE = re.compile(r"^[ \t]*(?:>|[^\S \t\r\n])", re.M)  # .search: a line near_item may report
 BLOCK_RE = re.compile(r"\{[ \t]*[A-Za-z_][A-Za-z0-9_]*[ \t]*:[^{}]*\}")  # finditer
 _OPENER_RE = re.compile(r"\{[ \t]*[A-Za-z_][A-Za-z0-9_]*[ \t]*:")  # a block's start, closed or not
 _KEY_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -66,6 +70,9 @@ INLINE = "an HTML comment inside the text; it stays in the text and hides nothin
 BEFORE_ID = "an HTML comment before the ID; the item is not read: put the comment on its own line"
 START = ("an HTML comment that starts a list item and does not close on its line; "
          "it hides nothing: put the comment on its own line")
+MALFORMED_LIST = "a malformed list, with text after its ']'; it is not read"
+BARE_CR = ("a carriage return (CR) with no line feed after it: lines end only at LF or CRLF, "
+           "so the rest of this line is not read")
 
 _WHY = {
     "ordered": "an ordered list item (a requirement uses -, * or +)",
@@ -78,6 +85,8 @@ _WHY = {
     "long": "the number has more than 9 digits",
     "suffix": "letters after the number",
     "nested": "requirements are not nested",
+    "quote": "inside a block quote",
+    "indent": "indented with {char} (only spaces and tabs indent a list item)",
     "second_statement": "a second {word}: statement",
     "stray_statement": "a statement not directly under a requirement",
 }
@@ -150,6 +159,11 @@ def _check_args(namespace, layers, br_namespace):
 def _width(line):
     """The width of a line's leading spaces and tabs, a tab counting as four."""
     return len(line[: len(line) - len(line.lstrip(" \t"))].expandtabs(4))
+
+
+def _is_break(line):
+    """Whether `line` is a thematic break (`* * *`, `- - -`), never a list item."""
+    return BREAK_RE.fullmatch(line) is not None and _width(line) <= 3
 
 
 def _closer(lines, i, no_closer):
@@ -313,7 +327,7 @@ def _scan(lines):
                 leak = open_col if encloses else None
             continue
         m = ITEM_RE.fullmatch(line)
-        if m is None or (_width(line) <= 3 and BREAK_RE.fullmatch(line)):
+        if m is None or _is_break(line):
             if _width(line) <= 3 and HTML_START_RE.match(line):
                 html = True
             # Text outside every enclosing item is a paragraph a list-shaped line may only continue.
@@ -415,6 +429,17 @@ def _joined(parts):
     return " ".join(part for part in parts if part)
 
 
+def _line_ends(parts, start=0):
+    """The offsets in _joined(parts), shifted by `start`, where each non-empty part ends."""
+    ends, at = set(), start
+    for part in parts:
+        if part:
+            at += len(part)
+            ends.add(at)
+            at += 1  # the joining space
+    return ends
+
+
 def _ending_block(text):
     """The meta block that ends `text`, or None."""
     last = None
@@ -457,20 +482,29 @@ def _unquote(item):
 
 
 def _block_entries(block):
-    """([(key, value)], None) from a meta block, a value being a str or a list
-    of str; or (None, why) when the block cannot be read."""
+    """([(key, value)], None) from a meta block, a value being a str, a list
+    of str, or None for a malformed list; or (None, why) when the block cannot
+    be read."""
     parts = _split(block[1:-1], ",")
     if parts is None:
         return None, "an unclosed [ or quote"
     entries = []
     for entry in parts:
+        if not entry.strip():
+            continue  # a trailing comma's empty entry: devagent skips it too
         key, colon, value = entry.partition(":")
         key = key.strip()
         if not colon or not _KEY_RE.fullmatch(key):
             return None, "an entry with no key"
         value = value.strip()
-        if value.startswith("[") and value.endswith("]"):
-            items = [_unquote(item) for item in _split(value[1:-1], ",") or []]
+        if value.startswith("["):
+            # Brackets are balanced here (_split above), so a list whose items cannot be
+            # split, or a value not ending at its ']', has text after the list's ']'.
+            items = _split(value[1:-1], ",") if value.endswith("]") else None
+            if items is None:
+                entries.append((key, None))
+                continue
+            items = [_unquote(item) for item in items]
             entries.append((key, [item for item in items if item]))
         else:
             entries.append((key, _unquote(value)))
@@ -486,22 +520,64 @@ class _Reader:
         self.br_namespace = br_namespace
         self.requirements = {}
         self.report = []
+        self.near = False  # whether any line may be a near item (parse_requirements)
 
     def add(self, line, kind, message):
         self.report.append(ReportEntry(self.source, line, kind, message))
 
-    def candidate(self, line, m, nested):
+    def candidate(self, line, m, nested, reasons=()):
         """Report an ID-shaped item that is not a requirement; return the
-        candidate match when it is one."""
+        candidate match when it is one. `reasons` holds those found before the marker."""
         rest = m["rest"]
         c = CANDIDATE_RE.match(rest) if rest is not None else None
         if c is None:
+            if rest is not None:
+                self.inner(line, rest, reasons)
             return None  # prose
-        why = _reasons(m["marker"], c, nested)
+        why = [*reasons, *_reasons(m["marker"], c, nested)]
         if why:
             self.add(line, "malformed_item", f"{rest[: c.end()]!r} is not a requirement: {'; '.join(why)}")
             return None
         return c
+
+    def inner(self, line, text, reasons):
+        """Report a candidate that starts on another list item's line, after the item's own
+        marker (`- - FR-1:`, `- > - FR-1:`): a page shows it nested, never at the top level.
+        The markers, quote markers and whitespace before it are walked once, left to right."""
+        quote, odd, marker, pos = False, None, None, 0
+        while (s := STEP_RE.match(text, pos)) is not None:
+            quote = quote or ">" in s["lead"]
+            if odd is None:
+                odd = next((ch for ch in s["lead"] if ch.isspace() and ch not in " \t"), None)
+            marker, pos = s["marker"], s.end()
+        c = CANDIDATE_RE.match(text, pos) if marker is not None else None
+        if c is None:
+            return
+        why = list(reasons)
+        if quote and _WHY["quote"] not in why:
+            why.append(_WHY["quote"])
+        if odd is not None and not any(w.startswith("indented with") for w in why):
+            why.append(_WHY["indent"].format(char=f"U+{ord(odd):04X}"))
+        why += _reasons(marker, c, not why)  # nested in the outer item, unless a quote or indent is the cause
+        self.add(line, "malformed_item", f"{text[pos : c.end()]!r} is not a requirement: {'; '.join(why)}")
+
+    def near_item(self, line, text):
+        """Report a line that is an item after a quote marker, or after whitespace other
+        than a space or tab: never a top-level list item, so it is never read."""
+        first = text.lstrip(" \t")[:1]
+        if not first or not (first == ">" or first.isspace()):
+            return  # the common case, without the regex
+        lead = LEAD_RE.match(text).group()
+        m = ITEM_RE.fullmatch(text, len(lead))
+        if m is None:
+            return
+        why = []
+        if ">" in lead:
+            why.append(_WHY["quote"])
+        odd = next((ch for ch in lead if ch.isspace() and ch not in " \t"), None)
+        if odd is not None:
+            why.append(_WHY["indent"].format(char=f"U+{ord(odd):04X}"))
+        self.candidate(line, m, False, why)  # the quote or the indent is the cause, not nesting
 
     def item(self, index, m, continuation, nested, listed, raw):
         """Read the item on line `index`. `listed` and `raw` are _scan's per-line flags: a
@@ -512,7 +588,10 @@ class _Reader:
         for k, text in continuation:
             sub = ITEM_RE.fullmatch(text)
             lines.append((k, text, sub, None if sub is None or raw[k] else _statement_word(sub["rest"])))
-            if sub is not None:
+            if sub is None:
+                if self.near:
+                    self.near_item(self.first_line + k, text)
+            else:
                 self.candidate(self.first_line + k, sub, nested=True)
                 if _opens_comment(sub["rest"]):
                     if listed[k] and not _text_is_code(text, sub):
@@ -558,18 +637,24 @@ class _Reader:
         own, after, statements = self.statements(lines)
         # The block closes the first line, or else the own text: the text before the first
         # nested item. A block after a nested item, or in a statement, is not read.
+        # When a block is read, any other block that ends a line of the text is a second block;
+        # `ends` holds the offsets in `text` where a line ends.
         head = tail.strip()
         block = _ending_block(head)
-        second = None
         if block is not None:
             head = head[: block.start()].rstrip()
             text = _joined([head, *own, *after])
-            second = _ending_block(text)
+            ends = _line_ends([head, *own, *after])
         else:
             own_text = _joined([head, *own])
             block = _ending_block(own_text)
+            ends = set()
             if block is not None:
-                own_text = own_text[: block.start()].rstrip()
+                # Line ends of the own text before the block is cut, the cut text's new end included.
+                cut = own_text[: block.start()].rstrip()
+                ends = {e for e in _line_ends([head, *own]) if e <= len(cut)} | {len(cut)}
+                ends |= _line_ends(after, len(cut) + 1 if cut else 0)
+                own_text = cut
             text = _joined([own_text, *after])
         threshold, objective = statements.get("Threshold"), statements.get("Objective")
         broken = False
@@ -579,7 +664,7 @@ class _Reader:
             starts = set()
             for other in BLOCK_RE.finditer(part):
                 starts.add(other.start())
-                if n == 0 and second is not None and other.start() == second.start():
+                if n == 0 and block is not None and other.end() in ends:
                     self.add(line, "malformed_meta",
                              "a second meta block on one item; it stays in the text and is not read")
                 else:
@@ -639,29 +724,36 @@ class _Reader:
         if why is not None:
             self.add(line, "malformed_meta", f"the meta block {block.group(0)!r} cannot be read: {why}")
             return refines, needs
-        seen = set()
+        read = {}  # key -> whether its first value was read
         for key, value in entries:
             if key not in ("refines", "needs"):
                 self.add(line, "malformed_meta",
                          f"unknown key {key!r} in the meta block (a requirement's keys are refines and needs)")
                 continue
-            if key in seen:
-                self.add(line, "malformed_meta", f"key {key!r} is repeated in the meta block; the first is kept")
+            if key in read:
+                outcome = "the first is kept" if read[key] else "the first is not read, so neither is"
+                self.add(line, "malformed_meta", f"key {key!r} is repeated in the meta block; {outcome}")
                 continue
-            seen.add(key)
+            read[key] = False
             if key == "refines":
-                if isinstance(value, list):
+                if value is None:
+                    self.add(line, "malformed_meta", f"{key}: {MALFORMED_LIST}")
+                elif isinstance(value, list):
                     self.add(line, "malformed_meta", "refines: takes one target, not a list; it is not read")
                 else:
                     refines = self.target(line, key, value)
+                    read[key] = refines is not None
             else:
                 targets = value if isinstance(value, list) else [value]
                 if rid.code != "UC":
                     self.add(line, "misplaced", f"needs: on {rid}, which is not a use case; it is not read")
+                elif value is None:
+                    self.add(line, "malformed_meta", f"{key}: {MALFORMED_LIST}")
                 elif not targets:
                     self.add(line, "malformed_meta", "needs: [] names no target")
                 else:
                     needs = [t for t in (self.target(line, key, v) for v in targets) if t is not None]
+                    read[key] = bool(needs)  # a partly read list is still kept
         return refines, needs
 
     def target(self, line, key, value):
@@ -755,13 +847,29 @@ def parse_requirements(text, namespace, *, source, first_line=1, layers, br_name
     _check_args(namespace, layers, br_namespace)
     reader = _Reader(namespace, source, first_line, frozenset(layers), br_namespace)
     lines = split_lines(text)
+    # A CR with no LF after it (split_lines removed a CRLF's CR) cuts its line there: lines end
+    # only at LF or CRLF, as every caller counts them. Cut before fences and comments pair.
+    if "\r" in text.replace("\r\n", ""):
+        for k, line in enumerate(lines):
+            cr = line.find("\r")
+            if cr != -1:
+                lines[k] = line[:cr]
+                if line[cr:].strip():
+                    reader.add(first_line + k, "malformed_item", BARE_CR)
     hidden, skip, nested, comment, _, listed, raw = _scan(lines)
     if comment is not None:
         reader.add(first_line + comment[0], "malformed_comment", comment[1])
+    # near_item looks for a line led by a '>' or whitespace other than a space or tab: when no
+    # line is, the per-line check is skipped.
+    reader.near = NEAR_RE.search(text.removeprefix(_BOM)) is not None
     i = 0
     while i < len(lines):
         m = None if hidden[i] else ITEM_RE.fullmatch(lines[i])
+        if m is not None and m["marker"] in "-*" and _is_break(lines[i]):
+            m = None  # a thematic break is not an item, so the lines indented after it are not its text
         if m is None:
+            if reader.near and not hidden[i]:
+                reader.near_item(first_line + i, lines[i])
             i += 1
             continue
         # The item's text runs on through lines indented deeper than its marker,
@@ -785,10 +893,26 @@ def read_requirements(roots, path, namespace, *, layers, br_namespace) -> Requir
     read gives an empty set with one `unreadable` entry, never an exception."""
     _check_args(namespace, layers, br_namespace)
     source = str(path)
+    key = f"site.{namespace}.requirements"
 
-    text, reason = read_utf8(roots, path, "the requirements file", key=f"site.{namespace}.requirements")
-    if text is None:
+    def unreadable(reason):
         return RequirementSet(namespace, {}, [ReportEntry(source, None, "unreadable", reason)])
+
+    # stat first, so each cause reads alike on every operating system: the
+    # OS's text for a directory is "Permission denied" on Windows, and a path
+    # under a file is ENOTDIR on Linux but "not found" on Windows.
+    try:
+        st = stat_confined(roots, path, key=key)
+    except (FileNotFoundError, NotADirectoryError):
+        return unreadable("the requirements file does not exist")
+    except (OSError, ValueError, OutsideRoots) as e:
+        # ValueError: an embedded NUL, or a path too long for Windows.
+        return unreadable(f"cannot read the requirements file: {error_reason(e)}")
+    if not stat.S_ISREG(st.st_mode):
+        return unreadable("the requirements file is not a file")
+    text, reason = read_utf8(roots, path, "the requirements file", key=key)
+    if text is None:
+        return unreadable(reason)
     return parse_requirements(text, namespace, source=source, first_line=1,
                               layers=layers, br_namespace=br_namespace)
 

@@ -316,10 +316,11 @@ def test_full_build_prints_trace_line(tmp_path, monkeypatch):
     code, out, stdout, err = demo_build(tmp_path, monkeypatch)
     assert code == 0, err
     lines = stdout.splitlines()
-    assert lines[-1] == SAMPLE_LINE_FULL
+    # The trace line, then the fires line last (#32).
+    assert lines[-2:] == [SAMPLE_LINE_FULL, "fires: 7; sources not fully read: 1"]
     assert [line for line in lines if line.startswith("trace ")] == [SAMPLE_LINE_FULL]
-    assert os.path.samefile(lines[-3], out / "index.html")
-    assert os.path.samefile(lines[-2], out / "week-plan.json")
+    assert os.path.samefile(lines[-4], out / "index.html")
+    assert os.path.samefile(lines[-3], out / "week-plan.json")
 
 
 def test_site_build_prints_trace_line(tmp_path, monkeypatch):
@@ -342,8 +343,10 @@ def test_untraced_site_with_entry_prints_line(tmp_path, capsys):
     assert [line for line in lines if line.startswith("trace ")] == [
         "trace alpha: unreadable 0, malformed 0, duplicate 0, misplaced 0, cycle 0, undefined 1, unserved 0, "
         "untraced 0"]
-    # Two pages, week.html (#38), strategic.html (#23), the index and the plan file, then the trace line.
-    assert lines[-1].startswith("trace alpha: ") and len(lines) == 7
+    # Two pages, week.html (#38), strategic.html (#23), the index and the plan file, then the trace
+    # line, then the fires line (#32).
+    assert lines[-2].startswith("trace alpha: ") and len(lines) == 8
+    assert lines[-1] == "fires: 0; sources not fully read: 1"
 
 
 @pytest.mark.parametrize("args", [[], ["--site", "alpha"]])
@@ -364,7 +367,7 @@ def test_trace_line_bytes(tmp_path):
     result = run_module("build", "--config", str(copy / "gantry.sample.toml"))
     assert result.returncode == 0, result.stderr
     assert b"\r" not in result.stdout
-    assert result.stdout.decode("utf-8").splitlines()[-1] == SAMPLE_LINE_FULL
+    assert result.stdout.decode("utf-8").splitlines()[-2:] == [SAMPLE_LINE_FULL, "fires: 7; sources not fully read: 1"]
 
 
 # --- Task 5: chips and the two panels ----------------------------------------------

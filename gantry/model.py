@@ -21,7 +21,7 @@ REPORT_KINDS = (
     "malformed_ref", "foreign_site_absent", "foreign_unresolved", "bad_priority", "cycle", "waits_on_cycle",
     "skipped_line", "no_nodes", "site_unreadable",
     # The optional inputs (#10): gantry/estimates_file.py and gantry/inputs.py.
-    "no_estimates_file", "estimates_ignored", "estimates_unreadable",
+    "no_estimates_file", "estimates_ignored", "estimates_unreadable", "estimates_no_table",
     "estimates_column_missing", "estimates_cell_bad", "estimates_row_unmatched",
     "estimates_row_duplicate", "est_unparseable", "unestimated", "no_priority",
     "no_model_tiers",
