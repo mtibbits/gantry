@@ -13,11 +13,10 @@ import sys
 
 import pytest
 
+import helpers_portfolio as hp
 from gantry.config import load_config
-from gantry.roots import directory_roots
 from gantry.schedule import chain_hours, limit, plan
 from gantry.views.worksite import render_page
-from gantry.wbs_stopgap import parse_wbs, read_wbs
 from helpers_config import write_site_tree
 from helpers_gate import gate_run
 from page_safety import assert_page_safe
@@ -76,8 +75,7 @@ def write_page(tmp_path, text, name):
 
 @pytest.fixture
 def page_path(tmp_path):
-    text = (ROOT / "tests" / "fixtures" / "wbs" / "page.md").read_bytes().decode("utf-8")
-    return write_page(tmp_path, render_page("alpha", parse_wbs(text, "alpha"), default_unit_hours=6), "page")
+    return write_page(tmp_path, render_page("alpha", hp.fixture_site("page"), default_unit_hours=6), "page")
 
 
 def test_agreement_on_sample_sites(node, tmp_path):
@@ -86,7 +84,7 @@ def test_agreement_on_sample_sites(node, tmp_path):
             folder = tmp_path / f"{site}-{unit}"
             config = load_config(write_site_tree(folder, {site: (SAMPLES / site / "WBS.md").read_bytes()},
                                                  default_unit_hours=unit))
-            data = read_wbs(directory_roots([folder]), folder / "0" / "WBS.md", site)
+            data = hp.sample_site(site)
             path = write_page(folder, render_page(site, data, default_unit_hours=config.default_unit_hours), site)
             items = assert_page_safe(path.read_bytes().decode("utf-8"), [])["schedule"]["items"]
             assert items, site
