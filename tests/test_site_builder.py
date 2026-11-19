@@ -21,7 +21,7 @@ from gantry import deps
 from gantry.model import ParsedValue
 from gantry.portfolio_json import ProjectInput, map_document
 from helpers_config import append_bytes, copy_samples, sample_projects
-from sample_roles import BUSY, NO_WBS, READABLE, UNREADABLE
+from sample_roles import BUSY, NO_WBS, READABLE, SMALL, UNREADABLE
 from test_samples import ROOT
 
 # devagent's report kinds that the builder writes, as auto_report does.
@@ -241,3 +241,21 @@ def test_fixture_sites_agree_with_the_stopgap(name):
     stopgap = parse_wbs((ROOT / source).read_bytes().decode("utf-8"), "alpha")
     found = ue.diff_snapshots(alpha_snapshot(stopgap), alpha_snapshot(data))
     assert [tuple(row) for row in found] == known_rows(name)
+
+
+def test_append_nodes():
+    doc = hp.narrow(hp.sample_doc(), SMALL)
+    before = sp.dumps(doc)
+    nodes = doc["projects"][0]["nodes"]
+    last = max(n["source_line"] for n in nodes)
+    out = hp.append_nodes(doc, SMALL, hp.node("Late", glyph="x", issue="Issue-99"), hp.node("Loose"))
+    assert sp.dumps(doc) == before
+    added = out["projects"][0]["nodes"][len(nodes):]
+    assert [n["source_line"] for n in added] == [last + 1, last + 2]
+    ids = [n["id"] for n in out["projects"][0]["nodes"]]
+    assert len(ids) == len(set(ids)) and all(re.fullmatch(r"n[0-9]+", i) for i in ids)
+    data = hp.site_of(out, SMALL)
+    late = next(leaf for leaf in data.leaves if leaf.key == "Issue-99")
+    assert (late.line, late.open) == (last + 1, False)
+    assert [entry.line for entry in kinds(data, "no_issue")] == [
+        entry.line for entry in kinds(hp.sample_site(SMALL), "no_issue")] + [last + 2]

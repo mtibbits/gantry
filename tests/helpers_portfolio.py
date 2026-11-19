@@ -210,6 +210,34 @@ def drop_lines(doc, *lines) -> dict:
     return out
 
 
+AUTO_KINDS = ("leaf_no_issue", "duplicate_issue", "dep_unresolved")
+LOCAL_UNRESOLVED = "matches no issue in this project"
+
+
+def append_nodes(doc, project_name, *nodes) -> dict:
+    """A copy of `doc` with `nodes` added after the last line of `project_name`.
+
+    The new nodes get the document's next free `n<N>` ids; the project's
+    entries of the kinds auto_report writes are written again, and every other
+    entry (a foreign or malformed dep_unresolved among them) is kept."""
+    out = copy.deepcopy(doc)
+    proj = next(p for p in out["projects"] if p["project"] == project_name)
+    last = max((n["source_line"] for n in proj["nodes"]), default=0)
+    used = [int(n["id"][1:]) for p in out["projects"] for n in p["nodes"] if n["id"][1:].isdigit()]
+    added = project(project_name, *nodes, start=last + 1)["nodes"]
+    ids = {n["id"]: f"n{max(used, default=0) + i}" for i, n in enumerate(added, start=1)}
+    for n in added:
+        n["id"], n["parent"] = ids[n["id"]], ids.get(n["parent"])
+    proj["nodes"] += added
+
+    def regenerated(entry):
+        return (entry["project"] == project_name and entry["kind"] in AUTO_KINDS
+                and (entry["kind"] != "dep_unresolved" or entry["message"].endswith(LOCAL_UNRESOLVED)))
+
+    out["parse_report"] = [e for e in out["parse_report"] if not regenerated(e)] + auto_report(proj)
+    return out
+
+
 # Two WBS texts written.json does not hold, described node by node: (source, first line, nodes).
 DESCRIBED = {
     "heuristic": ("tests/fixtures/attention/heuristic.md", 2, (

@@ -45,7 +45,6 @@ from gantry.views.worksite import (
     render_page,
 )
 from gantry.portfolio_json import tag
-from gantry.wbs_stopgap import parse_wbs, read_wbs
 from page_safety import CSP_CONTENT, HOSTILE, assert_no_external_resources, assert_page_safe
 from helpers_config import demo_build, page_ids
 from page_script.harness import Planted, open_page, run_function
@@ -176,10 +175,9 @@ def test_cycle_fixture():
 
 
 def test_default_unit_hours_drive_durations():
-    from test_samples import SAMPLES
     from sample_roles import UNESTIMATED
 
-    data = parse_wbs((SAMPLES / UNESTIMATED / "WBS.md").read_bytes().decode("utf-8"), UNESTIMATED)
+    data = hp.sample_site(UNESTIMATED)
     six = page_model(UNESTIMATED, data, default_unit_hours=6)
     assert six["schedule"]["items"]
     assert all(i["hours"] == 6 for i in six["schedule"]["items"])
@@ -338,7 +336,7 @@ def page_for(name="page", unit=6, data=None, site="alpha"):
 
 
 def sample_page(site):
-    return render_page(site, read_wbs(SAMPLE_ROOTS, SAMPLES / site / "WBS.md", site), default_unit_hours=6)
+    return render_page(site, hp.sample_site(site), default_unit_hours=6)
 
 
 def with_tiers(data, thinking="opus", checking="fable"):
@@ -654,7 +652,7 @@ def inputs_for(folder, data, site="alpha", unit=6, estimates=None, configured=No
 def sample_inputs(site):
     """apply_inputs over a sample site, read where it is."""
     config = SimpleNamespace(sites={}, default_unit_hours=6)
-    return apply_inputs(SAMPLE_ROOTS, SiteEntry(site, SAMPLES / site, None), read_wbs(SAMPLE_ROOTS, SAMPLES / site / "WBS.md", site), config)
+    return apply_inputs(SAMPLE_ROOTS, SiteEntry(site, SAMPLES / site, None), hp.sample_site(site), config)
 
 
 def est_inputs(tmp_path):
@@ -1448,7 +1446,7 @@ def expected_placement(leaf, data, nodes):
 
 
 def test_every_leaf_has_one_anchor():
-    pages = {site: (sample_page(site), read_wbs(SAMPLE_ROOTS, SAMPLES / site / "WBS.md", site)) for site in sorted(READABLE)}
+    pages = {site: (sample_page(site), hp.sample_site(site)) for site in sorted(READABLE)}
     pages["cycle"] = (page_for("cycle"), fixture("cycle"))
     seen = set()
     for name, (page, data) in pages.items():
@@ -1470,7 +1468,7 @@ def finished_list(t):
 
 
 def test_finished_list_lines():
-    data = read_wbs(SAMPLE_ROOTS, SAMPLES / BUSY / "WBS.md", BUSY)
+    data = hp.sample_site(BUSY)
     done = [leaf for leaf in data.leaves if not leaf.open]
     assert len(done) == 6
     t = tree(sample_page(BUSY))
@@ -1507,23 +1505,23 @@ def test_stamp_slot():
 def test_anchors_not_script_built(node, tmp_path):
     text = sample_page(BUSY)
     static = [i for i in page_ids(text) if i.startswith("leaf-")]
-    assert len(static) == len(read_wbs(SAMPLE_ROOTS, SAMPLES / BUSY / "WBS.md", BUSY).leaves)
+    assert len(static) == len(hp.sample_site(BUSY).leaves)
     with open_page(write(tmp_path, text)) as page:
         assert len(page.query('[id^="leaf-"]')) == len(static)
         assert page.query('#gantt [id^="leaf-"]') == []
 
 
-def finished_hostile_text():
-    # The lighthouse sample's own text, plus one finished leaf with a hostile title and key.
-    text = (SAMPLES / "lighthouse" / "WBS.md").read_bytes().decode("utf-8")
-    return text + f"- [x] {HOSTILE[0]} {{issue: {FINISHED_KEY}}}\n"
+def finished_hostile_data():
+    # The lighthouse sample's own nodes, plus one finished leaf with a hostile title and key after them.
+    doc = hp.narrow(hp.sample_doc(), "lighthouse")
+    return hp.site_of(hp.append_nodes(doc, "lighthouse", hp.node(HOSTILE[0], glyph="x", issue=FINISHED_KEY)))
 
 
 FINISHED_KEY = "a b<c>&\u00e9"
 
 
 def test_finished_leaf_hostile(node, tmp_path):
-    data = parse_wbs(finished_hostile_text(), "lighthouse")
+    data = finished_hostile_data()
     page = render_page("lighthouse", data, default_unit_hours=6)
     assert_page_safe(page, [HOSTILE[0], FINISHED_KEY])
     t = tree(page)
