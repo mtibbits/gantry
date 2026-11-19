@@ -56,6 +56,9 @@ def _raw(tail="", **raw):
 
 HARBOR = "\n[site.harbor]\n"
 REQ = "\n[requirements]\n"
+RF = "\n[refresh]\n"
+FROM_1_TO_1440 = "an integer from 1 to 1440"
+COMMANDS = "a list of commands, each a non-empty list of strings"
 
 ERROR_CASES = {
     "missing": (_missing, ["cannot read the config"]),
@@ -94,6 +97,20 @@ ERROR_CASES = {
     "fires-days-float": (_raw(fires_check_days="3.0"), ["'fires_check_days'", "an integer, 1 or more"]),
     "fires-days-bool": (_raw(fires_check_days="true"), ["'fires_check_days'", "an integer, 1 or more"]),
     "fires-days-string": (_raw(fires_check_days='"3"'), ["'fires_check_days'", "an integer, 1 or more"]),
+    "refresh-not-table": (_raw(refresh="1"), ["'refresh'", "must be a table"]),
+    "refresh-unknown-key": (_raw(tail=RF + "foo = 1\n"), ["'refresh.foo'"]),
+    "refresh-dir-int": (_raw(tail=RF + "dir = 3\n"), ["'refresh.dir'", "must be a path string"]),
+    "refresh-interval-zero": (_raw(tail=RF + "interval_minutes = 0\n"), ["'refresh.interval_minutes'", FROM_1_TO_1440]),
+    "refresh-interval-1441": (_raw(tail=RF + "interval_minutes = 1441\n"), ["'refresh.interval_minutes'", FROM_1_TO_1440]),
+    "refresh-interval-bool": (_raw(tail=RF + "interval_minutes = true\n"), ["'refresh.interval_minutes'", FROM_1_TO_1440]),
+    "refresh-timeout-zero": (_raw(tail=RF + "step_timeout_minutes = 0\n"),
+                             ["'refresh.step_timeout_minutes'", FROM_1_TO_1440]),
+    "refresh-timeout-1441": (_raw(tail=RF + "step_timeout_minutes = 1441\n"),
+                             ["'refresh.step_timeout_minutes'", FROM_1_TO_1440]),
+    "refresh-update-string": (_raw(tail=RF + 'update = "git pull"\n'), ["'refresh.update'", COMMANDS]),
+    "refresh-update-flat": (_raw(tail=RF + 'update = ["git", "pull"]\n'), ["'refresh.update'", COMMANDS]),
+    "refresh-update-empty-command": (_raw(tail=RF + "update = [[]]\n"), ["'refresh.update'", COMMANDS]),
+    "refresh-update-int-word": (_raw(tail=RF + 'update = [["git", 1]]\n'), ["'refresh.update'", COMMANDS]),
 }
 
 
@@ -434,7 +451,7 @@ def test_docs_list_every_key():
     rows = [row for table in md_tables(text) for row in table.rows]
     missing = [
         key.name
-        for key in cfg.KEYS + cfg.SITE_KEYS + cfg.REQUIREMENTS_KEYS
+        for key in cfg.KEYS + cfg.SITE_KEYS + cfg.REQUIREMENTS_KEYS + cfg.REFRESH_KEYS
         if not any(row[0] == key.doc_name and key.owner in row for row in rows)
     ]
     assert missing == []
@@ -450,6 +467,8 @@ def test_every_key_has_a_field():
     missing += [key.name for key in cfg.SITE_KEYS if key.name not in site_fields]
     requirements_fields = {f.name for f in dataclasses.fields(cfg.RequirementsSettings)}
     missing += [key.name for key in cfg.REQUIREMENTS_KEYS if key.name not in requirements_fields]
+    refresh_fields = {f.name for f in dataclasses.fields(cfg.RefreshSettings)}
+    missing += [key.name for key in cfg.REFRESH_KEYS if key.name not in refresh_fields]
     assert missing == []
 
 
@@ -551,3 +570,38 @@ def test_config_doc_fires_rows():
     assert "`gantry fires`" in row and "(fires-list.md)" in row
     row = _doc_row("fires_check_days")
     assert "`3`" in row and "portfolio" in row
+
+
+# --- the [refresh] table (#35) ------------------------------------------------------
+
+
+def test_refresh_defaults_and_values(tmp_path):
+    c = cfg.load_config(write_config(tmp_path / "absent"))
+    assert c.refresh == cfg.RefreshSettings(None, 15, (), 10)
+    p = write_config(tmp_path / "set", tail=RF + 'dir = "rf"\ninterval_minutes = 1\n'
+                     'update = [["git", "pull"], ["x"]]\nstep_timeout_minutes = 3\n')
+    c = cfg.load_config(p)
+    assert isinstance(c.refresh.dir, PurePath) and norm(c.refresh.dir) == norm(tmp_path / "set" / "rf")
+    assert c.refresh.interval_minutes == 1
+    assert c.refresh.update == (("git", "pull"), ("x",))
+    assert c.refresh.step_timeout_minutes == 3
+    c = cfg.load_config(write_config(tmp_path / "max", tail=RF + "interval_minutes = 1440\n"))
+    assert c.refresh == cfg.RefreshSettings(None, 1440, (), 10)
+
+
+def test_config_doc_refresh_rows():
+    expected = {
+        "[refresh]": ("table", "none"),
+        "dir": ("path", "none"),
+        "interval_minutes": (FROM_1_TO_1440, "`15`"),
+        "update": (COMMANDS, "`[]`"),
+        "step_timeout_minutes": (FROM_1_TO_1440, "`10`"),
+    }
+    for name, (kind, default) in expected.items():
+        cells = [cell.strip() for cell in _doc_row(name).split("|")[1:-1]]
+        assert kind in cells[1] and cells[3].startswith(default) and cells[5] == "#35", cells
+
+
+def test_sample_config_has_no_refresh_table():
+    # The sample installation has no refresh job; the refresh tests write their own tables.
+    assert "refresh" not in tomllib.loads(Path(GANTRY_SAMPLE).read_text(encoding="utf-8"))

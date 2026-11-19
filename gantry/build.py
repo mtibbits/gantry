@@ -10,8 +10,14 @@ entries (#23). It writes nothing; write_all writes the pages, the week view
 line writes the plan file. A site that cannot
 be built gets a reason that names its config key or file kind, never an
 absolute path. docs/worksite-page.md states the build.
+
+With `gantry build --output-dir`, the command line writes build.json, the
+completion marker, last (#35): marker_bytes writes it and marker_exit reads
+it back for `gantry refresh`.
 """
 
+import json
+import math
 import stat
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
@@ -49,6 +55,15 @@ WEEK_RENDER_ERROR_BARE = "cannot render week.html: {type}"
 STRATEGIC_WRITE_ERROR = "cannot write strategic.html: {why}"
 STRATEGIC_RENDER_ERROR = "cannot render strategic.html: {type}: {message}"
 STRATEGIC_RENDER_ERROR_BARE = "cannot render strategic.html: {type}"
+
+# The completion marker (#35): the last file a full build with --output-dir
+# writes, holding the build's exit code, so `gantry refresh` can tell a build
+# that finished (exit 0, or exit 1 on purpose) from one that crashed.
+MARKER_FILE = "build.json"
+MARKER_VERSION = 1
+# The most digits an integer in a strict JSON document may have: the files
+# read here hold exit codes and counts, never a large number.
+JSON_MAX_DIGITS = 30
 
 
 @dataclass(frozen=True)
@@ -488,6 +503,75 @@ def _write_strategic(result, roots, out):
     except (OSError, OutsideRoots) as e:
         return {}, STRATEGIC_WRITE_ERROR.format(why=why_not_written(e, roots))
     return slots, None
+
+
+def strict_json_loads(data: bytes):
+    """Parse a small JSON document Gantry wrote, strictly; raise only ValueError.
+
+    The bytes must be UTF-8 (no byte-order mark). A duplicate key, NaN or
+    Infinity, a float that is not finite, an integer of more than
+    JSON_MAX_DIGITS digits, or nesting deep enough to exhaust the recursion
+    limit is refused. build.json's reader and #35's update-record reader
+    share it.
+    """
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        raise ValueError("not UTF-8") from None
+
+    def pairs(items):
+        found = {}
+        for key, value in items:
+            if key in found:
+                raise ValueError(f"duplicate key {key!r}")
+            found[key] = value
+        return found
+
+    def constant(name):
+        raise ValueError(f"{name} is not allowed")
+
+    def integer(digits):
+        if len(digits.lstrip("-")) > JSON_MAX_DIGITS:
+            raise ValueError("an integer has too many digits")
+        return int(digits)
+
+    def number(digits):
+        value = float(digits)
+        if not math.isfinite(value):
+            raise ValueError("a number is not finite")
+        return value
+
+    try:
+        return json.loads(text, object_pairs_hook=pairs, parse_constant=constant,
+                          parse_int=integer, parse_float=number)
+    except RecursionError:
+        raise ValueError("nested too deeply") from None
+
+
+def marker_bytes(code: int) -> bytes:
+    """build.json's bytes: exactly {"build_version": 1, "exit": <code>} and LF."""
+    return (json.dumps({"build_version": MARKER_VERSION, "exit": code}) + "\n").encode("ascii")
+
+
+def marker_exit(data: bytes) -> int | None:
+    """The exit code a build.json holds, or None for anything that is not
+    exactly a version-1 marker with an integer (never boolean) exit. Never raises."""
+    try:
+        value = strict_json_loads(data)
+    except ValueError:
+        return None
+    if not isinstance(value, dict) or set(value) != {"build_version", "exit"}:
+        return None
+    if type(value["build_version"]) is not int or value["build_version"] != MARKER_VERSION:
+        return None
+    if type(value["exit"]) is not int:
+        return None
+    return value["exit"]
+
+
+def write_marker(roots, out, code):
+    """Write <out>/build.json under the output root (write_confined: no partial file)."""
+    write_confined(roots, out / MARKER_FILE, marker_bytes(code), key="output_dir")
 
 
 def write_page(roots, folder, name, text):

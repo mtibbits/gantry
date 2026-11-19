@@ -21,6 +21,9 @@ and how to try the demo.
 - [fires-list.md](fires-list.md): the fires list, the operator's private
   list of fires that are not leaves yet, its entries and how they end, and
   how `gantry fires` checks it.
+- [refresh-and-serve.md](refresh-and-serve.md): the refresh job, `gantry
+  refresh`: what one run does, the refresh folder, the update record, its
+  exit codes, scheduling it, the update list and first-day failures.
 - [daily-screen.md](daily-screen.md): the daily screen; today the fires
   every full build collects across sites, what each status means, and the
   `fires:` line the build prints.

@@ -2,9 +2,12 @@
 
 Gantry is a Python standard-library program, a Claude Code plugin command
 and a launcher script. It reads an operator's private planning records and
-writes static HTML pages from them. It holds no credentials and, with a
-supported git (see the README's Support section), makes no network
-connection. The data it guards is the operator's own: what is in
+writes static HTML pages from them, and `gantry refresh`, the scheduled job,
+runs the update programs the installation config lists. It holds no
+credentials and, with a supported git (see the README's Support section),
+itself opens no network connection; `gantry refresh` runs the update
+commands the installation config lists, which connect only where the
+operator points them. The data it guards is the operator's own: what is in
 their records, and which projects they run. That is the surface this policy
 covers.
 

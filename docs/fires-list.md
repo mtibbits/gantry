@@ -258,8 +258,8 @@ flag must not depend on a portfolio file being configured or readable.
 
 An entry's age is how long the fire has existed, measured from its typed
 date. Age is not freshness: how soon a saved entry reaches a served page
-counts from the save, and belongs to the refresh job (#35) and the daily
-page (#34).
+counts from the save, and belongs to the refresh job
+([refresh-and-serve.md](refresh-and-serve.md)) and the daily page (#34).
 
 ## The reference time
 
@@ -342,10 +342,10 @@ supported edit path is git: keep the fires list in a private git repository
 that the refresh job already updates (the planning repository, for
 example, or a small repository of its own), and edit it from the phone
 with the git host's private web editor or a git client app. A save is then
-a commit to the copy the refresh job pulls from, so once the refresh job
-(#35) exists an entry will show by the end of the first refresh that starts
-after the save, and a rejected save or a pull that cannot fast-forward will
-fail loudly.
+a commit to the copy the refresh job pulls from, so an entry shows by the
+end of the first refresh that starts after the save
+([freshness](refresh-and-serve.md#what-one-run-does)), and a rejected save
+or a pull that cannot fast-forward fails loudly, as a failed update.
 
 ## Why not a file-sync tool
 

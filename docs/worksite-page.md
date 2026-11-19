@@ -1344,7 +1344,22 @@ that site's `render error:`, and the site is listed among the sites not read
 into place, so no partial page is ever left; it gets the mode any new file
 gets. The build deletes nothing in the output folder: a page an earlier run
 wrote for a site that is no longer built stays until the output folder is
-replaced (#35 swaps it in whole).
+replaced; `gantry refresh` builds each generation from nothing and swaps it
+in whole ([refresh-and-serve.md](refresh-and-serve.md#what-one-run-does)).
+
+`gantry build --output-dir DIR` replaces `output_dir` for one run: the pages,
+the plan file and every message name DIR (a relative DIR resolves against the
+working directory), sample mode is decided from DIR, and a refusal of its value
+names `--output-dir`. With it, a full build that wrote the index writes one
+more file, last, after the plan file: `DIR/build.json`, the **completion
+marker**, exactly `{"build_version": 1, "exit": N}` and a newline, where N is
+the build's exit code (0, or 1 for any of the exit-1 cases below). Its path is
+not printed, so the `fires:` line stays last. There is no marker after a
+config error, when the index or the output folder cannot be written, after a
+build that crashed, or for `--site`; so a marker that matches the exit code
+tells a build that finished from one that did not. A marker that cannot be
+written is `gantry: error: cannot write build.json: <why>`, exit 1. An empty
+DIR is a usage error (exit 2).
 
 A site that cannot be built does not stop the others. It is listed on the
 index with its reason and on stderr as

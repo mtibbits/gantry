@@ -7,6 +7,7 @@ removed; it records only inside `recording()` and never raises.
 """
 
 import os
+import re
 import sys
 from contextlib import contextmanager
 from datetime import date
@@ -38,7 +39,7 @@ from gantry.roots import (
     stat_confined,
     write_confined,
 )
-from helpers_config import add_site_key, copy_samples, literal, replace_bytes
+from helpers_config import add_site_key, append_bytes, copy_samples, literal, replace_bytes
 from helpers_links import CI_SUFFIX, SYMLINK_REASON, is_link, junction, link_dir, symlink
 
 WINDOWS = os.name == "nt"
@@ -351,9 +352,9 @@ def test_directory_roots_writable_is_a_union(tmp_path):
 
 
 def test_every_path_key_has_a_root_kind():
-    from gantry.config import KEYS, REQUIREMENTS_KEYS, SITE_KEYS, Key, missing_root_kinds
+    from gantry.config import KEYS, REFRESH_KEYS, REQUIREMENTS_KEYS, SITE_KEYS, Key, missing_root_kinds
 
-    assert missing_root_kinds(KEYS, SITE_KEYS, REQUIREMENTS_KEYS) == []
+    assert missing_root_kinds(KEYS, SITE_KEYS, REQUIREMENTS_KEYS, REFRESH_KEYS) == []
     planted = Key("x", "path", False, None, "#0", "`x`")
     assert missing_root_kinds(KEYS, (planted,)) == ["x"]
     planted = Key("y", "path_or_false", False, None, "#0", "`y`")
@@ -731,9 +732,12 @@ def test_no_module_but_roots_imports_path_tempfile_or_resources():
             continue
         text = path.read_bytes().decode("utf-8")
         for bad in ("from pathlib import Path\r", "from pathlib import Path\n", "from pathlib import Path,",
-                    "import tempfile", "importlib", "import shutil", "open("):
+                    "import tempfile", "importlib", "import shutil"):
             if bad in text:
                 found.append((path.name, bad.strip()))
+        # open( as a word: subprocess.Popen( is not a read (#35's gantry/refresh.py).
+        if re.search(r"(?<![A-Za-z0-9_])open\(", text):
+            found.append((path.name, "open("))
     assert found == []
 
 
@@ -807,7 +811,9 @@ def test_portfolio_writes_nothing_so_holds_no_writable_root(tmp_path, capsys):
     assert "output_dir" not in err
 
 
-@pytest.mark.parametrize("purpose", ["check", "refresh", "serve"])
+# Not "refresh": it names `[refresh] dir`, which the samples copy does not set;
+# test_refresh_dir_is_writable_only_for_refresh covers it (#35).
+@pytest.mark.parametrize("purpose", ["check", "serve"])
 def test_a_purpose_naming_no_writable_key_has_no_writable_root(tmp_path, purpose):
     from gantry.config import load_config
     from gantry.sites import config_roots
@@ -816,6 +822,61 @@ def test_a_purpose_naming_no_writable_key_has_no_writable_root(tmp_path, purpose
     replace_bytes(copy / "gantry.sample.toml", 'output_dir = "out"', 'output_dir = "."')
     roots = config_roots(load_config(copy / "gantry.sample.toml"), purpose=purpose)
     assert not [r for r in roots.roots if r.writable]
+
+
+@pytest.mark.parametrize("purpose", ["build", "check", "refresh", "serve"])
+def test_refresh_dir_is_writable_only_for_refresh(tmp_path, purpose):
+    from gantry.config import load_config
+    from gantry.sites import config_roots
+
+    copy = copy_samples(tmp_path)
+    folder = tmp_path / "refresh"
+    append_bytes(copy / "gantry.sample.toml", f"\n[refresh]\ndir = {literal(folder)}\n")
+    roots = config_roots(load_config(copy / "gantry.sample.toml"), purpose=purpose)
+    (root,) = [r for r in roots.roots if r.key == "refresh.dir"]
+    assert root.kind == "directory"
+    assert os.path.normcase(str(root.path)) == os.path.normcase(os.path.realpath(folder))
+    writable = [r.key for r in roots.roots if r.writable]
+    assert writable == {"build": ["output_dir"], "refresh": ["refresh.dir"]}.get(purpose, [])
+
+
+def test_refresh_dir_may_not_hold_an_input_root(tmp_path):
+    from gantry.config import ConfigError, load_config
+    from gantry.sites import config_roots
+
+    copy = copy_samples(tmp_path)
+    append_bytes(copy / "gantry.sample.toml", '\n[refresh]\ndir = "."\n')
+    config = load_config(copy / "gantry.sample.toml")
+    with pytest.raises(ConfigError) as e:
+        config_roots(config, purpose="refresh")
+    assert "key 'refresh.dir' contains the config file itself" in str(e.value)
+    config_roots(config, purpose="build")  # read-only for a build: no refusal
+
+
+def test_find_program_ignores_cwd_and_relative_entries(tmp_path, monkeypatch):
+    from gantry.roots import find_program
+
+    name = "probe.exe" if WINDOWS else "probe"
+    for folder in ("bin", "here"):
+        (tmp_path / folder).mkdir()
+        (tmp_path / folder / name).write_bytes(b"")
+        (tmp_path / folder / name).chmod(0o755)
+    found = find_program("probe", {"PATH": str(tmp_path / "bin")})
+    assert found is not None and os.path.samefile(found, tmp_path / "bin" / name)
+    monkeypatch.chdir(tmp_path / "here")
+    assert find_program("probe", {"PATH": ""}) is None
+    assert find_program("probe", {"PATH": os.pathsep.join(["", ".", "here"])}) is None
+    monkeypatch.chdir(tmp_path)
+    assert find_program("probe", {"PATH": "bin"}) is None
+    with_separator = os.path.join("sub", "probe")
+    assert find_program(with_separator, {"PATH": str(tmp_path / "bin")}) == with_separator
+    if WINDOWS:
+        for empty in ("", os.pathsep):  # set but empty: the default extensions
+            found = find_program("probe", {"PATH": str(tmp_path / "bin"), "PATHEXT": empty})
+            assert found is not None and os.path.samefile(found, tmp_path / "bin" / name)
+    else:
+        (tmp_path / "bin" / name).chmod(0o644)
+        assert find_program("probe", {"PATH": str(tmp_path / "bin")}) is None
 
 
 def test_an_unknown_purpose_raises():
@@ -827,12 +888,19 @@ def test_an_unknown_purpose_raises():
 
 
 def test_output_dir_argument_replaces_the_key_root(tmp_path):
+    # `gantry build --output-dir` replaces Config.output_dir once (#35); the
+    # roots follow the replaced config, and config_roots takes no output_dir=.
+    from dataclasses import replace
+
     from gantry.config import load_config
     from gantry.sites import config_roots
 
     copy = copy_samples(tmp_path)
     other = tmp_path / "other"
-    roots = config_roots(load_config(copy / "gantry.sample.toml"), output_dir=other)
+    config = replace(load_config(copy / "gantry.sample.toml"), output_dir=PurePath(os.path.abspath(other)))
+    with pytest.raises(TypeError):
+        config_roots(config, output_dir=other)
+    roots = config_roots(config)
     (writable,) = [r for r in roots.roots if r.writable]
     assert writable.key == "output_dir"
     assert os.path.normcase(str(writable.path)) == os.path.normcase(os.path.realpath(other))

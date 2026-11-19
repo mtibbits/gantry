@@ -1328,3 +1328,45 @@ def test_page_models_survive_write_failure(tmp_path, monkeypatch):
     for el in boxes:
         if el["attrs"]["data-leaf"] in expect:
             assert expect[el["attrs"]["data-leaf"]] in el["classes"]
+
+
+# --- the completion marker (#35) ------------------------------------------------------
+
+
+@pytest.mark.parametrize("data", [
+    b"",
+    b"null",
+    b"[]",
+    b"{}",
+    b'{"build_version": 2, "exit": 0}',
+    b'{"build_version": true, "exit": 0}',
+    b'{"build_version": "1", "exit": 0}',
+    b'{"build_version": 1, "exit": true}',
+    b'{"build_version": 1, "exit": 0.0}',
+    b'{"build_version": 1, "exit": null}',
+    b'{"build_version": 1, "exit": 0, "extra": 1}',
+    b'{"build_version": 1}',
+    b'{"exit": 0}',
+    b'{"build_version": 1, "exit": 0, "exit": 1}',
+    b'{"build_version": 1, "exit": NaN}',
+    b'{"build_version": 1, "exit": 0',
+    b"\xff",
+    b"\xef\xbb\xbf" + build.marker_bytes(0),
+    b"[" * 100_000,
+], ids=lambda data: repr(data[:48]))
+def test_marker_exit_refuses(data):
+    assert build.marker_exit(data) is None
+
+
+def test_marker_exit_table():
+    assert build.marker_bytes(0) == b'{"build_version": 1, "exit": 0}\n'
+    assert build.marker_exit(build.marker_bytes(0)) == 0
+    assert build.marker_exit(build.marker_bytes(1)) == 1
+    assert build.MARKER_FILE == "build.json"
+
+
+@pytest.mark.parametrize("data", [b"\xff", b'{"a": 1, "a": 2}', b"NaN", b"[Infinity]", b"1e400",
+                                  b"9" * 5000, b"[" * 100_000, b"{"], ids=lambda data: repr(data[:48]))
+def test_strict_json_loads_raises_only_value_error(data):
+    with pytest.raises(ValueError):
+        build.strict_json_loads(data)

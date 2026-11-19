@@ -303,10 +303,11 @@ def test_tools_import_stdlib_only():
 
 
 def test_every_test_source_holds_no_path_form():
-    sources = sorted((ROOT / "tests").glob("*.py"))
+    sources = sorted((ROOT / "tests").glob("*.py")) + sorted((ROOT / "tests" / "helpers").glob("*.py"))
     assert len(sources) >= 6
+    assert ROOT / "tests" / "helpers" / "refresh_repo.py" in sources  # #35's helper folder
     offenders = {
-        p.name: hits
+        p.relative_to(ROOT / "tests").as_posix(): hits
         for p in sources
         if (hits := path_form_hits(p.read_bytes().decode("utf-8")))
     }

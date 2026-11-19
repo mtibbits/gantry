@@ -94,6 +94,8 @@ PLAIN_MODULES = {
     "sys": "interpreter state; sys.modules evasion is out of the threat model",
     "tomllib": "tomllib.loads on decoded text; tomllib.load takes a file only roots.py can open",
     "urllib.parse": "quotes and splits URL text (gantry/links.py); opens nothing",
+    "time": "the clock and sleep (the refresh job's swap retry, #35); opens nothing",
+    "secrets": "random tokens (the refresh job's generation ids, #35); opens nothing",
 }
 
 # File-touching modules: importable, but only listed names may be imported
@@ -154,15 +156,21 @@ ROOT_BUILDERS = (
 
 RULES = ("module", "name", "through-gantry", "star", "rebind", "builtin", "keyword", "roots-builder")
 
-# Exceptions: (module file, exact dotted name) -> reason. #35's and #64's
-# entries are added by whichever of them and #60 lands second: an entry for a
-# module that does not exist yet is stale.
+# Exceptions: (module file, exact dotted name) -> reason. #35's are here;
+# #64's entries are added with its module: an entry for a module that does
+# not exist yet is stale.
 WBS_GIT = (
     "run_git is the module's one child process, limited to the git commands _check_args "
     "admits, with no stdin and a timeout; history reads are bounded by #28's repository "
     "rule and #28's outside-roots refusal"
 )
 FROM_CONFIG = "this module is where roots are built from the loaded config (#59)"
+REFRESH = (
+    "the refresh job (#35): it runs the update commands and the build as child processes "
+    "(no shell, stdin from the null device, output to last-run.log under [refresh] dir, a time "
+    "limit, the tree stopped through the live Popen), and locks [refresh] dir's lock file through "
+    "the descriptor open_confined gave it; every file it reads or writes goes through gantry/roots.py"
+)
 EXCEPTIONS = {
     ("gantry/wbs_history.py", "subprocess.run"): f"starts git: {WBS_GIT}",
     ("gantry/wbs_history.py", "subprocess.DEVNULL"): f"git's stdin: {WBS_GIT}",
@@ -175,6 +183,21 @@ EXCEPTIONS = {
     ("gantry/sites.py", "gantry.roots.bootstrap_roots"): f"the --config file's own root; {FROM_CONFIG}",
     ("gantry/sites.py", "gantry.roots.with_file"): f"the devagent_config file the config names; {FROM_CONFIG}",
     ("gantry/sites.py", "gantry.roots.add_root"): f"each root key and site planning folder; {FROM_CONFIG}",
+    ("gantry/refresh.py", "subprocess.Popen"): REFRESH,
+    ("gantry/refresh.py", "subprocess.DEVNULL"): REFRESH,
+    ("gantry/refresh.py", "subprocess.STDOUT"): REFRESH,
+    ("gantry/refresh.py", "subprocess.TimeoutExpired"): REFRESH,
+    ("gantry/refresh.py", "os.killpg"): REFRESH,
+    ("gantry/refresh.py", "os.environ"): REFRESH,
+    ("gantry/refresh.py", "signal"): REFRESH,
+    ("gantry/refresh.py", "signal.SIGKILL"): REFRESH,
+    ("gantry/refresh.py", "fcntl"): REFRESH,
+    ("gantry/refresh.py", "fcntl.flock"): REFRESH,
+    ("gantry/refresh.py", "fcntl.LOCK_EX"): REFRESH,
+    ("gantry/refresh.py", "fcntl.LOCK_NB"): REFRESH,
+    ("gantry/refresh.py", "msvcrt"): REFRESH,
+    ("gantry/refresh.py", "msvcrt.locking"): REFRESH,
+    ("gantry/refresh.py", "msvcrt.LK_NBLCK"): REFRESH,
 }
 
 # Every module the scan must parse: the 27 under gantry/ at 39f4afa. A later
