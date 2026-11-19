@@ -141,9 +141,11 @@ class _Page:
 
     def box(self, site, key, record):
         """(leafbox.Box, its cue classes) for a placement, by the worksite's rule."""
+        title = self.title(site, key)
+        # The named row's priority and tiers: the page's data and its band read one value.
+        *_, prio, thinking, checking = self.named[(site, key)]
         leaf = self.leaves.get((site, key))
-        b = leafbox.box(key, leaf.priority if leaf else None, self.title(site, key),
-                        leafbox.model_tiers(leaf.models) if leaf else None)
+        b = leafbox.box(key, prio, title, [thinking, checking] if thinking or checking else None)
         return b, leafbox.box_classes(self.sclass.get((site, key)), render.state_class(record["state"]),
                                       record["unestimated"], bool(leaf and leaf.waits_on_other_site))
 

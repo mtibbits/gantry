@@ -5,6 +5,7 @@ a leaf line, so "continues after" never passes a "continues " check.
 """
 
 import copy
+import functools
 import json
 import re
 from dataclasses import asdict
@@ -408,9 +409,15 @@ def week_box(t, i):
             "cues": set(t.elements[i]["classes"]) & CUES}
 
 
+@functools.cache
+def site_tree(page):
+    """A site page's tree, parsed once per page text: worksite_box only reads it."""
+    return tree(page)
+
+
 def worksite_box(page, key):
     """The worksite network box of `key` on a site page, or None when it is not a node."""
-    t = tree(page)
+    t = site_tree(page)
     nodes = [i for i in find(t, "g", ["node"]) if attr(t, i, "data-item") == key]
     if not nodes:
         return None
@@ -499,9 +506,9 @@ def test_box_literal_rules_for_unboxed_leaves(tmp_path):
         tiers = [leaf.models.thinking or None, leaf.models.checking or None] if leaf.models else None
         band = [(f"{label} {tier or 'none'}", [MODEL_CLASSES.get(tier, MODEL_FALLBACK)])
                 for label, tier in zip(("think", "check"), tiers)] if tiers and any(tiers) else []
-        assert week_box(t, first_box(t, lines, site)) == {
-            "key": [key], "prio": leaf.priority, "title": [leaf.title or key], "band": band,
-            "cues": week_box(t, first_box(t, lines, site))["cues"]}, (site, key)
+        got = week_box(t, first_box(t, lines, site))
+        del got["cues"]
+        assert got == {"key": [key], "prio": leaf.priority, "title": [leaf.title or key], "band": band}, (site, key)
         subjects += 1
     assert subjects >= 1
 
@@ -607,18 +614,26 @@ def expected_look(slack, state, xsite):
     return {"background": background, "border-color": colour, "border-style": style, "border-width": width}
 
 
-def css_rules(css):
-    """[(selector, [(property, value)])] of a sheet outside its @media blocks, in order."""
+def media_split(css, at="@media"):
+    """([text outside the `at` blocks], [each block's body]) of a sheet, comments dropped."""
     css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
-    kept, i = [], 0
-    while (at := css.find("@media", i)) != -1:
-        kept.append(css[i:at])
-        j, depth = css.index("{", at) + 1, 1
+    outside, inside, i = [], [], 0
+    while (start := css.find(at, i)) != -1:
+        outside.append(css[i:start])
+        body = j = css.index("{", start) + 1
+        depth = 1
         while depth:
             depth += {"{": 1, "}": -1}.get(css[j], 0)
             j += 1
+        inside.append(css[body:j - 1])
         i = j
-    kept.append(css[i:])
+    outside.append(css[i:])
+    return outside, inside
+
+
+def css_rules(css):
+    """[(selector, [(property, value)])] of a sheet outside its @media blocks, in order."""
+    kept, _ = media_split(css)
     rules = []
     for selectors, body in re.findall(r"([^{}]+)\{([^{}]*)\}", "".join(kept)):
         decls = [(m[1], m[2].strip()) for m in re.finditer(r"([\w-]+)\s*:\s*([^;]+)", body)]
@@ -655,8 +670,13 @@ def template_css(name):
     return re.search(r"<style>(.*)</style>", (TEMPLATES / name).read_text(encoding="utf-8"), flags=re.S)[1]
 
 
+@functools.cache
+def week_rules():
+    return tuple(css_rules(template_css("week.html")))
+
+
 def week_look(classes):
-    return cascade(css_rules(template_css("week.html")), r"\.leaf(?P<classes>(?:\.[\w-]+)*)", classes, week_expand)
+    return cascade(week_rules(), r"\.leaf(?P<classes>(?:\.[\w-]+)*)", classes, week_expand)
 
 
 def look_key(classes):

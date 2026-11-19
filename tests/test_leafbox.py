@@ -14,7 +14,7 @@ from gantry import render
 from gantry.model import Models
 from gantry.views import leafbox
 from gantry.views.week import render_week
-from test_week_page import STAMP, make_plan, make_result
+from test_week_page import STAMP, TEMPLATES, make_plan, make_result, media_split
 from test_worksite_page import page_for
 
 
@@ -68,7 +68,6 @@ def test_model_tiers():
 # --- the shared cue colours (#170) ---------------------------------------------------------
 
 ROOT = Path(__file__).resolve().parents[1]
-TEMPLATES = ROOT / "gantry" / "templates"
 SHEET = "templates/leaf_colours.css"
 CUE_TOKENS = ["--crit", "--crit-ink", "--near", "--near-ink", "--held", "--xsite",
               *(f"--m-{m}{ink}" for m in ("haiku", "sonnet", "opus", "fable", "other") for ink in ("", "-ink"))]
@@ -78,18 +77,7 @@ DARK = "@media (prefers-color-scheme: dark)"
 
 def schemes(css):
     """{"light": [(name, value)], "dark": [...]}: the :root custom properties, each declaration as written."""
-    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
-    light, dark, i = [], [], 0
-    while (at := css.find(DARK, i)) != -1:
-        light.append(css[i:at])
-        start = css.index("{", at) + 1
-        depth, j = 1, start
-        while depth:
-            depth += {"{": 1, "}": -1}.get(css[j], 0)
-            j += 1
-        dark.append(css[start:j - 1])
-        i = j
-    light.append(css[i:])
+    light, dark = media_split(css, DARK)
 
     def props(parts):
         return [(m[1], m[2].strip()) for part in parts for body in re.findall(r":root\s*\{([^}]*)\}", part)
