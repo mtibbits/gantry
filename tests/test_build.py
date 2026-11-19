@@ -1284,3 +1284,45 @@ def test_no_home_defers_to_38():
     stale = ("is " + "#38 and does not exist", "the week view (" + "#38) will", "provisional until " + "#38",
              "the first view reads it (" + "#38)", "view reads them (" + "#38)", "#24 or " + "#33, the first to read it")
     assert_no_stale(stale, [*swept_files(), ROOT / "tests" / "test_plan_file.py"])
+
+
+# --- the site page models the week view reads (#170) --------------------------------------
+
+
+def test_page_models_cover_rendered_sites(tmp_path):
+    from gantry import planner
+
+    result = sample_build(tmp_path)
+    assert set(result.page_models) == set(result.pages)
+    assert list(result.page_models) == planner._built_sites(result)
+
+
+@pytest.mark.xfail(strict=True, reason="#170 Task 6")
+def test_page_models_survive_write_failure(tmp_path, monkeypatch):
+    """A site page that fails to write keeps its slack on the week view."""
+    result = sample_build(tmp_path)
+    placed = {(e["site"], e["key"]) for d in result.plan.days
+              for e in [*(x for b in d["blocks"] for x in b["leaves"]), *d["lanes_row"]]}
+    slack = {(site, leaf["key"]): leaf["sclass"] for site, m in result.page_models.items() for leaf in m["leaves"]
+             if leaf["sclass"] is not None and (site, leaf["key"]) in placed}
+    site = next(s for s, _ in slack)
+    real = build.write_page
+
+    def refuse(roots, folder, name, text):
+        if name == site:
+            raise OSError("refused")
+        return real(roots, folder, name, text)
+
+    monkeypatch.setattr(build, "write_page", refuse)
+    written, _, _ = build.write_all(result)
+    assert site not in written.pages and site in written.page_models
+    from test_worksite_page import tree
+
+    t = tree((result.config.output_dir / "week.html").read_bytes().decode("utf-8"))
+    boxes = [el for el in t.elements if el["tag"] == "li" and "leaf" in el["classes"]
+             and el["attrs"].get("data-site") == site]
+    expect = {key: cls for (s, key), cls in slack.items() if s == site}
+    assert expect and {el["attrs"]["data-leaf"] for el in boxes} >= set(expect)
+    for el in boxes:
+        if el["attrs"]["data-leaf"] in expect:
+            assert expect[el["attrs"]["data-leaf"]] in el["classes"]
