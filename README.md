@@ -120,6 +120,10 @@ What a run does (`gantry` here is `python3 -m gantry` when you run in place):
   file without building ([docs/portfolio-file.md](docs/portfolio-file.md)).
 - `gantry fires --config <file>` checks the installation's fires list
   without building ([docs/fires-list.md](docs/fires-list.md)).
+- `gantry refresh --config <file>` is the job an OS scheduler runs: it
+  updates the data with the commands the config lists, builds a new set of
+  pages and swaps it in whole
+  ([docs/refresh-and-serve.md](docs/refresh-and-serve.md)).
 - Every key of the installation config is in [docs/config.md](docs/config.md).
 
 ## Your data stays private
@@ -139,10 +143,13 @@ holds only the tool, its documentation and made-up sample data.
   only the demo and a page that links to it. Pages built from real data are meant to be served only as
   private pages or on a private network, never on a public site; Gantry
   writes them to your output folder and publishes nothing itself.
-- Gantry's commands make no network connection: there is no telemetry and
+- Gantry itself opens no network connection: there is no telemetry and
   no update check. This needs git 2.45 or later: history reads tell git not
   to fetch missing objects (`GIT_NO_LAZY_FETCH`), and older git ignores
   that, so in a partial clone it may fetch them from the clone's remote.
+  `gantry refresh` runs the update commands your installation config lists,
+  and those connect only where you point them
+  ([docs/refresh-and-serve.md](docs/refresh-and-serve.md)).
 - A commit check, in CI and as an optional local hook, checks what is
   committed here for real pages, configs, local paths and, in the local
   hook, private names; what it can and cannot catch is in
@@ -244,8 +251,11 @@ on fail. An installation depends on:
   `sites/<name>.html`, `week.html`), and
   `week-plan.json`, where a change that bumps `plan_version` is a break
   ([its version rule](docs/week-plan.md#the-version-rule));
-- a command's contract: `gantry build`, `gantry portfolio`, `gantry fires`
-  and `/gantry:build`;
+- the refresh folder: `current`, `generations/<id>` and `update.json`,
+  where a change that bumps `record_version` is a break
+  ([the update record](docs/refresh-and-serve.md#the-update-record));
+- a command's contract: `gantry build`, `gantry portfolio`, `gantry fires`,
+  `gantry refresh` and `/gantry:build`;
 - the tools it runs on: raising a stated oldest supported version of a tool
   under [Supported versions](#supported-versions) is a break.
 
@@ -416,7 +426,7 @@ For the latest release:
   its CHANGELOG section says what to change.
 - Every user-visible change is in [CHANGELOG.md](CHANGELOG.md), and every
   release is a tag and a GitHub release.
-- Gantry sends nothing anywhere (see
+- Gantry itself sends nothing anywhere (see
   [Your data stays private](#your-data-stays-private)).
 - Gantry needs no third-party Python package at run time.
 - The tool versions below work.

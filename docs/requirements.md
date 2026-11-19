@@ -98,8 +98,10 @@ acknowledging a security report within seven days (BRule-6).
 - BRule-2: Every user-visible change adds a line to the changelog. Every
   release is an annotated tag and a GitHub release whose notes are that
   version's changelog section.
-- BRule-3: Gantry sends nothing anywhere. With supported tools, its
-  commands make no network connection: no telemetry and no update check.
+- BRule-3: Gantry itself sends nothing anywhere. With supported tools,
+  Gantry itself opens no network connection: no telemetry and no update
+  check. `gantry refresh` runs the update commands the installation config
+  lists, which connect only where the operator points them.
   {refines: CON-3}
 - BRule-4: Gantry needs no third-party Python package at run time, only the
   standard library and the supported tools.

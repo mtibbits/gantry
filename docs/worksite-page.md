@@ -1331,7 +1331,8 @@ that site's `render error:`, and the site is listed among the sites not read
 into place, so no partial page is ever left; it gets the mode any new file
 gets. The build deletes nothing in the output folder: a page an earlier run
 wrote for a site that is no longer built stays until the output folder is
-replaced (#35 swaps it in whole).
+replaced; `gantry refresh` builds each generation from nothing and swaps it
+in whole ([refresh-and-serve.md](refresh-and-serve.md#what-one-run-does)).
 
 `gantry build --output-dir DIR` replaces `output_dir` for one run: the pages,
 the plan file and every message name DIR (a relative DIR resolves against the

@@ -16,6 +16,8 @@ gantry portfolio --config <file>
 python -m gantry portfolio --config <file>
 gantry fires --config <file>
 python -m gantry fires --config <file>
+gantry refresh --config <file>
+python -m gantry refresh --config <file>
 ```
 
 `--output-dir` writes one build into another folder, with a completion
@@ -23,7 +25,9 @@ marker ([worksite-page.md](worksite-page.md#every-site-and-the-index)).
 `gantry portfolio` checks the portfolio file the config names, without
 building ([the portfolio file](portfolio-file.md#checking-the-file)), and
 `gantry fires` checks the fires list
-([the fires list](fires-list.md#checking-the-file)).
+([the fires list](fires-list.md#checking-the-file)). `gantry refresh` is
+the scheduled job that updates the data and swaps in a new build
+([refresh-and-serve.md](refresh-and-serve.md)).
 
 There is **no default config location**: no home-folder lookup, no
 environment variable and no fallback. A run with no `--config` is a usage
@@ -49,7 +53,7 @@ fires_check_days rows; reword them and that test together. -->
 | `fires_check_days` | integer, 1 or more (a float or a boolean is refused) | no | `3` | an open fire this many whole days old is flagged "still a fire?"; it is here and not in the portfolio file's `[thresholds]` because the fires list is a fail-closed source, whose flag must not depend on a portfolio file being configured or readable | #30 |
 | `[requirements]` | table | no | none | settings for requirements files | #15 |
 | `[site.<name>]` | table | no | none | per-site overrides, keyed by the devagent `[project.<name>]` table name | #7 |
-| `[refresh]` | table | no | none | the refresh job's settings, which `gantry refresh` reads; `gantry build` reads only its `dir`, as a read-only root | #35 |
+| `[refresh]` | table | no | none | the refresh job's settings, which `gantry refresh` reads ([the job](refresh-and-serve.md)); `gantry build` reads only its `dir`, as a read-only root | #35 |
 
 Keys of a `[site.<name>]` table:
 
@@ -63,9 +67,9 @@ Keys of the `[refresh]` table:
 
 | Key | Type | Required | Default | Meaning | Owner |
 |---|---|---|---|---|---|
-| `dir` | path | no | none | the refresh folder, which `gantry refresh` creates and is the one folder it writes: its lock, its update record (`update.json`), its log, the `current` pointer and the generations it builds; it may not equal or contain an input root; `gantry refresh` refuses to run without it | #35 |
+| `dir` | path | no | none | the refresh folder, which `gantry refresh` creates and is the one folder it writes: its lock, its update record (`update.json`), its log, the `current` pointer and the generations it builds ([the folder](refresh-and-serve.md#the-refresh-folder)); it may not equal or contain an input root; `gantry refresh` refuses to run without it | #35 |
 | `interval_minutes` | an integer from 1 to 1440 | no | `15` | how often the operator's scheduler runs `gantry refresh`; Gantry runs no timer, and records this value with each update for a reader judging how fresh the data is | #35 |
-| `update` | a list of commands, each a non-empty list of strings (one string, a flat list or an empty command is refused) | no | `[]` (no update step) | the commands `gantry refresh` runs, in order and with no shell, in the installation config's folder, before it builds; the first that fails ends the update | #35 |
+| `update` | a list of commands, each a non-empty list of strings (one string, a flat list or an empty command is refused) | no | `[]` (no update step) | the commands `gantry refresh` runs, in order and with no shell, in the installation config's folder, before it builds; the first that fails ends the update ([the update list](refresh-and-serve.md#the-update-list)) | #35 |
 | `step_timeout_minutes` | an integer, 1 or more | no | `10` | the limit for each update command and for the build; one that runs longer is stopped with every process it started | #35 |
 
 Keys of the `[requirements]` table:
@@ -327,6 +331,8 @@ pages, the index, the reasons and the errors. The page's durations use
 | 0 | the week view, the strategic page and the index were written and at least one site page was written (sites not built and warnings do not change it), or `--site` wrote its page |
 | 1 | a config error: the installation config or devagent's config is missing, unreadable, invalid or refused; no site page was written (the index is still written); the index or the output folder cannot be written; the week page cannot be rendered or written; the plan file cannot be written; strategic.html cannot be made or written; or, with `--site`, a site that is not configured, clashes in case with an earlier site or cannot be built, a render error, or a page that cannot be written |
 | 2 | a usage error, such as a missing `--config` |
+
+`gantry refresh` has its own exit codes ([refresh-and-serve.md](refresh-and-serve.md#exit-codes)).
 
 ## Supported platforms
 

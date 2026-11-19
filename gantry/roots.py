@@ -347,7 +347,7 @@ def open_confined(roots, path, mode="r", *, key, site=None, follow_links=True, e
 
     `follow_links=False` refuses a path with a link component below its root
     with LinkRefused, without opening the target (gantry/devagent_records.py). A
-    write mode is provisional for #35's lock file.
+    write mode opens the refresh job's lock and log (#35).
     """
     write = any(c in mode for c in "wax+")
     resolved = _check(roots, path, key=key, site=site, write=write)
@@ -434,14 +434,14 @@ def write_confined(roots, path, data: bytes, *, key, site=None):
 
 
 def replace_confined(roots, src, dst, *, key, site=None):
-    """os.replace under a writable root (provisional for #35)."""
+    """os.replace under a writable root. No Gantry command calls it today."""
     source = _check_entry(roots, src, key=key, site=site)
     target = _check_entry(roots, dst, key=key, site=site)
     os.replace(source, target)
 
 
 def remove_confined(roots, path, *, key, site=None):
-    """os.remove under a writable root (provisional for #35)."""
+    """os.remove under a writable root. No Gantry command calls it today."""
     resolved = _check_entry(roots, path, key=key, site=site)
     os.remove(resolved)
 
@@ -475,7 +475,7 @@ def _makedirs(path):
 
 
 def rmtree_confined(roots, path, *, key, site=None):
-    """shutil.rmtree under a writable root (provisional for #35); like
-    shutil.rmtree, it refuses a link."""
+    """shutil.rmtree under a writable root (the refresh job's sweep, #35);
+    like shutil.rmtree, it refuses a link."""
     resolved = _check_entry(roots, path, key=key, site=site)
     shutil.rmtree(resolved)
