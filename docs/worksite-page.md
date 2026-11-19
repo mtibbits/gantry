@@ -1270,7 +1270,9 @@ tests use that document's checkers and harness. This page applies them so:
   layout read; an `svg` holds no `script` or `style` of its own; the
   scripts come last in `body` (`gantry-data`, then `gantry-schedule`, then
   `gantry-page`). `render_page` refuses a script asset that holds
-  `</script` or `<!--`. The template and both scripts are package data, LF
+  `</script` or `<!--`, and `leafbox.colours()` refuses a cue colour sheet
+  (`gantry/templates/leaf_colours.css`, inserted into `<style>`) that holds
+  `</style`. The template, both scripts and the sheet are package data, LF
   everywhere.
 
 ## The index

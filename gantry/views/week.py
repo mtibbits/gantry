@@ -118,8 +118,9 @@ class _Page:
             for leaf in inputs.data.leaves:
                 self.leaves[(site, leaf.key)] = leaf
         self.records = {(entry["site"], entry["key"]): entry for entry in plan.leaves}
-        # {(site, key): its slack class or None}, from each rendered site's page model (#170).
-        self.sclass = {(site, leaf["key"]): leaf["sclass"]
+        # {(site, key): its slack class or None}, from each rendered site's page model (#170),
+        # kept only when it is one of render's slack classes.
+        self.sclass = {(site, leaf["key"]): leaf["sclass"] if leaf["sclass"] in render.SLACK_CLASSES else None
                        for site, m in result.page_models.items() for leaf in m["leaves"]}
         # (site, key) -> [site, key, title, est, priority, thinking, checking], in the order the page names them
         self.named = {}
@@ -133,8 +134,8 @@ class _Page:
         return leaf.title if leaf is not None and leaf.title else key
 
     def link(self, site, key, inner=None):
-        """The leaf's title (or `inner`, markup), linked to its worksite anchor when the site's page was written."""
-        title = esc(self.title(site, key)) if inner is None else inner
+        """The leaf's title (or `inner`, escaped unless Markup), linked to its worksite anchor when the site's page was written."""
+        title = esc(self.title(site, key) if inner is None else inner) if not isinstance(inner, Markup) else inner
         if site not in self.result.pages:
             return f'<span class="title">{title}</span>'
         return f'<a href="{esc(leaf_href(site, key, from_top=True))}">{title}</a>'
@@ -178,7 +179,7 @@ def _box(page, entry, cont):
     prio = f'{_span("prio", b.priority)}{esc(DOT)}' if b.priority is not None else ""
     top = (f'<p class="top">{_span("key", b.key)}'
            f'<span class="meta">{prio}{_span("hours", hours_text(entry["agent_hours"]))}</span></p>')
-    ttl = f'<p class="ttl">{page.link(site, key, "".join(_span("tl", line) for line in b.title_lines))}</p>'
+    ttl = f'<p class="ttl">{page.link(site, key, Markup("".join(_span("tl", line) for line in b.title_lines)))}</p>'
     parts = []
     if record["unestimated"]:
         parts.append(_span("unest", unestimated_text(leaf.meta.get("est") if leaf is not None else None)))

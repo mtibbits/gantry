@@ -705,6 +705,14 @@ def week_look(classes):
     return cascade(week_rules(), r"\.leaf(?P<classes>(?:\.[\w-]+)*)", classes, week_expand)
 
 
+def test_week_box_look_has_no_ancestor_rules():
+    """week_look reads only bare .leaf selectors, so no rule may reach a box's fill or outline through an ancestor."""
+    for selector, decls in week_rules():
+        last = re.split(r"[\s>+~]+", selector.strip())[-1]
+        if ".leaf" in last and last != selector.strip():
+            assert not [p for p, _ in decls if p == "background" or p.startswith("border")], selector
+
+
 def look_key(classes):
     slack = next((c for c in classes if c in SLACK_CLASSES), None)
     state = next(c for c in classes if c.startswith("st-"))
@@ -1287,6 +1295,17 @@ def test_week_hostile_page_model_path():
     t = tree(html)
     (line,) = leaf_lines(t, HOSTILE[2])
     assert "crit" in t.elements[line]["classes"]
+
+
+def test_week_slack_class_from_a_fixed_set():
+    """A page model's sclass reaches the box only as one of render's slack classes."""
+    plan, result = hostile_plan_and_result({HOSTILE[3]: {"leaves": [{"key": HOSTILE[2], "sclass": HOSTILE[3]}]}})
+    html = render_week(plan, result, STAMP)
+    assert_page_safe(html, [*HOSTILE, PRIO, THINK, CHECK])
+    t = tree(html)
+    (line,) = leaf_lines(t, HOSTILE[2])
+    classes = set(t.elements[line]["classes"])
+    assert classes <= ALLOWED_CLASSES and not classes & set(SLACK_CLASSES)
 
 
 def test_week_hostile_no_plan(node, tmp_path):

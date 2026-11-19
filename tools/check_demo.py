@@ -123,7 +123,7 @@ class Page:
                     if ttl[0] == 0 and e.tag == "p":
                         self.joined.append(" ".join(ttl[1]))
                         ttl = None
-                    else:
+                    elif ttl[0] > 0:
                         ttl[0] -= 1
                 if stamp is not None:
                     if stamp[1] == 0 and e.tag == stamp[0]:
