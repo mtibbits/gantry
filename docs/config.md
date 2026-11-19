@@ -27,7 +27,9 @@ building ([the portfolio file](portfolio-file.md#checking-the-file)), and
 `gantry fires` checks the fires list
 ([the fires list](fires-list.md#checking-the-file)). `gantry refresh` is
 the scheduled job that updates the data and swaps in a new build
-([refresh-and-serve.md](refresh-and-serve.md)).
+([refresh-and-serve.md](refresh-and-serve.md)); a scheduler runs it as
+`<python> -P -m gantry refresh --config <file>`
+([Scheduling](refresh-and-serve.md#scheduling)).
 
 There is **no default config location**: no home-folder lookup, no
 environment variable and no fallback. A run with no `--config` is a usage

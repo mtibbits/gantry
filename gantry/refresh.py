@@ -312,16 +312,20 @@ def run_step(argv, *, cwd, timeout, log, env=None) -> StepResult:
     """Run one command with no shell in `cwd`, its output into `log`, for at
     most `timeout` seconds. A program that cannot be found or started is
     "could not start"; one that runs too long is "timed out" with its tree
-    stopped, whatever code it then reports. An interrupt (Ctrl+C) stops the
+    stopped, whatever code it then reports; why a program could not start
+    goes to the log. An interrupt (Ctrl+C) stops the
     tree too and is raised again: the child's own session keeps it out of
     the terminal's foreground group."""
     program = find_program(argv[0], os.environ if env is None else env)
     if program is None:
+        log_line(log, "gantry: could not start: the program is in no absolute PATH entry")
         return StepResult("could not start", None)
     try:
         proc = subprocess.Popen([program, *argv[1:]], cwd=str(cwd), env=env, stdin=subprocess.DEVNULL,
                                 stdout=log, stderr=subprocess.STDOUT, start_new_session=(os.name != "nt"))
-    except (OSError, ValueError):
+    except (OSError, ValueError) as e:
+        # The one failure the program cannot report itself: the log says why.
+        log_line(log, f"gantry: could not start: {_one_line(error_reason(e))}")
         return StepResult("could not start", None)
     try:
         code = proc.wait(timeout=timeout)

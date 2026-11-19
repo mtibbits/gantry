@@ -274,6 +274,15 @@ def test_output_dir_decides_sample_mode(tmp_path, monkeypatch):
     assert "built " in (tmp_path / "elsewhere" / "index.html").read_bytes().decode("utf-8")
 
 
+def test_output_dir_that_is_a_file_names_the_flag(tmp_path):
+    copy = copy_samples(tmp_path)
+    gen = tmp_path / "gen"
+    gen.write_bytes(b"a file")
+    code, _, err = gen_build(copy / "gantry.sample.toml", gen)
+    assert code == 1 and "--output-dir is not a folder" in err and "output_dir is not a folder" not in err
+    assert gen.read_bytes() == b"a file"
+
+
 @pytest.mark.parametrize("value", ["", "  "])
 def test_empty_output_dir_is_a_usage_error(tmp_path, monkeypatch, value):
     config = write_config(tmp_path / "cfg")

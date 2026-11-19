@@ -256,6 +256,9 @@ def test_missing_program_could_not_start(tmp_path):
         assert result == StepResult("could not start", None)
         result = run_step([str(tmp_path / "absent-program")], cwd=tmp_path, timeout=120, log=log)
         assert result == StepResult("could not start", None)
+    lines = (tmp_path / "log").read_bytes().decode("utf-8").splitlines()
+    assert len(lines) == 2 and all(line.startswith("gantry: could not start: ") for line in lines)
+    assert lines[0] == "gantry: could not start: the program is in no absolute PATH entry"
 
 
 def test_timeout_stops_the_whole_tree(tmp_path):
@@ -733,8 +736,31 @@ def test_second_command_failing_stops_the_update(tmp_path, stand_in, append, cap
     program = os.path.basename(sys.executable)
     assert r.failed_step == FailedStep(2, program, "exit 1") and r.steps_run == 2 and r.ok is False
     assert r.last_ok_at == SEEDED_OK_AT
-    assert r.last_build.swap == "swapped" and live(config)[1].is_dir()
-    assert f"gantry: error: update step 2 ({program}): exit 1\n" in capsys.readouterr().err
+    assert (r.last_build.ok, r.last_build.exit, r.last_build.swap) == (True, 0, "swapped") and live(config)[1].is_dir()
+    line = f"gantry: error: update step 2 ({program}): exit 1\n"
+    assert line in capsys.readouterr().err
+    assert line in (rdir(config) / "last-run.log").read_bytes().decode("utf-8")
+
+
+def test_config_limits_reach_every_step_and_the_record(tmp_path, stand_in, append, monkeypatch):
+    from gantry.config import load_config
+    from gantry.roots import gantry_root
+
+    tail = (f"\n[refresh]\ndir = \"refresh\"\nupdate = {toml_commands([append(1), append(2)])}\n"
+            "interval_minutes = 7\nstep_timeout_minutes = 3\n")
+    config = load_config(write_config(tmp_path / "inst", tail=tail))
+    calls, real = [], refresh.run_step
+
+    def spy(argv, **kwargs):
+        calls.append(kwargs)
+        return real(argv, **kwargs)
+
+    monkeypatch.setattr(refresh, "run_step", spy)
+    assert refresh.refresh(config, build_command=stand_in("ok")) == 0
+    assert [call["timeout"] for call in calls] == [180, 180, 180]
+    assert [call.get("env") is None for call in calls] == [True, True, False]
+    assert calls[-1]["env"]["PYTHONPATH"] == str(gantry_root())
+    assert record(config).interval_minutes == 7
 
 
 def test_timed_out_command_is_recorded_and_its_tree_stopped(tmp_path, stand_in):
@@ -832,6 +858,7 @@ def test_forced_build_failures_leave_the_live_generation(tmp_path, stand_in, cap
     last = record(config).last_build
     assert (last.ok, last.exit, last.swap) == (False, code, "not swapped")
     assert f"gantry: error: build failed: {why}\n" in capsys.readouterr().err
+    assert f"gantry: error: build failed: {why}\n" in (rdir(config) / "last-run.log").read_bytes().decode("utf-8")
 
 
 def test_build_exit_1_with_its_marker_is_swapped_in(tmp_path, stand_in, capsys):

@@ -212,14 +212,24 @@ def _write_plan(result, text):
     return path, None
 
 
+# How a refusal names output_dir, and how it names the flag that replaced it (#35).
+FLAG_TEXTS = (
+    ("key 'output_dir'", "--output-dir"),
+    ("output_dir is outside the configured roots", "--output-dir is outside the configured roots"),
+    ("output_dir is not a folder", "--output-dir is not a folder"),
+)
+
+
 def _flagged(text, flag):
     """With --output-dir, a refusal of the flag's value (containment, a write
-    outside the roots) names the flag, not the key it replaced (#35). Only
+    outside the roots, a file where the folder goes) names the flag, not the
+    key it replaced (#35). Only
     errors raised after the flag replaced output_dir pass through here."""
     if not flag:
         return text
-    return text.replace("key 'output_dir'", "--output-dir").replace(
-        "output_dir is outside the configured roots", "--output-dir is outside the configured roots")
+    for key_text, flag_text in FLAG_TEXTS:
+        text = text.replace(key_text, flag_text)
+    return text
 
 
 def _config_error(e, flag):

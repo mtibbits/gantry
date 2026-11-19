@@ -308,7 +308,7 @@ def find_program(name, environ) -> str | None:
     the current folder first: with shell=False, Windows' CreateProcess searches
     the interpreter's folder and the parent's current folder before PATH, so
     a program planted in the scheduler's start-in folder would otherwise run
-    (#35; pothole devagent Issue-657).
+    (#35).
     """
     if os.sep in name or (os.altsep and os.altsep in name):
         return name
