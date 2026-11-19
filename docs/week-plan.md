@@ -998,8 +998,9 @@ and before `index.html`, and the index links it as `Week view` (#38). It
 renders the build's plan and nothing else: it computes no planning value,
 and `gantry build --site` writes no week page. The page is read-only in v1.
 It holds the installation's titles and keys, like every page in the output
-folder. Every text below is a constant in `gantry/views/week.py`; `{…}`
-marks a value from the plan.
+folder. Every text below is a constant in `gantry/views/week.py`, apart
+from the model band's `think`, `check` and `none`, which are constants in
+`gantry/views/leafbox.py`; `{…}` marks a value from the plan.
 
 **Hours.** Every hour figure is rounded once, half up, to two decimals,
 with trailing zeros dropped and an `h`: 135 minutes is "2.25 h", 120 is

@@ -28,7 +28,7 @@ from helpers_config import sample_build
 from page_safety import HOSTILE, RULES, assert_no_external_resources, assert_page_safe
 from page_script.harness import Planted, open_page
 from test_plan_file import shape_errors
-from test_planner import FIXTURE_NAMES, NO_PLAN_CASES, install, leaf, portfolio_md, wbs_md
+from test_planner import FIXTURE_NAMES, FIXTURES, NO_PLAN_CASES, install, leaf, portfolio_md, wbs_md
 from test_worksite_page import find, text_of, tree, visible_text
 
 STAMP = "built 2026-01-19 09:00"
@@ -41,7 +41,7 @@ NEW_ATTRS = ("data-beyond", "data-block", "data-day", "data-figure", "data-lanes
 STRUCTURAL = frozenset({"wrap", "label", "stamp", "not-working", "rule", "mapping", "capacity", "shareless", "day", "later",
                         "today", "hours", "reserved", "none", "block", "lanes", "left", "leaf", "title", "unest",
                         "state", "tier", "need", "basis", "cont", "site-unplanned", "beyond-list", "reason", "held",
-                        "p0-leaf", "gone", "site", "top", "key", "meta", "prio", "ttl", "tl", "facts", "bands",
+                        "p0-leaf", "gone", "top", "key", "meta", "prio", "ttl", "tl", "facts", "bands",
                         "band", "lane-site", "sw", "xsite"})
 ALLOWED_CLASSES = (WEEK_CLASSES | STRUCTURAL | set(STATE_CLASSES.values()) | {STATE_FALLBACK} | set(SLACK_CLASSES)
                    | set(MODEL_CLASSES.values()) | {MODEL_FALLBACK})
@@ -473,17 +473,43 @@ def test_leaf_boxes_fixture_premises(tmp_path):
     assert any(set(row) == {"a", "b"} and row[0] == "b" for row in rows)
 
 
-def test_box_matches_worksite_for_boxed_leaves(tmp_path):
-    result, t, boxes = leaf_boxes(tmp_path)
-    compared = 0
-    for (site, key), lines in boxes.items():
+def matched_boxes(result, html):
+    """Each boxed placed leaf's worksite box, after asserting every week box of it equals that box."""
+    t = tree(html)
+    matched = []
+    for site, key in placed_nodes(result.plan):
         node = worksite_box(result.pages[site], key) if site in result.pages else None
         if node is None or not node["title"]:  # an empty title shows the key on the week (OQ1 (a))
             continue
-        for i in [i for i in lines if attr(t, i, "data-site") == site]:
+        for i in [i for i in leaf_lines(t, key, within=one(t, "id", "days")) if attr(t, i, "data-site") == site]:
             assert week_box(t, i) == node, (site, key)
-        compared += 1
-    assert compared >= 6
+        matched.append(node)
+    return matched
+
+
+def test_box_matches_worksite_for_boxed_leaves(tmp_path):
+    assert len(matched_boxes(*fixture_build(tmp_path, "leaf_boxes"))) >= 6
+
+
+# leaf_boxes's linked leaves carry no priority, a one-line title and an
+# estimate; this copy gives linked leaves each, so the match can fail on them.
+LINKED_VARIANT = {
+    "{issue: Issue-7, est: 2h, h: 1}": "{issue: Issue-7, priority: P2, est: 2h, h: 1}",
+    "Order the trusses {": "Order the trusses from the far yard {",
+    "{issue: Issue-12, est: 2h, h: 1}": "{issue: Issue-12, est: ?, h: 1}",
+}
+
+
+def test_box_matches_worksite_on_priority_wrap_and_unest(tmp_path):
+    wbs = (FIXTURES / "leaf_boxes" / "a" / "WBS.md").read_text(encoding="utf-8")
+    for old, new in LINKED_VARIANT.items():
+        assert wbs.count(old) == 1, old
+        wbs = wbs.replace(old, new)
+    variant = matched_boxes(*fixture_build(tmp_path, "leaf_boxes", wbs={"a": wbs}))
+    assert any(len(node["title"]) == 2 for node in variant)
+    for matched in (variant, matched_boxes(*demo(tmp_path))):
+        assert any(node["prio"] is not None for node in matched)
+        assert any("unest" in node["cues"] for node in matched)
 
 
 def test_box_literal_rules_for_unboxed_leaves(tmp_path):

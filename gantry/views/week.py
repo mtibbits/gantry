@@ -252,7 +252,8 @@ def _day(page, day, conts):
         for entry in row:
             groups.setdefault(entry["site"], []).append(entry)
         lanes = "".join(f'<div class="lane-site" data-site="{esc(site)}"><h4>{esc(site)}</h4>'
-                        f'<ul>{"".join(line(entry) for entry in entries)}</ul></div>' for site, entries in groups.items())
+                        f'<ul>{"".join(line(entry) for entry in entries)}</ul></div>'
+                        for site, entries in groups.items())
         body.append(f'<div class="lanes" data-lanes="{len(row)}"><h3>{esc(LANES_ROW)}</h3>{lanes}</div>')
     pools = page.plan.pools
     body.append(_p("left", LEFT.format(attention_pool=pools[0]["name"],
@@ -392,5 +393,5 @@ def render_week(plan, result, stamp) -> str:
     body = _body(page)
     data = {"stamp": stamp, "plan": asdict(plan), "leaves": list(page.named.values()),
             "not_built": [[s.name, s.reason] for s in _not_built(result)]}
-    return fill(render.asset("templates/week.html"), LEAF_COLOURS=leafbox.colours(), TITLE=TITLE, STAMP=render.stamp_html(stamp),
-                BODY=Markup(body), DATA=embed_json(data), PAGE_JS=_script("static/week.js"))
+    return fill(render.asset("templates/week.html"), LEAF_COLOURS=leafbox.colours(), TITLE=TITLE,
+                STAMP=render.stamp_html(stamp), BODY=Markup(body), DATA=embed_json(data), PAGE_JS=_script("static/week.js"))

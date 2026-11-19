@@ -3,7 +3,8 @@
 The worksite network's node box and the week view's placement box read their
 texts and cue classes here: the key, the leaf's own priority and its title
 cut and wrapped, the model band, and the slack, state, unest and xsite
-classes. Pure: no page markup, only the values both pages place.
+classes. No page markup, only the values both pages place; colours() alone
+reads a file, the cue colour sheet.
 """
 
 import re
