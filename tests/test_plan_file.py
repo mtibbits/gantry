@@ -358,7 +358,9 @@ def test_demo_builds_byte_identical(tmp_path, monkeypatch):
 
 
 # The fixtures with a fire: cross_site and p0 hold open P0 leaves (#32).
-FIXTURE_FIRES_LINES = {"cross_site": "fires: 1; sources not fully read: 1", "p0": "fires: 4; sources not fully read: 1"}
+# leaf_boxes plants the priority "urgent!" (#170), a WBS.md line not read as a priority: a second unread source.
+FIXTURE_FIRES_LINES = {"cross_site": "fires: 1; sources not fully read: 1", "p0": "fires: 4; sources not fully read: 1",
+                       "leaf_boxes": "fires: 0; sources not fully read: 2"}
 
 
 @pytest.mark.parametrize("base", FIXTURE_NAMES)

@@ -15,7 +15,7 @@ from gantry import render
 from gantry.build import build_all
 from gantry.config import load_config
 from gantry.planner import ALLOCATION_RULE, NO_PLAN, PLAN_VERSION, UNPLANNED_REASONS, WeekPlan
-from gantry.render import STATE_CLASSES, STATE_FALLBACK, WEEK_CLASSES
+from gantry.render import SLACK_CLASSES, STATE_CLASSES, STATE_FALLBACK, WEEK_CLASSES
 from gantry.views import week
 from gantry.views.week import render_week
 from helpers_config import sample_build
@@ -337,6 +337,75 @@ def test_leaf_href_uses_the_anchor_encoding():
     assert attr(t, a, "href") == "sites/alpha.html#leaf-Issue-1"
 
 
+# --- the leaf box (#170) ---------------------------------------------------------------------
+
+# The cue classes both boxes carry: slack, state, unest and xsite.
+CUES = frozenset({*SLACK_CLASSES, *STATE_CLASSES.values(), STATE_FALLBACK, "unest", "xsite"})
+
+
+def placed_nodes(plan):
+    """[(site, key)] of every placement, in page order, each once."""
+    seen = {}
+    for d in plan.days:
+        for e in [*(x for b in d["blocks"] for x in b["leaves"]), *d["lanes_row"]]:
+            seen.setdefault((e["site"], e["key"]))
+    return list(seen)
+
+
+def week_box(t, i):
+    """A week box's texts and cue classes."""
+    prio = texts(t, "span", ["prio"], i)
+    return {"key": texts(t, "span", ["key"], i), "prio": prio[0] if prio else None,
+            "title": texts(t, "span", ["tl"], i),
+            "band": [(text_of(t, j), sorted(set(t.elements[j]["classes"]) - {"band"})) for j in find(t, "span", ["band"], i)],
+            "cues": set(t.elements[i]["classes"]) & CUES}
+
+
+def worksite_box(page, key):
+    """The worksite network box of `key` on a site page, or None when it is not a node."""
+    t = tree(page)
+    nodes = [i for i in find(t, "g", ["node"]) if attr(t, i, "data-item") == key]
+    if not nodes:
+        return None
+    (full,) = find(t, "g", ["full-form"], within=nodes[0])
+    meta = texts(t, "text", ["nmeta"], full)[0].split(" · ")
+    return {"key": texts(t, "text", ["nid"], full), "prio": meta[0] if len(meta) == 2 else None,
+            "title": texts(t, "text", ["ntitle"], full),
+            "band": [(text_of(t, j), sorted(set(t.elements[j]["classes"]) - {"band-t"}))
+                     for j in find(t, "text", ["band-t"], full)],
+            "cues": set(t.elements[nodes[0]]["classes"]) & CUES}
+
+
+def test_leaf_boxes_fixture_premises(tmp_path):
+    """leaf_boxes plants one leaf of each box kind, all placed in the 10 days."""
+    result, _ = fixture_build(tmp_path, "leaf_boxes")
+    plan = result.plan
+    assert plan.status == "planned"
+    placed = placed_nodes(plan)
+    records = {(e["site"], e["key"]): e for e in plan.leaves}
+    leaves = {(site, leaf.key): leaf for site, i in result.inputs.items() for leaf in i.data.leaves}
+    slack = {(site, leaf["key"]): leaf["slack"] for site, m in result.page_models.items() for leaf in m["leaves"]}
+    kinds = {"Issue-1": 0, "Issue-7": 2, "Issue-8": 4, "Issue-12": 3, "Issue-14": 4, "Issue-10": None,
+             "Issue-12345678901234": None, "Issue-11": None, "Issue-13": None}
+    for key, want in kinds.items():
+        assert ("a", key) in placed, key
+        assert slack[("a", key)] == want, key
+    assert leaves[("a", "Issue-10")].waits_on_other_site
+    assert leaves[("a", "Issue-12")].models is None
+    u1 = leaves[("a", "Issue-12345678901234")]
+    assert u1.models is None and len(u1.key) > 16 and u1.priority == "urgent!" and len(u1.title) > 40
+    u2 = leaves[("a", "Issue-11")].models
+    # A thinking name over the 9-character cut, and a checking name no table knows.
+    assert (u2.thinking, u2.checking) == ("sonnet-4-5", "inherit") and len(u2.thinking) > 9
+    n2 = leaves[("a", "Issue-13")]
+    assert records[("a", "Issue-13")]["unestimated"] and n2.models is not None and n2.models.checking is None
+    assert leaves[("a", "Issue-14")].title == ""
+    assert worksite_box(result.pages["a"], "Issue-14") is not None
+    assert (records[("a", "Issue-2")]["state"], records[("a", "Issue-3")]["state"]) == ("in_progress", "stuck")
+    rows = [[e["site"] for e in d["lanes_row"]] for d in plan.days if d["lanes_row"]]
+    assert any(set(row) == {"a", "b"} and row[0] == "b" for row in rows)
+
+
 # --- AC 2: the as-of date is not a working day ---------------------------------------------
 
 
@@ -434,7 +503,7 @@ def test_rule_and_capacity_on_every_fixture(tmp_path):
         assert texts(t, "p", ["capacity"]) == [
             "capacity from: operator attention hours: portfolio file; agent lanes: portfolio file"], base
         ran += 1
-    assert ran == 13
+    assert ran == 14
 
 
 # --- AC 8: share-less sites, notes, P0 and reasons ---------------------------------------------
@@ -661,7 +730,7 @@ def test_render_does_not_change_plan(tmp_path):
 
 def test_page_is_safe_static(tmp_path):
     pages = built_week_pages(tmp_path)
-    assert len(pages) == 16
+    assert len(pages) == 17
     for name, page in pages.items():
         assert_no_external_resources(page)
         assert_page_safe(page, [])
