@@ -395,14 +395,19 @@ def test_lock_excludes_a_second_taker(tmp_path):
     again.close()
 
 
+def acquire_after_death(roots, folder):
+    """The lock, retried: Windows frees a dead holder's lock soon after, not at once."""
+    handles = []
+    wait_for(lambda: handles.append(refresh.acquire_lock(roots, folder)) or handles[-1] is not None, seconds=10)
+    return handles[-1]
+
+
 def test_lock_dies_with_its_holder(tmp_path, lock_holder):
     proc = lock_holder(tmp_path)
     assert refresh.acquire_lock(writable(tmp_path), tmp_path) is None
     proc.kill()
     proc.wait()
-    handle = refresh.acquire_lock(writable(tmp_path), tmp_path)
-    assert handle is not None
-    handle.close()
+    acquire_after_death(writable(tmp_path), tmp_path).close()
 
 
 def test_lock_is_taken_from_byte_0_and_stays_empty(tmp_path, monkeypatch):
@@ -895,7 +900,10 @@ def test_undetermined_current_skips_the_sweep(tmp_path, stand_in):
 
 
 def snapshot(folder):
-    return {p.relative_to(folder).as_posix(): (p.read_bytes() if p.is_file() else None)
+    """Every entry under folder with its bytes; `lock` by its size only, since
+    on Windows reading a byte another process holds locked fails."""
+    return {p.relative_to(folder).as_posix(): (p.stat().st_size if p.name == "lock" else
+                                               p.read_bytes() if p.is_file() else None)
             for p in sorted(folder.rglob("*"))}
 
 
@@ -911,6 +919,7 @@ def test_a_running_refresh_is_skipped(tmp_path, stand_in, lock_holder, capsys):
     assert snapshot(rdir(config)) == before
     proc.kill()
     proc.wait()
+    acquire_after_death(writable(rdir(config)), rdir(config)).close()
     assert run(config, stand_in) == 0
     assert live(config)[0] != before["current"].decode("ascii")
 
@@ -1308,4 +1317,110 @@ def test_stale_index_lock_fails_the_update_until_removed(tmp_path, git_hermetic,
     lock.unlink()
     assert refresh.refresh(config, step_timeout_seconds=120) == 0, capsys.readouterr().err
     assert "Keep the lamp journal" in page(repo)
+
+
+# --- final review fixes (#35) ----------------------------------------------------------
+
+
+@pytest.mark.skipif(WINDOWS, reason="a POSIX process group; the Windows kill is taskkill's")
+def test_a_step_that_cannot_be_stopped_is_recorded_not_raised(tmp_path, stand_in, monkeypatch):
+    # killpg and kill both refused (EPERM: a step run as another user, say).
+    nap = script(tmp_path / "helpers", "nap", """
+        import time
+        time.sleep(4)
+    """)
+    config = installation(tmp_path, [[sys.executable, str(nap)]])
+
+    def refuse(*args):
+        raise PermissionError(1, "Operation not permitted")
+
+    monkeypatch.setattr(refresh.os, "killpg", refuse)
+    monkeypatch.setattr(refresh.os, "kill", refuse)
+    monkeypatch.setattr(refresh, "KILL_WAIT_SECONDS", 0.5)
+    assert run(config, stand_in, step_timeout_seconds=1) == 1
+    assert record(config).failed_step.reason == "timed out"
+    assert b"could not stop" in (rdir(config) / "last-run.log").read_bytes()
+
+
+class _FullDisk:
+    """last-run.log on a full disk: the children's descriptor works, Gantry's own writes fail."""
+
+    def __init__(self, real):
+        self.real = real
+
+    def fileno(self):
+        return self.real.fileno()
+
+    def write(self, data):
+        raise OSError(28, "No space left on device")
+
+    def flush(self):
+        pass
+
+    def close(self):
+        self.real.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+
+
+def test_a_log_that_cannot_be_written_does_not_raise(tmp_path, stand_in, monkeypatch, capsys):
+    config = installation(tmp_path, [["gantry-35-no-such-program"]])
+    real = refresh.open_confined
+
+    def full(roots, path, *args, **kwargs):
+        handle = real(roots, path, *args, **kwargs)
+        return _FullDisk(handle) if os.path.basename(path) == "last-run.log" else handle
+
+    monkeypatch.setattr(refresh, "open_confined", full)
+    assert run(config, stand_in) == 1
+    assert "gantry: error: update step 1 (gantry-35-no-such-program): could not start" in capsys.readouterr().err
+    assert record(config).last_build.swap == "swapped"
+
+
+def test_an_unexpected_os_error_is_an_error_line_not_raised(tmp_path, stand_in, monkeypatch, capsys):
+    config = installation(tmp_path)
+
+    def broken(environ):
+        raise OSError(5, "Input/output error")
+
+    monkeypatch.setattr(refresh, "build_env", broken)
+    assert run(config, stand_in) == 1
+    assert "gantry: error: " in capsys.readouterr().err and "Input/output error" in (
+        rdir(config) / "last-run.log").read_bytes().decode("utf-8")
+
+
+@pytest.mark.parametrize("which", [1, 2])
+def test_a_record_that_cannot_be_written_stops_the_run(tmp_path, stand_in, monkeypatch, capsys, which):
+    config = installation(tmp_path)
+    real, writes = refresh.write_confined, []
+
+    def refuse_record(roots, path, data, **kwargs):
+        if os.path.basename(path) == "update.json":
+            writes.append(path)
+            if len(writes) >= which:  # this record write and its retries
+                raise PermissionError(13, "Permission denied")
+        return real(roots, path, data, **kwargs)
+
+    monkeypatch.setattr(refresh, "write_confined", refuse_record)
+    monkeypatch.setattr(refresh, "SWAP_RETRY_SECONDS", 0.2)
+    assert run(config, stand_in) == 1
+    assert "gantry: error: cannot write update.json: Permission denied\n" in capsys.readouterr().err
+    if which == 1:  # no build follows a failed first record
+        assert generations(config) == [] and not (rdir(config) / "current").exists()
+    else:  # the build was swapped in; no sweep ran after the failed second record
+        assert len(generations(config)) == 1 and (rdir(config) / "current").exists()
+
+
+def test_a_first_word_ending_in_a_separator_records_no_path(tmp_path, stand_in):
+    folder = tmp_path / "programs"
+    folder.mkdir()
+    config = installation(tmp_path, [[str(folder) + os.sep]])
+    assert run(config, stand_in) == 1
+    r = record(config)
+    assert r.failed_step == FailedStep(1, "programs", "could not start")
+    assert str(tmp_path) not in (rdir(config) / "update.json").read_bytes().decode("utf-8")
 

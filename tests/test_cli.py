@@ -298,6 +298,29 @@ def test_output_dir_refusal_names_the_flag(tmp_path, capsys):
     assert not (copy / BUSY / MARKER_FILE).exists()
 
 
+def test_config_file_errors_keep_their_key_with_the_flag(tmp_path, capsys):
+    # A fault of the config file itself is not the flag's: its key stays named.
+    config = write_config(tmp_path / "cfg", output_dir=None)
+    code, _, err = gen_build(capsys, config, tmp_path / "gen")
+    assert code == 1 and "missing required key 'output_dir'" in err and "--output-dir" not in err
+
+
+@pytest.mark.parametrize("site", [None, SMALL])
+def test_output_dir_write_refusal_names_the_flag(tmp_path, capsys, site):
+    from helpers_links import symlink
+
+    copy = copy_samples(tmp_path)
+    gen, elsewhere = tmp_path / "gen", tmp_path / "elsewhere"
+    gen.mkdir()
+    elsewhere.mkdir()
+    symlink(elsewhere, gen / "sites", directory=True)
+    code, _, err = gen_build(capsys, copy / "gantry.sample.toml", gen, *(() if site is None else ("--site", site)))
+    assert code == 1
+    assert "--output-dir is outside the configured roots" in err and "output_dir is outside" not in err.replace(
+        "--output-dir is outside", "")
+    assert os.listdir(elsewhere) == []
+
+
 # --- build --site ---------------------------------------------------------------
 
 

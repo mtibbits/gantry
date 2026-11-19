@@ -156,9 +156,9 @@ def _utf8_streams():
             stream.reconfigure(encoding="utf-8", errors="backslashreplace", newline="\n")
 
 
-def _build_site(config, roots, sites, name):
+def _build_site(config, roots, sites, name, flag=False):
     def fail(message):
-        print(f"gantry: error: --site {shown(name)}: {message}", file=sys.stderr)
+        print(f"gantry: error: --site {shown(name)}: {_flagged(message, flag)}", file=sys.stderr)
         return 1
 
     site = next((s for s in sites if s.name == name), None)
@@ -213,13 +213,18 @@ def _write_plan(result, text):
     return path, None
 
 
+def _flagged(text, flag):
+    """With --output-dir, a refusal of the flag's value (containment, a write
+    outside the roots) names the flag, not the key it replaced (#35). Only
+    errors raised after the flag replaced output_dir pass through here."""
+    if not flag:
+        return text
+    return text.replace("key 'output_dir'", "--output-dir").replace(
+        "output_dir is outside the configured roots", "--output-dir is outside the configured roots")
+
+
 def _config_error(e, flag):
-    """Print a ConfigError. With --output-dir, a refusal of the flag's value
-    names the flag, not the key it replaced (#35)."""
-    text = str(e)
-    if flag:
-        text = text.replace("key 'output_dir'", "--output-dir")
-    print(f"gantry: error: {text}", file=sys.stderr)
+    print(f"gantry: error: {_flagged(str(e), flag)}", file=sys.stderr)
 
 
 def _build_all(config, *, marker=False):
@@ -254,17 +259,18 @@ def _build_all(config, *, marker=False):
             print(f"gantry: warning: {what}: {s.reason}", file=sys.stderr)
     for s in result.summaries:
         if s.status != "built":
-            print(f"gantry: warning: site {shown(s.name)} is not built: {s.reason}", file=sys.stderr)
+            print(f"gantry: warning: site {shown(s.name)} is not built: {_flagged(s.reason, marker)}",
+                  file=sys.stderr)
     if result.week_error is not None:
-        print(f"gantry: error: {result.week_error}", file=sys.stderr)
+        print(f"gantry: error: {_flagged(result.week_error, marker)}", file=sys.stderr)
     if plan_error is not None:
-        print(f"gantry: error: cannot write {PLAN_FILE}: {plan_error}", file=sys.stderr)
+        print(f"gantry: error: cannot write {PLAN_FILE}: {_flagged(plan_error, marker)}", file=sys.stderr)
     if result.strategic_error is not None:
         # "cannot render" or "cannot write", as the week view's line; the index has no headline, shares or link (#23).
-        print(f"gantry: error: {result.strategic_error}", file=sys.stderr)
+        print(f"gantry: error: {_flagged(result.strategic_error, marker)}", file=sys.stderr)
     if index_error is not None:
         # The index, or the output folder itself, cannot be written: no marker.
-        print(f"gantry: error: cannot write {index}: {index_error}", file=sys.stderr)
+        print(f"gantry: error: cannot write {index}: {_flagged(index_error, marker)}", file=sys.stderr)
         return 1
     if not result.pages:
         print("gantry: error: no site page was written", file=sys.stderr)
@@ -276,7 +282,8 @@ def _build_all(config, *, marker=False):
         try:
             write_marker(result.roots, config.output_dir, code)
         except (OSError, OutsideRoots) as e:
-            print(f"gantry: error: cannot write {MARKER_FILE}: {why_not_written(e, result.roots)}", file=sys.stderr)
+            why = _flagged(why_not_written(e, result.roots), marker)
+            print(f"gantry: error: cannot write {MARKER_FILE}: {why}", file=sys.stderr)
             return 1
     return code
 
@@ -289,18 +296,23 @@ def _build(args):
         return 2
     try:
         config = load_config(args.config)
-        if flag:
-            # Replaced once: roots, sample mode, the stamp, writes and messages all read config.output_dir.
-            config = replace(config, output_dir=PurePath(os.path.abspath(args.output_dir)))
-        if args.site is None:
-            return _build_all(config, marker=flag)
+    except ConfigError as e:
+        # The config file's own faults keep their key's name, flag or not.
+        _config_error(e, False)
+        return 1
+    if flag:
+        # Replaced once: roots, sample mode, the stamp, writes and messages all read config.output_dir.
+        config = replace(config, output_dir=PurePath(os.path.abspath(args.output_dir)))
+    if args.site is None:
+        return _build_all(config, marker=flag)
+    try:
         roots = config_roots(config)
         sites, warnings = site_list(config, roots)
     except ConfigError as e:
         _config_error(e, flag)
         return 1
     _warn(warnings)
-    return _build_site(config, roots, sites, args.site)
+    return _build_site(config, roots, sites, args.site, flag)
 
 
 # This command reads no WBS.md, so it cannot find the milestone leaf; the full

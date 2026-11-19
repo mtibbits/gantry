@@ -254,9 +254,22 @@ class StepResult:
 
 
 def log_line(log, text):
-    """One line of Gantry's own into last-run.log, flushed before any child writes."""
-    log.write((text + "\n").encode("utf-8", "backslashreplace"))
-    log.flush()
+    """One line of Gantry's own into last-run.log, flushed before any child
+    writes. A log that cannot be written (a full disk) loses the line; the
+    run goes on, and stderr still has every error line."""
+    try:
+        log.write((text + "\n").encode("utf-8", "backslashreplace"))
+        log.flush()
+    except OSError:
+        pass
+
+
+def _kill(proc, log):
+    """proc.kill(), logging instead of raising when it is refused."""
+    try:
+        proc.kill()
+    except OSError as e:
+        log_line(log, f"gantry: could not stop the step: {error_reason(e)}")
 
 
 def taskkill_argv(pid, environ):
@@ -290,7 +303,7 @@ def kill_tree(proc, log, environ=None):
                 else:
                     if code != 0:
                         log_line(log, f"gantry: taskkill exited {code}")
-        proc.kill()  # in every case: the child itself, if taskkill missed it
+        _kill(proc, log)  # in every case: the child itself, if taskkill missed it
     else:
         try:
             os.killpg(proc.pid, signal.SIGKILL)
@@ -298,7 +311,7 @@ def kill_tree(proc, log, environ=None):
             pass
         except OSError as e:
             log_line(log, f"gantry: could not stop the step's process group: {error_reason(e)}")
-            proc.kill()
+            _kill(proc, log)
     try:
         proc.wait(timeout=KILL_WAIT_SECONDS)
     except subprocess.TimeoutExpired:
@@ -510,8 +523,10 @@ def _error(message, log=None):
 
 
 def _program(word) -> str:
-    """A failed step's program: the base name of the command's first word."""
-    return os.path.basename(word) or word or "(empty)"
+    """A failed step's program: the base name of the command's first word,
+    never a path (a word ending in a separator loses it first)."""
+    separators = "/\\" if os.name == "nt" else "/"
+    return os.path.basename(word.rstrip(separators)) or "(no name)"
 
 
 def _step_reason(result) -> str:
@@ -558,7 +573,12 @@ def refresh(config, *, step_timeout_seconds=None, build_command=None) -> int:
             limit = step_timeout_seconds
             if limit is None:
                 limit = config.refresh.step_timeout_minutes * 60
-            return _locked_run(config, roots, folder, log, limit, build_command)
+            try:
+                return _locked_run(config, roots, folder, log, limit, build_command)
+            except OSError as e:
+                # The backstop: the -> int is #64's contract, so no OSError leaves a run.
+                _error(f"refresh failed: {_why(e)}", log)
+                return 1
     finally:
         lock.close()
 

@@ -225,12 +225,16 @@ does not change the running job (`<python>` is that environment's Python,
 by its full path; `<config>` is the installation config, by its full path):
 
 ```
-git -C <clone> checkout v<version>
+git -C <clone> checkout gantry--v<version>
 <python> -m pip install <clone>
 ```
 
 Then have the OS scheduler run the job every `interval_minutes`. Quote a
-path that holds a space, as the examples do.
+path that holds a space, as the examples do. The job must also run after a
+reboot with no one logged in, so on Linux run `loginctl enable-linger` once
+for the job's user (a user timer otherwise runs only while that user has a
+session), and on Windows create the task with `/RU <user>` and that user's
+password (`/RP`), so it runs whether or not the user is logged on.
 
 On Linux, a systemd user service and timer (in the user unit folder, then
 `systemctl --user enable --now gantry-refresh.timer`). `gantry-refresh.service`:

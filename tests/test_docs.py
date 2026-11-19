@@ -663,3 +663,10 @@ def test_no_provisional_for_35_left():
         body = roots.split(f"def {function}(", 1)[1].split("\ndef ", 1)[0]
         assert "No Gantry command calls it today" in " ".join(body.split()), function
 
+
+def test_refresh_doc_install_step_uses_the_release_tag_and_survives_a_reboot():
+    scheduling = section(markdown_text(REFRESH_DOC), "## Scheduling")
+    tag = re.search(r"`(gantry--v<version>)`", markdown_text(ROOT / "README.md")).group(1)
+    assert f"checkout {tag}" in scheduling
+    assert "loginctl enable-linger" in scheduling and "/RU" in scheduling
+
