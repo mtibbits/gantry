@@ -570,6 +570,17 @@ def test_placed_leaves_have_page_model_records(tmp_path):
     assert checked > 0
 
 
+def test_legend_texts(tmp_path):
+    t = tree(demo(tmp_path)[1])
+    (legend,) = with_attr(t, "id", "legend")
+    assert texts(t, "li", within=legend) == [
+        "critical: slack 0 on its own site's network", "near-critical: slack 1\u20133 on its own site's network",
+        "P0: in the P0 tier, because its own priority or that of a leaf it blocks, directly or not, is P0"]
+    assert [t.elements[i]["classes"] for i in find(t, "i", within=legend)] == [["sw", "crit"], ["sw", "near"]]
+    # Between the lines and the day buttons.
+    assert one(t, "id", "lines") < legend < one(t, "id", "days")
+
+
 # --- AC 2: the as-of date is not a working day ---------------------------------------------
 
 
@@ -858,6 +869,8 @@ def test_no_plan_pages(tmp_path, key, case, changes):
     for name in ("data-day", "data-figure", "data-unestimated"):
         assert with_attr(t, name) == [], name
     assert with_attr(t, "id", "lines") == [] and with_attr(t, "id", "per-site") == []
+    # test_no_plan_has_no_legend (#170): the legend is shown only with a plan.
+    assert with_attr(t, "id", "legend") == []
 
 
 def test_no_plan_cases_cover_every_reason():

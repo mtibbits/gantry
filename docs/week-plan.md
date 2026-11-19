@@ -1031,6 +1031,12 @@ with no exponent ("0.000001").
 - the P0 leaves, each linked and marked `held by {holders}` when a
   cross-site entry holds it, captioned `P0 leaves`.
 
+**The legend.** Below those lines, and only with a plan, a legend reads
+`critical: slack 0 on its own site's network` and
+`near-critical: slack 1–3 on its own site's network`, each beside a swatch
+of that box fill, then
+`P0: in the P0 tier, because its own priority or that of a leaf it blocks, directly or not, is P0`.
+
 **The days.** All 10 days are on the page; with the page script, the
 first 5 show and the `5 days` and `10 days` buttons show or hide the rest.
 With scripts off, every day and list shows and the buttons do not. Each

@@ -78,6 +78,10 @@ NO_SHARE = "no intended share set"
 SHARE_HEAD = "share on {weekday} {date}"
 CHARGED = "{charged} charged, {target} target"
 NO_PLAN = "no week plan: {reason}"
+# The legend (#170): what a box's red fill and the P0 mark say.
+LEGEND_CRIT = "critical: slack 0 on its own site's network"
+LEGEND_NEAR = "near-critical: slack 1\u20133 on its own site's network"
+LEGEND_P0 = "P0: in the P0 tier, because its own priority or that of a leaf it blocks, directly or not, is P0"
 
 BEYOND_HORIZON = planner.BEYOND_HORIZON
 
@@ -375,7 +379,9 @@ def _body(page):
     buttons = "".join(f'<button class="gone" data-control="days" data-value="{value}" '
                       f'aria-pressed="{"true" if value == "5" else "false"}">{esc(label)}</button>'
                       for value, label in DAYS_BUTTONS)
-    return f'{lines}<div>{buttons}</div><div id="days">{days}</div>{_unplanned(page)}{_per_site(page)}'
+    legend = (f'<ul id="legend"><li><i class="sw crit"></i>{esc(LEGEND_CRIT)}</li>'
+              f'<li><i class="sw near"></i>{esc(LEGEND_NEAR)}</li><li>{esc(LEGEND_P0)}</li></ul>')
+    return f'{lines}{legend}<div>{buttons}</div><div id="days">{days}</div>{_unplanned(page)}{_per_site(page)}'
 
 
 def render_week(plan, result, stamp) -> str:
