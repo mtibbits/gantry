@@ -249,7 +249,7 @@ starts with the path, and its `kind` is one of four:
 | `unreadable` | the file does not exist | to run devagent's aggregator first (`/devagent:portfolio`) |
 | `unreadable` | the file is outside the configured roots | that it is outside them, with no remedy until #12 gives the document a config key |
 | `unreadable` | any other failed read | the system's reason |
-| `not_json` | the bytes are not UTF-8, or not JSON: a syntax error, `NaN` or `Infinity`, a number that is too long, or nesting that is too deep | the cause, in one fixed text each, and to run the aggregator again |
+| `not_json` | the bytes are not UTF-8, or not JSON: a syntax error, `NaN` or `Infinity`, a number that is too long, or nesting deeper than 100 levels (counted by the reader, so every Python version and host agrees) | the cause, in one fixed text each, and to run the aggregator again |
 | `version` | `schema_version` names another major than 1 | both versions: the document's, and `major 1 (schema 1.1)` |
 | `schema` | the document breaks a rule below | the place, such as `$.projects[0].nodes[2].source_line`, and the first problem |
 

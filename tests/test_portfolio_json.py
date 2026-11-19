@@ -249,6 +249,8 @@ def test_not_json_names_path(tmp_path):
         (b"", "syntax error at line 1 column 1"),
         (b'{"schema": "\xff"}', "not UTF-8 at byte 12"),
         (b"[" * 100_000, "nesting is too deep"),
+        (b"[" * (pj.JSON_DEPTH + 1) + b"]" * (pj.JSON_DEPTH + 1), "nesting is too deep"),
+        (b'{"x": "' + b"[" * 100_000, "syntax error at line 1 column 7"),  # an unterminated string
         (b'{"source_line": ' + b"7" * 5000 + b"}", "a number is too long"),
         (b'{"x": NaN}', "NaN or Infinity is not JSON"),
         (b'{"x": -Infinity}', "NaN or Infinity is not JSON"),
@@ -262,6 +264,18 @@ def test_not_json_names_path(tmp_path):
             assert str(error).endswith(f". {AGAIN}")
             continue
         assert str(error) == f"{path}: devagent's portfolio JSON is not valid JSON: {reason}. {AGAIN}"
+
+
+def test_depth_limit_is_the_readers_not_the_decoders(tmp_path):
+    """The limit is counted before decoding, so the stack size and the Python version do not decide it:
+    since 3.14 the decoder raises RecursionError only when the C stack runs out (#186's 3.15 CI leg)."""
+    at_limit = b"[" * pj.JSON_DEPTH + b"]" * pj.JSON_DEPTH
+    assert load_error(tmp_path, at_limit).kind == "schema"  # parsed: a list is not a portfolio document
+    in_strings = b'{"x": "' + b"[{" * 100_000 + b'", "y": ["]]]}}}"]}'
+    assert load_error(tmp_path, in_strings).kind == "schema"
+    escaped = b'{"x": "\\"' + b"[" * 100_000 + b'"}'
+    assert load_error(tmp_path, escaped).kind == "schema"
+    assert 7 < pj.JSON_DEPTH < 500  # above written.json's depth, below any decoder's recursion limit
 
 
 def _parent(doc, path):

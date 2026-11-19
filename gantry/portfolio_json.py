@@ -47,6 +47,10 @@ SCHEMA_ID = "devagent-portfolio"
 # minor of this major is read, and a field the reader does not use is ignored.
 MAJOR, MINOR = 1, 1
 MAX_DEPTH = 64  # the deepest a node may nest
+# The deepest the JSON text may nest, counted before decoding: since Python 3.14
+# the decoder's own limit is the C stack, so its verdict differs by host and
+# version. A portfolio document nests about 7 deep; every decoder handles 100.
+JSON_DEPTH = 100
 MAX_LINE = 999_999_999
 STATUSES = ("read", "no_wbs", "no_devdoc_dir", "unreadable")
 # Bounded digit groups: int() never sees a long run.
@@ -191,6 +195,24 @@ def _first_repeat(doc):
     return None
 
 
+# A string (to its closing quote, or to the end when unterminated) or a bracket.
+_JSON_TOKEN = re.compile(r'"(?:[^"\\]|\\.)*"?|[\[\]{}]')
+
+
+def _too_deep(text):
+    """Whether the text nests deeper than JSON_DEPTH; brackets inside strings do not count."""
+    depth = 0
+    for token in _JSON_TOKEN.finditer(text):
+        bracket = token.group()
+        if bracket in ("[", "{"):
+            depth += 1
+            if depth > JSON_DEPTH:
+                return True
+        elif bracket in ("]", "}"):
+            depth -= 1
+    return False
+
+
 def _loads(data, source):
     """The file's bytes as a parsed document: strict UTF-8, strict JSON, no key used twice."""
     try:
@@ -205,13 +227,15 @@ def _loads(data, source):
             repeated.append(out)
         return out
 
+    if _too_deep(text):
+        raise _error("not_json", source, reason=NOT_JSON["depth"])
     try:
         doc = json.loads(text, parse_constant=_refuse_constant, object_pairs_hook=pairs)
     except json.JSONDecodeError as e:
         reason = NOT_JSON["syntax"].format(line=e.lineno, column=e.colno)
     except _Constant:
         reason = NOT_JSON["constant"]
-    except RecursionError:
+    except RecursionError:  # not reached past _too_deep; kept so a stack overflow is never a crash
         reason = NOT_JSON["depth"]
     except ValueError:
         # The integer-digit limit: the decoder raises a plain ValueError for it.
