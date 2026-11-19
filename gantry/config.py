@@ -185,10 +185,14 @@ def resolve_path(raw: str, base_dir, *, flavour: str) -> PurePath:
 
 # --- types -----------------------------------------------------------------------
 
+# The most minutes [refresh] interval_minutes may name (a day); update.json's
+# reader holds its recorded interval to the same bound.
+INTERVAL_MINUTES_MAX = 1440
+
 _KIND_TEXT = {
     "int": "an integer",
     "int_min_1": "an integer, 1 or more",
-    "int_1_to_1440": "an integer from 1 to 1440",
+    "int_1_to_1440": f"an integer from 1 to {INTERVAL_MINUTES_MAX}",
     "commands": "a list of commands, each a non-empty list of strings",
     "path": "a path string",
     "date": "a TOML date (YYYY-MM-DD)",
@@ -240,7 +244,7 @@ def _kind_ok(kind: str, value) -> bool:
     if kind == "int_min_1":
         return _kind_ok("int", value) and value >= 1
     if kind == "int_1_to_1440":
-        return _kind_ok("int", value) and 1 <= value <= 1440
+        return _kind_ok("int", value) and 1 <= value <= INTERVAL_MINUTES_MAX
     if kind == "commands":
         return isinstance(value, list) and all(
             isinstance(command, list) and command and all(isinstance(word, str) for word in command)
@@ -419,7 +423,8 @@ def load_config(path) -> Config:
             dir=refresh_dir,
             interval_minutes=refresh_table.get(
                 "interval_minutes", _REFRESH_KEYS_BY_NAME["interval_minutes"].default),
-            update=tuple(tuple(command) for command in refresh_table.get("update", ())),
+            update=tuple(tuple(command) for command in refresh_table.get(
+                "update", _REFRESH_KEYS_BY_NAME["update"].default)),
             step_timeout_minutes=refresh_table.get(
                 "step_timeout_minutes", _REFRESH_KEYS_BY_NAME["step_timeout_minutes"].default),
         ),

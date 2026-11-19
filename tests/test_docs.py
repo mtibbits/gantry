@@ -28,6 +28,7 @@ from helpers_docs import (
     view_item,
     view_line_problems,
 )
+from test_samples import md_tables
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -546,12 +547,8 @@ REFRESH_ANCHORS = ("what-one-run-does", "the-refresh-folder", "the-update-record
 
 def _exit_rows(text):
     """{code: meaning} from the doc's exit-code table."""
-    rows = {}
-    for line in section(text, "## Exit codes").split("\n"):
-        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
-        if len(cells) == 2 and cells[0].isdigit():
-            rows[int(cells[0])] = cells[1]
-    return rows
+    (table,) = md_tables(section(text, "## Exit codes"))
+    return {int(code): meaning for code, meaning in table.rows}
 
 
 def test_refresh_doc_covers_the_setup_points():
@@ -644,11 +641,11 @@ PROMISE_HOMES = {
 
 def test_network_promise_names_refresh():
     for name, part in PROMISE_HOMES.items():
-        text = " ".join(part(markdown_text(ROOT / name)).split())
+        whole = markdown_text(ROOT / name)
+        text = " ".join(part(whole).split())
         assert "itself opens no network connection" in text, name
         assert "`gantry refresh`" in text, name
-    for name in PROMISE_HOMES:
-        text = " ".join(markdown_text(ROOT / name).split())
+        text = " ".join(whole.split())
         assert "commands make no network connection" not in text, name
         assert "makes no network connection" not in text, name
         assert "Gantry sends nothing anywhere" not in text, name

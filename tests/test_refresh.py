@@ -12,6 +12,7 @@ import subprocess
 import sys
 import textwrap
 import time
+from contextlib import contextmanager
 
 import pytest
 
@@ -29,7 +30,7 @@ from gantry.refresh import (
 from gantry.roots import LinkRefused, OutsideRoots, directory_roots
 from helpers_config import copy_samples, literal, write_config, write_site_tree, written_bytes
 from helpers_links import link_dir, symlink
-from test_samples import ROOT
+from test_samples import ROOT, git_env
 
 WINDOWS = os.name == "nt"
 
@@ -358,24 +359,34 @@ HOLDER = """
 """
 
 
-@pytest.fixture
-def lock_holder(tmp_path):
-    """hold(folder) -> the Popen of a process holding folder's refresh lock; every one is killed at teardown."""
+@contextmanager
+def holders(tmp_path, name, body):
+    """hold(*args) -> the Popen of the `body` script run with args, once it
+    prints "held"; every one is killed on exit."""
     procs = []
 
-    def hold(folder):
-        holder = script(tmp_path / "helpers", "holder", HOLDER)
-        proc = subprocess.Popen([sys.executable, str(holder), str(ROOT), str(folder)],
+    def hold(*args):
+        holder = script(tmp_path / "helpers", name, body)
+        proc = subprocess.Popen([sys.executable, str(holder), *map(str, args)],
                                 stdin=subprocess.DEVNULL, stdout=subprocess.PIPE)
         procs.append(proc)
         assert proc.stdout.readline().strip() == b"held"
         return proc
 
-    yield hold
-    for proc in procs:
-        proc.kill()
-        proc.wait()
-        proc.stdout.close()
+    try:
+        yield hold
+    finally:
+        for proc in procs:
+            proc.kill()
+            proc.wait()
+            proc.stdout.close()
+
+
+@pytest.fixture
+def lock_holder(tmp_path):
+    """hold(folder) -> the Popen of a process holding folder's refresh lock; every one is killed at teardown."""
+    with holders(tmp_path, "holder", HOLDER) as hold:
+        yield lambda folder: hold(ROOT, folder)
 
 
 def writable(folder):
@@ -584,7 +595,7 @@ def test_sweep_leaves_what_it_cannot_delete(tmp_path, monkeypatch):
     assert sorted(os.listdir(tmp_path / "generations")) == ["a", "c"]
 
 
-def test_discard_removes_one_and_ignores_errors(tmp_path, monkeypatch):
+def test_discard_removes_one_and_ignores_errors(tmp_path):
     generation = make_generation(tmp_path, "g1", b"x")
     refresh.discard(writable(tmp_path), generation)
     assert not generation.exists()
@@ -608,11 +619,12 @@ STAND_IN = """
     if mode == "raise-after-index":
         raise RuntimeError("planted")
     markers = {"ok": b'{"build_version": 1, "exit": 0}\\n', "mismatch": b'{"build_version": 1, "exit": 0}\\n',
-               "exit2": b'{"build_version": 1, "exit": 2}\\n', "garbage": b"garbage"}
+               "exit1": b'{"build_version": 1, "exit": 1}\\n', "exit2": b'{"build_version": 1, "exit": 2}\\n',
+               "garbage": b"garbage"}
     if mode in markers:
         with open(os.path.join(out, "build.json"), "wb") as handle:
             handle.write(markers[mode])
-    sys.exit({"ok": 0, "no-marker": 0, "mismatch": 1, "exit2": 2, "garbage": 0}[mode])
+    sys.exit({"ok": 0, "no-marker": 0, "mismatch": 1, "exit1": 1, "exit2": 2, "garbage": 0}[mode])
 """
 # An update command: append its argument to a relative file, then exit with the second (default 0).
 APPEND = """
@@ -638,12 +650,16 @@ def append(tmp_path):
     return lambda n, code=0: [sys.executable, str(path), str(n), str(code)]
 
 
+def toml_commands(update):
+    """An update list as a TOML array of arrays of literal strings."""
+    return "[" + ", ".join("[" + ", ".join(literal(word) for word in command) + "]" for command in update) + "]"
+
+
 def installation(tmp_path, update=(), refresh_dir='"refresh"'):
     """A loaded config with a [refresh] table whose dir does not exist yet."""
     from gantry.config import load_config
 
-    commands = ", ".join("[" + ", ".join(literal(word) for word in command) + "]" for command in update)
-    tail = f"\n[refresh]\ndir = {refresh_dir}\nupdate = [{commands}]\n"
+    tail = f"\n[refresh]\ndir = {refresh_dir}\nupdate = {toml_commands(update)}\n"
     return load_config(write_config(tmp_path / "inst", tail=tail))
 
 
@@ -813,24 +829,16 @@ def test_forced_build_failures_leave_the_live_generation(tmp_path, stand_in, cap
     assert result == 1
     assert live(config) == (current, generation) and written_bytes(generation) == before
     assert generations(config) == [current]
-    assert record(config).last_build.ok is False
-    assert (record(config).last_build.exit, record(config).last_build.swap) == (code, "not swapped")
+    last = record(config).last_build
+    assert (last.ok, last.exit, last.swap) == (False, code, "not swapped")
     assert f"gantry: error: build failed: {why}\n" in capsys.readouterr().err
 
 
-def test_build_exit_1_with_its_marker_is_swapped_in(tmp_path, stand_in, capsys, monkeypatch):
+def test_build_exit_1_with_its_marker_is_swapped_in(tmp_path, stand_in, capsys):
     config = installation(tmp_path)
-    exit1 = script(tmp_path / "helpers", "exit1", """
-        import os, sys
-        out = sys.argv[2]
-        os.makedirs(out, exist_ok=True)
-        with open(os.path.join(out, "build.json"), "wb") as handle:
-            handle.write(b'{"build_version": 1, "exit": 1}\\n')
-        sys.exit(1)
-    """)
-    assert refresh.refresh(config, step_timeout_seconds=120, build_command=[sys.executable, str(exit1)]) == 1
-    assert (record(config).last_build.ok, record(config).last_build.exit, record(config).last_build.swap) == (
-        False, 1, "swapped")
+    assert run(config, stand_in, "exit1") == 1
+    last = record(config).last_build
+    assert (last.ok, last.exit, last.swap) == (False, 1, "swapped")
     assert "gantry: error: build exited 1; its generation was swapped in\n" in capsys.readouterr().err
 
 
@@ -865,7 +873,8 @@ def test_failed_swap_is_recorded(tmp_path, stand_in, capsys, monkeypatch):
     capsys.readouterr()
     assert run(config, stand_in) == 1
     assert live(config)[0] == current and generations(config) == [current]
-    assert (record(config).last_build.ok, record(config).last_build.swap) == (False, "swap failed")
+    last = record(config).last_build
+    assert (last.ok, last.swap) == (False, "swap failed")
     assert "gantry: error: swap failed: current could not be replaced in 0.2 s\n" in capsys.readouterr().err
 
 
@@ -895,7 +904,7 @@ def test_undetermined_current_skips_the_sweep(tmp_path, stand_in):
     assert run(config, stand_in) == 0
     (rdir(config) / "current").write_bytes(b"../x")
     assert run(config, stand_in) == 0
-    new, generation = live(config)
+    _, generation = live(config)
     assert generation.is_dir() and len(generations(config)) == 3
 
 
@@ -1026,21 +1035,8 @@ OPEN_FILE_BLOCKS = "an open file blocks rename and delete only on Windows"
 @pytest.fixture
 def file_holder(tmp_path):
     """hold(path, seconds) -> a process holding path open for that long; all killed at teardown."""
-    procs = []
-
-    def hold(path, seconds=120):
-        holder = script(tmp_path / "helpers", "hold", HOLD)
-        proc = subprocess.Popen([sys.executable, str(holder), str(path), str(seconds)],
-                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE)
-        procs.append(proc)
-        assert proc.stdout.readline().strip() == b"held"
-        return proc
-
-    yield hold
-    for proc in procs:
-        proc.kill()
-        proc.wait()
-        proc.stdout.close()
+    with holders(tmp_path, "hold", HOLD) as hold:
+        yield lambda path, seconds=120: hold(path, seconds)
 
 
 @pytest.mark.skipif(not WINDOWS, reason=OPEN_FILE_BLOCKS)
@@ -1107,8 +1103,7 @@ def absolute_sample_config(tmp_path, update=()):
         lines.append(f"\n[site.{name}]")
         lines += [f"{key} = {literal(copy / value) if isinstance(value, str) else str(value).lower()}"
                   for key, value in table.items()]
-    commands = ", ".join("[" + ", ".join(literal(word) for word in command) + "]" for command in update)
-    lines.append(f"\n[refresh]\ndir = {literal(inst / 'refresh')}\nupdate = [{commands}]")
+    lines.append(f"\n[refresh]\ndir = {literal(inst / 'refresh')}\nupdate = {toml_commands(update)}")
     path = inst / "gantry.toml"
     path.write_bytes(("\n".join(lines) + "\n").encode("utf-8"))
     return path, copy
@@ -1159,14 +1154,15 @@ def test_sample_config_refresh(tmp_path, capsys):
     assert not (tmp_path / "inst" / "out").exists()
 
 
-def test_failed_update_still_builds_and_swaps(tmp_path, capsys):
+def test_failed_update_still_builds_and_swaps(tmp_path):
     from gantry.cli import main
 
     path, _ = absolute_sample_config(tmp_path, update=[["gantry-35-no-such-program"]])
     assert main(["refresh", "--config", str(path)]) == 1
-    _, generation = live(loaded(path))
+    config = loaded(path)
+    _, generation = live(config)
     assert (generation / "index.html").is_file()
-    assert record(loaded(path)).failed_step.reason == "could not start"
+    assert record(config).failed_step.reason == "could not start"
 
 
 def test_build_exit_1_on_purpose_is_swapped_in(tmp_path, capsys):
@@ -1250,22 +1246,16 @@ def test_planted_json_module_never_runs(tmp_path):
 def git_hermetic(git_ready, monkeypatch):
     """git through refresh(): no ambient GIT_* (git -C does not override an
     exported GIT_DIR), no global or system config."""
-    for name in [n for n in os.environ if n.startswith("GIT_")]:
+    hermetic = git_env(hermetic=True)
+    for name in os.environ.keys() - hermetic.keys():
         monkeypatch.delenv(name)
-    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
-    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    for name, value in hermetic.items():
+        monkeypatch.setenv(name, value)
 
 
-def page(repo):
-    """The live generation's page for the repo's site."""
-    current = (repo.refresh_dir / "current").read_bytes().decode("ascii")
-    return (repo.refresh_dir / "generations" / current / "sites" / f"{repo.site}.html").read_bytes().decode("utf-8")
-
-
-def repo_record(repo):
-    read = parse_update_record((repo.refresh_dir / "update.json").read_bytes())
-    assert read.status == "ok", read
-    return read.record
+def page(config, site):
+    """The live generation's page for one site."""
+    return (live(config)[1] / "sites" / f"{site}.html").read_bytes().decode("utf-8")
 
 
 def test_refresh_repo_shape(tmp_path, git_hermetic):
@@ -1286,20 +1276,20 @@ def test_end_to_end_pull_then_unreachable_remote(tmp_path, git_hermetic, capsys)
     config = loaded(repo.config)
     repo.push_title("Keep the lamp log", "Keep the lamp journal")
     assert refresh.refresh(config, step_timeout_seconds=120) == 0, capsys.readouterr().err
-    assert "Keep the lamp journal" in page(repo)
-    first = repo_record(repo)
+    assert "Keep the lamp journal" in page(config, repo.site)
+    first = record(config)
     live_before = (repo.refresh_dir / "current").read_bytes()
 
     repo.push_title("Keep the lamp journal", "Keep the lamp diary")
     repo.break_remote()
     assert refresh.refresh(config, step_timeout_seconds=120) == 1
-    r = repo_record(repo)
+    r = record(config)
     assert r.ok is False and r.steps_run == 1
     assert (r.failed_step.index, r.failed_step.program) == (1, "git")
     assert r.failed_step.reason.startswith("exit ") and r.failed_step.reason != "exit 0"
     assert r.last_ok_at == first.attempted_at
     assert (repo.refresh_dir / "current").read_bytes() != live_before
-    assert "Keep the lamp journal" in page(repo) and "Keep the lamp diary" not in page(repo)
+    assert "Keep the lamp journal" in page(config, repo.site) and "Keep the lamp diary" not in page(config, repo.site)
 
 
 def test_stale_index_lock_fails_the_update_until_removed(tmp_path, git_hermetic, capsys):
@@ -1312,11 +1302,11 @@ def test_stale_index_lock_fails_the_update_until_removed(tmp_path, git_hermetic,
     lock = repo.data / ".git" / "index.lock"
     lock.write_bytes(b"")
     assert refresh.refresh(config, step_timeout_seconds=120) == 1
-    assert "Keep the lamp log" in page(repo) and "Keep the lamp journal" not in page(repo)
+    assert "Keep the lamp log" in page(config, repo.site) and "Keep the lamp journal" not in page(config, repo.site)
     assert b"index.lock" in (repo.refresh_dir / "last-run.log").read_bytes()
     lock.unlink()
     assert refresh.refresh(config, step_timeout_seconds=120) == 0, capsys.readouterr().err
-    assert "Keep the lamp journal" in page(repo)
+    assert "Keep the lamp journal" in page(config, repo.site)
 
 
 # --- final review fixes (#35) ----------------------------------------------------------

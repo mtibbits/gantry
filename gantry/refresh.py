@@ -26,11 +26,11 @@ import signal
 import subprocess
 import sys
 import time
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, fields, replace
 from datetime import datetime, timezone
 
 from gantry.build import MARKER_FILE, marker_exit, strict_json_loads
-from gantry.config import ConfigError, error_reason
+from gantry.config import INTERVAL_MINUTES_MAX, ConfigError, error_reason
 from gantry.roots import (
     OutsideRoots,
     find_program,
@@ -102,21 +102,13 @@ class UpdateRead:
 
 
 def record_bytes(record: UpdateRecord) -> bytes:
-    """update.json's bytes: the record's keys in order, indented, and LF."""
-    step, build = record.failed_step, record.last_build
-    value = {
-        "record_version": record.record_version,
-        "attempted_at": record.attempted_at,
-        "ok": record.ok,
-        "steps_run": record.steps_run,
-        "failed_step": None if step is None else {
-            "index": step.index, "program": step.program, "reason": step.reason},
-        "last_ok_at": record.last_ok_at,
-        "interval_minutes": record.interval_minutes,
-        "last_build": None if build is None else {
-            "at": build.at, "ok": build.ok, "exit": build.exit, "swap": build.swap},
-    }
-    return (json.dumps(value, indent=2, allow_nan=False) + "\n").encode("utf-8")
+    """update.json's bytes: the record's keys in order, indented, and LF.
+    The dataclasses' field names and order are the file's keys."""
+    return (json.dumps(asdict(record), indent=2, allow_nan=False) + "\n").encode("utf-8")
+
+
+def _keys(cls) -> tuple:
+    return tuple(f.name for f in fields(cls))
 
 
 class _Shape(ValueError):
@@ -156,7 +148,7 @@ def _bool(value, what):
 def _failed_step(value):
     if value is None:
         return None
-    step = _object(value, ("index", "program", "reason"), "failed_step")
+    step = _object(value, _keys(FailedStep), "failed_step")
     if not _is_int(step["index"]) or step["index"] < 1:
         raise _Shape("failed_step.index is not an integer, 1 or more")
     if not isinstance(step["program"], str) or step["program"] == "":
@@ -169,7 +161,7 @@ def _failed_step(value):
 def _last_build(value):
     if value is None:
         return None
-    build = _object(value, ("at", "ok", "exit", "swap"), "last_build")
+    build = _object(value, _keys(LastBuild), "last_build")
     if build["exit"] is not None and not _is_int(build["exit"]):
         raise _Shape("last_build.exit is not an integer or null")
     if build["swap"] not in SWAP_STATES:
@@ -179,14 +171,12 @@ def _last_build(value):
 
 
 def _record(value) -> UpdateRecord:
-    keys = ("record_version", "attempted_at", "ok", "steps_run", "failed_step", "last_ok_at",
-            "interval_minutes", "last_build")
-    _object(value, keys, "the record")
+    _object(value, _keys(UpdateRecord), "the record")
     if not _is_int(value["steps_run"]) or value["steps_run"] < 0:
         raise _Shape("steps_run is not an integer, 0 or more")
     interval = value["interval_minutes"]
-    if not _is_int(interval) or not 1 <= interval <= 1440:
-        raise _Shape("interval_minutes is not an integer from 1 to 1440")
+    if not _is_int(interval) or not 1 <= interval <= INTERVAL_MINUTES_MAX:
+        raise _Shape(f"interval_minutes is not an integer from 1 to {INTERVAL_MINUTES_MAX}")
     last_ok_at = value["last_ok_at"]
     record = UpdateRecord(
         record_version=value["record_version"],
@@ -461,9 +451,11 @@ def write_retrying(roots, path, data) -> str | None:
         try:
             write_confined(roots, path, data, key=REFRESH_KEY)
             return None
-        except (OSError, OutsideRoots) as e:
-            if isinstance(e, OutsideRoots) or time.monotonic() - started >= SWAP_RETRY_SECONDS:
-                return str(e) if isinstance(e, OutsideRoots) else error_reason(e)
+        except OutsideRoots as e:
+            return _why(e)
+        except OSError as e:
+            if time.monotonic() - started >= SWAP_RETRY_SECONDS:
+                return _why(e)
         time.sleep(SWAP_RETRY_STEP)
 
 
@@ -514,9 +506,9 @@ def _why(e) -> str:
     return str(e) if isinstance(e, OutsideRoots) else _one_line(error_reason(e))
 
 
-def _error(message, log=None):
-    """`gantry: error: <message>` on stderr, and in the log once it is open."""
-    line = f"gantry: error: {message}"
+def _error(message, log=None, level="error"):
+    """`gantry: <level>: <message>` on stderr, and in the log once it is open."""
+    line = f"gantry: {level}: {message}"
     print(line, file=sys.stderr)
     if log is not None:
         log_line(log, line)
@@ -586,10 +578,8 @@ def refresh(config, *, step_timeout_seconds=None, build_command=None) -> int:
 def _locked_run(config, roots, folder, log, limit, build_command) -> int:
     previous = read_update_record(roots, folder / RECORD_FILE)
     if previous.status in ("unreadable", "unknown_version"):
-        line = (f"gantry: warning: previous {RECORD_FILE} is {previous.status}: {previous.reason}; "
-                "last_ok_at starts again")
-        print(line, file=sys.stderr)
-        log_line(log, line)
+        _error(f"previous {RECORD_FILE} is {previous.status}: {previous.reason}; last_ok_at starts again",
+               log, level="warning")
     earlier = previous.record if previous.status == "ok" else None
 
     # The update: each command in the config's folder, stopping at the first failure.
@@ -630,12 +620,7 @@ def _locked_run(config, roots, folder, log, limit, build_command) -> int:
         if swapped and code == 1:
             _error("build exited 1; its generation was swapped in", log)
     else:
-        if result.kind != "exit":
-            reason = result.kind
-        elif code not in (0, 1):
-            reason = f"exit {code}"
-        else:
-            reason = f"no matching completion marker (exit {code})"
+        reason = _step_reason(result) if code not in (0, 1) else f"no matching completion marker (exit {code})"
         _error(f"build failed: {reason}", log)
         discard(roots, generation)
         state = "not swapped"

@@ -73,7 +73,6 @@ from gantry.config import ConfigError, error_reason, load_config
 from gantry.fires_list import entry_age, fires_reference, read_fires_list, still_a_fire
 from gantry.planner import PLAN_FILE, plan_to_json, write_plan
 from gantry.portfolio_file import PORTFOLIO_LABEL, SECTIONS, format_entry, read_portfolio_file, report_entries
-from gantry.refresh import refresh
 from gantry.roots import OutsideRoots
 from gantry.sites import config_roots, shown
 from gantry.stamp import stamp_text
@@ -407,11 +406,15 @@ def _fires(args):
 
 
 def _refresh(args):
+    # Imported here: refresh's subprocess, signal and secrets would otherwise
+    # load on every command, the build child each refresh starts included.
+    from gantry.refresh import refresh
+
     _utf8_streams()
     try:
         config = load_config(args.config)
     except ConfigError as e:
-        print(f"gantry: error: {e}", file=sys.stderr)
+        _config_error(e, False)
         return 1
     return refresh(config)
 

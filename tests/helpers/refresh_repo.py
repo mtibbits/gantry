@@ -12,7 +12,7 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
-from helpers_config import literal
+from helpers_config import literal, write_config
 from helpers_history import commit, git, make_repo
 from sample_roles import SMALL
 from test_samples import SAMPLES
@@ -59,18 +59,9 @@ def make_refresh_repo(tmp_path) -> RefreshRepo:
     git(tmp_path, "clone", "-q", str(bare), str(data))
 
     inst = tmp_path / "inst"
-    inst.mkdir()
-    devagent = inst / "devagent.toml"
-    devagent.write_bytes(f"[project.{site}]\ndevdoc_dir = {literal(data / site)}\n".encode("utf-8"))
     refresh_dir = inst / "refresh"
     update = ", ".join(literal(word) for word in ("git", "-C", str(data), "pull", "--ff-only"))
-    config = inst / "gantry.toml"
-    config.write_bytes((
-        "config_version = 1\n"
-        f"devagent_config = {literal(devagent)}\n"
-        f"output_dir = {literal(inst / 'out')}\n"
-        "\n[refresh]\n"
-        f"dir = {literal(refresh_dir)}\n"
-        f"update = [[{update}]]\n"
-    ).encode("utf-8"))
+    config = write_config(inst, tail=f"\n[refresh]\ndir = {literal(refresh_dir)}\nupdate = [[{update}]]\n")
+    # write_config's devagent.toml is the samples' copy: this one names the data clone's site alone.
+    (inst / "devagent.toml").write_bytes(f"[project.{site}]\ndevdoc_dir = {literal(data / site)}\n".encode("utf-8"))
     return RefreshRepo(bare, work, data, config, refresh_dir, site)
