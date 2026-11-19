@@ -4,6 +4,7 @@ from dataclasses import replace
 
 import pytest
 
+import helpers_portfolio as hp
 from gantry import model, portfolio_file
 from gantry.attention import (
     DEFAULT_MAPPING,
@@ -31,7 +32,6 @@ from gantry.portfolio_file import read_portfolio_file
 from gantry.portfolio_json import tag
 from gantry.roots import directory_roots
 from gantry.sites import config_roots
-from gantry.wbs_stopgap import parse_wbs
 from test_samples import ROOT
 
 FIXTURES = ROOT / "tests" / "fixtures" / "attention"
@@ -61,12 +61,8 @@ CASE_IDS = [ascii(c[0]) for c in H_CASES]
 EXTRA_BAD = ("Issue-17", "Issue-19", "Issue-20")
 
 
-def fixture_data(name):
-    return parse_wbs((FIXTURES / name).read_bytes().decode("utf-8"), SITE)
-
-
 def h_data():
-    return fixture_data("h_values.md")
+    return hp.fixture_site("h_values", SITE)
 
 
 def node(data, key):
@@ -89,7 +85,7 @@ def bad_h_message(leaf, raw):
 
 def make_leaf(key="Issue-1", line=1, meta=None, **fields):
     values = dict(key=key, issue=key, outline="1", title=key, glyph=" ", state="pending", open=True,
-                  priority=None, deps=(), meta=meta if meta is not None else {"issue": key}, epic=None,
+                  priority=None, deps=(), meta=meta if meta is not None else {"issue": tag(key)}, epic=None,
                   line=line)
     values.update(fields)
     return Leaf(**values)
@@ -104,8 +100,11 @@ def site_of(*leaves, rows=()):
 
 @pytest.mark.parametrize("i", range(len(H_CASES)), ids=CASE_IDS)
 def test_h_text_forms(i):
+    # A smoke test of the stopgap path (#84): h_values.md's quoted forms as the raw text the stopgap keeps.
+    from gantry.wbs_stopgap import parse_wbs
+
     written, _, expected = H_CASES[i]
-    data = h_data()
+    data = parse_wbs((FIXTURES / "h_values.md").read_bytes().decode("utf-8"), SITE)
     leaf = case_leaf(data, i)
     assert leaf.meta["h"] == written
     assert read_h(leaf) == expected
@@ -124,7 +123,7 @@ def test_h_text_forms(i):
 def test_h_parsed_forms(i):
     _, form, expected = H_CASES[i]
     value = tag(form)
-    leaf = make_leaf(meta={"issue": "Issue-1", "h": value})
+    leaf = make_leaf(meta={"issue": tag("Issue-1"), "h": value})
     assert read_h(leaf) == expected
     found = entries_on(check_h(site_of(leaf), SITE), leaf.line)
     assert len(found) == (0 if expected is not None else 1)
@@ -134,9 +133,10 @@ def test_h_parsed_forms(i):
 
 
 def test_h_edge_forms_follow_meta_values():
-    # #8's reader decides these, not attention.py; if #12 changes them, this says so.
+    # devagent's parser decides these, not attention.py: it reads each written form as "3"
+    # (measured at devagent--v3.0.0), and that parsed value scores 3.
     for raw in ('"3', "'3", '"3"x', "3	"):
-        assert read_h(make_leaf(meta={"issue": "Issue-1", "h": raw})) == 3, ascii(raw)
+        assert read_h(make_leaf(meta={"issue": tag("Issue-1"), "h": tag("3")})) == 3, ascii(raw)
 
 
 def test_read_h_calls_meta_values(monkeypatch):
@@ -149,10 +149,10 @@ def test_read_h_calls_meta_values(monkeypatch):
 
     monkeypatch.setattr(model, "meta_values", spy)
     data = h_data()
-    for i, (written, _, _) in enumerate(H_CASES):
+    for i, (_, form, _) in enumerate(H_CASES):
         calls.clear()
         read_h(case_leaf(data, i))
-        assert calls == ([] if written.startswith("[") else [written]), ascii(written)
+        assert calls == ([] if isinstance(form, list) else [form]), ascii(form)
 
 
 def test_h_on_row_with_children():
@@ -199,7 +199,7 @@ def test_check_h_keeps_report_sorted():
 
 
 def test_check_h_never_raises():
-    leaves = [make_leaf(f"Issue-{n}", line=n, meta={"issue": f"Issue-{n}", "h": raw})
+    leaves = [make_leaf(f"Issue-{n}", line=n, meta={"issue": tag(f"Issue-{n}"), "h": raw})
               for n, raw in ((1, 3), (2, {}), (3, None))]
     for leaf in leaves:
         assert read_h(leaf) is None
@@ -308,7 +308,7 @@ def test_rate_problem(value, reason):
 
 
 def heuristic_site():
-    return fixture_data("heuristic.md")
+    return hp.described_site("heuristic", SITE)
 
 
 def need_of(key, **fields):
