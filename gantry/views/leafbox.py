@@ -6,6 +6,7 @@ cut and wrapped, the model band, and the slack, state, unest and xsite
 classes. Pure: no page markup, only the values both pages place.
 """
 
+import re
 from typing import NamedTuple
 
 from gantry import render
@@ -22,7 +23,9 @@ BAND_CHECK = "check"
 BAND_LABELS = (BAND_THINK, BAND_CHECK)
 NO_MODEL = "none"
 XSITE_CLASS = "xsite"
-ELLIPSIS = "…"
+ELLIPSIS = "\u2026"
+COLOURS = "templates/leaf_colours.css"
+UNSAFE_STYLE_RE = re.compile(r"</style", re.IGNORECASE)
 
 
 def cut(s, n):
@@ -83,3 +86,12 @@ def box_classes(sclass, sc, unestimated, xsite, between=()) -> list:
     """The box's cue classes in the worksite's order; between sits after the state class."""
     return ([c for c in (sclass, sc) if c is not None] + list(between)
             + ([render.UNESTIMATED_CLASS] if unestimated else []) + ([XSITE_CLASS] if xsite else []))
+
+
+def colours():
+    """The cue colour sheet both pages insert into their own <style>."""
+    text = render.asset(COLOURS)
+    # It would end the style element that holds it.
+    if UNSAFE_STYLE_RE.search(text):
+        raise ValueError(f"{COLOURS} must not hold </style")
+    return render.Markup(text)

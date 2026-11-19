@@ -15,6 +15,7 @@ from gantry import planner, render
 from gantry.links import leaf_href
 from gantry.render import Markup, embed_json, esc, fill, hours_text, hundredths, unestimated_text
 from gantry.sites import shown
+from gantry.views import leafbox
 from gantry.views.worksite import DOT, _count_line, _script
 
 PAGE = "week.html"
@@ -351,5 +352,5 @@ def render_week(plan, result, stamp) -> str:
     body = _body(page)
     data = {"stamp": stamp, "plan": asdict(plan), "leaves": list(page.named.values()),
             "not_built": [[s.name, s.reason] for s in _not_built(result)]}
-    return fill(render.asset("templates/week.html"), TITLE=TITLE, STAMP=render.stamp_html(stamp),
+    return fill(render.asset("templates/week.html"), LEAF_COLOURS=leafbox.colours(), TITLE=TITLE, STAMP=render.stamp_html(stamp),
                 BODY=Markup(body), DATA=embed_json(data), PAGE_JS=_script("static/week.js"))

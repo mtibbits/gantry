@@ -1190,6 +1190,7 @@ def render_model(m, *, stamp="") -> str:
     limits_svg, limits_caption = _limits_svg(m)
     return fill(
         render.asset("templates/worksite.html"),
+        LEAF_COLOURS=leafbox.colours(),
         SITE=site,
         STAMP=render.stamp_html(stamp),
         STATUS=_note(status),
