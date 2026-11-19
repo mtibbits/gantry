@@ -8,16 +8,27 @@ through gantry/roots.py, under roots built with purpose "refresh".
 
 The update record is update.json: `record_bytes` writes it and
 `read_update_record` reads it back (#34 reads it for the daily page).
+
+Each update command and the build run through `run_step`: no shell, stdin
+from the null device, stdout and stderr into last-run.log, a time limit, and
+on timeout (or an interrupt) the whole process tree stopped through the live
+`Popen`, never a recorded PID: on POSIX the child leads a new session and its
+group is killed; on Windows `taskkill /T /F` kills the tree, by full path
+under SYSTEMROOT. A bare program name is looked up only in PATH's absolute
+entries (gantry.roots.find_program), never in the current folder.
 """
 
 import json
+import os
 import re
+import signal
+import subprocess
 from dataclasses import dataclass
 from datetime import datetime
 
 from gantry.build import strict_json_loads
 from gantry.config import error_reason
-from gantry.roots import OutsideRoots, read_bytes_confined
+from gantry.roots import OutsideRoots, find_program, read_bytes_confined
 
 RECORD_FILE = "update.json"
 RECORD_VERSION = 1
@@ -28,6 +39,8 @@ REFRESH_KEY = "refresh.dir"
 STEP_REASON_RE = re.compile(r"exit -?[0-9]+|timed out|could not start")
 SWAP_STATES = ("swapped", "swap failed", "not swapped")
 READ_STATUSES = ("ok", "missing", "unreadable", "unknown_version")
+# How long to wait for taskkill, and for a stopped step to exit, before going on.
+KILL_WAIT_SECONDS = 10
 
 
 @dataclass(frozen=True)
@@ -208,3 +221,91 @@ def read_update_record(roots, path) -> UpdateRead:
 
 def _one_line(text: str) -> str:
     return " ".join(text.split())
+
+
+# --- one step ----------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class StepResult:
+    kind: str  # "exit", "timed out" or "could not start"
+    code: int | None  # the exit code; None unless kind is "exit"
+
+
+def log_line(log, text):
+    """One line of Gantry's own into last-run.log, flushed before any child writes."""
+    log.write((text + "\n").encode("utf-8", "backslashreplace"))
+    log.flush()
+
+
+def taskkill_argv(pid, environ):
+    """taskkill's command that kills `pid` and its tree, by full path under
+    SYSTEMROOT; None when the environment sets no SYSTEMROOT."""
+    root = environ.get("SYSTEMROOT")
+    if not root:
+        return None
+    return [os.path.join(root, "System32", "taskkill.exe"), "/T", "/F", "/PID", str(pid)]
+
+
+def kill_tree(proc, log, environ=None):
+    """Stop the live child `proc` and every process it started, then wait for
+    it, at most KILL_WAIT_SECONDS. Problems go to the log; nothing raises."""
+    if os.name == "nt":
+        argv = taskkill_argv(proc.pid, os.environ if environ is None else environ)
+        if argv is None:
+            log_line(log, "gantry: taskkill not run: SYSTEMROOT is not set")
+        else:
+            try:
+                killer = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                          stderr=subprocess.DEVNULL)
+            except (OSError, ValueError) as e:
+                log_line(log, f"gantry: taskkill could not start: {error_reason(e)}")
+            else:
+                try:
+                    code = killer.wait(timeout=KILL_WAIT_SECONDS)
+                except subprocess.TimeoutExpired:
+                    killer.kill()
+                    log_line(log, f"gantry: taskkill did not finish in {KILL_WAIT_SECONDS} s")
+                else:
+                    if code != 0:
+                        log_line(log, f"gantry: taskkill exited {code}")
+        proc.kill()  # in every case: the child itself, if taskkill missed it
+    else:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except OSError as e:
+            log_line(log, f"gantry: could not stop the step's process group: {error_reason(e)}")
+            proc.kill()
+    try:
+        proc.wait(timeout=KILL_WAIT_SECONDS)
+    except subprocess.TimeoutExpired:
+        log_line(log, f"gantry: the stopped step had not exited after {KILL_WAIT_SECONDS} s")
+
+
+def run_step(argv, *, cwd, timeout, log, env=None) -> StepResult:
+    """Run one command with no shell in `cwd`, its output into `log`, for at
+    most `timeout` seconds. A program that cannot be found or started is
+    "could not start"; one that runs too long is "timed out" with its tree
+    stopped, whatever code it then reports. An interrupt (Ctrl+C) stops the
+    tree too and is raised again: the child's own session keeps it out of
+    the terminal's foreground group."""
+    program = find_program(argv[0], os.environ if env is None else env)
+    if program is None:
+        return StepResult("could not start", None)
+    try:
+        proc = subprocess.Popen([program, *argv[1:]], cwd=str(cwd), env=env, stdin=subprocess.DEVNULL,
+                                stdout=log, stderr=subprocess.STDOUT, start_new_session=(os.name != "nt"))
+    except (OSError, ValueError):
+        return StepResult("could not start", None)
+    try:
+        code = proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        kill_tree(proc, log, env)
+        return StepResult("timed out", None)
+    except BaseException:
+        kill_tree(proc, log, env)
+        raise
+    return StepResult("exit", code)
+

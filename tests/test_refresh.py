@@ -5,12 +5,44 @@ tmp_path; the commit check refuses a tracked build.json or update.json.
 """
 
 import json
+import os
+import shutil
+import subprocess
+import sys
+import textwrap
+import time
 
 import pytest
 
 from gantry import refresh
-from gantry.refresh import FailedStep, LastBuild, UpdateRead, UpdateRecord, parse_update_record, record_bytes
+from gantry.refresh import (
+    FailedStep,
+    LastBuild,
+    StepResult,
+    UpdateRead,
+    UpdateRecord,
+    parse_update_record,
+    record_bytes,
+    run_step,
+)
 from gantry.roots import directory_roots
+
+WINDOWS = os.name == "nt"
+
+
+def script(folder, name, body):
+    """A Python script `<name>.py` in folder, from dedented text."""
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f"{name}.py"
+    path.write_bytes(textwrap.dedent(body).encode("utf-8"))
+    return path
+
+
+def wait_for(predicate, seconds=30):
+    deadline = time.monotonic() + seconds
+    while not predicate():
+        assert time.monotonic() < deadline, "timed out waiting"
+        time.sleep(0.05)
 
 # --- Task 3: the update record and its reader ------------------------------------------
 
@@ -164,3 +196,144 @@ def test_reader_of_a_folder_is_unreadable(tmp_path):
     read = refresh.read_update_record(directory_roots([tmp_path]), tmp_path / "update.json")
     assert read.status == "unreadable" and read.record is None
     _one_line_without(read, str(tmp_path))
+
+
+# --- Task 4: one step, its timeout and the tree kill -----------------------------------
+
+# A grandchild that appends a byte to a file every 50 ms for at most 60 s.
+BEAT = """
+    import sys, time
+    with open(sys.argv[1], "ab", buffering=0) as handle:
+        for _ in range(1200):
+            handle.write(b".")
+            time.sleep(0.05)
+"""
+# A step that starts BEAT as its own child, then sleeps.
+PARENT = """
+    import subprocess, sys, time
+    subprocess.Popen([sys.executable, sys.argv[1], sys.argv[2]])
+    time.sleep(60)
+"""
+
+
+def heartbeat_step(tmp_path):
+    """(argv, heartbeat file): a step whose grandchild beats until it is stopped."""
+    beat = tmp_path / "beat"
+    argv = [sys.executable, str(script(tmp_path, "parent", PARENT)), str(script(tmp_path, "beat", BEAT)), str(beat)]
+    return argv, beat
+
+
+def assert_heartbeat_stopped(beat):
+    assert beat.exists() and beat.stat().st_size > 0
+    size = beat.stat().st_size
+    time.sleep(1)
+    assert beat.stat().st_size == size
+
+
+def test_step_exit_codes(tmp_path):
+    talk = script(tmp_path, "talk", """
+        import sys
+        print("out-token-" + sys.argv[1], flush=True)
+        print("err-token-" + sys.argv[1], file=sys.stderr, flush=True)
+        sys.exit(int(sys.argv[1]))
+    """)
+    with open(tmp_path / "log", "wb") as log:
+        assert run_step([sys.executable, str(talk), "0"], cwd=tmp_path, timeout=120, log=log) == StepResult("exit", 0)
+        assert run_step([sys.executable, str(talk), "3"], cwd=tmp_path, timeout=120, log=log) == StepResult("exit", 3)
+    text = (tmp_path / "log").read_bytes()
+    for token in (b"out-token-0", b"err-token-0", b"out-token-3", b"err-token-3"):
+        assert token in text
+
+
+def test_missing_program_could_not_start(tmp_path):
+    with open(tmp_path / "log", "wb") as log:
+        result = run_step(["gantry-35-no-such-program"], cwd=tmp_path, timeout=120, log=log)
+        assert result == StepResult("could not start", None)
+        result = run_step([str(tmp_path / "absent-program")], cwd=tmp_path, timeout=120, log=log)
+        assert result == StepResult("could not start", None)
+
+
+def test_timeout_stops_the_whole_tree(tmp_path):
+    argv, beat = heartbeat_step(tmp_path)
+    with open(tmp_path / "log", "wb") as log:
+        assert run_step(argv, cwd=tmp_path, timeout=2, log=log) == StepResult("timed out", None)
+    assert_heartbeat_stopped(beat)
+
+
+def test_taskkill_argv():
+    assert refresh.taskkill_argv(42, {"SYSTEMROOT": "R"}) == [
+        os.path.join("R", "System32", "taskkill.exe"), "/T", "/F", "/PID", "42"]
+    assert refresh.taskkill_argv(42, {}) is None
+
+
+@pytest.mark.skipif(WINDOWS, reason="a POSIX process group; Windows has no foreground group to leave")
+def test_interrupt_kills_the_tree(tmp_path, monkeypatch):
+    argv, beat = heartbeat_step(tmp_path)
+    real_wait, calls = subprocess.Popen.wait, []
+
+    def wait(self, timeout=None):
+        if not calls:
+            calls.append(timeout)
+            wait_for(lambda: beat.exists() and beat.stat().st_size > 0)
+            raise KeyboardInterrupt
+        return real_wait(self, timeout=timeout)
+
+    monkeypatch.setattr(subprocess.Popen, "wait", wait)
+    with open(tmp_path / "log", "wb") as log, pytest.raises(KeyboardInterrupt):
+        run_step(argv, cwd=tmp_path, timeout=120, log=log)
+    assert calls == [120]
+    assert_heartbeat_stopped(beat)
+
+
+def plant_probe(folder):
+    """A program named `probe` in folder that runs this Python with its arguments:
+    a shell script on POSIX, a copy of the base interpreter named probe.exe on
+    Windows (which CreateProcess would find in a current folder)."""
+    folder.mkdir(parents=True, exist_ok=True)
+    if WINDOWS:
+        shutil.copyfile(getattr(sys, "_base_executable", sys.executable), folder / "probe.exe")
+        return
+    assert "'" not in sys.executable
+    probe = folder / "probe"
+    probe.write_bytes(("#!/bin/sh\nexec '" + sys.executable + "' \"$@\"\n").encode("utf-8"))
+    probe.chmod(0o755)
+
+
+def probe_env(*path_entries):
+    """os.environ with PATH set to path_entries. On Windows the copied
+    interpreter finds its standard library by PYTHONHOME and its DLL by the
+    base interpreter's folder, an absolute PATH entry holding no probe."""
+    env = {**os.environ, "PATH": os.pathsep.join(path_entries)}
+    if WINDOWS:
+        base = os.path.dirname(getattr(sys, "_base_executable", sys.executable))
+        env["PATH"] = os.pathsep.join([*path_entries, base])
+        env["PYTHONHOME"] = sys.base_prefix
+    return env
+
+
+def test_bare_program_resolves_on_path_only(tmp_path, monkeypatch):
+    writer = script(tmp_path / "scripts", "writer", """
+        import sys
+        open(sys.argv[1], "wb").close()
+    """)
+
+    def run(cwd, env, sentinel):
+        with open(tmp_path / "log", "ab") as log:
+            return run_step(["probe", str(writer), str(sentinel)], cwd=cwd, timeout=120, log=log, env=env)
+
+    bin_dir, work = tmp_path / "bin", tmp_path / "work"
+    plant_probe(bin_dir)
+    work.mkdir()
+    assert run(work, probe_env(str(bin_dir)), tmp_path / "on-path") == StepResult("exit", 0)
+    assert (tmp_path / "on-path").exists()
+
+    here = tmp_path / "here"
+    plant_probe(here)
+    monkeypatch.chdir(here)
+    assert run(work, probe_env(), tmp_path / "parent-cwd") == StepResult("could not start", None)
+    assert run(here, probe_env(), tmp_path / "step-cwd") == StepResult("could not start", None)
+    monkeypatch.chdir(tmp_path)
+    assert run(work, probe_env("bin"), tmp_path / "relative") == StepResult("could not start", None)
+    for name in ("parent-cwd", "step-cwd", "relative"):
+        assert not (tmp_path / name).exists(), name
+

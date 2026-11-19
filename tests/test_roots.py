@@ -7,6 +7,7 @@ removed; it records only inside `recording()` and never raises.
 """
 
 import os
+import re
 import sys
 from contextlib import contextmanager
 from datetime import date
@@ -731,9 +732,12 @@ def test_no_module_but_roots_imports_path_tempfile_or_resources():
             continue
         text = path.read_bytes().decode("utf-8")
         for bad in ("from pathlib import Path\r", "from pathlib import Path\n", "from pathlib import Path,",
-                    "import tempfile", "importlib", "import shutil", "open("):
+                    "import tempfile", "importlib", "import shutil"):
             if bad in text:
                 found.append((path.name, bad.strip()))
+        # open( as a word: subprocess.Popen( is not a read (#35's gantry/refresh.py).
+        if re.search(r"(?<![A-Za-z0-9_])open\(", text):
+            found.append((path.name, "open("))
     assert found == []
 
 
@@ -847,6 +851,28 @@ def test_refresh_dir_may_not_hold_an_input_root(tmp_path):
         config_roots(config, purpose="refresh")
     assert "key 'refresh.dir' contains the config file itself" in str(e.value)
     config_roots(config, purpose="build")  # read-only for a build: no refusal
+
+
+def test_find_program_ignores_cwd_and_relative_entries(tmp_path, monkeypatch):
+    from gantry.roots import find_program
+
+    name = "probe.exe" if WINDOWS else "probe"
+    for folder in ("bin", "here"):
+        (tmp_path / folder).mkdir()
+        (tmp_path / folder / name).write_bytes(b"")
+        (tmp_path / folder / name).chmod(0o755)
+    found = find_program("probe", {"PATH": str(tmp_path / "bin")})
+    assert found is not None and os.path.samefile(found, tmp_path / "bin" / name)
+    monkeypatch.chdir(tmp_path / "here")
+    assert find_program("probe", {"PATH": ""}) is None
+    assert find_program("probe", {"PATH": os.pathsep.join(["", ".", "here"])}) is None
+    monkeypatch.chdir(tmp_path)
+    assert find_program("probe", {"PATH": "bin"}) is None
+    with_separator = os.path.join("sub", "probe")
+    assert find_program(with_separator, {"PATH": str(tmp_path / "bin")}) == with_separator
+    if not WINDOWS:
+        (tmp_path / "bin" / name).chmod(0o644)
+        assert find_program("probe", {"PATH": str(tmp_path / "bin")}) is None
 
 
 def test_an_unknown_purpose_raises():

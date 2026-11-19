@@ -292,6 +292,41 @@ def program_on_path(name, environ) -> bool:
     return shutil.which(name, path=environ.get("PATH", os.defpath)) is not None
 
 
+# The extensions a bare program name is tried with on Windows when the
+# environment sets no PATHEXT.
+DEFAULT_PATHEXT = ".COM;.EXE;.BAT;.CMD"
+
+
+def find_program(name, environ) -> str | None:
+    """The program a child started with `environ` should run for `name`, or None.
+
+    A name holding a path separator is returned as given. Otherwise each
+    ABSOLUTE entry of `environ`'s PATH is tried in order (a missing PATH is
+    os.defpath; relative and empty entries are skipped), on Windows with each
+    PATHEXT extension, and the first existing executable file is returned.
+    Never the current folder and never shutil.which, which on Windows searches
+    the current folder first: with shell=False, Windows' CreateProcess searches
+    the interpreter's folder and the parent's current folder before PATH, so
+    a program planted in the scheduler's start-in folder would otherwise run
+    (#35; pothole devagent Issue-657).
+    """
+    if os.sep in name or (os.altsep and os.altsep in name):
+        return name
+    names = [name]
+    if os.name == "nt":
+        extensions = [e for e in environ.get("PATHEXT", DEFAULT_PATHEXT).split(os.pathsep) if e]
+        if not any(name.lower().endswith(e.lower()) for e in extensions):
+            names = [name + e for e in extensions]
+    for entry in environ.get("PATH", os.defpath).split(os.pathsep):
+        if not entry or not os.path.isabs(entry):
+            continue
+        for candidate in names:
+            path = os.path.join(entry, candidate)
+            if os.path.isfile(path) and os.access(path, os.X_OK):
+                return path
+    return None
+
+
 def outside(roots, base) -> list[Root]:
     """The roots that are not `base` or under it, both sides resolved and
     case-normalised; the package root is never listed."""
