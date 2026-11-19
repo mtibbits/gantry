@@ -14,6 +14,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import helpers_portfolio as hp
 from commit_check import path_form_hits
 from gantry.attention import MESSAGES as H_MESSAGES, check_h
 from gantry.build import site_data
@@ -43,6 +44,7 @@ from gantry.views.worksite import (
     page_model,
     render_page,
 )
+from gantry.portfolio_json import tag
 from gantry.wbs_stopgap import parse_wbs, read_wbs
 from page_safety import CSP_CONTENT, HOSTILE, assert_no_external_resources, assert_page_safe
 from helpers_config import demo_build, page_ids
@@ -60,7 +62,7 @@ PAGE_ASSETS = ("gantry/templates/worksite.html", "gantry/templates/index.html", 
 
 
 def fixture(name):
-    return parse_wbs((FIXTURES / f"{name}.md").read_bytes().decode("utf-8"), "alpha")
+    return hp.fixture_site(name)
 
 
 def model(name="page", unit=24, data=None):
@@ -155,7 +157,7 @@ def test_stuck_blocked_parked_are_open_work():
     }
     assert m["notes"]["stuck"] == "3 stuck, blocked or parked leaves are scheduled as if an agent could start them"
     assert model()["notes"]["stuck"] is None
-    one = model("states", unit=6, data=parse_wbs("- [!] Alone {issue: Issue-1}\n", "alpha"))
+    one = model("states", unit=6, data=hp.site(hp.node("Alone", glyph="!", issue="Issue-1")))
     assert one["notes"]["stuck"] == "1 stuck, blocked or parked leaf is scheduled as if an agent could start it"
 
 
@@ -220,7 +222,7 @@ def test_empty_and_all_finished_sites():
     empty = model("empty")
     assert empty["empty"] is True
     assert empty["panel"] == ["WBS.md has no node lines"]
-    done = model(data=parse_wbs("- [x] Done {issue: Issue-1}\n", "alpha"))
+    done = model(data=hp.site(hp.node("Done", glyph="x", issue="Issue-1")))
     assert done["empty"] is False
     assert done["schedule"]["items"] == [] and done["lanes"] == []
 
@@ -356,10 +358,11 @@ def hostile_site():
     """Site data with a HOSTILE value in every record field a page shows."""
     h = HOSTILE
     leaves = (
-        _leaf(h[7], h[7], "1.1", h[0], EPIC, 2, priority=h[5], meta={"issue": h[7], "note": h[6]}, flags=[h[9]]),
+        _leaf(h[7], h[7], "1.1", h[0], EPIC, 2, priority=tag(h[5]), meta={"issue": tag(h[7]), "note": tag(h[6])},
+              flags=[h[9]]),
         _leaf(h[1], h[1], "1.2", h[8], EPIC, 3, models=Models(h[3], None, "estimates_file")),
         _leaf(h[2], None, "1.3", h[10], EPIC, 4),
-        _leaf("Issue-4", "Issue-4", "2", "Plain", None, 5, meta={"est": h[2]}),
+        _leaf("Issue-4", "Issue-4", "2", "Plain", None, 5, meta={"est": tag(h[2])}),
     )
     rows = (Row(EPIC, EPIC, "1", h[4], " ", "pending", 1, None, {}),)
     links = ((h[7], h[1]), (h[1], h[2]), (h[2], "Issue-4"))
@@ -397,7 +400,7 @@ def test_hostile_h_values_listed_safely():
     what proves the bad_h message path.
     """
     leaves = tuple(_leaf(f"Issue-{n}", f"Issue-{n}", str(n), "Plain", None, n,
-                         meta={"issue": f"Issue-{n}", "h": h}) for n, h in enumerate(HOSTILE, start=1))
+                         meta={"issue": tag(f"Issue-{n}"), "h": tag(h)}) for n, h in enumerate(HOSTILE, start=1))
     data = check_h(SiteData(leaves, (), (), (), ()), "alpha")
     embedded = assert_page_safe(render_page("alpha", data, default_unit_hours=6), HOSTILE)
     assert embedded["panel"] == [H_MESSAGES["bad_h"].format(line=leaf.line, raw=leaf.meta["h"], key=leaf.key)
@@ -413,6 +416,8 @@ def built_panel(out, site):
 
 def assert_quarry_lists_bad_h(copy, panel):
     """Of every bad_h message quarry's h: values could give, the panel lists only Issue-7's."""
+    from gantry.wbs_stopgap import read_wbs
+
     data = read_wbs(directory_roots([copy]), copy / UNESTIMATED / "WBS.md", UNESTIMATED)
     held = [n for n in (*data.leaves, *data.rows) if "h" in n.meta]
     assert len(held) == 4
@@ -565,7 +570,7 @@ def test_page_texts_present():
     assert "3 stuck, blocked or parked leaves are scheduled as if an agent could start them" in states
     empty = visible_text(page_for("empty"))
     assert NO_LEAVES in empty
-    done = visible_text(render_page("alpha", parse_wbs("- [x] Done {issue: Issue-1}\n", "alpha"), default_unit_hours=6))
+    done = visible_text(render_page("alpha", hp.site(hp.node("Done", glyph="x", issue="Issue-1")), default_unit_hours=6))
     assert NO_OPEN in done
 
 
@@ -636,14 +641,14 @@ def test_render_refuses_unsafe_asset(monkeypatch, bad):
 # --- the optional inputs on the page (#10) --------------------------------------------
 
 
-def inputs_for(folder, text, site="alpha", unit=6, estimates=None, configured=None):
-    """apply_inputs over WBS.md text in `folder`; `estimates` is copied in as a dated file."""
+def inputs_for(folder, data, site="alpha", unit=6, estimates=None, configured=None):
+    """apply_inputs over `site`'s SiteData in `folder`; `estimates` is copied in as a dated file."""
     folder.mkdir(parents=True, exist_ok=True)
     if estimates is not None:
         shutil.copyfile(estimates, folder / "estimates-2026-01-01.md")
     sites = {} if configured is None else {site: SiteOverride(None, configured)}
     config = SimpleNamespace(sites=sites, default_unit_hours=unit)
-    return apply_inputs(directory_roots([folder]), SiteEntry(site, folder, None), parse_wbs(text, site), config)
+    return apply_inputs(directory_roots([folder]), SiteEntry(site, folder, None), data, config)
 
 
 def sample_inputs(site):
@@ -653,8 +658,7 @@ def sample_inputs(site):
 
 
 def est_inputs(tmp_path):
-    text = (INPUTS / "est.md").read_bytes().decode("utf-8")
-    return inputs_for(tmp_path / "est", text, estimates=INPUTS / "estimates.md")
+    return inputs_for(tmp_path / "est", hp.fixture_site("est"), estimates=INPUTS / "estimates.md")
 
 
 def all_estimated_inputs(tmp_path, estimates=None, configured=None):
@@ -665,8 +669,7 @@ def all_estimated_inputs(tmp_path, estimates=None, configured=None):
         folder.mkdir()
         shutil.copyfile(INPUTS / "estimates.md", folder / configured)
         configured = folder / configured
-    text = (INPUTS / "all-estimated.md").read_bytes().decode("utf-8")
-    return inputs_for(folder, text, estimates=estimates, configured=configured)
+    return inputs_for(folder, hp.described_site("all-estimated"), estimates=estimates, configured=configured)
 
 
 def model_with(inputs, site="alpha", unit=6):
@@ -809,8 +812,8 @@ def test_unestimated_line_capped(tmp_path, n):
     # At most 20 keys, in report order, then "and N more"; {n} stays the total (#108).
     # The literal tails pin the cap at 20; the full line is built from the module.
     cap = worksite.UNESTIMATED_CAP
-    text = "".join(f"- [ ] L{i} {{issue: Issue-{i}}}\n" for i in range(1, n + 1))
-    inputs = inputs_for(tmp_path / "many", text)
+    data = hp.site(*[hp.node(f"L{i}", issue=f"Issue-{i}") for i in range(1, n + 1)])
+    inputs = inputs_for(tmp_path / "many", data)
     (line,) = [line for line in model_with(inputs)["panel"] if " and no estimates-file hours " in line]
     tails = {20: "Issue-19, Issue-20", 21: "Issue-19, Issue-20 and 1 more", 160: "Issue-20 and 140 more"}
     assert line.endswith(tails[n])
@@ -922,8 +925,8 @@ def test_two_limits_labels():
 
 def test_two_limits_values_stay_in_the_figure(tmp_path):
     # Every leaf on the chain: the chain bar reaches the axis end, where a value after it would be clipped.
-    inputs = inputs_for(tmp_path / "chain", "- [ ] A {issue: Issue-1, est: 10h, depends_on: [Issue-2]}\n"
-                                            "- [ ] B {issue: Issue-2, est: 200.5h}\n")
+    inputs = inputs_for(tmp_path / "chain", hp.site(hp.node("A", issue="Issue-1", est="10h", depends_on=["Issue-2"]),
+                                                    hp.node("B", issue="Issue-2", est="200.5h")))
     t = tree(page_with(inputs))
     values = find(t, "text", ["lim-val"])
     assert [text_of(t, i) for i in values] == ["210.5–210.5 h", "210.5–210.5 h"]
@@ -955,18 +958,18 @@ def test_summary_static_labels():
 
 def test_summary_rounds_half_up():
     # One 15 h leaf ends on day 2.5: Python's round() would say 2, the script says 3 (U6).
-    data = parse_wbs("- [ ] Long {issue: Issue-1}\n", "alpha")
+    data = hp.site(hp.node("Long", issue="Issue-1"))
     data = with_leaf(data, "Issue-1", estimate=Estimate(15, 15, "est", "time", None))
     t = tree(page_for(data=data))
     assert text_of(t, by_id(t, "g-sum")).startswith("With 4 lanes, all open work ends around working day 3. ")
 
 
-NO_LINKS = "- [ ] A {issue: Issue-1}\n- [ ] B {issue: Issue-2, est: 9h}\n"
+NO_LINKS = (hp.node("A", issue="Issue-1"), hp.node("B", issue="Issue-2", est="9h"))
 
 
 def test_no_chain_summary_and_limits():
     # No leaf waits on another: no chain figures are stated (final review).
-    data = parse_wbs(NO_LINKS, "alpha")
+    data = hp.site(*NO_LINKS)
     data = with_leaf(data, "Issue-2", estimate=Estimate(9, 9, "est", "time", None))
     t = tree(page_for(data=data))
     summary = text_of(t, by_id(t, "g-sum"))
@@ -981,11 +984,11 @@ def test_no_chain_summary_and_limits():
 
 
 def summary_cases(tmp_path):
-    data = parse_wbs("- [ ] Long {issue: Issue-1}\n", "alpha")
+    data = hp.site(hp.node("Long", issue="Issue-1"))
     half = with_leaf(data, "Issue-1", estimate=Estimate(15, 15, "est", "time", None))
     return {"half": page_for(data=half), "page": page_for(), "est": page_with(est_inputs(tmp_path)),
             "quarry": page_with(sample_inputs(UNESTIMATED), UNESTIMATED),
-            "nochain": page_for(data=parse_wbs(NO_LINKS, "alpha"))}
+            "nochain": page_for(data=hp.site(*NO_LINKS))}
 
 
 def test_summary_static_matches_script(node, tmp_path):
@@ -1263,7 +1266,7 @@ def test_caption_and_epic_rows_after_redraw(node, tmp_path):
 
 
 def test_caption_redraw_keeps_one_form(node, tmp_path):
-    inputs = inputs_for(tmp_path / "one", "- [ ] J {issue: Issue-12}\n- [ ] A {issue: Issue-2, est: 3h}\n")
+    inputs = inputs_for(tmp_path / "one", hp.site(hp.node("J", issue="Issue-12"), hp.node("A", issue="Issue-2", est="3h")))
     with open_page(write(tmp_path, page_with(inputs))) as page:
         page.drive("lanes", "3")
         (dates,) = page.query("#g-dates")
@@ -1385,15 +1388,16 @@ def test_doc_states_unestimated_cap():
 
 # --- final-review fixes --------------------------------------------------------------
 
-FORK = "- [ ] A {issue: Issue-1}\n- [ ] B {issue: Issue-2, depends_on: [Issue-1]}\n- [ ] C {issue: Issue-3, depends_on: [Issue-1]}\n"
+FORK = (hp.node("A", issue="Issue-1"), hp.node("B", issue="Issue-2", depends_on=["Issue-1"]),
+        hp.node("C", issue="Issue-3", depends_on=["Issue-1"]))
 
 
 def test_fork_critical_path_is_one_chain():
-    m = model(data=parse_wbs(FORK, "alpha"))
+    m = model(data=hp.site(*FORK))
     assert m["network"]["critical"] == ["Issue-1", "Issue-2", "Issue-3"]
     assert m["network"]["path"] == ["Issue-1", "Issue-2"]
     assert m["network"]["heaviest"]["same"] is True
-    t = tree(page_for(data=parse_wbs(FORK, "alpha")))
+    t = tree(page_for(data=hp.site(*FORK)))
     (detail,) = [i for i in find(t, "div") if t.elements[i]["attrs"].get("id") == "detail"]
     text = text_of(t, detail)
     assert "Issue-1 → Issue-2" in text and "Issue-2 → Issue-3" not in text
@@ -1401,8 +1405,8 @@ def test_fork_critical_path_is_one_chain():
 
 
 def test_all_held_out_site_says_so():
-    data = parse_wbs("- [ ] A {issue: Issue-1, depends_on: [Issue-2]}\n- [ ] B {issue: Issue-2, depends_on: [Issue-1]}\n",
-                     "alpha")
+    data = hp.site(hp.node("A", issue="Issue-1", depends_on=["Issue-2"]),
+                   hp.node("B", issue="Issue-2", depends_on=["Issue-1"]))
     page = visible_text(render_page("alpha", data, default_unit_hours=6))
     assert worksite.ALL_HELD in page
     assert NO_OPEN not in page
@@ -1475,19 +1479,19 @@ def test_finished_list_lines():
     assert [t.elements[i]["attrs"]["id"] for i in items] == [leaf_anchor(leaf.key) for leaf in done]
     assert not any("gone" in t.elements[a]["classes"] for a in ancestors(t, ul))
     assert find(t, "details") == []
-    no_issue = parse_wbs("- [x] Done untracked\n- [ ] Open {issue: Issue-1}\n", "alpha")
+    no_issue = hp.site(hp.node("Done untracked", glyph="x"), hp.node("Open", issue="Issue-1"))
     t = tree(page_for(data=no_issue))
     _, items = finished_list(t)
     assert [text_of(t, i) for i in items] == [f"1 · {worksite.NO_ISSUE_ID} · Done untracked"]
     # A site with nothing open hides its work, never its finished list.
-    t = tree(page_for(data=parse_wbs("- [x] Done {issue: Issue-1}\n", "alpha")))
+    t = tree(page_for(data=hp.site(hp.node("Done", glyph="x", issue="Issue-1"))))
     ul, items = finished_list(t)
     assert len(items) == 1
     assert find(t, "div", ("gone",)) and not any("gone" in t.elements[a]["classes"] for a in ancestors(t, ul))
 
 
 def test_no_finished_leaves_says_so():
-    page = page_for(data=parse_wbs("- [ ] A {issue: Issue-1}\n", "alpha"))
+    page = page_for(data=hp.site(hp.node("A", issue="Issue-1")))
     assert worksite.FINISHED_HEADING in visible_text(page)
     assert worksite.NO_FINISHED in visible_text(page)
     assert find(tree(page), "ul", ("finished",)) == []
