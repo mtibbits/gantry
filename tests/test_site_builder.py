@@ -233,6 +233,13 @@ def test_fixture_sites_agree_with_the_stopgap(name):
     assert [tuple(row) for row in found] == known_rows(name)
 
 
+def test_document_report_entries_follow_the_auto_entries():
+    entry = ("alpha", 9, "skipped_line", "line 9 looks like a node but is not one")
+    doc = hp.document(hp.project("alpha", hp.node("A", issue="Issue-1"), hp.node("B")), report=[entry])
+    assert [(e["source_line"], e["kind"]) for e in doc["parse_report"]] == [(2, "leaf_no_issue"), (9, "skipped_line")]
+    assert [(e.line, e.kind, e.message) for e in map_document(doc).devagent_report] == [entry[1:]]
+
+
 def test_append_nodes_keeps_foreign_and_malformed_unresolved():
     # refs.md's nine dep_unresolved entries: only 'Issue-99' is one auto_report writes again. The
     # malformed ones share its wording, and 'alpha:Issue-1' is foreign though the rename makes it read local.

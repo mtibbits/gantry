@@ -5,10 +5,14 @@ A plain module, not a test module; it resolves like helpers_config (see
 sample_roles's import contract). tools/sample_portfolio.py makes the
 committed documents with the pinned devagent release's own aggregator.
 
-The builder (#84) writes a document in devagent's form: node() describes one
-node, project() numbers a tree of them, document() wraps projects with the
-report entries devagent always writes (auto_report), and site() maps one
-project to SiteData. fixture_doc() narrows written.json to one project. A
+The builder (#84) writes the fields Gantry's reader (map_document) checks, in
+devagent's shapes; it is not a complete devagent document (devagent's own
+checker wants wbs_title, issues, rollup, depth, leaf, ready and more). node()
+describes one node, project() numbers a tree of them, document() wraps
+projects with the report entries devagent always writes (auto_report), and
+site() maps one project to SiteData. Fixture-backed sites are pinned to
+devagent by test_site_builder; an inline node() is not, so it must state a
+reading devagent gives (a str, or a list for bracket text). fixture_doc() narrows written.json to one project. A
 test reaches site data only through site_of(), the one caller of
 map_document here. Callers import this module as `hp` and never take names
 from it: conftest's `node` fixture would clash.
@@ -162,9 +166,9 @@ def site_of(doc, name=None):
     return found.data
 
 
-def site(*nodes, name="alpha", start=1, report=()):
-    """SiteData of one project of `nodes`; `report` holds extra (line, kind, message) entries on it."""
-    return site_of(document(project(name, *nodes, start=start), report=[(name, *entry) for entry in report]))
+def site(*nodes, name="alpha", start=1):
+    """SiteData of one project of `nodes`."""
+    return site_of(document(project(name, *nodes, start=start)))
 
 
 def narrow(doc, name, site=None) -> dict:
