@@ -46,6 +46,7 @@ fires_check_days rows; reword them and that test together. -->
 | `fires_check_days` | integer, 1 or more (a float or a boolean is refused) | no | `3` | an open fire this many whole days old is flagged "still a fire?"; it is here and not in the portfolio file's `[thresholds]` because the fires list is a fail-closed source, whose flag must not depend on a portfolio file being configured or readable | #30 |
 | `[requirements]` | table | no | none | settings for requirements files | #15 |
 | `[site.<name>]` | table | no | none | per-site overrides, keyed by the devagent `[project.<name>]` table name | #7 |
+| `[refresh]` | table | no | none | the refresh job's settings, which `gantry refresh` reads; `gantry build` reads only its `dir`, as a read-only root | #35 |
 
 Keys of a `[site.<name>]` table:
 
@@ -54,6 +55,15 @@ Keys of a `[site.<name>]` table:
 | `requirements` | path | no | none | the site's requirements file ([format](requirements-format.md)); the site is in the trace only when this is set | #15 |
 | `estimates` | path, or `false` | no | discovery | the site's estimates file, read whatever its name and never replaced by discovery; `false` turns discovery off; absent, the planning directory's latest `estimates-YYYY-MM-DD*.md` is read ([the rules](worksite-page.md#the-estimates-file)) | #10 |
 | `history` | path | no | the planning directory | the directory whose `WBS.md` git history is read ([the rules](wbs-history.md)); it must lie in a git work tree, whose top level may lie above it; no page shows the history yet (#29) | #28 |
+
+Keys of the `[refresh]` table:
+
+| Key | Type | Required | Default | Meaning | Owner |
+|---|---|---|---|---|---|
+| `dir` | path | no | none | the refresh folder, which `gantry refresh` creates and is the one folder it writes: its lock, its update record (`update.json`), its log, the `current` pointer and the generations it builds; it may not equal or contain an input root; `gantry refresh` refuses to run without it | #35 |
+| `interval_minutes` | an integer from 1 to 1440 | no | `15` | how often the operator's scheduler runs `gantry refresh`; Gantry runs no timer, and records this value with each update for a reader judging how fresh the data is | #35 |
+| `update` | a list of commands, each a non-empty list of strings (one string, a flat list or an empty command is refused) | no | `[]` (no update step) | the commands `gantry refresh` runs, in order and with no shell, in the installation config's folder, before it builds; the first that fails ends the update | #35 |
+| `step_timeout_minutes` | an integer, 1 or more | no | `10` | the limit for each update command and for the build; one that runs longer is stopped with every process it started | #35 |
 
 Keys of the `[requirements]` table:
 
@@ -165,8 +175,8 @@ Every file access in Gantry goes through one module, `gantry/roots.py`.
   disk: `devagent_config`, `portfolio_file`, `fires_list`, `requirements` and
   `estimates` are **file** roots, which admit only that one file (a file key
   that names a folder makes nothing under it readable, though the folder
-  itself can still be listed); `output_dir` and a site's `history` are
-  **directory** roots, which admit everything under them;
+  itself can still be listed); `output_dir`, a site's `history` and
+  `[refresh] dir` are **directory** roots, which admit everything under them;
 - every site's planning directory (`devdoc_dir`), read from the devagent
   config; a `devdoc_dir` that cannot be resolved adds no root, and that site
   keeps its problem;
@@ -179,12 +189,12 @@ only then the planning directories. **No default config is ever read**, from
 the working directory, the home folder or the environment.
 
 **Writable roots** depend on the command. `gantry build` may write only under
-`output_dir`; `gantry portfolio` and `gantry fires` write nothing; a later `gantry refresh` will
-write only under its `[refresh] dir`, and a later `gantry serve` writes
+`output_dir`; `gantry portfolio` and `gantry fires` write nothing; `gantry refresh`
+writes only under its `[refresh] dir`, and a later `gantry serve` writes
 nothing. Every other root is read-only. A writable root may not equal or
 contain an input root (either config file, a planning directory, a site's
-`history` directory or the package directory): that is a config error, exit 1, naming `output_dir` and
-every input it holds. The files the other path keys name (`portfolio_file`,
+`history` directory or the package directory): that is a config error, exit 1, naming the key
+(`output_dir`, or `refresh.dir` for `gantry refresh`) and every input it holds. The files the other path keys name (`portfolio_file`,
 `fires_list`, `requirements`, `estimates`) are not input roots for this
 rule: one may sit inside `output_dir`, and a build can then overwrite it.
 This is the one change for a config that worked before: an `output_dir` of
@@ -363,11 +373,12 @@ settings.
 A later issue that needs a key adds it, in its own change, to:
 
 1. the key registry in `gantry/config.py` (`KEYS`, `SITE_KEYS` for a
-   per-site key, or `REQUIREMENTS_KEYS` for a key of the `[requirements]`
-   table), with its type, whether it is required, its default and its
-   owning issue;
+   per-site key, `REQUIREMENTS_KEYS` for a key of the `[requirements]`
+   table, or `REFRESH_KEYS` for a key of the `[refresh]` table), with its
+   type, whether it is required, its default and its owning issue;
 2. a field of the same name on `Config` (or `SiteOverride` for a per-site
-   key, or `RequirementsSettings` for a `[requirements]` key) that
+   key, `RequirementsSettings` for a `[requirements]` key, or
+   `RefreshSettings` for a `[refresh]` key) that
    `load_config` fills; a path key is resolved there like the
    others (a test checks every registry key has its field);
 3. a row in the tables above, whose Owner cell is the registry's owner
@@ -376,9 +387,10 @@ A later issue that needs a key adds it, in its own change, to:
    provide;
 5. for a path key, its root kind (`root="file"` or `root="directory"` on its
    registry entry; a test checks every path key has one). `config_roots` in
-   `gantry/sites.py` makes roots only from `KEYS` and `SITE_KEYS`, so a path
-   key in another table also needs that table walked there, or its value
-   gets no root and every access to it is refused.
+   `gantry/sites.py` makes roots only from `KEYS`, `SITE_KEYS` and
+   `REFRESH_KEYS`, so a path key in another table also needs that table
+   walked there, or its value gets no root and every access to it is
+   refused.
 
 A new optional key needs no version bump; anything else follows the version
 rule above.

@@ -19,6 +19,7 @@ from pathlib import PurePath
 from gantry.config import (
     ID_TOKEN_RE,
     KEYS,
+    REFRESH_KEYS,
     SITE_KEYS,
     ConfigError,
     PathError,
@@ -37,9 +38,8 @@ from gantry.roots import (
     with_package,
 )
 
-# The keys whose roots are writable, by a run's purpose. #35 adds refresh's
-# `[refresh] dir`; serve writes nothing.
-WRITABLE = {"build": ("output_dir",), "check": (), "refresh": (), "serve": ()}
+# The keys whose roots are writable, by a run's purpose; serve writes nothing.
+WRITABLE = {"build": ("output_dir",), "check": (), "refresh": ("refresh.dir",), "serve": ()}
 
 # The problems that prove a site has no leaves (#21): such a site is not
 # counted among the sites the trace could not read.
@@ -155,11 +155,12 @@ def _inner(root):
 
 def config_roots(config, *, output_dir=None, purpose="build"):
     """Every root of a run: the two config files, every set path key's value
-    (its kind from the registry), every planning directory, and the package
-    directory. Writable: the keys WRITABLE names for `purpose` ("check", for
-    a command that writes nothing, has none). A writable root that equals or
-    contains an input root is a ConfigError. `output_dir=` and the "refresh"
-    and "serve" purposes are provisional for #35 and #64."""
+    (its kind from the registry), `[refresh] dir`, every planning directory,
+    and the package directory. Writable: the keys WRITABLE names for
+    `purpose` ("check", for a command that writes nothing, has none). A
+    writable root that equals or contains an input root is a ConfigError.
+    `output_dir=` is provisional for #35's build flag; the "serve" purpose is
+    provisional for #64."""
     if purpose not in WRITABLE:
         raise ValueError(f"unknown purpose {purpose!r}")
     roots = _config_files(config)
@@ -185,6 +186,10 @@ def config_roots(config, *, output_dir=None, purpose="build"):
             value = getattr(override, key.name)
             if key.root is not None and isinstance(value, PurePath):
                 roots = add(roots, value, f"site.{name}.{key.name}", key)
+    for key in REFRESH_KEYS:
+        value = getattr(config.refresh, key.name)
+        if key.root is not None and value is not None:
+            roots = add(roots, value, f"refresh.{key.name}", key)
     for site in parsed:
         if site.planning_dir is None:
             continue

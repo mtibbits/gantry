@@ -38,7 +38,7 @@ from gantry.roots import (
     stat_confined,
     write_confined,
 )
-from helpers_config import add_site_key, copy_samples, literal, replace_bytes
+from helpers_config import add_site_key, append_bytes, copy_samples, literal, replace_bytes
 from helpers_links import CI_SUFFIX, SYMLINK_REASON, is_link, junction, link_dir, symlink
 
 WINDOWS = os.name == "nt"
@@ -351,9 +351,9 @@ def test_directory_roots_writable_is_a_union(tmp_path):
 
 
 def test_every_path_key_has_a_root_kind():
-    from gantry.config import KEYS, REQUIREMENTS_KEYS, SITE_KEYS, Key, missing_root_kinds
+    from gantry.config import KEYS, REFRESH_KEYS, REQUIREMENTS_KEYS, SITE_KEYS, Key, missing_root_kinds
 
-    assert missing_root_kinds(KEYS, SITE_KEYS, REQUIREMENTS_KEYS) == []
+    assert missing_root_kinds(KEYS, SITE_KEYS, REQUIREMENTS_KEYS, REFRESH_KEYS) == []
     planted = Key("x", "path", False, None, "#0", "`x`")
     assert missing_root_kinds(KEYS, (planted,)) == ["x"]
     planted = Key("y", "path_or_false", False, None, "#0", "`y`")
@@ -807,7 +807,9 @@ def test_portfolio_writes_nothing_so_holds_no_writable_root(tmp_path, capsys):
     assert "output_dir" not in err
 
 
-@pytest.mark.parametrize("purpose", ["check", "refresh", "serve"])
+# Not "refresh": it names `[refresh] dir`, which the samples copy does not set;
+# test_refresh_dir_is_writable_only_for_refresh covers it (#35).
+@pytest.mark.parametrize("purpose", ["check", "serve"])
 def test_a_purpose_naming_no_writable_key_has_no_writable_root(tmp_path, purpose):
     from gantry.config import load_config
     from gantry.sites import config_roots
@@ -816,6 +818,35 @@ def test_a_purpose_naming_no_writable_key_has_no_writable_root(tmp_path, purpose
     replace_bytes(copy / "gantry.sample.toml", 'output_dir = "out"', 'output_dir = "."')
     roots = config_roots(load_config(copy / "gantry.sample.toml"), purpose=purpose)
     assert not [r for r in roots.roots if r.writable]
+
+
+@pytest.mark.parametrize("purpose", ["build", "check", "refresh", "serve"])
+def test_refresh_dir_is_writable_only_for_refresh(tmp_path, purpose):
+    from gantry.config import load_config
+    from gantry.sites import config_roots
+
+    copy = copy_samples(tmp_path)
+    folder = tmp_path / "refresh"
+    append_bytes(copy / "gantry.sample.toml", f"\n[refresh]\ndir = {literal(folder)}\n")
+    roots = config_roots(load_config(copy / "gantry.sample.toml"), purpose=purpose)
+    (root,) = [r for r in roots.roots if r.key == "refresh.dir"]
+    assert root.kind == "directory"
+    assert os.path.normcase(str(root.path)) == os.path.normcase(os.path.realpath(folder))
+    writable = [r.key for r in roots.roots if r.writable]
+    assert writable == {"build": ["output_dir"], "refresh": ["refresh.dir"]}.get(purpose, [])
+
+
+def test_refresh_dir_may_not_hold_an_input_root(tmp_path):
+    from gantry.config import ConfigError, load_config
+    from gantry.sites import config_roots
+
+    copy = copy_samples(tmp_path)
+    append_bytes(copy / "gantry.sample.toml", '\n[refresh]\ndir = "."\n')
+    config = load_config(copy / "gantry.sample.toml")
+    with pytest.raises(ConfigError) as e:
+        config_roots(config, purpose="refresh")
+    assert "key 'refresh.dir' contains the config file itself" in str(e.value)
+    config_roots(config, purpose="build")  # read-only for a build: no refusal
 
 
 def test_an_unknown_purpose_raises():
