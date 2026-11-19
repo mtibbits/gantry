@@ -590,7 +590,9 @@ open its details (state, epic, priority, effective priority, hours, model
 tiers, flags, metadata and foreign entries, earliest slot, slack, what it
 waits on and unblocks) and to trace everything upstream and downstream.
 Below the critical path, the hours note reads `No open leaf waits on another.`
-when the network draws nothing.
+when the network draws nothing. The week view draws each placement as this
+same box ([docs/week-plan.md](week-plan.md#the-week-view-page)), and the
+cue colours both pages use live in `gantry/templates/leaf_colours.css`.
 
 In a full build the network also draws boxes on another site
 ([Foreign entries](#foreign-entries)). A box takes no slot and is not a node:

@@ -21,7 +21,7 @@ from gantry.planner import ALLOCATION_RULE, NO_PLAN, PLAN_VERSION, UNPLANNED_REA
 from gantry.links import leaf_href
 from gantry.render import (MODEL_CLASSES, MODEL_FALLBACK, SLACK_CLASSES, STATE_CLASSES, STATE_FALLBACK,
                            WEEK_CLASSES)
-from gantry.views import week
+from gantry.views import leafbox, week
 from gantry.views.week import render_week
 from helpers_config import sample_build
 from page_safety import HOSTILE, RULES, assert_no_external_resources, assert_page_safe
@@ -1276,7 +1276,22 @@ def week_texts():
         found.update({f"{table}[{key}]": value for key, value in getattr(week, table).items()})
     found.update({f"DAYS_BUTTONS[{value}]": label for value, label in week.DAYS_BUTTONS})
     found["LINK"] = week.LINK[0]
+    # The box's own texts, from the rule both pages share (#170).
+    found.update({f"leafbox.{name}": getattr(leafbox, name) for name in ("BAND_THINK", "BAND_CHECK", "NO_MODEL")})
     return found
+
+
+# The box's precedence, as docs/week-plan.md must state it (#170).
+PRECEDENCE_DOC = ("The fill is by slack, the outline by state, and a leaf that waits on another site then takes "
+                  "the `xsite` outline colour and width over its state's, keeping a held state's dash.")
+
+
+def test_week_doc_states_precedence():
+    from helpers_docs import section
+    from test_samples import ROOT
+
+    text = section((ROOT / "docs" / "week-plan.md").read_bytes().decode("utf-8"), "## The week view page")
+    assert PRECEDENCE_DOC in " ".join(text.split())
 
 
 def test_week_doc_states_texts():
