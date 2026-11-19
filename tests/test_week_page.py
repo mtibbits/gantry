@@ -16,6 +16,7 @@ import pytest
 from gantry import render
 from gantry.build import build_all
 from gantry.config import load_config
+from gantry.model import Models
 from gantry.planner import ALLOCATION_RULE, NO_PLAN, PLAN_VERSION, UNPLANNED_REASONS, WeekPlan
 from gantry.links import leaf_href
 from gantry.render import (MODEL_CLASSES, MODEL_FALLBACK, SLACK_CLASSES, STATE_CLASSES, STATE_FALLBACK,
@@ -1168,17 +1169,30 @@ def test_static_page_hides_only_controls(tmp_path):
 # --- hostile values (AC 14) ------------------------------------------------------------------
 
 
-def hostile_plan_and_result():
+# The box's own fields (#170), planted on the key leaf: a priority and a
+# thinking model, each a HOSTILE member made unique, and a checking model
+# short enough to render uncut; <b> is an allowed tag, so only the live
+# page shows it was not made an element.
+PRIO = HOSTILE[3] + " prio"
+THINK = HOSTILE[5] + " think"
+CHECK = "<b>x</b>"
+
+
+def hostile_plan_and_result(page_models=None):
     """One plan and result planting HOSTILE by index: est [0] (in no other
     plant); title and note [1]; key and mapping.rejected [2]; site name and a
     beyond title [3]; reserved label and a waits_on_unplanned title [4];
     unknown reason [5], tag [6], state [7], tier [8]; basis [9]; pool name [10].
     The site name also reaches the lanes row, the P0 list (as site and
     holder) and the share-less lines; a not-built site carries [3] and [4];
-    the mapping source is [5] and the allocation rule [9]."""
+    the mapping source is [5] and the allocation rule [9]. The key leaf
+    also carries PRIO, THINK and CHECK."""
     h = HOSTILE
     site, key = h[3], h[2]
     assert not any(h[0] in other for other in h[1:])
+    plants = [*h, PRIO, THINK, CHECK]
+    for value in (PRIO, THINK):
+        assert sum(value in other for other in plants) == 1
     plan = make_plan(
         mapping={"values": [0.0, 0.1, 0.25, 0.5, 1.0], "source": h[5], "rejected": h[2]},
         allocation_rule=h[9],
@@ -1194,15 +1208,17 @@ def hostile_plan_and_result():
                                             ("Issue-U", h[5])],
                            p0=[{"key": key, "held_by": [site]}], shareless=[HORIZON[1]])],
         unestimated_planned=1)
-    result = make_result([(site, key, h[1], h[0]), (site, "Issue-B", h[3], None), (site, "Issue-W", h[4], None)],
-                         pages=(site,), not_built=[(h[3], h[4])])
+    planted = {"priority": PRIO, "models": Models(THINK, CHECK, "estimates_file")}
+    result = make_result([(site, key, h[1], h[0], planted), (site, "Issue-B", h[3], None),
+                          (site, "Issue-W", h[4], None)],
+                         pages=(site,), not_built=[(h[3], h[4])], page_models=page_models)
     return plan, result
 
 
 def test_week_hostile(node, tmp_path):
     plan, result = hostile_plan_and_result()
     html = render_week(plan, result, STAMP)
-    assert_page_safe(html, HOSTILE)
+    assert_page_safe(html, [*HOSTILE, PRIO, THINK, CHECK])
     assert_no_external_resources(html)
     t = tree(html)
     assert texts(t, "span", ["reason"]).count("not planned: " + HOSTILE[5]) == 1
@@ -1214,7 +1230,17 @@ def test_week_hostile(node, tmp_path):
     with open_page(write(tmp_path, html)) as page:
         page.drive("days", "10")
         page.drive("beyond-1", "toggle")
-        assert page.planted_nodes(HOSTILE) == Planted([], [], [HOSTILE[0]])
+        # The cut priority and thinking model never render whole; CHECK renders as text.
+        assert page.planted_nodes([*HOSTILE, PRIO, THINK, CHECK]) == Planted([], [], [HOSTILE[0], PRIO, THINK])
+
+
+def test_week_hostile_page_model_path():
+    plan, result = hostile_plan_and_result({HOSTILE[3]: {"leaves": [{"key": HOSTILE[2], "sclass": "crit"}]}})
+    html = render_week(plan, result, STAMP)
+    assert_page_safe(html, [*HOSTILE, PRIO, THINK, CHECK])
+    t = tree(html)
+    (line,) = leaf_lines(t, HOSTILE[2])
+    assert "crit" in t.elements[line]["classes"]
 
 
 def test_week_hostile_no_plan(node, tmp_path):
