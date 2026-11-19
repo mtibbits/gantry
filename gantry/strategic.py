@@ -15,11 +15,12 @@ docs/strategic-page.md states the rules.
 
 import math
 from dataclasses import dataclass
+from datetime import date
 
 from gantry.est_rules import classify_est
 from gantry.inputs import scheduled
 from gantry.links import page_href
-from gantry.portfolio_file import intended_shares
+from gantry.portfolio_file import Allocation, PortfolioEntry, intended_shares
 
 
 def built_sites(result) -> tuple[str, ...]:
@@ -69,17 +70,17 @@ class Group:
 
 @dataclass(frozen=True)
 class StrategicModel:
-    as_of: object  # the build's as-of date
+    as_of: date  # the build's as-of date
     configured: bool  # whether the config names a portfolio file
-    allocation: object  # the Allocation that applies on as_of, or None
-    panels: dict  # {site: Panel}, config order
+    allocation: Allocation | None  # the allocation that applies on as_of
+    panels: dict[str, Panel]  # {site: Panel}, config order
     groups: tuple[Group, ...]
     total_hours: float
     total_unestimated: int
     off_not_built: int | float  # intended share on sites that were not built
     off_not_in_config: int | float  # intended share on names that are not sites
     headline: Panel | None  # the built site with the largest gap; the first in config order on a tie
-    report: tuple  # the build's portfolio entries, in report order
+    report: tuple[PortfolioEntry, ...]  # the build's portfolio entries, in report order
 
     @property
     def projects(self) -> tuple[str, ...]:
@@ -123,14 +124,16 @@ def _panel(result, summary, backlog, shares, built_sum, portfolio) -> Panel:
     intended = shares.get(name)
     serves = tuple(str(rid) for rid in portfolio.serves.get(name, ())) if portfolio is not None else ()
     if summary.status != "built":
-        return Panel(name, False, None, summary.reason, None, 0, None, None, intended, None, None, serves)
+        return Panel(site=name, built=False, href=None, reason=summary.reason, open_leaves=None, held_out=0,
+                     backlog=None, estimates=None, intended=intended, comparable=None, gap=None, serves=serves)
     inputs = result.inputs[name]
     site = backlog[name]
     comparable = intended / built_sum * 100 if intended is not None and built_sum > 0 else None
     gap = abs(site.share - comparable) if site.share is not None and comparable is not None else None
-    return Panel(name, True, page_href(name, from_top=True), None, summary.open_leaves,
-                 summary.open_leaves - len(scheduled(inputs.data)), site,
-                 inputs.estimates.name if inputs.estimates is not None else None, intended, comparable, gap, serves)
+    return Panel(site=name, built=True, href=page_href(name, from_top=True), reason=None,
+                 open_leaves=summary.open_leaves, held_out=summary.open_leaves - len(scheduled(inputs.data)),
+                 backlog=site, estimates=inputs.estimates.name if inputs.estimates is not None else None,
+                 intended=intended, comparable=comparable, gap=gap, serves=serves)
 
 
 def _group(kind, br_id, text, sites, panels) -> Group:
