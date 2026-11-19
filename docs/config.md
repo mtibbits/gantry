@@ -29,8 +29,8 @@ error (exit 2) naming the flag.
 ## Keys
 
 <!-- Editor note: tests/test_portfolio_file.py reads the portfolio_file row
-below; the issue that makes the build check the milestone or use the rest
-of the settings (#23) rewords "#23 adds the rest" and that test together.
+below; the issues that read the rest of the settings (the milestone and the
+binding resource, #24; the thresholds, #29) reword it and that test together.
 tests/test_config.py::test_config_doc_fires_rows reads the fires_list and
 fires_check_days rows; reword them and that test together. -->
 
@@ -41,7 +41,7 @@ fires_check_days rows; reword them and that test together. -->
 | `output_dir` | path | yes | none | the folder the build writes pages and the plan file (`week-plan.json`) into | #9 |
 | `as_of` | TOML date (a string is refused) | no | the build machine's local date when the run starts | the date a build treats as today | every dated view |
 | `default_unit_hours` | positive number, integer or float (0, a negative, infinity, an integer too large to convert to a float, or a boolean is refused) | no | `6` | the agent-hours given to a leaf with no estimate | #9 |
-| `portfolio_file` | path | no | none | the installation's portfolio file ([format](portfolio-file.md)); `gantry portfolio` checks it; the build reads its business requirements, for the trace (#20), and its capacity settings and allocations, for the week plan (#61, #37); #23 adds the rest | #22 |
+| `portfolio_file` | path | no | none | the installation's portfolio file ([format](portfolio-file.md)); `gantry portfolio` checks it; the build reads its business requirements, for the trace (#20), its capacity settings and allocations, for the week plan (#61, #37), and its allocations, `serves` lists and checks, for the strategic page (#23) | #22 |
 | `fires_list` | path | no | none | the installation's fires list, its things that need the operator now ([format](fires-list.md)); `gantry fires` checks it; the full build reads it for its fires ([fires](daily-screen.md#fires)) and no page shows them yet (#34) | #30 |
 | `fires_check_days` | integer, 1 or more (a float or a boolean is refused) | no | `3` | an open fire this many whole days old is flagged "still a fire?"; it is here and not in the portfolio file's `[thresholds]` because the fires list is a fail-closed source, whose flag must not depend on a portfolio file being configured or readable | #30 |
 | `[requirements]` | table | no | none | settings for requirements files | #15 |
@@ -287,7 +287,8 @@ a wrong path.
 
 `gantry build` builds every site: each site's worksite page to
 `<output_dir>/sites/<name>.html`, then the week view,
-`<output_dir>/week.html`, then `<output_dir>/index.html`, which
+`<output_dir>/week.html`, then the strategic page,
+`<output_dir>/strategic.html` ([strategic-page.md](strategic-page.md)), then `<output_dir>/index.html`, which
 lists every site with its open leaves, finish and report count, or why it
 was not built, then the week plan, `<output_dir>/week-plan.json`
 ([week-plan.md](week-plan.md#the-plan-file)). It prints one absolute path
@@ -310,8 +311,8 @@ pages, the index, the reasons and the errors. The page's durations use
 
 | Code | Meaning |
 |---|---|
-| 0 | the index was written and at least one site page was written (sites not built and warnings do not change it), or `--site` wrote its page |
-| 1 | a config error: the installation config or devagent's config is missing, unreadable, invalid or refused; no site page was written (the index is still written); the index or the output folder cannot be written; the week page cannot be rendered or written; the plan file cannot be written; or, with `--site`, a site that is not configured, clashes in case with an earlier site or cannot be built, a render error, or a page that cannot be written |
+| 0 | the week view, the strategic page and the index were written and at least one site page was written (sites not built and warnings do not change it), or `--site` wrote its page |
+| 1 | a config error: the installation config or devagent's config is missing, unreadable, invalid or refused; no site page was written (the index is still written); the index or the output folder cannot be written; the week page cannot be rendered or written; the plan file cannot be written; strategic.html cannot be made or written; or, with `--site`, a site that is not configured, clashes in case with an earlier site or cannot be built, a render error, or a page that cannot be written |
 | 2 | a usage error, such as a missing `--config` |
 
 ## Supported platforms

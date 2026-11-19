@@ -11,9 +11,10 @@ Portfolio.report, relabelled the same way.
 
 Every `line` is a 1-based file line; hidden_lines' indices are 0-based. No
 entry holds a path: the file is always "the portfolio file". gantry build
-reads its business requirements, for the trace (#20), and its capacity
-settings, for the week plan (#61). It runs neither check_portfolio nor the
-milestone check: #23 adds both, reusing the build's one read.
+reads it once: its business requirements, for the trace (#20), and its
+capacity settings, for the week plan (#61). It runs report_entries once over
+that read, with each built site's issue: values, so the milestone leaf is
+checked, and the strategic page shows the entries (#23).
 """
 
 import functools

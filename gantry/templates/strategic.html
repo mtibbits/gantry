@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<title>{{TITLE}}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+/* The index's sheet, with the groups and their panels. */
+:root {
+  --bg: #f3f4f6; --sheet: #ffffff; --ink: #18202c; --muted: #5d6878; --rule: #d6dbe3; --link: #3a55c9;
+  --f-display: "Arial Narrow", "Segoe UI", system-ui, sans-serif;
+  --f-body: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --f-mono: ui-monospace, "Cascadia Mono", Consolas, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0f131a; --sheet: #161c25; --ink: #e5e9ef; --muted: #98a3b3; --rule: #2b3442; --link: #8fa3ff; }
+}
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--f-body); }
+.wrap { max-width: 56rem; margin: 0 auto; padding: 2rem 1.25rem 3rem; background: var(--sheet); min-height: 100vh; }
+h1 { font: 600 2rem/1.2 var(--f-display); margin: .25rem 0 1rem; }
+h2 { font: 600 1.15rem/1.3 var(--f-display); margin: 0 0 .5rem; }
+p { margin: .2rem 0; }
+.label { color: var(--muted); font-size: .85rem; margin: .25rem 0; }
+ul { padding-left: 1.25rem; }
+#notes li { color: var(--muted); }
+.group { border-top: 1px solid var(--rule); padding: .75rem 0; }
+.group h2 [data-figure] { font: 400 .9rem/1.3 var(--f-body); color: var(--muted); margin-left: .5rem; }
+.g-not-built .panel { color: var(--muted); }
+.panel { margin: .5rem 0 .75rem; }
+.panel .name { font-family: var(--f-mono); font-weight: 600; }
+.panel a.name { color: var(--link); }
+.panel .reason { color: var(--muted); }
+.source { color: var(--muted); font-size: .8rem; margin-left: .5rem; }
+#report h2 { margin-top: 1rem; }
+</style>
+</head>
+<body>
+<main class="wrap">
+  {{STAMP}}
+  <h1>{{TITLE}}</h1>
+  <p class="label" id="plans-only">{{PLANS_ONLY}}</p>
+  <ul id="notes">{{NOTES}}</ul>
+  <p id="totals">{{TOTALS}}</p>
+  <p id="off-page">{{OFF_PAGE}}</p>
+  <div id="groups">{{GROUPS}}</div>
+  <section id="report"><h2>{{REPORT_HEADING}}</h2><ul>{{REPORT}}</ul></section>
+</main>
+<script type="application/json" id="gantry-data">{{DATA}}</script>
+</body>
+</html>

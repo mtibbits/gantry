@@ -145,7 +145,7 @@ def test_demo_builds_byte_identical(tmp_path, monkeypatch):
     second = demo_build(tmp_path / "b", monkeypatch, copy=copy_samples(tmp_path / "b"))
     assert first[0] == second[0] == 0
     one, two = written_bytes(first[1]), written_bytes(second[1])
-    assert len(one) == 7
+    assert len(one) == 8
     assert one == two
     # The identity covers the cross-site path (#68): the pages link 6 boxes on another site.
     assert sum(text.count(b'class="fbox fbox-open" href="') for rel, text in one.items() if rel.startswith("sites/")) == 6
@@ -166,5 +166,6 @@ def test_outside_root_stamp_has_time(tmp_path):
     expected = BUILT_STAMP.format(when="2026-11-07 14:03 UTC", date="2026-01-20")
     assert result.stamp == expected
     result, paths, error = write_all(result)
-    assert error is None and len(paths) == 6
+    assert error is None and len(paths) == 7
+    assert result.strategic_error is None
     assert all(expected in Path(path).read_bytes().decode("utf-8") for path in paths)

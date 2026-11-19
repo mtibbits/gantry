@@ -11,9 +11,11 @@ Every number on those pages comes from records already kept.
 - **Worksite page**: one per project, the dependency network with its
   critical path, a rolling-wave zoom, and a schedule across parallel
   worklanes. See [docs/worksite-page.md](docs/worksite-page.md).
-- **Strategic page**: across all your projects, where your tokens and
-  attention are going against where your priorities say they should
-  (planned).
+- **Strategic page**: across all your projects, each site's open work and
+  the share of your attention your priorities give it, set against its share
+  of all open work (its backlog share, not effort), grouped under the
+  requirements it serves; the index shows the largest gap. See
+  [docs/strategic-page.md](docs/strategic-page.md).
 - **Daily screen**: for your phone, anything on fire first, then today's
   tasks to start warming up on (planned).
 - **Week view**: the week plan as a page, laid out over the operator's
@@ -108,10 +110,10 @@ claude --plugin-dir <clone>
 What a run does (`gantry` here is `python3 -m gantry` when you run in place):
 
 - `gantry build --config <file>` builds every site's worksite page, the
-  week view `week.html` and the index that links them, and writes the week
-  plan to `week-plan.json` ([docs/week-plan.md](docs/week-plan.md)); its
-  last line counts the installation's fires,
-  `fires: N; sources not fully read: M`
+  week view `week.html`, the strategic page (`strategic.html`) and the
+  index that links them, and writes the week plan to `week-plan.json`
+  ([docs/week-plan.md](docs/week-plan.md)); its last line counts the
+  installation's fires, `fires: N; sources not fully read: M`
   ([docs/daily-screen.md](docs/daily-screen.md#fires)); `--site <name>`
   builds one site's page.
 - `gantry portfolio --config <file>` checks the installation's portfolio
@@ -238,8 +240,8 @@ on fail. An installation depends on:
   [fires list](docs/fires-list.md). Files in devagent's formats,
   such as `WBS.md` and the estimates file, follow devagent's
   compatibility, not this rule;
-- the output folder: its page paths (`index.html`, `sites/<name>.html`,
-  `week.html`), and
+- the output folder: its page paths (`index.html`, `strategic.html`,
+  `sites/<name>.html`, `week.html`), and
   `week-plan.json`, where a change that bumps `plan_version` is a break
   ([its version rule](docs/week-plan.md#the-version-rule));
 - a command's contract: `gantry build`, `gantry portfolio`, `gantry fires`

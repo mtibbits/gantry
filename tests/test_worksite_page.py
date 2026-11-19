@@ -54,8 +54,9 @@ from test_source_scan import code_files
 FIXTURES = ROOT / "tests" / "fixtures" / "wbs"
 INPUTS = ROOT / "tests" / "fixtures" / "inputs"
 SAMPLE_ROOTS = directory_roots([SAMPLES])  # the sample sites, read where they are (#59)
-PAGE_ASSETS = ("gantry/templates/worksite.html", "gantry/templates/index.html", "gantry/static/schedule.js",
-               "gantry/static/worksite.js", "gantry/templates/week.html", "gantry/static/week.js")
+PAGE_ASSETS = ("gantry/templates/worksite.html", "gantry/templates/index.html", "gantry/templates/strategic.html",
+               "gantry/static/schedule.js", "gantry/static/worksite.js", "gantry/templates/week.html",
+               "gantry/static/week.js")
 
 
 def fixture(name):
@@ -619,7 +620,7 @@ def test_page_assets_are_package_data():
     assets = sorted(p.relative_to(ROOT / "gantry").as_posix()
                     for folder in ("templates", "static") for p in (ROOT / "gantry" / folder).iterdir())
     assert assets == ["static/schedule.js", "static/week.js", "static/worksite.js", "templates/index.html",
-                      "templates/week.html", "templates/worksite.html"]
+                      "templates/strategic.html", "templates/week.html", "templates/worksite.html"]
     for asset in assets:
         assert any(fnmatch.fnmatch(asset, g) for g in globs), asset
 

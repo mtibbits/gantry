@@ -200,7 +200,7 @@ EDITS = {
                               "index.html: required by the expected list (#11) and missing"),
     "required-overlay-missing": (lambda f: swap(f, TRACED, 'id="trace"', 'id="not-trace"'),
                                  f"{TRACED}: element trace required by the expected list (#20) is missing"),
-    "pending-view-present": (page_and_index("strategic.html"), "strategic.html: " + PENDING.format(23)),
+    "pending-view-present": (page_and_index("daily.html"), "daily.html: " + PENDING.format(34)),
     "required-data-missing": (lambda f: remove(f, "week-plan.json"),
                               "week-plan.json: required by the expected list (#61) and missing"),
     "unlisted-top-page": (page_and_index("other.html"), "other.html: on no entry of the expected list"),
@@ -277,15 +277,15 @@ def test_demo_output_passes(demo_out, capsys):
     assert check_demo.check(demo_out) == []
     assert check_demo.main([str(demo_out)]) == 0
     out = capsys.readouterr()
-    assert out.out.splitlines() == ["check_demo: ok: 6 pages, 4 site pages, 9 expected entries"]
+    assert out.out.splitlines() == ["check_demo: ok: 7 pages, 4 site pages, 9 expected entries"]
     assert out.err == ""
 
 
 @pytest.mark.parametrize("case", ["required-absent", "pending-overlay-present"])
 def test_expected_arg(case, copy):
     if case == "required-absent":
-        expected = tuple(e._replace(state="required") if e.path == "strategic.html" else e for e in check_demo.EXPECTED)
-        problem = "strategic.html: required by the expected list (#23) and missing"
+        expected = tuple(e._replace(state="required") if e.path == "daily.html" else e for e in check_demo.EXPECTED)
+        problem = "daily.html: required by the expected list (#34) and missing"
     else:
         expected = tuple(e._replace(state="pending") if e.element == "trace" else e
                          for e in check_demo.EXPECTED)
@@ -310,7 +310,7 @@ def test_expected_list_is_well_formed():
         ("overlay", f"sites/{SMALL}.html", "trace", 20, "required"),
         ("overlay", f"sites/{SMALL}.html", "req-path", 77, "required"),
         ("overlay", f"sites/{SMALL}.html", "served-elsewhere", 21, "required"),
-        ("view", "strategic.html", None, 23, "pending"),
+        ("view", "strategic.html", None, 23, "required"),
         ("view", "daily.html", None, 34, "pending"),
         ("view", "week.html", None, 38, "required"),
         ("data", "week-plan.json", None, 61, "required"),

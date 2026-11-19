@@ -2,9 +2,10 @@
 `gantry portfolio --config FILE` and `gantry fires --config FILE`.
 
 `gantry build` builds every configured site's page, the week view
-(<output_dir>/week.html, #38) and the index, plans the week and writes the
-plan to <output_dir>/week-plan.json (#61); with
-`--site` it builds that one page, no index and no plan, reading that site's
+(<output_dir>/week.html, #38), the strategic page
+(<output_dir>/strategic.html, #23) and the index, plans the week and writes
+the plan to <output_dir>/week-plan.json (#61); with
+`--site` it builds that one page, no week view, no strategic page, no index and no plan, reading that site's
 WBS.md and inputs, every requirements file and the portfolio file. Both
 print each written file's path, then a `trace <site>:` line for each written
 page whose site is in the trace or whose trace report has an entry (#20);
@@ -15,11 +16,13 @@ checks the fires list, without building (#30). There is no default
 config location: `--config` is required, and nothing here reads the
 environment or the home folder to find one. Exit codes:
 
-- 0: the full build wrote the index and at least one site page; `--site`
-  wrote its page; `portfolio` found no report entry;
+- 0: the full build wrote the week view, the strategic page, the index and
+  at least one site page; `--site` wrote its page; `portfolio` found no
+  report entry;
 - 1: a config error; the full build wrote no site page (the index is still
   written) or cannot write the index or the output folder, the week page
-  cannot be rendered or written, or the plan file cannot be written; `--site` names no
+  cannot be rendered or written, the plan file cannot be written, or
+  strategic.html cannot be made or written; `--site` names no
   site, a case clash, a site that cannot be built, a render error or a page
   that cannot be written; `portfolio` found an entry (an advisory one
   included), or the config sets no portfolio_file; `fires` read the fires
@@ -66,18 +69,19 @@ def _parser():
     commands = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
     build = commands.add_parser(
         "build",
-        help="build every site's worksite page and the index, or one site's page",
+        help="build every site's worksite page, the week view, the strategic page and the index, or one site's page",
         description="Build every site an installation config names: each site's page to "
-        "<output_dir>/sites/<name>.html, then <output_dir>/index.html, then the week plan to "
-        "<output_dir>/week-plan.json. The week view goes to <output_dir>/week.html, written "
-        "before the index. A site that cannot be built is listed on the index with its reason. "
-        "With --site, build only that site's page: no index, no week view and no plan.",
+        "<output_dir>/sites/<name>.html, then the week view to <output_dir>/week.html, then "
+        "<output_dir>/strategic.html, then <output_dir>/index.html, then the week plan to "
+        "<output_dir>/week-plan.json. A site that cannot be built is listed on the index and the "
+        "strategic page with its reason. With --site, build only that site's page: no week view, no "
+        "strategic page, no index and no plan.",
     )
     _add_config(build)
     build.add_argument(
         "--site",
         metavar="NAME",
-        help="build only that site's worksite page, and no index and no plan",
+        help="build only that site's worksite page, and no week view, no strategic page, no index and no plan",
     )
     portfolio = commands.add_parser(
         "portfolio",
@@ -206,6 +210,9 @@ def _build_all(config):
         print(f"gantry: error: {result.week_error}", file=sys.stderr)
     if plan_error is not None:
         print(f"gantry: error: cannot write {PLAN_FILE}: {plan_error}", file=sys.stderr)
+    if result.strategic_error is not None:
+        # "cannot render" or "cannot write", as the week view's line; the index has no headline, shares or link (#23).
+        print(f"gantry: error: {result.strategic_error}", file=sys.stderr)
     if index_error is not None:
         # The index, or the output folder itself, cannot be written.
         print(f"gantry: error: cannot write {index}: {index_error}", file=sys.stderr)
@@ -213,7 +220,7 @@ def _build_all(config):
     if not result.pages:
         print("gantry: error: no site page was written", file=sys.stderr)
         return 1
-    return 0 if plan_error is None and result.week_error is None else 1
+    return 0 if plan_error is None and result.week_error is None and result.strategic_error is None else 1
 
 
 def _build(args):
@@ -231,10 +238,11 @@ def _build(args):
     return _build_site(config, roots, sites, args.site)
 
 
-# The build reads the portfolio file's business requirements for the trace
-# (#20) and its capacity settings for the week plan (#61), but checks no
-# milestone yet (#23 adds that, and rewords this with docs/portfolio-file.md).
-MILESTONE_NOTE = "note: the milestone leaf is not checked here (this command reads no WBS.md), nor yet by the build"
+# This command reads no WBS.md, so it cannot find the milestone leaf; the full
+# build reads every site and runs report_entries with each site's issue:
+# values, and the strategic page lists the result (#23, docs/portfolio-file.md).
+MILESTONE_NOTE = ("note: the milestone leaf is not checked here (this command reads no WBS.md); a full gantry build "
+                  "checks it and lists the result on the strategic page")
 
 
 def _load_for_check(args):
