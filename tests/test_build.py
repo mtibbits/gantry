@@ -3,6 +3,7 @@ writing the pages and the index (#11)."""
 
 import os
 import re
+from pathlib import Path
 from datetime import date
 
 import pytest
@@ -28,6 +29,7 @@ from helpers_config import (
 from page_safety import HOSTILE, assert_no_external_resources, assert_page_safe
 from sample_roles import BUSY, NO_WBS, OWN_UNIT, READABLE, SMALL, UNESTIMATED, UNREADABLE
 from test_samples import ROOT
+from test_week_page import placed_nodes
 
 FIXTURES = ROOT / "tests" / "fixtures" / "wbs"
 
@@ -1147,7 +1149,9 @@ def test_week_hostile_key_href_lands(tmp_path):
     t = tree((out / "week.html").read_bytes().decode("utf-8"))
     (line,) = [i for i, el in enumerate(t.elements) if el["tag"] == "li" and el["attrs"].get("data-leaf") == key
                and "leaf" in el["classes"]]
-    (href,) = [el["attrs"]["href"] for el in t.elements if el["tag"] == "a" and el["parent"] == line]
+    # The link sits in the box's title paragraph (#170).
+    (href,) = [el["attrs"]["href"] for el in t.elements if el["tag"] == "a"
+               and "ttl" in t.elements[el["parent"]]["classes"] and t.elements[el["parent"]]["parent"] == line]
     assert href == leaf_href("alpha", key, from_top=True)
     assert lands(out, "week.html", href)
     assert page_ids((out / "sites" / "alpha.html").read_bytes().decode("utf-8")).count(leaf_anchor(key)) == 1
@@ -1286,6 +1290,46 @@ def test_no_home_defers_to_38():
     assert_no_stale(stale, [*swept_files(), ROOT / "tests" / "test_plan_file.py"])
 
 
+# --- the site page models the week view reads (#170) --------------------------------------
+
+
+def test_page_models_cover_rendered_sites(tmp_path):
+    from gantry import planner
+
+    result = sample_build(tmp_path)
+    assert set(result.page_models) == set(result.pages)
+    assert list(result.page_models) == planner._built_sites(result)
+
+
+def test_page_models_survive_write_failure(tmp_path, monkeypatch):
+    """A site page that fails to write keeps its slack on the week view."""
+    result = sample_build(tmp_path)
+    placed = set(placed_nodes(result.plan))
+    slack = {(site, leaf["key"]): leaf["sclass"] for site, m in result.page_models.items() for leaf in m["leaves"]
+             if leaf["sclass"] is not None and (site, leaf["key"]) in placed}
+    site = next(s for s, _ in slack)
+    real = build.write_page
+
+    def refuse(roots, folder, name, text):
+        if name == site:
+            raise OSError("refused")
+        return real(roots, folder, name, text)
+
+    monkeypatch.setattr(build, "write_page", refuse)
+    written, _, _ = build.write_all(result)
+    assert site not in written.pages and site in written.page_models
+    from test_worksite_page import tree
+
+    t = tree(Path(result.config.output_dir, "week.html").read_bytes().decode("utf-8"))
+    boxes = [el for el in t.elements if el["tag"] == "li" and "leaf" in el["classes"]
+             and el["attrs"].get("data-site") == site]
+    expect = {key: cls for (s, key), cls in slack.items() if s == site}
+    assert expect and {el["attrs"]["data-leaf"] for el in boxes} >= set(expect)
+    for el in boxes:
+        if el["attrs"]["data-leaf"] in expect:
+            assert expect[el["attrs"]["data-leaf"]] in el["classes"]
+
+
 # --- the completion marker (#35) ------------------------------------------------------
 
 
@@ -1326,4 +1370,3 @@ def test_marker_exit_table():
 def test_strict_json_loads_raises_only_value_error(data):
     with pytest.raises(ValueError):
         build.strict_json_loads(data)
-

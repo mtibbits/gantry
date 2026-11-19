@@ -20,7 +20,9 @@ from test_samples import ROOT
 FIXTURES = ROOT / "tests" / "fixtures" / "week_plan"
 FIXTURE_NAMES = ("binds_attention", "binds_lanes", "continues", "cross_site", "cross_site_cycle", "states",
                  # #37: fair share and priority tiers.
-                 "late_ready", "no_allocation", "no_share", "p0", "share_unbuilt", "two_sites", "unequal_rates")
+                 "late_ready", "no_allocation", "no_share", "p0", "share_unbuilt", "two_sites", "unequal_rates",
+                 # #170: one leaf of each week-view box kind.
+                 "leaf_boxes")
 DELETE = object()  # plan_of: remove the file instead of writing it
 _copies = itertools.count()
 
@@ -538,7 +540,7 @@ def open_keys(copy, site):
 def test_fixture_names_cover_every_installation():
     found = {path.parent.name for path in FIXTURES.glob("*/gantry.toml")}
     assert set(FIXTURE_NAMES) == found
-    assert len(found) == len(FIXTURE_NAMES) == 13
+    assert len(found) == len(FIXTURE_NAMES) == 14
 
 
 def fixture_facts(tmp_path, base):

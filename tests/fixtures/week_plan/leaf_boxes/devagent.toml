@@ -1,0 +1,7 @@
+# A fictional devagent config for the week view's leaf box tests (#170).
+
+[project.a]
+devdoc_dir = "a"
+
+[project.b]
+devdoc_dir = "b"

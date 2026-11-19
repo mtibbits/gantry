@@ -1,10 +1,13 @@
 """The week view: the build's week plan as one page, read only (#38).
 
 render_week reads the plan's file form (planner.WeekPlan) and the BuildResult
-every view reads: leaf titles and raw est: values from result.inputs, which
-sites have pages, and the not-built reasons. It computes no planning value
-and never changes the plan. All 10 days are rendered here; the page script
-only shows or hides days and lists. docs/week-plan.md describes the page.
+every view reads: each leaf's title, raw est: value, own priority, model
+tiers and waits_on_other_site from result.inputs, each site page model's
+slack class from result.page_models, which sites have pages, and the
+not-built reasons. A placement is drawn as the worksite network's leaf box,
+by the one rule in gantry/views/leafbox.py (#170). It computes no planning
+value and never changes the plan. All 10 days are rendered here; the page
+script only shows or hides days and lists. docs/week-plan.md describes the page.
 """
 
 from dataclasses import asdict
@@ -15,6 +18,7 @@ from gantry import planner, render
 from gantry.links import leaf_href
 from gantry.render import Markup, embed_json, esc, fill, hours_text, hundredths, unestimated_text
 from gantry.sites import shown
+from gantry.views import leafbox
 from gantry.views.worksite import DOT, _count_line, _script
 
 PAGE = "week.html"
@@ -74,6 +78,10 @@ NO_SHARE = "no intended share set"
 SHARE_HEAD = "share on {weekday} {date}"
 CHARGED = "{charged} charged, {target} target"
 NO_PLAN = "no week plan: {reason}"
+# The legend (#170): what a box's red fill and the P0 mark say.
+LEGEND_CRIT = "critical: slack 0 on its own site's network"
+LEGEND_NEAR = "near-critical: slack 1\u20133 on its own site's network"
+LEGEND_P0 = "P0: in the P0 tier, because its own priority or that of a leaf it blocks, directly or not, is P0"
 
 BEYOND_HORIZON = planner.BEYOND_HORIZON
 
@@ -110,20 +118,37 @@ class _Page:
             for leaf in inputs.data.leaves:
                 self.leaves[(site, leaf.key)] = leaf
         self.records = {(entry["site"], entry["key"]): entry for entry in plan.leaves}
-        self.named = {}  # (site, key) -> [site, key, title, est], in the order the page names them
+        # {(site, key): its slack class or None}, from each rendered site's page model (#170),
+        # kept only when it is one of render's slack classes.
+        self.sclass = {(site, leaf["key"]): leaf["sclass"] if leaf["sclass"] in render.SLACK_CLASSES else None
+                       for site, m in result.page_models.items() for leaf in m["leaves"]}
+        # (site, key) -> [site, key, title, est, priority, thinking, checking], in the order the page names them
+        self.named = {}
 
     def title(self, site, key):
         leaf = self.leaves.get((site, key))
-        self.named.setdefault((site, key), [site, key, leaf.title if leaf else None,
-                                            leaf.meta.get("est") if leaf else None])
+        if (site, key) not in self.named:
+            tiers = (leafbox.model_tiers(leaf.models) if leaf else None) or [None, None]
+            self.named[(site, key)] = [site, key, leaf.title if leaf else None, leaf.meta.get("est") if leaf else None,
+                                       leaf.priority if leaf else None, *tiers]
         return leaf.title if leaf is not None and leaf.title else key
 
-    def link(self, site, key):
-        """The leaf's title, linked to its worksite anchor when the site's page was written."""
-        title = esc(self.title(site, key))
+    def link(self, site, key, inner=None):
+        """The leaf's title (or `inner`, escaped unless Markup), linked to its worksite anchor when the site's page was written."""
+        title = esc(self.title(site, key) if inner is None else inner) if not isinstance(inner, Markup) else inner
         if site not in self.result.pages:
             return f'<span class="title">{title}</span>'
         return f'<a href="{esc(leaf_href(site, key, from_top=True))}">{title}</a>'
+
+    def box(self, site, key, record):
+        """(leafbox.Box, its cue classes) for a placement, by the worksite's rule."""
+        title = self.title(site, key)
+        # The named row's priority and tiers: the page's data and its band read one value.
+        *_, prio, thinking, checking = self.named[(site, key)]
+        leaf = self.leaves.get((site, key))
+        b = leafbox.box(key, prio, title, [thinking, checking] if thinking or checking else None)
+        return b, leafbox.box_classes(self.sclass.get((site, key)), render.state_class(record["state"]),
+                                      record["unestimated"], bool(leaf and leaf.waits_on_other_site))
 
 
 def _p(cls, text):
@@ -143,14 +168,19 @@ def _placements(plan):
     return found
 
 
-def _leaf_line(page, entry, cont, show_site=False):
+def _box(page, entry, cont):
+    """A placement as the worksite's leaf box: the top line, the title lines,
+    the facts, then the model band."""
     site, key = entry["site"], entry["key"]
     record = page.records[(site, key)]
     leaf = page.leaves.get((site, key))
     state, tier, tag = record["state"], record["tier"], record["tag"]
-    # A lanes row mixes sites and has no site header, so its leaves name their own.
-    parts = [_span("site", site)] if show_site else []
-    parts += [page.link(site, key), _span("hours", hours_text(entry["agent_hours"]))]
+    b, cues = page.box(site, key, record)
+    prio = f'{_span("prio", b.priority)}{esc(DOT)}' if b.priority is not None else ""
+    top = (f'<p class="top">{_span("key", b.key)}'
+           f'<span class="meta">{prio}{_span("hours", hours_text(entry["agent_hours"]))}</span></p>')
+    ttl = f'<p class="ttl">{page.link(site, key, Markup("".join(_span("tl", line) for line in b.title_lines)))}</p>'
+    parts = []
     if record["unestimated"]:
         parts.append(_span("unest", unestimated_text(leaf.meta.get("est") if leaf is not None else None)))
     if state != "pending":
@@ -166,9 +196,13 @@ def _leaf_line(page, entry, cont, show_site=False):
     parts.append(_span("basis", record["basis"]))
     if cont:
         parts.append(_span("cont", cont))
-    classes = " ".join(["leaf", render.state_class(state), render.tier_class(tier), render.tag_class(tag)])
+    bands = ""
+    if b.band:
+        bands = f'<p class="bands">{"".join(_span(f"band {cls}", text) for text, cls in b.band)}</p>'
+    classes = " ".join(["leaf", *cues, render.tier_class(tier), render.tag_class(tag)])
     return (f'<li class="{classes}" data-leaf="{esc(key)}" data-site="{esc(site)}" data-tag="{esc(tag)}" '
-            f'data-state="{esc(state)}" data-tier="{esc(tier)}">{"".join(parts)}</li>')
+            f'data-state="{esc(state)}" data-tier="{esc(tier)}">{top}{ttl}<p class="facts">{"".join(parts)}</p>'
+            f'{bands}</li>')
 
 
 def _conts(plan, records, placements):
@@ -199,8 +233,8 @@ def _day(page, day, conts):
             text = RESERVED.format(start=r["start"], hours=hours_text(r["hours"]))
         head.append(_p("reserved", text))
 
-    def line(entry, show_site=False):
-        return _leaf_line(page, entry, next(conts[(entry["site"], entry["key"])]), show_site)
+    def line(entry):
+        return _box(page, entry, next(conts[(entry["site"], entry["key"])]))
 
     body = []
     for blk in day["blocks"]:
@@ -213,8 +247,15 @@ def _day(page, day, conts):
         body.append(_p("none", NO_BLOCKS))
     row = day["lanes_row"]
     if row:
-        body.append(f'<div class="lanes" data-lanes="{len(row)}"><h3>{esc(LANES_ROW)}</h3>'
-                    f'<ul>{"".join(line(entry, show_site=True) for entry in row)}</ul></div>')
+        # A lanes row mixes sites: one group per site, headed by its name, in
+        # first-appearance order, with plan order inside a site (#170).
+        groups = {}
+        for entry in row:
+            groups.setdefault(entry["site"], []).append(entry)
+        lanes = "".join(f'<div class="lane-site" data-site="{esc(site)}"><h4>{esc(site)}</h4>'
+                        f'<ul>{"".join(line(entry) for entry in entries)}</ul></div>'
+                        for site, entries in groups.items())
+        body.append(f'<div class="lanes" data-lanes="{len(row)}"><h3>{esc(LANES_ROW)}</h3>{lanes}</div>')
     pools = page.plan.pools
     body.append(_p("left", LEFT.format(attention_pool=pools[0]["name"],
                                        attention=hours_text(day["left"]["attention_hours"]),
@@ -342,7 +383,9 @@ def _body(page):
     buttons = "".join(f'<button class="gone" data-control="days" data-value="{value}" '
                       f'aria-pressed="{"true" if value == "5" else "false"}">{esc(label)}</button>'
                       for value, label in DAYS_BUTTONS)
-    return f'{lines}<div>{buttons}</div><div id="days">{days}</div>{_unplanned(page)}{_per_site(page)}'
+    legend = (f'<ul id="legend"><li><i class="sw crit"></i>{esc(LEGEND_CRIT)}</li>'
+              f'<li><i class="sw near"></i>{esc(LEGEND_NEAR)}</li><li>{esc(LEGEND_P0)}</li></ul>')
+    return f'{lines}{legend}<div>{buttons}</div><div id="days">{days}</div>{_unplanned(page)}{_per_site(page)}'
 
 
 def render_week(plan, result, stamp) -> str:
@@ -351,5 +394,5 @@ def render_week(plan, result, stamp) -> str:
     body = _body(page)
     data = {"stamp": stamp, "plan": asdict(plan), "leaves": list(page.named.values()),
             "not_built": [[s.name, s.reason] for s in _not_built(result)]}
-    return fill(render.asset("templates/week.html"), TITLE=TITLE, STAMP=render.stamp_html(stamp),
-                BODY=Markup(body), DATA=embed_json(data), PAGE_JS=_script("static/week.js"))
+    return fill(render.asset("templates/week.html"), LEAF_COLOURS=leafbox.colours(), TITLE=TITLE,
+                STAMP=render.stamp_html(stamp), BODY=Markup(body), DATA=embed_json(data), PAGE_JS=_script("static/week.js"))

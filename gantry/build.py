@@ -117,6 +117,9 @@ class BuildResult:
     # {site: its devagent issue records}, every site with a planning directory, in config order.
     records: dict[str, SiteRecords] = field(default_factory=dict)
     fires: FireReport | None = None
+    # {site: its page_model}, every site rendered in this build; write_all keeps it
+    # whole, so a page that fails to write keeps its slack on the week view (#170).
+    page_models: dict[str, dict] = field(default_factory=dict)
 
 
 def site_list(config, roots=None):
@@ -353,7 +356,7 @@ def build_all(config, *, now=None, samples=None) -> BuildResult:
     summaries = tuple(_summary(s.name, resolved[s.name], models[s.name], config.as_of) if s.name in pages
                       else not_built(s.name, reasons[s.name]) for s in sites)
     result = BuildResult(config, tuple(sites), tuple(warnings), resolved, pages, summaries, stamp, roots, foreign,
-                         portfolio=catalog.portfolio)
+                         portfolio=catalog.portfolio, page_models=models)
     result = replace(result, portfolio_entries=_portfolio_entries(result))
     # The plan is made from the rendered sites: a worksite page does not get it.
     result = replace(result, plan=plan_week(result, result.portfolio, config))

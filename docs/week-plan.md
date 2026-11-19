@@ -998,8 +998,9 @@ and before `index.html`, and the index links it as `Week view` (#38). It
 renders the build's plan and nothing else: it computes no planning value,
 and `gantry build --site` writes no week page. The page is read-only in v1.
 It holds the installation's titles and keys, like every page in the output
-folder. Every text below is a constant in `gantry/views/week.py`; `{…}`
-marks a value from the plan.
+folder. Every text below is a constant in `gantry/views/week.py`, apart
+from the model band's `think`, `check` and `none`, which are constants in
+`gantry/views/leafbox.py`; `{…}` marks a value from the plan.
 
 **Hours.** Every hour figure is rounded once, half up, to two decimals,
 with trailing zeros dropped and an `h`: 135 minutes is "2.25 h", 120 is
@@ -1031,6 +1032,12 @@ with no exponent ("0.000001").
 - the P0 leaves, each linked and marked `held by {holders}` when a
   cross-site entry holds it, captioned `P0 leaves`.
 
+**The legend.** Below those lines, and only with a plan, a legend reads
+`critical: slack 0 on its own site's network` and
+`near-critical: slack 1–3 on its own site's network`, each beside a swatch
+of that box fill, then
+`P0: in the P0 tier, because its own priority or that of a leaf it blocks, directly or not, is P0`.
+
 **The days.** All 10 days are on the page; with the page script, the
 first 5 show and the `5 days` and `10 days` buttons show or hide the rest.
 With scripts off, every day and list shows and the buttons do not. Each
@@ -1039,24 +1046,48 @@ day is headed `{weekday} {date}`, the as-of day marked `today`, then
 `reserved {start}, {hours}: {label}`, or `reserved {start}, {hours}` when it
 has no label. Each block is headed with its site, its length and
 `start cost {hours}`; a day with none reads `no block planned`. The day's
-lanes row follows under `runs in a lane; no block needed`, each of its
-leaves headed by its site, since the row mixes sites, then
-`left: {attention_pool} {attention}; {lanes_pool} {lanes}`.
+lanes row follows under `runs in a lane; no block needed`. The row mixes
+sites, so its leaves sit under one sub-heading per site, the sites in the
+order they first appear in the row and each site's leaves in plan order.
+Then `left: {attention_pool} {attention}; {lanes_pool} {lanes}`.
 
-A leaf shows its title, linked to its worksite page when that page was
-written (its key when it has no title; unlinked when that page was not
-written), its agent hours in that
-block, `unestimated` or `unestimated (3 pr)` for an unestimated leaf with a
-non-time `est:`, its state when it is not pending (`in progress`, `stuck`,
-or the state as written), `P0` on a P0 leaf (an unknown tier as written),
-`need {need}, {tag}` or `{rate} h per agent hour, {tag}` when it has no
-need, and its basis, so a tier-less leaf reads "no model tiers or flags
-recorded". The tag is `scored`, `measured`, `declared` or `estimated`
-([The four sources](#the-four-sources)). A leaf split across blocks or days
-reads `continues {weekday} {date}` with its next placement's day on every
-placement but its last; on its last, a leaf with hours left after the 10
-days reads `continues after {weekday} {date} ({hours} left)`, naming the
-plan's last day.
+Each placement is drawn as the worksite network's leaf box
+([docs/worksite-page.md](worksite-page.md#the-network)), by one rule both
+pages share (`gantry/views/leafbox.py`):
+
+- **The top line** holds the leaf's key cut to 16 characters, its own
+  priority as written cut to 6 (none when it has none), and its agent hours
+  in that placement. A cut value ends in `…`.
+- **The title**, cut to 40 characters and wrapped to two lines of 25, is
+  linked to the leaf on its worksite page when that page was written, and
+  unlinked when it was not. A leaf with no title shows its key there,
+  linked the same way, where the worksite box shows no title line.
+- **The facts** follow, as before: `unestimated` or `unestimated (3 pr)`
+  for an unestimated leaf with a non-time `est:`, its state when it is not
+  pending (`in progress`, `stuck`, or the state as written), `P0` on a P0
+  leaf (an unknown tier as written), `need {need}, {tag}` or
+  `{rate} h per agent hour, {tag}` when it has no need, and its basis, so a
+  tier-less leaf reads "no model tiers or flags recorded". The tag is
+  `scored`, `measured`, `declared` or `estimated`
+  ([The four sources](#the-four-sources)). A leaf split across blocks or
+  days reads `continues {weekday} {date}` with its next placement's day on
+  every placement but its last; on its last, a leaf with hours left after
+  the 10 days reads `continues after {weekday} {date} ({hours} left)`,
+  naming the plan's last day.
+- **The model band**, when the leaf records a model tier, reads
+  `think` and its thinking model and `check` and its checking model, each
+  cut to 9 characters and `none` when that half is not recorded, shaded as
+  on the worksite page. A leaf with no model tiers has no band.
+
+The box carries the worksite box's classes: its slack class (`crit` at
+slack 0, `near` at 1 to 3, `free` above), its state class, `unest` when it
+is unestimated, and `xsite` when it waits on another site. The slack is the
+leaf's slack on its own site's network, read from that site's page model in
+the same build; an unlinked leaf, or a leaf whose site has no page model,
+has none. The fill is by slack, the outline by state, and a leaf that waits
+on another site then takes the `xsite` outline colour and width over its
+state's, keeping a held state's dash. The colours are the worksite page's,
+from the one sheet both pages insert (`gantry/templates/leaf_colours.css`).
 
 **Unplanned leaves.** Under `Unplanned leaves`, each built site lists its
 unplanned leaves with their reason in words
@@ -1089,4 +1120,6 @@ written. A `week.html` from an earlier build is not deleted
 ([docs/worksite-page.md](worksite-page.md#every-site-and-the-index)).
 
 The page reads the plan's file form. It does not render `report`; it shows
-cycle leaves by their reason, and #167 will read `report`.
+cycle leaves by their reason, and #167 will read `report`. Its embedded
+data holds the plan, then, per leaf the page names, its site, key, title,
+`est:` value, own priority and model tiers.

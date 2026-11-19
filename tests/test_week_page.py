@@ -5,8 +5,11 @@ a leaf line, so "continues after" never passes a "continues " check.
 """
 
 import copy
+import functools
 import json
+import re
 from dataclasses import asdict
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -14,15 +17,18 @@ import pytest
 from gantry import render
 from gantry.build import build_all
 from gantry.config import load_config
+from gantry.model import Models
 from gantry.planner import ALLOCATION_RULE, NO_PLAN, PLAN_VERSION, UNPLANNED_REASONS, WeekPlan
-from gantry.render import STATE_CLASSES, STATE_FALLBACK, WEEK_CLASSES
-from gantry.views import week
+from gantry.links import leaf_href
+from gantry.render import (MODEL_CLASSES, MODEL_FALLBACK, SLACK_CLASSES, STATE_CLASSES, STATE_FALLBACK,
+                           WEEK_CLASSES)
+from gantry.views import leafbox, week
 from gantry.views.week import render_week
 from helpers_config import sample_build
 from page_safety import HOSTILE, RULES, assert_no_external_resources, assert_page_safe
 from page_script.harness import Planted, open_page
 from test_plan_file import shape_errors
-from test_planner import FIXTURE_NAMES, NO_PLAN_CASES, install, leaf, portfolio_md, wbs_md
+from test_planner import FIXTURE_NAMES, FIXTURES, NO_PLAN_CASES, install, leaf, portfolio_md, wbs_md
 from test_worksite_page import find, text_of, tree, visible_text
 
 STAMP = "built 2026-01-19 09:00"
@@ -35,8 +41,10 @@ NEW_ATTRS = ("data-beyond", "data-block", "data-day", "data-figure", "data-lanes
 STRUCTURAL = frozenset({"wrap", "label", "stamp", "not-working", "rule", "mapping", "capacity", "shareless", "day", "later",
                         "today", "hours", "reserved", "none", "block", "lanes", "left", "leaf", "title", "unest",
                         "state", "tier", "need", "basis", "cont", "site-unplanned", "beyond-list", "reason", "held",
-                        "p0-leaf", "gone", "site"})
-ALLOWED_CLASSES = WEEK_CLASSES | STRUCTURAL | set(STATE_CLASSES.values()) | {STATE_FALLBACK}
+                        "p0-leaf", "gone", "top", "key", "meta", "prio", "ttl", "tl", "facts", "bands",
+                        "band", "lane-site", "sw", "xsite"})
+ALLOWED_CLASSES = (WEEK_CLASSES | STRUCTURAL | set(STATE_CLASSES.values()) | {STATE_FALLBACK} | set(SLACK_CLASSES)
+                   | set(MODEL_CLASSES.values()) | {MODEL_FALLBACK})
 
 
 # --- constructed plans --------------------------------------------------------------------
@@ -99,17 +107,20 @@ def site_record(name, unplanned=(), p0=(), share=50.0, shareless=(), **kw):
     return record
 
 
-def make_result(leaves=(), pages=("alpha",), not_built=()):
-    """A BuildResult stand-in: `leaves` are (site, key, title, est) tuples."""
+def make_result(leaves=(), pages=("alpha",), not_built=(), page_models=None):
+    """A BuildResult stand-in: `leaves` are (site, key, title, est) tuples, or
+    (site, key, title, est, {field: value}) to set priority, models or
+    waits_on_other_site."""
     inputs = {}
-    for site, key, title, est in leaves:
+    for site, key, title, est, *more in leaves:
         meta = {} if est is None else {"est": est}
+        fields = {"priority": None, "models": None, "waits_on_other_site": False, **(more[0] if more else {})}
         data = inputs.setdefault(site, SimpleNamespace(data=SimpleNamespace(leaves=[]))).data
-        data.leaves.append(SimpleNamespace(key=key, title=title, meta=meta))
+        data.leaves.append(SimpleNamespace(key=key, title=title, meta=meta, **fields))
     summaries = [SimpleNamespace(name=name, status="built", reason=None) for name in pages]
     summaries += [SimpleNamespace(name=name, status="not_built", reason=reason) for name, reason in not_built]
     return SimpleNamespace(inputs=inputs, pages={name: "" for name in pages}, summaries=tuple(summaries),
-                           stamp=STAMP)
+                           stamp=STAMP, page_models={} if page_models is None else page_models)
 
 
 def fixture_build(tmp_path, base, **changes):
@@ -140,11 +151,6 @@ def with_attr(t, name, value=None, within=None):
 
 def children(t, i):
     return [j for j, el in enumerate(t.elements) if el["parent"] == i]
-
-
-def parts(t, i):
-    """The texts of an element's child elements, in order: a leaf line's parts."""
-    return [text_of(t, j) for j in children(t, i)]
 
 
 def texts(t, tag=None, classes=(), within=None):
@@ -195,9 +201,10 @@ def test_constructed_days_blocks_and_hours():
     assert [(attr(t, i, "data-block"), attr(t, i, "data-site")) for i in blocks] == [("1", "alpha"), ("2", "beta")]
     assert texts(t, "h3", within=blocks[0]) == ["alpha · 2.25 h · start cost 0.25 h"]
     assert texts(t, "p", ["left"], monday) == ["left: operator attention hours 0.5 h; agent lanes 0.12 h"]
-    assert parts(t, leaf_lines(t, within=blocks[0])[0])[:2] == ["One", "2 h"]
+    first = leaf_lines(t, within=blocks[0])[0]
+    assert (texts(t, "span", ["tl"], first), texts(t, "span", ["hours"], first)) == (["One"], ["2 h"])
     # A missing title shows the key.
-    assert parts(t, leaf_lines(t, within=blocks[1])[0])[0] == "Issue-1"
+    assert texts(t, "span", ["tl"], leaf_lines(t, within=blocks[1])[0]) == ["Issue-1"]
 
 
 def test_constructed_merged_block_one_start_cost():
@@ -218,17 +225,58 @@ def test_constructed_lanes_row_under_blocks():
     row = one(t, "data-lanes", "1")
     assert row > with_attr(t, "data-block")[-1]
     assert texts(t, "h3", within=row) == ["runs in a lane; no block needed"]
-    assert parts(t, leaf_lines(t, within=row)[0])[:3] == ["alpha", "Issue-2", "4 h"]
+    first = leaf_lines(t, within=row)[0]
+    assert [texts(t, "span", [cls], first) for cls in ("key", "hours")] == [["Issue-2"], ["4 h"]]
+    assert lane_groups(t, row) == [("alpha", ["Issue-2"])]
     # A block's leaves take their site from the block header.
     assert texts(t, "span", ["site"], with_attr(t, "data-block")[-1]) == []
+
+
+def lane_groups(t, row):
+    """[(site, [key, ...])] of a lanes row's site groups, in page order; each group's h4 names its site."""
+    groups = []
+    for g in find(t, "div", ["lane-site"], within=row):
+        assert texts(t, "h4", within=g) == [attr(t, g, "data-site")]
+        lines = leaf_lines(t, within=g)
+        assert {attr(t, i, "data-site") for i in lines} == {attr(t, g, "data-site")}
+        groups.append((attr(t, g, "data-site"), [attr(t, i, "data-leaf") for i in lines]))
+    return groups
 
 
 def test_mixed_site_lanes_row_names_each_site(tmp_path):
     t = tree(fixture_page(tmp_path, "unequal_rates"))
     rows = with_attr(t, "data-lanes")
-    lines = [i for row in rows for i in leaf_lines(t, within=row)]
-    assert any({attr(t, i, "data-site") for i in leaf_lines(t, within=row)} == {"a", "b"} for row in rows)
-    assert all(parts(t, i)[0] == attr(t, i, "data-site") for i in lines)
+    assert any([site for site, _ in lane_groups(t, row)] in (["a", "b"], ["b", "a"]) for row in rows)
+    assert find(t, "span", ["site"]) == []
+
+
+def test_lanes_row_groups_by_site_constructed():
+    row = [lane("b", "1", 1.0), lane("a", "1", 1.0), lane("b", "2", 1.0)]
+    plan = make_plan(days=[day(HORIZON[0], lanes_row=row)],
+                     leaves=[leaf_record(e["site"], e["key"], need=0, rate=0.0) for e in row],
+                     sites=[site_record("a"), site_record("b")])
+    t = tree(render_week(plan, make_result(pages=("a", "b")), STAMP))
+    (lanes,) = with_attr(t, "data-lanes")
+    # First appearance, then plan order inside a site; sorted or config order would give a first.
+    assert lane_groups(t, lanes) == [("b", ["1", "2"]), ("a", ["1"])]
+    assert texts(t, "h4") == ["b", "a"]
+    assert find(t, "span", ["site"]) == []
+
+
+def test_lanes_row_groups_on_fixture(tmp_path):
+    result, html = fixture_build(tmp_path, "leaf_boxes")
+    t = tree(html)
+    checked = 0
+    for d in result.plan.days:
+        row = d["lanes_row"]
+        if not row:
+            continue
+        (day_el,) = with_attr(t, "data-day", d["date"])
+        (lanes,) = with_attr(t, "data-lanes", within=day_el)
+        order = list(dict.fromkeys(e["site"] for e in row))
+        assert lane_groups(t, lanes) == [(site, [e["key"] for e in row if e["site"] == site]) for site in order]
+        checked += order == ["b", "a"]
+    assert checked >= 1
 
 
 def test_constructed_split_leaf_continues():
@@ -325,7 +373,7 @@ def test_constructed_failed_write_site_shows_unlinked_and_not_built():
                          not_built=[("alpha", "cannot write sites/alpha.html: Permission denied")])
     t = tree(render_week(plan, result, STAMP))
     (line,) = leaf_lines(t, "Issue-1")
-    assert find(t, "a", within=line) == [] and parts(t, line)[0] == "One"
+    assert find(t, "a", within=line) == [] and texts(t, "span", ["tl"], line) == ["One"]
     assert texts(t, "li", within=one(t, "id", "not-built")) == [
         "alpha: not built: cannot write sites/alpha.html: Permission denied"]
 
@@ -335,6 +383,394 @@ def test_leaf_href_uses_the_anchor_encoding():
     t = tree(render_week(plan, make_result([("alpha", "Issue-1", "One", None)]), STAMP))
     (a,) = find(t, "a", within=leaf_lines(t, "Issue-1")[0])
     assert attr(t, a, "href") == "sites/alpha.html#leaf-Issue-1"
+
+
+# --- the leaf box (#170) ---------------------------------------------------------------------
+
+# The cue classes both boxes carry: slack, state, unest and xsite.
+CUES = frozenset({*SLACK_CLASSES, *STATE_CLASSES.values(), STATE_FALLBACK, "unest", "xsite"})
+
+
+def placed_nodes(plan):
+    """[(site, key)] of every placement, in page order, each once."""
+    seen = {}
+    for d in plan.days:
+        for e in [*(x for b in d["blocks"] for x in b["leaves"]), *d["lanes_row"]]:
+            seen.setdefault((e["site"], e["key"]))
+    return list(seen)
+
+
+def week_box(t, i):
+    """A week box's texts and cue classes."""
+    prio = texts(t, "span", ["prio"], i)
+    return {"key": texts(t, "span", ["key"], i), "prio": prio[0] if prio else None,
+            "title": texts(t, "span", ["tl"], i),
+            "band": [(text_of(t, j), sorted(set(t.elements[j]["classes"]) - {"band"})) for j in find(t, "span", ["band"], i)],
+            "cues": set(t.elements[i]["classes"]) & CUES}
+
+
+@functools.cache
+def site_tree(page):
+    """A site page's tree, parsed once per page text: worksite_box only reads it."""
+    return tree(page)
+
+
+def worksite_box(page, key):
+    """The worksite network box of `key` on a site page, or None when it is not a node."""
+    t = site_tree(page)
+    nodes = [i for i in find(t, "g", ["node"]) if attr(t, i, "data-item") == key]
+    if not nodes:
+        return None
+    (full,) = find(t, "g", ["full-form"], within=nodes[0])
+    meta = texts(t, "text", ["nmeta"], full)[0].split(" · ")
+    return {"key": texts(t, "text", ["nid"], full), "prio": meta[0] if len(meta) == 2 else None,
+            "title": texts(t, "text", ["ntitle"], full),
+            "band": [(text_of(t, j), sorted(set(t.elements[j]["classes"]) - {"band-t"}))
+                     for j in find(t, "text", ["band-t"], full)],
+            "cues": set(t.elements[nodes[0]]["classes"]) & CUES}
+
+
+def leaf_boxes(tmp_path):
+    """(result, tree of the week page, {(site, key): its first box}) for the leaf_boxes fixture."""
+    result, html = fixture_build(tmp_path, "leaf_boxes")
+    t = tree(html)
+    return result, t, {node: leaf_lines(t, node[1], within=one(t, "id", "days"))
+                       for node in placed_nodes(result.plan)}
+
+
+def first_box(t, lines, site):
+    (i,) = [i for i in lines if attr(t, i, "data-site") == site][:1]
+    return i
+
+
+def test_leaf_boxes_fixture_premises(tmp_path):
+    """leaf_boxes plants one leaf of each box kind, all placed in the 10 days."""
+    result, _ = fixture_build(tmp_path, "leaf_boxes")
+    plan = result.plan
+    assert plan.status == "planned"
+    placed = placed_nodes(plan)
+    records = {(e["site"], e["key"]): e for e in plan.leaves}
+    leaves = {(site, leaf.key): leaf for site, i in result.inputs.items() for leaf in i.data.leaves}
+    slack = {(site, leaf["key"]): leaf["slack"] for site, m in result.page_models.items() for leaf in m["leaves"]}
+    kinds = {"Issue-1": 0, "Issue-7": 2, "Issue-8": 4, "Issue-12": 3, "Issue-14": 4, "Issue-10": None,
+             "Issue-12345678901234": None, "Issue-11": None, "Issue-13": None}
+    for key, want in kinds.items():
+        assert ("a", key) in placed, key
+        assert slack[("a", key)] == want, key
+    assert leaves[("a", "Issue-10")].waits_on_other_site
+    assert leaves[("a", "Issue-12")].models is None
+    u1 = leaves[("a", "Issue-12345678901234")]
+    assert u1.models is None and len(u1.key) > 16 and u1.priority == "urgent!" and len(u1.title) > 40
+    u2 = leaves[("a", "Issue-11")].models
+    # A thinking name over the 9-character cut, and a checking name no table knows.
+    assert (u2.thinking, u2.checking) == ("sonnet-4-5", "inherit") and len(u2.thinking) > 9
+    n2 = leaves[("a", "Issue-13")]
+    assert records[("a", "Issue-13")]["unestimated"] and n2.models is not None and n2.models.checking is None
+    assert leaves[("a", "Issue-14")].title == ""
+    assert worksite_box(result.pages["a"], "Issue-14") is not None
+    assert (records[("a", "Issue-2")]["state"], records[("a", "Issue-3")]["state"]) == ("in_progress", "stuck")
+    rows = [[e["site"] for e in d["lanes_row"]] for d in plan.days if d["lanes_row"]]
+    assert any(set(row) == {"a", "b"} and row[0] == "b" for row in rows)
+
+
+def matched_boxes(result, html):
+    """Each boxed placed leaf's worksite box, after asserting every week box of it equals that box."""
+    t = tree(html)
+    matched = []
+    for site, key in placed_nodes(result.plan):
+        node = worksite_box(result.pages[site], key) if site in result.pages else None
+        if node is None or not node["title"]:  # an empty title shows the key on the week (OQ1 (a))
+            continue
+        for i in [i for i in leaf_lines(t, key, within=one(t, "id", "days")) if attr(t, i, "data-site") == site]:
+            assert week_box(t, i) == node, (site, key)
+        matched.append(node)
+    return matched
+
+
+def test_box_matches_worksite_for_boxed_leaves(tmp_path):
+    assert len(matched_boxes(*fixture_build(tmp_path, "leaf_boxes"))) >= 6
+
+
+# leaf_boxes's linked leaves carry no priority, a one-line title and an
+# estimate; this copy gives linked leaves each, so the match can fail on them.
+LINKED_VARIANT = {
+    "{issue: Issue-7, est: 2h, h: 1}": "{issue: Issue-7, priority: P2, est: 2h, h: 1}",
+    "Order the trusses {": "Order the trusses from the far yard {",
+    "{issue: Issue-12, est: 2h, h: 1}": "{issue: Issue-12, est: ?, h: 1}",
+}
+
+
+def test_box_matches_worksite_on_priority_wrap_and_unest(tmp_path):
+    wbs = (FIXTURES / "leaf_boxes" / "a" / "WBS.md").read_text(encoding="utf-8")
+    for old, new in LINKED_VARIANT.items():
+        assert wbs.count(old) == 1, old
+        wbs = wbs.replace(old, new)
+    variant = matched_boxes(*fixture_build(tmp_path, "leaf_boxes", wbs={"a": wbs}))
+    assert any(len(node["title"]) == 2 for node in variant)
+    for matched in (variant, matched_boxes(*demo(tmp_path))):
+        assert any(node["prio"] is not None for node in matched)
+        assert any("unest" in node["cues"] for node in matched)
+
+
+def test_box_literal_rules_for_unboxed_leaves(tmp_path):
+    result, t, boxes = leaf_boxes(tmp_path)
+    long_key = "Issue-12345678901234"
+    got = week_box(t, first_box(t, boxes[("a", long_key)], "a"))
+    assert got["key"] == ["Issue-123456789…"] and got["prio"] == "urgen…"
+    assert got["title"] == ["The quick brown fox jumps", "over the lazy…"] and got["band"] == []
+    got = week_box(t, first_box(t, boxes[("a", "Issue-11")], "a"))
+    assert got["band"] == [("think sonnet-4…", ["m-other"]), ("check inherit", ["m-other"])]
+    # Every other unboxed placement, against the rule as the docs state it: no
+    # cut reaches these short values, so each text is the value itself.
+    leaves = {(site, leaf.key): leaf for site, i in result.inputs.items() for leaf in i.data.leaves}
+    subjects = 0
+    for (site, key), lines in boxes.items():
+        if key in (long_key, "Issue-11") or worksite_box(result.pages[site], key) is not None:
+            continue
+        leaf = leaves[(site, key)]
+        assert len(key) <= 16 and len(leaf.title) <= 25
+        tiers = [leaf.models.thinking or None, leaf.models.checking or None] if leaf.models else None
+        band = [(f"{label} {tier or 'none'}", [MODEL_CLASSES.get(tier, MODEL_FALLBACK)])
+                for label, tier in zip(("think", "check"), tiers)] if tiers and any(tiers) else []
+        got = week_box(t, first_box(t, lines, site))
+        del got["cues"]
+        assert got == {"key": [key], "prio": leaf.priority, "title": [leaf.title or key], "band": band}, (site, key)
+        subjects += 1
+    assert subjects >= 1
+
+
+def test_fixture_box_classes(tmp_path):
+    _, t, boxes = leaf_boxes(tmp_path)
+    classes = [set(t.elements[i]["classes"]) for lines in boxes.values() for i in lines]
+    assert set().union(*classes) & set(SLACK_CLASSES) == {"crit", "near", "free"}
+    assert any(not c & set(SLACK_CLASSES) for c in classes)
+    for cls in ("st-wip", "st-stuck", "unest", "xsite"):
+        assert any(cls in c for c in classes), cls
+
+
+def test_box_keeps_facts_and_data_attrs():
+    plan = make_plan(days=[day(HORIZON[0], [block(1, "alpha", [("Issue-1", 1.0)])]),
+                           day(HORIZON[1], [block(1, "alpha", [("Issue-1", 1.0)])], weekday="tue")],
+                     leaves=[leaf_record("alpha", "Issue-1", unestimated=True, state="stuck", tier="p0",
+                                         days=HORIZON[:2])],
+                     sites=[site_record("alpha")])
+    t = tree(render_week(plan, make_result([("alpha", "Issue-1", "One", "3pr")]), STAMP))
+    line = leaf_lines(t, "Issue-1")[0]
+    (facts,) = find(t, "p", ["facts"], line)
+    assert [(t.elements[j]["classes"], text_of(t, j)) for j in children(t, facts)] == [
+        (["unest"], "unestimated (3 pr)"), (["state"], "stuck"), (["tier"], "P0"), (["need"], "need 1, scored"),
+        (["basis"], "scored: h: 1"), (["cont"], "continues Tuesday 2026-01-20")]
+    assert [attr(t, line, a) for a in ("data-leaf", "data-site", "data-tag", "data-state", "data-tier")] == [
+        "Issue-1", "alpha", "scored", "stuck", "p0"]
+
+
+def test_hand_built_result_draws_boxes_without_slack():
+    plan = make_plan(days=[day(HORIZON[0], [block(1, "alpha", [("Issue-1", 2.0), ("Issue-2", 1.0)])])],
+                     leaves=[leaf_record("alpha", "Issue-1"), leaf_record("alpha", "Issue-2")],
+                     sites=[site_record("alpha")])
+    t = tree(render_week(plan, make_result([("alpha", "Issue-1", "One", None)], page_models={}), STAMP))
+    lines = leaf_lines(t)
+    assert len(lines) == 2
+    for i in lines:
+        assert len(find(t, "span", ["key"], i)) == len(find(t, "p", ["ttl"], i)) == len(find(t, "span", ["hours"], i)) == 1
+        assert not set(t.elements[i]["classes"]) & set(SLACK_CLASSES)
+
+
+def test_empty_title_boxed_leaf_shows_key(tmp_path):
+    result, t, boxes = leaf_boxes(tmp_path)
+    (i,) = boxes[("a", "Issue-14")]
+    (a,) = find(t, "a", within=i)
+    assert attr(t, a, "href") == leaf_href("a", "Issue-14", from_top=True)
+    assert texts(t, "span", ["tl"], a) == ["Issue-14"]
+    node = worksite_box(result.pages["a"], "Issue-14")
+    assert node["title"] == []
+    assert {**week_box(t, i), "title": []} == node
+
+
+def test_placed_leaves_have_page_model_records(tmp_path):
+    """Every placed leaf on a site with a page model has a record in it.
+
+    Placed items come from _site_work's open leaves (planner.py), the same
+    inputs.scheduled the page model reads; a held-out leaf is never placed,
+    since it gets an unplanned reason instead.
+    """
+    results = [sample_build(tmp_path / "demo")]
+    results += [fixture_build(tmp_path / base, base)[0] for base in FIXTURE_NAMES]
+    checked = 0
+    for result in results:
+        records = {(site, leaf["key"]) for site, m in result.page_models.items() for leaf in m["leaves"]}
+        for site, key in placed_nodes(result.plan) if result.plan.status == "planned" else []:
+            if site in result.page_models:
+                assert (site, key) in records, (site, key)
+                checked += 1
+    assert checked > 0
+
+
+def test_legend_texts(tmp_path):
+    t = tree(demo(tmp_path)[1])
+    (legend,) = with_attr(t, "id", "legend")
+    assert texts(t, "li", within=legend) == [
+        "critical: slack 0 on its own site's network", "near-critical: slack 1\u20133 on its own site's network",
+        "P0: in the P0 tier, because its own priority or that of a leaf it blocks, directly or not, is P0"]
+    assert [t.elements[i]["classes"] for i in find(t, "i", within=legend)] == [["sw", "crit"], ["sw", "near"]]
+    # Between the lines and the day buttons.
+    assert one(t, "id", "lines") < legend < one(t, "id", "days")
+
+
+# --- the box CSS (#170) -----------------------------------------------------------------------
+
+TEMPLATES = Path(__file__).resolve().parents[1] / "gantry" / "templates"
+STATE_OF = {cls: state for state, cls in STATE_CLASSES.items()} | {STATE_FALLBACK: "unheard_of"}
+# What a box's fill and outline must come to, by hand from the worksite's
+# precedence: fill by slack, outline by state, then xsite's colour and width
+# over the state's, keeping a held state's dash.
+SLACK_LOOK = {"crit": ("var(--crit)", "var(--crit)"), "near": ("var(--near)", "var(--crit)"),
+              "free": ("var(--sheet)", "var(--rule)"), None: ("var(--sheet)", "var(--rule)")}
+STATE_LOOK = {"st-wip": ("2px", "solid", "var(--ink)"), "st-stuck": ("2.5px", "dashed", "var(--held)"),
+              "st-blocked": ("2.5px", "dotted", "var(--held)"), "st-parked": ("2.5px", "dashed", "var(--muted)")}
+
+
+def expected_look(slack, state, xsite):
+    background, colour = SLACK_LOOK[slack]
+    width, style = "1px", "solid"
+    if state in STATE_LOOK:
+        width, style, colour = STATE_LOOK[state]
+    if xsite:
+        colour, width = "var(--xsite)", "2.5px"
+    return {"background": background, "border-color": colour, "border-style": style, "border-width": width}
+
+
+def media_split(css, at="@media"):
+    """([text outside the `at` blocks], [each block's body]) of a sheet, comments dropped."""
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    outside, inside, i = [], [], 0
+    while (start := css.find(at, i)) != -1:
+        outside.append(css[i:start])
+        body = j = css.index("{", start) + 1
+        depth = 1
+        while depth:
+            depth += {"{": 1, "}": -1}.get(css[j], 0)
+            j += 1
+        inside.append(css[body:j - 1])
+        i = j
+    outside.append(css[i:])
+    return outside, inside
+
+
+def css_rules(css):
+    """[(selector, [(property, value)])] of a sheet outside its @media blocks, in order."""
+    kept, _ = media_split(css)
+    rules = []
+    for selectors, body in re.findall(r"([^{}]+)\{([^{}]*)\}", "".join(kept)):
+        decls = [(m[1], m[2].strip()) for m in re.finditer(r"([\w-]+)\s*:\s*([^;]+)", body)]
+        rules += [(sel.strip(), decls) for sel in selectors.split(",")]
+    return rules
+
+
+def cascade(rules, pattern, classes, expand):
+    """{property: value} for an element with `classes`, over the rules whose selector fully
+    matches `pattern` (its `classes` group a run of .class): the most classes win, then the later."""
+    won = {}
+    for selector, decls in rules:
+        m = re.fullmatch(pattern, selector)
+        if m is None:
+            continue
+        need = set(m["classes"].split(".")[1:])
+        if not need <= set(classes):
+            continue
+        for prop, value in decls:
+            for p, v in expand(prop, value):
+                if p not in won or len(need) >= won[p][0]:
+                    won[p] = (len(need), v)
+    return {p: v for p, (_, v) in won.items()}
+
+
+def week_expand(prop, value):
+    if prop == "border":
+        width, style, colour = value.split()
+        return [("border-width", width), ("border-style", style), ("border-color", colour)]
+    return [(prop, value)] if prop in ("background", "border-color", "border-width", "border-style") else []
+
+
+def template_css(name):
+    return re.search(r"<style>(.*)</style>", (TEMPLATES / name).read_text(encoding="utf-8"), flags=re.S)[1]
+
+
+@functools.cache
+def week_rules():
+    return tuple(css_rules(template_css("week.html")))
+
+
+def week_look(classes):
+    return cascade(week_rules(), r"\.leaf(?P<classes>(?:\.[\w-]+)*)", classes, week_expand)
+
+
+def test_week_box_look_has_no_ancestor_rules():
+    """week_look reads only bare .leaf selectors, so no rule may reach a box's fill or outline through an ancestor."""
+    for selector, decls in week_rules():
+        last = re.split(r"[\s>+~]+", selector.strip())[-1]
+        if ".leaf" in last and last != selector.strip():
+            assert not [p for p, _ in decls if p == "background" or p.startswith("border")], selector
+
+
+def look_key(classes):
+    slack = next((c for c in classes if c in SLACK_CLASSES), None)
+    state = next(c for c in classes if c.startswith("st-"))
+    return slack, state, "xsite" in classes
+
+
+def test_week_box_css_combinations(tmp_path):
+    _, t, boxes = leaf_boxes(tmp_path)
+    seen = set()
+    for lines in boxes.values():
+        for i in lines:
+            classes = t.elements[i]["classes"]
+            seen.add(look_key(classes))
+            assert week_look(classes) == expected_look(*look_key(classes)), classes
+    assert len(seen) >= 6
+    assert {("crit", "st-wip", False), ("crit", "st-stuck", False), (None, "st-pending", True)} <= seen
+
+
+def test_week_box_css_full_matrix():
+    combos = [(slack, state, xsite) for slack in (*SLACK_CLASSES, None)
+              for state in (*STATE_CLASSES.values(), STATE_FALLBACK) for xsite in (False, True)]
+    keys = [f"Issue-{n}" for n in range(1, len(combos) + 1)]
+    plan = make_plan(days=[day(HORIZON[0], [block(1, "alpha", [(key, 1.0) for key in keys])])],
+                     leaves=[leaf_record("alpha", key, state=STATE_OF[state]) for key, (_, state, _) in zip(keys, combos)],
+                     sites=[site_record("alpha")])
+    result = make_result([("alpha", key, "T", None, {"waits_on_other_site": xsite})
+                          for key, (_, _, xsite) in zip(keys, combos)],
+                         page_models={"alpha": {"leaves": [{"key": key, "sclass": slack}
+                                                           for key, (slack, _, _) in zip(keys, combos)]}})
+    t = tree(render_week(plan, result, STAMP))
+    assert len(combos) == 48
+    for key, combo in zip(keys, combos):
+        (i,) = leaf_lines(t, key)
+        classes = t.elements[i]["classes"]
+        assert look_key(classes) == combo, key
+        assert week_look(classes) == expected_look(*combo), combo
+
+
+def test_worksite_css_agrees_with_week_table():
+    dash = {None: "solid", "6 3": "dashed", "2 3": "dotted"}
+    rules = css_rules(template_css("worksite.html"))
+
+    def fill(prop, value):
+        return [("background", value)] if prop == "fill" else []
+
+    def outline(prop, value):
+        if prop == "stroke-dasharray":
+            return [("border-style", dash[value])]
+        return {"stroke": [("border-color", value)], "stroke-width": [("border-width", f"{value}px")]}.get(prop, [])
+
+    for slack in (*SLACK_CLASSES, None):
+        for state in (*STATE_CLASSES.values(), STATE_FALLBACK):
+            for xsite in (False, True):
+                classes = [c for c in (slack, state, "xsite" if xsite else None) if c]
+                got = cascade(rules, r"\.node(?P<classes>(?:\.[\w-]+)*) \.box", classes, fill)
+                got |= {"border-style": "solid"} | cascade(rules, r"\.node(?P<classes>(?:\.[\w-]+)*) \.outline",
+                                                            classes, outline)
+                assert got == expected_look(slack, state, xsite), classes
 
 
 # --- AC 2: the as-of date is not a working day ---------------------------------------------
@@ -434,7 +870,7 @@ def test_rule_and_capacity_on_every_fixture(tmp_path):
         assert texts(t, "p", ["capacity"]) == [
             "capacity from: operator attention hours: portfolio file; agent lanes: portfolio file"], base
         ran += 1
-    assert ran == 13
+    assert ran == 14
 
 
 # --- AC 8: share-less sites, notes, P0 and reasons ---------------------------------------------
@@ -625,6 +1061,8 @@ def test_no_plan_pages(tmp_path, key, case, changes):
     for name in ("data-day", "data-figure", "data-unestimated"):
         assert with_attr(t, name) == [], name
     assert with_attr(t, "id", "lines") == [] and with_attr(t, "id", "per-site") == []
+    # test_no_plan_has_no_legend (#170): the legend is shown only with a plan.
+    assert with_attr(t, "id", "legend") == []
 
 
 def test_no_plan_cases_cover_every_reason():
@@ -661,7 +1099,7 @@ def test_render_does_not_change_plan(tmp_path):
 
 def test_page_is_safe_static(tmp_path):
     pages = built_week_pages(tmp_path)
-    assert len(pages) == 16
+    assert len(pages) == 17
     for name, page in pages.items():
         assert_no_external_resources(page)
         assert_page_safe(page, [])
@@ -676,7 +1114,18 @@ def test_data_block_covers_named_leaves(tmp_path):
     assert data["plan"] == json.loads(json.dumps(asdict(result.plan)))
     named = {(entry["site"], entry["key"]) for entry in result.plan.leaves}
     named |= {(s["name"], e["key"]) for s in result.plan.sites for e in [*s["unplanned"], *s["p0"]]}
-    assert {(site, key) for site, key, _, _ in data["leaves"]} == named
+    assert {(site, key) for site, key, *_ in data["leaves"]} == named
+    # Each named leaf's priority and model tiers, from the inputs leaf the box reads (#170).
+    leaves = {(site, leaf.key): leaf for site, i in result.inputs.items() for leaf in i.data.leaves}
+    entries = {(site, key): rest for site, key, *rest in data["leaves"]}
+    assert all(len(rest) == 5 for rest in entries.values())
+    for site, key in placed_nodes(result.plan):
+        leaf = leaves[(site, key)]
+        tiers = [None, None]
+        if leaf.models is not None and (leaf.models.thinking or leaf.models.checking):
+            tiers = [leaf.models.thinking or None, leaf.models.checking or None]
+        assert entries[(site, key)][2:] == [leaf.priority, *tiers], (site, key)
+    assert any(rest[3] is not None for rest in entries.values())
     assert data["not_built"] == [["bakery", "no WBS.md in the planning directory"],
                                  ["marsh", "WBS.md is not valid UTF-8 at byte 88"]]
 
@@ -774,17 +1223,30 @@ def test_static_page_hides_only_controls(tmp_path):
 # --- hostile values (AC 14) ------------------------------------------------------------------
 
 
-def hostile_plan_and_result():
+# The box's own fields (#170), planted on the key leaf: a priority and a
+# thinking model, each a HOSTILE member made unique, and a checking model
+# short enough to render uncut; <b> is an allowed tag, so only the live
+# page shows it was not made an element.
+PRIO = HOSTILE[3] + " prio"
+THINK = HOSTILE[5] + " think"
+CHECK = "<b>x</b>"
+
+
+def hostile_plan_and_result(page_models=None):
     """One plan and result planting HOSTILE by index: est [0] (in no other
     plant); title and note [1]; key and mapping.rejected [2]; site name and a
     beyond title [3]; reserved label and a waits_on_unplanned title [4];
     unknown reason [5], tag [6], state [7], tier [8]; basis [9]; pool name [10].
     The site name also reaches the lanes row, the P0 list (as site and
     holder) and the share-less lines; a not-built site carries [3] and [4];
-    the mapping source is [5] and the allocation rule [9]."""
+    the mapping source is [5] and the allocation rule [9]. The key leaf
+    also carries PRIO, THINK and CHECK."""
     h = HOSTILE
     site, key = h[3], h[2]
     assert not any(h[0] in other for other in h[1:])
+    plants = [*h, PRIO, THINK, CHECK]
+    for value in (PRIO, THINK):
+        assert sum(value in other for other in plants) == 1
     plan = make_plan(
         mapping={"values": [0.0, 0.1, 0.25, 0.5, 1.0], "source": h[5], "rejected": h[2]},
         allocation_rule=h[9],
@@ -800,27 +1262,50 @@ def hostile_plan_and_result():
                                             ("Issue-U", h[5])],
                            p0=[{"key": key, "held_by": [site]}], shareless=[HORIZON[1]])],
         unestimated_planned=1)
-    result = make_result([(site, key, h[1], h[0]), (site, "Issue-B", h[3], None), (site, "Issue-W", h[4], None)],
-                         pages=(site,), not_built=[(h[3], h[4])])
+    planted = {"priority": PRIO, "models": Models(THINK, CHECK, "estimates_file")}
+    result = make_result([(site, key, h[1], h[0], planted), (site, "Issue-B", h[3], None),
+                          (site, "Issue-W", h[4], None)],
+                         pages=(site,), not_built=[(h[3], h[4])], page_models=page_models)
     return plan, result
 
 
 def test_week_hostile(node, tmp_path):
     plan, result = hostile_plan_and_result()
     html = render_week(plan, result, STAMP)
-    assert_page_safe(html, HOSTILE)
+    assert_page_safe(html, [*HOSTILE, PRIO, THINK, CHECK])
     assert_no_external_resources(html)
     t = tree(html)
     assert texts(t, "span", ["reason"]).count("not planned: " + HOSTILE[5]) == 1
     (line,) = leaf_lines(t, HOSTILE[2])
     assert {"tag-other", "st-other", "tier-other"} <= set(t.elements[line]["classes"])
     assert texts(t, "span", ["unest"], line) == ["unestimated"]
-    assert texts(t, "span", ["site"]) == [HOSTILE[3]]
+    assert texts(t, "h4") == [HOSTILE[3]]
     assert texts(t, "span", ["held"]) == ["held by " + HOSTILE[3]]
     with open_page(write(tmp_path, html)) as page:
         page.drive("days", "10")
         page.drive("beyond-1", "toggle")
-        assert page.planted_nodes(HOSTILE) == Planted([], [], [HOSTILE[0]])
+        # The cut priority and thinking model never render whole; CHECK renders as text.
+        assert page.planted_nodes([*HOSTILE, PRIO, THINK, CHECK]) == Planted([], [], [HOSTILE[0], PRIO, THINK])
+
+
+def test_week_hostile_page_model_path():
+    plan, result = hostile_plan_and_result({HOSTILE[3]: {"leaves": [{"key": HOSTILE[2], "sclass": "crit"}]}})
+    html = render_week(plan, result, STAMP)
+    assert_page_safe(html, [*HOSTILE, PRIO, THINK, CHECK])
+    t = tree(html)
+    (line,) = leaf_lines(t, HOSTILE[2])
+    assert "crit" in t.elements[line]["classes"]
+
+
+def test_week_slack_class_from_a_fixed_set():
+    """A page model's sclass reaches the box only as one of render's slack classes."""
+    plan, result = hostile_plan_and_result({HOSTILE[3]: {"leaves": [{"key": HOSTILE[2], "sclass": HOSTILE[3]}]}})
+    html = render_week(plan, result, STAMP)
+    assert_page_safe(html, [*HOSTILE, PRIO, THINK, CHECK])
+    t = tree(html)
+    (line,) = leaf_lines(t, HOSTILE[2])
+    classes = set(t.elements[line]["classes"])
+    assert classes <= ALLOWED_CLASSES and not classes & set(SLACK_CLASSES)
 
 
 def test_week_hostile_no_plan(node, tmp_path):
@@ -856,7 +1341,22 @@ def week_texts():
         found.update({f"{table}[{key}]": value for key, value in getattr(week, table).items()})
     found.update({f"DAYS_BUTTONS[{value}]": label for value, label in week.DAYS_BUTTONS})
     found["LINK"] = week.LINK[0]
+    # The box's own texts, from the rule both pages share (#170).
+    found.update({f"leafbox.{name}": getattr(leafbox, name) for name in ("BAND_THINK", "BAND_CHECK", "NO_MODEL")})
     return found
+
+
+# The box's precedence, as docs/week-plan.md must state it (#170).
+PRECEDENCE_DOC = ("The fill is by slack, the outline by state, and a leaf that waits on another site then takes "
+                  "the `xsite` outline colour and width over its state's, keeping a held state's dash.")
+
+
+def test_week_doc_states_precedence():
+    from helpers_docs import section
+    from test_samples import ROOT
+
+    text = section((ROOT / "docs" / "week-plan.md").read_bytes().decode("utf-8"), "## The week view page")
+    assert PRECEDENCE_DOC in " ".join(text.split())
 
 
 def test_week_doc_states_texts():

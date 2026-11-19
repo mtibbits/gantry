@@ -382,3 +382,24 @@ def test_check_unreadable_sample_config(copy, tmp_path):
     config = root / "samples" / "gantry.sample.toml"
     config.write_bytes(b"".join(l for l in config.read_bytes().splitlines(True) if not l.startswith(b"as_of")))
     assert check_demo.check(copy, root=root) == [".: cannot read as_of or the sample sites from the sample config"]
+
+
+# --- the week view's leaf box (#170) ---------------------------------------------------------
+
+
+def test_week_page_shows_the_hostile_title(demo_out):
+    """The check still finds the sample hostile title on the demo's week view."""
+    assert check_demo.Page((demo_out / "week.html").read_bytes().decode("utf-8")).shows_title()
+
+
+def test_shows_title_joins_a_boxs_title_lines():
+    """A placement's title wraps over two span.tl lines, so no one text node
+    holds it; the check reads the lines joined."""
+    from gantry.views.week import render_week
+    from test_week_page import HORIZON, STAMP, block, day, leaf_record, make_plan, make_result, site_record
+
+    plan = make_plan(days=[day(HORIZON[0], [block(1, "alpha", [("Issue-1", 1.0)])])],
+                     leaves=[leaf_record("alpha", "Issue-1")], sites=[site_record("alpha")])
+    page = check_demo.Page(render_week(plan, make_result([("alpha", "Issue-1", HOSTILE_TITLE, None)]), STAMP))
+    assert not any(HOSTILE_TITLE in text for text in page.texts)
+    assert page.shows_title()

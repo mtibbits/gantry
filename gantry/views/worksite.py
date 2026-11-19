@@ -15,9 +15,11 @@ from gantry import network, priority, render, schedule
 from gantry.deps import open_sources, refs
 from gantry.inputs import NO_TIERS, UNEST_WHAT, has_tiers, scheduled, site_totals
 from gantry.links import id_href, leaf_anchor
-from gantry.model import HOURS_PER_DAY, Estimate, Models
+from gantry.model import HOURS_PER_DAY, Estimate
 from gantry.path import build_paths, split_paths
 from gantry.requirements import parse_id
+from gantry.views import leafbox
+from gantry.views.leafbox import ELLIPSIS, cut as _cut, wrap as _wrap
 from gantry.render import MODEL_CLASSES, Markup, embed_json, esc, fill, model_class, slack_class, state_class
 
 LANES_DEFAULT = 4
@@ -177,17 +179,6 @@ def _span(leaf, unit):
     if not isinstance(est, Estimate):
         raise TypeError(f"a leaf's estimate is a {type(est).__name__}, not an Estimate")
     return est.lo_h, est.hi_h, est.source == "default"
-
-
-def _tiers(leaf):
-    """[thinking, checking], or None when the leaf records neither."""
-    models = leaf.models
-    if models is None:
-        return None
-    if not isinstance(models, Models):
-        raise TypeError(f"a leaf's models is a {type(models).__name__}, not Models")
-    found = [t if isinstance(t, str) and t else None for t in (models.thinking, models.checking)]
-    return found if any(found) else None
 
 
 def _prio_mark(leaf):
@@ -516,7 +507,7 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None, built
     for leaf in work:
         k = leaf.key
         linked = k in net.slack
-        tiers = _tiers(leaf)
+        tiers = leafbox.model_tiers(leaf.models)
         soon = (priority.rank(leaf.priority) <= 1 or leaf.state == "in_progress"
                 or starts[k] < HORIZON_DAYS * HOURS_PER_DAY)
         wave_full = (linked and (net.slack[k] == 0 or soon)) or (k in foreign_only and soon)
@@ -688,7 +679,6 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None, built
 
 # --- the page --------------------------------------------------------------------
 
-ELLIPSIS = "\u2026"
 DASH = "\u2013"
 DOT = " \u00b7 "
 # A .lim-val character's width in viewBox units (13px monospace), to keep a value inside the figure.
@@ -703,7 +693,6 @@ FBH, FROWH, FID_MAX, FTITLE_MAX = 36, 46, 22, 25
 # A box's link runs up the gap left of its column, one line per waiting leaf:
 # FGAP apart, at most FLINES of them before they share the outermost.
 FGAP, FLINES = 3, 5
-TITLE_MAX = 40
 # A chip row sits in the ROWH - BH gap under its box (#20). CHIP_FONT is the
 # CSS .chip-t font size in px (a test holds the pair); a monospace character
 # is taken as 0.6 of it, so a row's width is known here.
@@ -720,33 +709,6 @@ def _script(name):
     if UNSAFE_SCRIPT_RE.search(text):
         raise ValueError(f"{name} must not hold </script or <!--")
     return Markup(text)
-
-
-def _cut(s, n):
-    """s at most n characters long; truncate before escaping."""
-    return s if len(s) <= n else s[:n - 1].rstrip() + ELLIPSIS
-
-
-def _wrap(text, width, lines):
-    out, cur = [], ""
-    for word in text.split():
-        while len(word) > width:
-            if cur:
-                out.append(cur)
-                cur = ""
-            out.append(word[:width])
-            word = word[width:]
-        if cur and len(cur) + 1 + len(word) > width:
-            out.append(cur)
-            cur = word
-        else:
-            cur = f"{cur} {word}" if cur else word
-    if cur:
-        out.append(cur)
-    if len(out) > lines:
-        out = out[:lines]
-        out[-1] = out[-1][:width - 1].rstrip() + ELLIPSIS
-    return out
 
 
 def _n(x):
@@ -930,9 +892,8 @@ def _network_svg(m):
 
     for n in nodes:
         leaf, (x, yy) = leaves[n], pos[n]
-        classes = ([c for c in ("node", leaf["sclass"], leaf["sc"]) if c is not None]
-                   + (["compact"] if n in compact else []) + (["unest"] if leaf["unestimated"] else [])
-                   + (["xsite"] if leaf["other_site"] is not None else []))
+        classes = ["node", *leafbox.box_classes(leaf["sclass"], leaf["sc"], leaf["unestimated"],
+                                                leaf["other_site"] is not None, ["compact"] if n in compact else [])]
         out.append(f'<g class="{" ".join(classes)}" id="{esc(leaf["anchor"])}" data-item="{esc(n)}" tabindex="0">')
         tip = f"{n} {leaf['title']}"
         if leaf["priority"] is not None:
@@ -953,19 +914,18 @@ def _network_svg(m):
                        + _text("dot-l", cx, cy + r + 12, _cut(n, 14), "middle") + "</g>")
         out.append('<g class="full-form">')
         out.append(f'<rect class="box" x="{_n(x)}" y="{_n(yy)}" width="{BW}" height="{BH}" rx="3"/>')
-        out.append(_text("nid", x + 8, yy + 15, _cut(n, 16)))
-        meta = ([_cut(leaf["priority"], 6)] if leaf["priority"] is not None else []) + [_h(leaf["hours"])]
+        b = leafbox.box(n, leaf["priority"], leaf["title"], leaf["models"])
+        out.append(_text("nid", x + 8, yy + 15, b.key))
+        meta = ([b.priority] if b.priority is not None else []) + [_h(leaf["hours"])]
         out.append(_text("nmeta", x + BW - 8, yy + 15, DOT.join(meta), "end"))
-        for j, ln in enumerate(_wrap(_cut(leaf["title"], TITLE_MAX), 25, 2)):
+        for j, ln in enumerate(b.title_lines):
             out.append(_text("ntitle", x + 8, yy + 30 + j * 12.5, ln))
-        if mc:
+        if b.band:
             by, half = yy + BH - BAND, BW / 2
-            for k, label in enumerate(("think", "check")):
+            for k, (text, cls) in enumerate(b.band):
                 bx = x + k * half
-                tier = leaf["models"][k]
-                out.append(f'<rect class="band {mc[k]}" x="{_n(bx)}" y="{_n(by)}" width="{_n(half)}" height="{BAND}"/>')
-                out.append(_text(f"band-t {mc[k]}", bx + half / 2, by + 12,
-                                 f"{label} {_cut(tier if tier is not None else 'none', 9)}", "middle"))
+                out.append(f'<rect class="band {cls}" x="{_n(bx)}" y="{_n(by)}" width="{_n(half)}" height="{BAND}"/>')
+                out.append(_text(f"band-t {cls}", bx + half / 2, by + 12, text, "middle"))
             out.append(f'<line class="band-split" x1="{_n(x + half)}" y1="{_n(by)}" x2="{_n(x + half)}" y2="{_n(yy + BH)}"/>')
         out.append(f'<rect class="outline" x="{_n(x)}" y="{_n(yy)}" width="{BW}" height="{BH}" rx="3"/>')
         out += _chips(chip_ids.get(n, []), x, yy)
@@ -1230,6 +1190,7 @@ def render_model(m, *, stamp="") -> str:
     limits_svg, limits_caption = _limits_svg(m)
     return fill(
         render.asset("templates/worksite.html"),
+        LEAF_COLOURS=leafbox.colours(),
         SITE=site,
         STAMP=render.stamp_html(stamp),
         STATUS=_note(status),

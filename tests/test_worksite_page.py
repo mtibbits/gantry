@@ -57,7 +57,7 @@ INPUTS = ROOT / "tests" / "fixtures" / "inputs"
 SAMPLE_ROOTS = directory_roots([SAMPLES])  # the sample sites, read where they are (#59)
 PAGE_ASSETS = ("gantry/templates/worksite.html", "gantry/templates/index.html", "gantry/templates/strategic.html",
                "gantry/static/schedule.js", "gantry/static/worksite.js", "gantry/templates/week.html",
-               "gantry/static/week.js")
+               "gantry/static/week.js", "gantry/templates/leaf_colours.css")
 
 
 def fixture(name):
@@ -623,7 +623,8 @@ def test_page_assets_are_package_data():
     assets = sorted(p.relative_to(ROOT / "gantry").as_posix()
                     for folder in ("templates", "static") for p in (ROOT / "gantry" / folder).iterdir())
     assert assets == ["static/schedule.js", "static/week.js", "static/worksite.js", "templates/index.html",
-                      "templates/strategic.html", "templates/week.html", "templates/worksite.html"]
+                      "templates/leaf_colours.css", "templates/strategic.html", "templates/week.html",
+                      "templates/worksite.html"]
     for asset in assets:
         assert any(fnmatch.fnmatch(asset, g) for g in globs), asset
 
@@ -1532,3 +1533,32 @@ def test_finished_leaf_hostile(node, tmp_path):
     assert placement(t, i) == "finished"
     with open_page(write(tmp_path, page)) as live:
         assert live.planted_nodes([HOSTILE[0]]).created == []
+
+
+def test_worksite_box_cuts_and_wraps():
+    """The network box's cut and wrapped texts (#170): a guard for the move into leafbox.
+
+    Literals from the worksite's _cut/_wrap at 0f801f4. It passed before the
+    move, and goes red when _cut keeps one character too many.
+    """
+    key = "Issue-12345678901234"
+    title = "The quick brown fox jumps over the lazy dog again and again"
+    leaves = (
+        _leaf(key, key, "1.1", title, EPIC, 2, priority="urgent!",
+              models=Models("sonnet-4-5", "haiku-4-5-x", "estimates_file")),
+        _leaf("Issue-2", "Issue-2", "1.2", "Short", EPIC, 3),
+    )
+    rows = (Row(EPIC, EPIC, "1", "Epic", " ", "pending", 1, None, {}),)
+    t = tree(render_page("alpha", SiteData(leaves, rows, ((key, "Issue-2"),), (), ()), default_unit_hours=6))
+    (node,) = [i for i in find(t, "g", ["node"]) if t.elements[i]["attrs"].get("data-item") == key]
+    (full,) = find(t, "g", ["full-form"], within=node)
+
+    def texts(cls):
+        return [text_of(t, i) for i in find(t, "text", [cls], within=full)]
+
+    assert texts("nid") == ["Issue-123456789…"]
+    assert texts("nmeta") == ["urgen… · 6 h"]
+    assert texts("ntitle") == ["The quick brown fox jumps", "over the lazy…"]
+    assert texts("band-t") == ["think sonnet-4…", "check haiku-4-…"]
+    assert [t.elements[i]["classes"] for i in find(t, "text", ["band-t"], within=full)] == [
+        ["band-t", "m-other"], ["band-t", "m-other"]]

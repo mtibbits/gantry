@@ -9,14 +9,7 @@
 /* A drafting sheet: a narrow text column, then wide plates that scroll sideways. */
 :root {
   --bg: #f3f4f6; --sheet: #ffffff; --ink: #18202c; --muted: #5d6878; --rule: #d6dbe3;
-  --lane: #f7f8fa; --lane-alt: #eef1f5; --crit: #c4321f; --crit-ink: #ffffff;
-  --near: #f8ddd7; --near-ink: #6e1e12; --cross: #3a55c9; --held: #8a5a00; --xsite: #0b7a6e;
-  /* model band: a neutral ramp, heavier model = heavier tone */
-  --m-haiku: #f1f3f6; --m-haiku-ink: #3a4452;
-  --m-sonnet: #e6e9ee; --m-sonnet-ink: #3a4452;
-  --m-opus: #8e99aa; --m-opus-ink: #0e131a;
-  --m-fable: #1f2833; --m-fable-ink: #f3f5f8;
-  --m-other: #c9b8e0; --m-other-ink: #2a1f3a;
+  --lane: #f7f8fa; --lane-alt: #eef1f5; --cross: #3a55c9;
   --f-display: "Arial Narrow", "Segoe UI", system-ui, sans-serif;
   --f-body: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
   --f-mono: ui-monospace, "Cascadia Mono", Consolas, Menlo, monospace;
@@ -24,16 +17,11 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #0f131a; --sheet: #161c25; --ink: #e5e9ef; --muted: #98a3b3; --rule: #2b3442;
-    --lane: #141a22; --lane-alt: #19202a; --crit: #ff6a55; --crit-ink: #1b0904;
-    --near: #47231d; --near-ink: #ffcfc6; --cross: #8fa3ff; --held: #e0b050; --xsite: #4fd1c0;
-    --m-haiku: #1c222b; --m-haiku-ink: #b9c2ce;
-    --m-sonnet: #252d38; --m-sonnet-ink: #b9c2ce;
-    --m-opus: #66727f; --m-opus-ink: #0b0f14;
-    --m-fable: #e2e7ee; --m-fable-ink: #10161e;
-    --m-other: #5b4a73; --m-other-ink: #efe6fb;
+    --lane: #141a22; --lane-alt: #19202a; --cross: #8fa3ff;
     color-scheme: dark;
   }
 }
+{{LEAF_COLOURS}}
 body {
   background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 15px; line-height: 1.55;
   margin: 0; padding: 32px max(16px, env(safe-area-inset-right, 0px)) 48px max(16px, env(safe-area-inset-left, 0px));

@@ -18,6 +18,7 @@
   :root { --bg: #0f131a; --sheet: #161c25; --ink: #e5e9ef; --muted: #98a3b3; --rule: #2b3442; --link: #8fa3ff;
           --block: #1d2533; --lane: #1c2a20; --today: #e0a54a; }
 }
+{{LEAF_COLOURS}}
 body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--f-body); }
 .wrap { max-width: 80rem; margin: 0 auto; padding: 2rem 1.25rem 3rem; background: var(--sheet); min-height: 100vh; }
 h1 { font: 600 2rem/1.2 var(--f-display); margin: .25rem 0 1rem; }
@@ -32,13 +33,50 @@ ul { padding-left: 1.25rem; margin: .25rem 0; }
 .day { border: 1px solid var(--rule); border-radius: 4px; padding: .5rem .6rem; overflow-wrap: anywhere; }
 .day[data-today] { border-color: var(--today); }
 .day .today { color: var(--today); font-weight: 600; margin: 0; }
-.day .hours, .day .reserved, .day .left, .day .none { color: var(--muted); font-size: .85rem; margin: .2rem 0; }
+/* The day's own lines: direct children, so a box's span.hours keeps its own look. */
+.day > .hours, .day > .reserved, .day > .left, .day > .none { color: var(--muted); font-size: .85rem; margin: .2rem 0; }
 .block { background: var(--block); border-radius: 3px; padding: .3rem .4rem; margin: .4rem 0; }
 .lanes { background: var(--lane); border-radius: 3px; padding: .3rem .4rem; margin: .4rem 0; }
-.leaf { margin: .3rem 0; font-size: .9rem; }
-.leaf > span { display: block; color: var(--muted); font-size: .8rem; }
-.leaf > .unest, .leaf > .state, .leaf > .tier { color: var(--ink); }
-.leaf > .cont { font-style: italic; }
+.block ul, .lane-site ul { list-style: none; padding-left: 0; }
+.lane-site h4 { font-size: .8rem; font-weight: 600; margin: .3rem 0 .1rem; }
+/* A placement is the worksite network's leaf box (#170): the key, priority and
+   hours, the title in two lines, the facts, then the model band. */
+.leaf { margin: .4rem 0; background: var(--sheet); border: 1px solid var(--rule); border-radius: 3px; overflow: hidden; font-size: .9rem; }
+.leaf p { margin: 0; padding: 0 .45rem; }
+.leaf .top { display: flex; justify-content: space-between; align-items: baseline; gap: .5rem; padding-top: .3rem; }
+.leaf .key { font-family: var(--f-mono); font-size: .8rem; font-weight: 600; }
+.leaf .meta { font-family: var(--f-mono); font-size: .72rem; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.leaf .ttl { font-size: .85rem; line-height: 1.3; padding-top: .1rem; padding-bottom: .2rem; }
+.leaf .tl { display: block; }
+.leaf .facts { padding-bottom: .3rem; }
+.leaf .facts > span { display: block; color: var(--muted); font-size: .75rem; }
+.leaf .facts > .unest, .leaf .facts > .state, .leaf .facts > .tier { color: var(--ink); }
+.leaf .facts > .cont { font-style: italic; }
+.leaf .bands { display: flex; gap: 1.5px; padding: 0; background: var(--sheet); }
+.band { flex: 1; text-align: center; font-size: .7rem; line-height: 1.5; }
+.band.m-haiku { background: var(--m-haiku); color: var(--m-haiku-ink); }
+.band.m-sonnet { background: var(--m-sonnet); color: var(--m-sonnet-ink); }
+.band.m-opus { background: var(--m-opus); color: var(--m-opus-ink); }
+.band.m-fable { background: var(--m-fable); color: var(--m-fable-ink); }
+.band.m-other { background: var(--m-other); color: var(--m-other-ink); }
+/* Fill by slack, as the worksite's .node.near/.crit box, outline and text. */
+.leaf.near { background: var(--near); border-color: var(--crit); color: var(--near-ink); }
+.leaf.crit { background: var(--crit); border-color: var(--crit); color: var(--crit-ink); }
+.leaf.near .meta, .leaf.near .facts > span, .leaf.near a { color: var(--near-ink); }
+.leaf.crit .meta, .leaf.crit .facts > span, .leaf.crit a { color: var(--crit-ink); }
+/* Outline by state, after the fill, so the state wins the outline. */
+.leaf.st-wip { border: 2px solid var(--ink); }
+.leaf.st-stuck { border: 2.5px dashed var(--held); }
+.leaf.st-blocked { border: 2.5px dotted var(--held); }
+.leaf.st-parked { border: 2.5px dashed var(--muted); }
+/* Waits on another site: colour and width after the states; a held state keeps its dash. */
+.leaf.xsite { border-color: var(--xsite); border-width: 2.5px; }
+.leaf.unest .meta { font-style: italic; }
+/* The legend's swatches: the box fills. */
+.sw { display: inline-block; width: 26px; height: 14px; border-radius: 2px; border: 1px solid var(--rule); vertical-align: middle; margin-right: .4rem; }
+.sw.crit { background: var(--crit); border-color: var(--crit); }
+.sw.near { background: var(--near); border-color: var(--crit); }
+#legend { list-style: none; padding-left: 0; color: var(--muted); font-size: .85rem; }
 .site-unplanned { margin: .5rem 0; }
 .reason { color: var(--muted); }
 #not-built li { color: var(--muted); }
