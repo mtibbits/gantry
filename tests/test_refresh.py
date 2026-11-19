@@ -444,3 +444,144 @@ def test_link_at_lock_is_refused(tmp_path):
     assert isinstance(e.value, LinkRefused)
     assert target.read_bytes() == b"keep"
 
+
+# --- Task 6: generations: the build child, acceptance, the swap and the sweep ----------
+
+ID_SHAPE = re.compile(r"[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}")
+
+
+def test_generation_ids():
+    from datetime import datetime, timezone
+
+    now = datetime(2026, 11, 19, 12, 45, 3, tzinfo=timezone.utc)
+    ids = {refresh.new_generation_id(now) for _ in range(1000)}
+    assert len(ids) == 1000
+    assert all(ID_SHAPE.fullmatch(i) and i.startswith("20261119T124503Z-") for i in ids)
+    assert all(refresh.GENERATION_ID_RE.fullmatch(i) for i in ids)
+
+
+def test_build_argv_and_env(tmp_path):
+    from gantry.config import load_config
+    from gantry.roots import gantry_root
+
+    config = load_config(write_config(tmp_path / "cfg"))
+    generation = tmp_path / "refresh" / "generations" / "g1"
+    assert refresh.build_argv(config, None, generation) == [
+        sys.executable, "-P", "-m", "gantry", "build", "--config", str(config.path), "--output-dir", str(generation)]
+    stand_in = [sys.executable, "stand-in.py", "ok"]
+    assert refresh.build_argv(config, stand_in, generation) == [*stand_in, "--output-dir", str(generation)]
+    assert stand_in == [sys.executable, "stand-in.py", "ok"]
+    inherited = {"PATH": "p", "PYTHONPATH": "elsewhere"}
+    env = refresh.build_env(inherited)
+    assert env == {"PATH": "p", "PYTHONPATH": str(gantry_root())}
+    assert inherited["PYTHONPATH"] == "elsewhere"
+    assert refresh.build_env({})["PYTHONPATH"] == str(gantry_root())
+
+
+def make_generation(folder, name, marker=None):
+    generation = folder / "generations" / name
+    generation.mkdir(parents=True)
+    if marker is not None:
+        (generation / "build.json").write_bytes(marker)
+    return generation
+
+
+def test_accepted_table(tmp_path):
+    from gantry.build import marker_bytes
+
+    roots = writable(tmp_path)
+    cases = [
+        (marker_bytes(0), StepResult("exit", 0), True),
+        (marker_bytes(1), StepResult("exit", 1), True),
+        (None, StepResult("exit", 0), False),
+        (marker_bytes(0), StepResult("exit", 1), False),
+        (marker_bytes(1), StepResult("exit", 0), False),
+        (marker_bytes(2), StepResult("exit", 2), False),
+        (b"garbage", StepResult("exit", 0), False),
+        (marker_bytes(0), StepResult("timed out", None), False),
+        (marker_bytes(0), StepResult("could not start", None), False),
+    ]
+    for index, (marker, result, expected) in enumerate(cases):
+        generation = make_generation(tmp_path, f"g{index}", marker)
+        assert refresh.accepted(roots, generation, result) is expected, (marker, result)
+
+
+def test_swap_writes_only_the_id(tmp_path):
+    assert refresh.swap(writable(tmp_path), tmp_path, "20261119T124503Z-0a1b2c3d") is True
+    assert (tmp_path / "current").read_bytes() == b"20261119T124503Z-0a1b2c3d"
+    assert sorted(os.listdir(tmp_path)) == ["current"]
+
+
+def test_swap_retries_then_succeeds(tmp_path, monkeypatch):
+    real, calls = refresh.write_confined, []
+
+    def flaky(*args, **kwargs):
+        calls.append(args[1])
+        if len(calls) <= 3:
+            raise PermissionError(13, "held open")
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(refresh, "write_confined", flaky)
+    assert refresh.swap(writable(tmp_path), tmp_path, "g-1") is True
+    assert len(calls) == 4 and (tmp_path / "current").read_bytes() == b"g-1"
+
+
+def test_swap_gives_up_after_the_window(tmp_path, monkeypatch):
+    def refuse(*args, **kwargs):
+        raise PermissionError(13, "held open")
+
+    monkeypatch.setattr(refresh, "write_confined", refuse)
+    monkeypatch.setattr(refresh, "SWAP_RETRY_SECONDS", 0.2)
+    started = time.monotonic()
+    assert refresh.swap(writable(tmp_path), tmp_path, "g-1") is False
+    assert 0.2 <= time.monotonic() - started < 5
+    assert not (tmp_path / "current").exists()
+
+
+def test_read_current_tri_state(tmp_path):
+    roots = writable(tmp_path)
+    assert refresh.read_current(roots, tmp_path) is None
+    (tmp_path / "current").write_bytes(b"20261119T124503Z-0a1b2c3d")
+    assert refresh.read_current(roots, tmp_path) == "20261119T124503Z-0a1b2c3d"
+    for data in (b"abc\n", b"../x", b"", b"\xff", b"a b", "é".encode("utf-8")):
+        (tmp_path / "current").write_bytes(data)
+        assert refresh.read_current(roots, tmp_path) is refresh.UNDETERMINED, data
+    (tmp_path / "current").unlink()
+    (tmp_path / "current").mkdir()
+    assert refresh.read_current(roots, tmp_path) is refresh.UNDETERMINED
+
+
+def test_sweep_keeps_live_and_previous(tmp_path):
+    for name in ("a", "b", "c", "not_an_id"):
+        make_generation(tmp_path, name)
+    (tmp_path / "generations" / "stray").write_bytes(b"x")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "keep.txt").write_bytes(b"keep")
+    link_dir(elsewhere, tmp_path / "generations" / "linked")
+    refresh.sweep(writable(tmp_path), tmp_path, keep={"c", "b"})
+    assert sorted(os.listdir(tmp_path / "generations")) == ["b", "c", "linked", "not_an_id", "stray"]
+    assert (elsewhere / "keep.txt").read_bytes() == b"keep"
+
+
+def test_sweep_leaves_what_it_cannot_delete(tmp_path, monkeypatch):
+    for name in ("a", "b", "c"):
+        make_generation(tmp_path, name)
+    real = refresh.rmtree_confined
+
+    def refuse_a(roots, path, **kwargs):
+        if os.path.basename(path) == "a":
+            raise PermissionError(13, "in use")
+        return real(roots, path, **kwargs)
+
+    monkeypatch.setattr(refresh, "rmtree_confined", refuse_a)
+    refresh.sweep(writable(tmp_path), tmp_path, keep={"c"})
+    assert sorted(os.listdir(tmp_path / "generations")) == ["a", "c"]
+
+
+def test_discard_removes_one_and_ignores_errors(tmp_path, monkeypatch):
+    generation = make_generation(tmp_path, "g1", b"x")
+    refresh.discard(writable(tmp_path), generation)
+    assert not generation.exists()
+    refresh.discard(writable(tmp_path), generation)  # already gone: no error
+

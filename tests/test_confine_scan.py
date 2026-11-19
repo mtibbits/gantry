@@ -94,6 +94,8 @@ PLAIN_MODULES = {
     "sys": "interpreter state; sys.modules evasion is out of the threat model",
     "tomllib": "tomllib.loads on decoded text; tomllib.load takes a file only roots.py can open",
     "urllib.parse": "quotes and splits URL text (gantry/links.py); opens nothing",
+    "time": "the clock and sleep (the refresh job's swap retry, #35); opens nothing",
+    "secrets": "random tokens (the refresh job's generation ids, #35); opens nothing",
 }
 
 # File-touching modules: importable, but only listed names may be imported

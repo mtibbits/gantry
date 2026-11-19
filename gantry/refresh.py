@@ -21,14 +21,26 @@ entries (gantry.roots.find_program), never in the current folder.
 import json
 import os
 import re
+import secrets
 import signal
 import subprocess
+import sys
+import time
 from dataclasses import dataclass
 from datetime import datetime
 
-from gantry.build import strict_json_loads
+from gantry.build import MARKER_FILE, marker_exit, strict_json_loads
 from gantry.config import error_reason
-from gantry.roots import OutsideRoots, find_program, open_confined, read_bytes_confined
+from gantry.roots import (
+    OutsideRoots,
+    find_program,
+    gantry_root,
+    list_confined,
+    open_confined,
+    read_bytes_confined,
+    rmtree_confined,
+    write_confined,
+)
 
 # Both lock branches stay in this file, so neither's allow-list entries in
 # tests/test_confine_scan.py go stale on the other host (the scan is static).
@@ -356,3 +368,115 @@ def acquire_lock(roots, folder):
         handle.close()
         raise
     return handle
+
+
+# --- generations -------------------------------------------------------------------------
+
+GENERATIONS = "generations"
+CURRENT_FILE = "current"
+# How long a swap keeps trying to replace `current` (a reader on Windows can
+# hold it open), and how long it waits between tries.
+SWAP_RETRY_SECONDS = 2.0
+SWAP_RETRY_STEP = 0.05
+# A generation id's alphabet, used with fullmatch: the alphabet #64 reads.
+GENERATION_ID_RE = re.compile(r"[A-Za-z0-9-]+")
+
+
+class _Undetermined:
+    def __repr__(self):
+        return "UNDETERMINED"
+
+
+# `current` exists but does not name a generation: the sweep is skipped.
+UNDETERMINED = _Undetermined()
+
+
+def new_generation_id(now) -> str:
+    """A new generation's folder name: the UTC time and 8 random hex digits."""
+    return now.strftime("%Y%m%dT%H%M%SZ") + "-" + secrets.token_hex(4)
+
+
+def build_argv(config, build_command, generation) -> list[str]:
+    """The build child's command: `build_command` (a test's stand-in) or the
+    real build, run with -P so the working folder is not on sys.path, plus
+    --output-dir naming the generation."""
+    base = build_command or [sys.executable, "-P", "-m", "gantry", "build", "--config", str(config.path)]
+    return [*base, "--output-dir", str(generation)]
+
+
+def build_env(environ) -> dict:
+    """The build child's environment: a copy whose PYTHONPATH is the gantry root alone."""
+    return {**environ, "PYTHONPATH": str(gantry_root())}
+
+
+def accepted(roots, generation, result) -> bool:
+    """Whether a build may be swapped in: it exited 0 or 1 and its build.json
+    holds that same code. A marker that cannot be read is not accepted."""
+    if result.kind != "exit" or result.code not in (0, 1):
+        return False
+    try:
+        data = read_bytes_confined(roots, generation / MARKER_FILE, key=REFRESH_KEY)
+    except (OSError, ValueError, OutsideRoots):
+        return False
+    return marker_exit(data) == result.code
+
+
+def read_current(roots, folder):
+    """The live generation's id; None when there is no `current`; UNDETERMINED
+    when it cannot be read or does not hold an id."""
+    try:
+        data = read_bytes_confined(roots, folder / CURRENT_FILE, key=REFRESH_KEY)
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError, OutsideRoots):
+        return UNDETERMINED
+    try:
+        text = data.decode("ascii")
+    except UnicodeDecodeError:
+        return UNDETERMINED
+    return text if GENERATION_ID_RE.fullmatch(text) else UNDETERMINED
+
+
+def write_retrying(roots, path, data) -> str | None:
+    """write_confined, tried again every SWAP_RETRY_STEP on OSError until
+    SWAP_RETRY_SECONDS have passed since the first try (on Windows a reader
+    holding the file open blocks the rename). None on success, else why."""
+    started = time.monotonic()
+    while True:
+        try:
+            write_confined(roots, path, data, key=REFRESH_KEY)
+            return None
+        except (OSError, OutsideRoots) as e:
+            if isinstance(e, OutsideRoots) or time.monotonic() - started >= SWAP_RETRY_SECONDS:
+                return str(e) if isinstance(e, OutsideRoots) else error_reason(e)
+        time.sleep(SWAP_RETRY_STEP)
+
+
+def swap(roots, folder, generation_id) -> bool:
+    """Point `current` at the generation: its id alone, no newline."""
+    return write_retrying(roots, folder / CURRENT_FILE, generation_id.encode("ascii")) is None
+
+
+def discard(roots, generation):
+    """Remove one generation; a failure leaves it for a later sweep."""
+    try:
+        rmtree_confined(roots, generation, key=REFRESH_KEY)
+    except (OSError, OutsideRoots):
+        pass
+
+
+def sweep(roots, folder, keep):
+    """Remove each generation folder not in `keep`: only real folders (never a
+    link) named in the id alphabet, each in its own try; one that cannot be
+    removed now waits for the next run. A listing that fails skips the sweep."""
+    generations = folder / GENERATIONS
+    try:
+        entries = list_confined(roots, generations, key=REFRESH_KEY)
+    except (OSError, ValueError, OutsideRoots):
+        return
+    for entry in entries:
+        if entry.is_link or not entry.is_dir or entry.name in keep:
+            continue
+        if GENERATION_ID_RE.fullmatch(entry.name) is None:
+            continue
+        discard(roots, generations / entry.name)
