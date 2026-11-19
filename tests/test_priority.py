@@ -2,16 +2,13 @@
 
 import pytest
 
+import helpers_portfolio as hp
 from gantry.priority import effective, is_valid, rank
 from gantry.schedule import plan
-from gantry.wbs_stopgap import parse_wbs
-from test_samples import ROOT
-
-FIXTURES = ROOT / "tests" / "fixtures" / "wbs"
 
 
 def parse(name):
-    return parse_wbs((FIXTURES / f"{name}.md").read_bytes().decode("utf-8"), "alpha")
+    return hp.fixture_site(name)
 
 
 def schedulable(data):
@@ -78,10 +75,19 @@ P0_TEXT = """- [ ] First {issue: Issue-1, priority: P1}
 - [ ] Odd {issue: Issue-5, priority: P5}
 - [ ] Odder {issue: Issue-6, priority: P-1}
 """
+# P0_TEXT as devagent reads it; the smoke test below keeps the text on the stopgap path.
+P0_NODES = (
+    hp.node("First", issue="Issue-1", priority="P1"),
+    hp.node("Second", issue="Issue-2", priority="P0"),
+    hp.node("Base", issue="Issue-3", priority="P3"),
+    hp.node("Top", issue="Issue-4", priority="P0", depends_on=["Issue-3"]),
+    hp.node("Odd", issue="Issue-5", priority="P5"),
+    hp.node("Odder", issue="Issue-6", priority="P-1"),
+)
 
 
 def test_p0_sorts_before_p1_in_schedule():
-    data = parse_wbs(P0_TEXT, "alpha")
+    data = hp.site(*P0_NODES)
     work = schedulable(data)
     eff = effective(work, data.links)
     preds = {leaf.key: [a for a, b in data.links if b == leaf.key] for leaf in work}
@@ -93,11 +99,13 @@ def test_p0_sorts_before_p1_in_schedule():
 
 
 def test_p0_inherited_by_prerequisite():
-    data = parse_wbs(P0_TEXT, "alpha")
+    data = hp.site(*P0_NODES)
     assert effective(schedulable(data), data.links)["Issue-3"] == 0
 
 
 def test_p0_not_reported_p5_p_minus_1_are():
+    from gantry.wbs_stopgap import parse_wbs
+
     data = parse_wbs(P0_TEXT, "alpha")
     found = [e for e in data.report if e.kind == "bad_priority"]
     assert [e.line for e in found] == [5, 6]
@@ -108,10 +116,8 @@ def test_p0_not_reported_p5_p_minus_1_are():
 def test_p0_keys_are_effective_p0_in_order():
     from gantry.priority import p0_keys
 
-    data = parse_wbs("- [ ] Epic\n"
-                     "  - [ ] First {issue: Issue-1}\n"
-                     "  - [ ] Waited on {issue: Issue-2}\n"
-                     "  - [ ] Urgent {issue: Issue-3, priority: P0, depends_on: [Issue-2]}\n", "alpha")
+    data = hp.site(hp.node("Epic", hp.node("First", issue="Issue-1"), hp.node("Waited on", issue="Issue-2"),
+                           hp.node("Urgent", issue="Issue-3", priority="P0", depends_on=["Issue-2"])))
     work = schedulable(data)
     eff = effective(work, data.links)
     assert p0_keys(work, eff) == ["Issue-2", "Issue-3"]
