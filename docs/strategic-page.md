@@ -189,8 +189,9 @@ source follows each figure. The kinds:
 | `index-share` | each built site's line on the index | `computed from open work` |
 
 A figure element exists only where a value is shown, except that the
-headline and every index share are always figures, including
-`no intended shares set`, the no-gap headline and `no open work`.
+headline, every index share and every group heading's `group-sum` are
+always figures, including `no intended shares set`, the no-gap headline,
+`no open work` and `nothing to sum`.
 `no intended share set`, the page's `no open work` and
 `no page, so no open work counted` are plain text. A not-built panel with a
 share has an `intended` figure and no `gap`.

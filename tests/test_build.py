@@ -642,12 +642,24 @@ def test_portfolio_entries_on_result(tmp_path, monkeypatch):
 # --- the strategic page (#23) -------------------------------------------------------------
 
 
+def index_shows_no_shares(page):
+    """True when the index shows no backlog share: each site line's extra slot is empty and no
+    index-share figure is on the page."""
+    from test_worksite_page import by_id, find, text_of, tree
+
+    t = tree(page)
+    extras = find(t, "span", ("extra",), within=by_id(t, "sites"))
+    shares = [i for i in find(t, "span") if t.elements[i]["attrs"].get("data-figure") == "index-share"]
+    return bool(extras) and all(text_of(t, i) == "" for i in extras) and shares == []
+
+
 def test_strategic_on_full_build_not_site(tmp_path):
     copy = plan_install(tmp_path)
     code, stdout, stderr = run_main("--config", str(copy / "gantry.toml"))
     out = copy / "out"
     assert code == 0, stderr
     assert (out / "strategic.html").is_file()
+    assert not index_shows_no_shares((out / "index.html").read_bytes().decode("utf-8"))  # the control
     assert stdout.splitlines() == [str(out / "sites" / "a.html"), str(out / "sites" / "b.html"),
                                    str(out / "week.html"), str(out / "strategic.html"), str(out / "index.html"),
                                    str(out / "week-plan.json"), "fires: 0; sources not fully read: 1"]
@@ -669,8 +681,10 @@ def test_strategic_write_failure(tmp_path):
     assert stdout.splitlines() == [str(out / "sites" / "a.html"), str(out / "sites" / "b.html"),
                                    str(out / "week.html"), str(out / "index.html"), str(out / "week-plan.json"),
                                    "fires: 0; sources not fully read: 1"]
-    # The index never links a page that was not written: no headline, and only the week view's link.
-    assert headline_and_links((out / "index.html").read_bytes().decode("utf-8")) == ("", [("Week view", "week.html")])
+    # The index never links a page that was not written: no headline, no shares, and only the week view's link.
+    index = (out / "index.html").read_bytes().decode("utf-8")
+    assert headline_and_links(index) == ("", [("Week view", "week.html")])
+    assert index_shows_no_shares(index)
     assert (out / "week-plan.json").is_file() and (out / "strategic.html").is_dir()
 
 
@@ -688,7 +702,9 @@ def test_strategic_render_failure(tmp_path, monkeypatch):
     # The week view's form (#38): a render fault is "cannot render", not "cannot write".
     assert error is None and result.strategic_error == "cannot render strategic.html: ValueError: x"
     assert copy / "out" / "strategic.html" not in written and not (copy / "out" / "strategic.html").exists()
-    assert headline_and_links((copy / "out" / "index.html").read_bytes().decode("utf-8")) == ("", [("Week view", "week.html")])
+    index = (copy / "out" / "index.html").read_bytes().decode("utf-8")
+    assert headline_and_links(index) == ("", [("Week view", "week.html")])
+    assert index_shows_no_shares(index)
     code, _, stderr = run_main("--config", str(copy / "gantry.toml"))
     assert code == 1
     assert stderr.splitlines()[-1] == "gantry: error: cannot render strategic.html: ValueError: x"

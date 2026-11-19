@@ -137,6 +137,23 @@ def test_placement_line_subprocess(tmp_path):
     assert placement_line(path) == "6 configured projects, 6 placed"
 
 
+def test_requirement_placed_site_without_share_placed_once(tmp_path):
+    """AC1 and AC11 on a fixture that could break them: harbor serves life:BR-1 and life:BR-2 and has no
+    share. It is under those two headings only, and each of its panels says it has no intended share."""
+    text, _ = page(samples(tmp_path, "orchard = 60, quarry = 40"))
+    data = page_data(text)
+    assert [(g["kind"], g["id"]) for g in data["groups"] if BUSY in g["sites"]] == [
+        ("br", "life:BR-1"), ("br", "life:BR-2")]
+    assert [g["sites"] for g in data["groups"] if g["kind"] == "no_share"] == [[SMALL]]
+    assert placement_problems(data) == []
+    t = tree(text)
+    harbor = [li for name, li in panels(t) if name == BUSY]
+    assert len(harbor) == 2
+    for li in harbor:
+        assert "no intended share set" in text_of(t, li)
+        assert figures(t, "intended", li) == [] and figures(t, "gap", li) == []
+
+
 # --- panels (AC2, AC6) -------------------------------------------------------------------
 
 
@@ -173,6 +190,8 @@ def test_intended_names_allocation_and_no_portfolio(tmp_path):
     assert len(found) == 6
     assert all("no intended share set" in text_of(t, li) for _, li in found)
     assert figures(t, "intended") == [] and figures(t, "gap") == []
+    # The gaps note is shown only when an allocation applies.
+    assert text_of(t, by_id(t, "off-page")) == ""
 
 
 # --- figures (AC7) -----------------------------------------------------------------------

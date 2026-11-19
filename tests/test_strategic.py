@@ -122,6 +122,17 @@ def test_zero_share_places_and_competes(tmp_path):
     assert math.isclose(model.panels[SMALL].gap, abs(174 / TOTAL * 100 - 48))  # ≈6.96
 
 
+def test_requirement_placed_site_without_share_is_in_no_other_group(tmp_path):
+    """AC1's "never both" where it can break: harbor serves two requirements but the allocation gives
+    it no share, so it is only in those two groups; "no intended share set" holds only unplaced sites."""
+    model = strategic_model(build(samples(tmp_path, "orchard = 60, quarry = 40")))
+    assert groups_of(model) == [("br", "life:BR-1", (BUSY,)), ("br", "life:BR-2", (BUSY,)),
+                                ("br", "life:BR-3", (OWN_UNIT,)), ("no_requirement", None, (UNESTIMATED,)),
+                                ("no_share", None, (SMALL,)), ("not_built", None, (NO_WBS, UNREADABLE))]
+    harbor = model.panels[BUSY]
+    assert harbor.intended is None and harbor.comparable is None and harbor.gap is None
+
+
 ALLOCATION = """# Portfolio
 
 ## Business requirements
