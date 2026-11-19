@@ -22,19 +22,10 @@ from gantry.model import ParsedValue
 from gantry.portfolio_json import ProjectInput, map_document
 from helpers_config import append_bytes, copy_samples, sample_projects
 from sample_roles import BUSY, NO_WBS, READABLE, SMALL, UNREADABLE
+from test_portfolio_equivalence import known
 from test_samples import ROOT
 
-# devagent's report kinds that the builder writes, as auto_report does.
-AUTO_KINDS = ("leaf_no_issue", "duplicate_issue", "dep_unresolved")
 NODE_LINE_RE = re.compile(r"^\s*- \[.\] ", re.M)
-
-
-def local_dep(entry, project):
-    """True for a dep_unresolved entry whose depends_on entry devagent's project calls local."""
-    if entry["kind"] != "dep_unresolved":
-        return True
-    named = entry["message"].split("'")[1]
-    return deps.classify(named, project).kind == "local"
 
 
 def kinds(data, kind):
@@ -52,7 +43,7 @@ def test_auto_report_matches_devagent_on_the_written_fixture():
         name = project["project"]
         made = sorted((e["source_line"], e["kind"], e["message"]) for e in hp.auto_report(project))
         written = sorted((e["source_line"], e["kind"], e["message"]) for e in doc["parse_report"]
-                         if e["project"] == name and e["kind"] in AUTO_KINDS and local_dep(e, name))
+                         if hp.auto_entry(e, name))
         assert made == written, name
 
 
@@ -213,8 +204,7 @@ AGREEMENT = [p["project"] for p in hp.written_doc()["projects"] if p["status"] =
 
 
 def known_rows(name):
-    entries = json.loads(ue.KNOWN.read_bytes().decode("utf-8"))
-    return [(e["where"], e["stopgap"], e["snapshot"]) for e in entries if e["set"] == "fixtures" and e["site"] == name]
+    return [(e["where"], e["stopgap"], e["snapshot"]) for e in known("fixtures") if e["site"] == name]
 
 
 def alpha_snapshot(data):
@@ -241,6 +231,15 @@ def test_fixture_sites_agree_with_the_stopgap(name):
     stopgap = parse_wbs((ROOT / source).read_bytes().decode("utf-8"), "alpha")
     found = ue.diff_snapshots(alpha_snapshot(stopgap), alpha_snapshot(data))
     assert [tuple(row) for row in found] == known_rows(name)
+
+
+def test_append_nodes_keeps_foreign_and_malformed_unresolved():
+    # devagent words these like a local dep_unresolved; auto_report never writes them again.
+    doc = hp.fixture_doc("refs")
+    kept = [e for e in doc["parse_report"] if e["kind"] == "dep_unresolved" and not hp.auto_entry(e, "alpha")]
+    assert kept
+    out = hp.append_nodes(doc, "alpha", hp.node("Late", issue="Issue-98"))
+    assert [e for e in out["parse_report"] if e in kept] == kept
 
 
 def test_append_nodes():

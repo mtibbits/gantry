@@ -28,8 +28,7 @@ from test_samples import GANTRY_SAMPLE, md_tables
 def leaf(key, line, glyph=" ", **meta):
     """A parsed leaf; `meta` values are as devagent parses them (a str, or a list for
     bracket text) and are tagged as gantry/portfolio_json.py stores them."""
-    return Leaf(key, key, str(line), key, glyph, STATE_GLYPHS[glyph], glyph not in FINISHED_GLYPHS, None, (),
-                {key_: tag(value) for key_, value in {"issue": key, **meta}.items()}, None, line)
+    return raw_leaf(key, line, glyph, **{key_: tag(value) for key_, value in {"issue": key, **meta}.items()})
 
 
 def raw_leaf(key, line, glyph=" ", **meta):
@@ -101,14 +100,12 @@ def test_fields_partition_kinds():
 NS = frozenset({"gantry", "life"})
 
 
-# Each written form (the id) as devagent parses it.
+# devagent parses the bracketed forms (bare or quoted entries) as a list and the
+# scalar forms (bare or quoted) as a str.
 @pytest.mark.parametrize("raw, ids", [
     (["gantry:FR-1", "gantry:QA-2"], ["gantry:FR-1", "gantry:QA-2"]),
     ("gantry:FR-1", ["gantry:FR-1"]),
-    ("gantry:FR-1", ["gantry:FR-1"]),
-    (["gantry:FR-1", "gantry:QA-2"], ["gantry:FR-1", "gantry:QA-2"]),
-], ids=["[gantry:FR-1, gantry:QA-2]-ids0", "gantry:FR-1-ids1", '"gantry:FR-1"-ids2',
-        "[\"gantry:FR-1\", 'gantry:QA-2']-ids3"])
+], ids=["list", "str"])
 def test_satisfies_forms_agree(raw, ids):
     got, problems = satisfies_ids(leaf("L1", 2, satisfies=raw), NS)
     assert problems == []

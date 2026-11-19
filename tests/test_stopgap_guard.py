@@ -31,7 +31,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 TESTS = ROOT / "tests"
 NAMES = frozenset({"parse_wbs", "read_wbs", "wbs_stopgap"})
-MODULE = "gantry.wbs_stopgap"
 SKIPPED_PARTS = frozenset({"node_modules", "__pycache__"})
 # git ls-files tests '*.py' at the branch base (72), plus test_site_builder.py and this file.
 TRACKED_FLOOR = 74
@@ -39,11 +38,6 @@ TRACKED_FLOOR = 74
 
 def _names_stopgap(dotted):
     return dotted is not None and any(part in NAMES for part in dotted.split("."))
-
-
-def _names_module(text):
-    """A dotted target with a stopgap name in it: gantry.wbs_stopgap, gantry.build.read_wbs, .wbs_stopgap, read_wbs."""
-    return _names_stopgap(text.lstrip("."))
 
 
 def _literal_head(arg):
@@ -92,7 +86,7 @@ def stopgap_hits(source) -> list[tuple[int, str, str]]:
         elif isinstance(node, ast.Call):
             for arg in [*node.args, *(keyword.value for keyword in node.keywords)]:
                 head = _literal_head(arg)
-                if head is not None and _names_module(head):
+                if _names_stopgap(head):
                     found.append((arg.lineno, head))
     spans = _owners(tree)
     hits = []
@@ -111,7 +105,7 @@ def scanned_files() -> list[Path]:
 def tree_hits() -> tuple[tuple[str, int, str, str], ...]:
     """(path relative to tests/, line, what, owner) over scanned_files(), once per session.
 
-    Prefilter: every use spells one of NAMES (MODULE holds wbs_stopgap), so a
+    Prefilter: every use spells one of NAMES (gantry.wbs_stopgap holds wbs_stopgap), so a
     file holding none of them is not parsed."""
     hits = []
     for path in scanned_files():

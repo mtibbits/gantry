@@ -203,9 +203,18 @@ def dumps(doc) -> bytes:
     return (json.dumps(doc, ensure_ascii=False, indent=2, allow_nan=False) + "\n").encode("utf-8")
 
 
+def _load(path):
+    return json.loads(path.read_bytes().decode("utf-8"))
+
+
 def written_doc():
     """tests/fixtures/portfolio/written.json, parsed: a fresh copy on every call, so a caller may change it."""
-    return json.loads(WRITTEN.read_bytes().decode("utf-8"))
+    return _load(WRITTEN)
+
+
+def sample_doc():
+    """tests/fixtures/portfolio/samples.json, parsed: a fresh copy on every call."""
+    return _load(SAMPLES_WRITTEN)
 
 
 def compare(items, differs="differs"):
@@ -242,15 +251,17 @@ def fixture_document(devagent) -> bytes:
     return dumps(doc)
 
 
+def _provenance(devagent, document, key, value) -> bytes:
+    doc = json.loads(document.decode("utf-8"))
+    return dumps({"pin": read_pin(), "devagent_version": checkout_version(devagent),
+                  "schema_version": doc["schema_version"], "generated_at": doc["generated_at"], key: value})
+
+
 def provenance(devagent, document=None) -> bytes:
     """Where written.json came from; `document` is fixture_document's bytes, made here when not given."""
     if document is None:
         document = fixture_document(devagent)
-    doc = json.loads(document.decode("utf-8"))
-    data = {"pin": read_pin(), "devagent_version": checkout_version(devagent),
-            "schema_version": doc["schema_version"], "generated_at": doc["generated_at"],
-            "sources": dict(FIXTURE_SOURCES)}
-    return dumps(data)
+    return _provenance(devagent, document, "sources", dict(FIXTURE_SOURCES))
 
 
 def sample_fixture_document(devagent, samples=SAMPLES) -> bytes:
@@ -281,17 +292,13 @@ def sample_inputs(samples=SAMPLES) -> dict:
 def stale_inputs(samples=SAMPLES) -> list[str]:
     """The inputs whose hash differs from samples_provenance.json, or that only one side has."""
     now = sample_inputs(samples)
-    then = json.loads(SAMPLES_PROVENANCE.read_bytes().decode("utf-8"))["inputs"]
+    then = _load(SAMPLES_PROVENANCE)["inputs"]
     return sorted(path for path in now.keys() | then.keys() if now.get(path, 0) != then.get(path, 0))
 
 
 def sample_provenance(devagent, document) -> bytes:
     """What samples.json was made from; `document` is sample_fixture_document's bytes."""
-    doc = json.loads(document.decode("utf-8"))
-    data = {"pin": read_pin(), "devagent_version": checkout_version(devagent),
-            "schema_version": doc["schema_version"], "generated_at": doc["generated_at"],
-            "inputs": sample_inputs()}
-    return dumps(data)
+    return _provenance(devagent, document, "inputs", sample_inputs())
 
 
 def _counts(document):

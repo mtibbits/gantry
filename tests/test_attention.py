@@ -133,10 +133,9 @@ def test_h_parsed_forms(i):
 
 
 def test_h_edge_forms_follow_meta_values():
-    # devagent's parser decides these, not attention.py: it reads each written form as "3"
-    # (measured at devagent--v3.0.0), and that parsed value scores 3.
-    for raw in ('"3', "'3", '"3"x', "3	"):
-        assert read_h(make_leaf(meta={"issue": tag("Issue-1"), "h": tag("3")})) == 3, ascii(raw)
+    # devagent's parser decides these, not attention.py: it reads each of the written forms
+    # "3, '3, "3"x and 3<tab> as "3" (measured at devagent--v3.0.0), and that parsed value scores 3.
+    assert read_h(make_leaf(meta={"issue": tag("Issue-1"), "h": tag("3")})) == 3
 
 
 def test_read_h_calls_meta_values(monkeypatch):

@@ -15,7 +15,7 @@ from it: conftest's `node` fixture would clash.
 """
 
 import copy
-import json
+import functools
 from pathlib import Path
 
 import helpers_devagent as hd
@@ -29,6 +29,8 @@ DOC_NAME = "portfolio.json"
 
 
 written_doc = sp.written_doc
+sample_doc = sp.sample_doc
+_written_once = functools.cache(sp.written_doc)  # read-only: narrow() copies what it keeps
 
 
 def build_sample_document(tmp, env=None, os_name=None):
@@ -97,10 +99,14 @@ def project(name, *nodes, start=1) -> dict:
     return {"project": name, "status": "read", "status_reason": None, "nodes": made}
 
 
-def _entries(value):
-    if value is None:
-        return []
-    return [value] if isinstance(value, str) and value else list(value) if isinstance(value, list) else []
+def _local_deps(node, project_name):
+    """(entry, ref) for each depends_on entry of `node` that `project_name` calls local."""
+    value = node["meta"].get("depends_on")
+    entries = [value] if isinstance(value, str) and value else value if isinstance(value, list) else []
+    for entry in entries:
+        ref = deps.classify(entry, project_name)
+        if ref.kind == "local":
+            yield entry, ref
 
 
 def auto_report(project) -> list[dict]:
@@ -125,9 +131,8 @@ def auto_report(project) -> list[dict]:
                 add(line, "duplicate_issue", f"issue '{issue}' also appears at line {first[issue]}")
             else:
                 first[issue] = line
-        for entry in _entries(n["meta"].get("depends_on")):
-            ref = deps.classify(entry, name)
-            if ref.kind == "local" and ref.issue not in held:
+        for entry, ref in _local_deps(n, name):
+            if ref.issue not in held:
                 add(line, "dep_unresolved", f"depends_on '{entry}' matches no issue in this project")
     return report
 
@@ -165,11 +170,11 @@ def site(*nodes, name="alpha", start=1, report=()):
 
 def narrow(doc, name, site=None) -> dict:
     """A fresh copy of `doc` holding only the project `name` and its report entries, renamed `site`."""
-    out = copy.deepcopy(doc)
-    out["projects"] = [p for p in out["projects"] if p["project"] == name]
+    out = {key: value for key, value in doc.items() if key not in ("projects", "parse_report")}
+    out["projects"] = copy.deepcopy([p for p in doc["projects"] if p["project"] == name])
     if not out["projects"]:
         raise ValueError(f"the document holds no project {name!r}")
-    out["parse_report"] = [e for e in out["parse_report"] if e["project"] == name]
+    out["parse_report"] = copy.deepcopy([e for e in doc["parse_report"] if e["project"] == name])
     if site is not None:
         for item in (*out["projects"], *out["parse_report"]):
             item["project"] = site
@@ -178,7 +183,7 @@ def narrow(doc, name, site=None) -> dict:
 
 def fixture_doc(name, site="alpha") -> dict:
     """written.json's project `name` alone, renamed `site`."""
-    return narrow(written_doc(), name, site)
+    return narrow(_written_once(), name, site)
 
 
 def fixture_site(name, site="alpha"):
@@ -201,9 +206,8 @@ def drop_lines(doc, *lines) -> dict:
     proj["nodes"] = [n for n in proj["nodes"] if n["source_line"] not in lines]
     dropped = {by_line[line]["issue"] for line in lines} - {n["issue"] for n in proj["nodes"]} - {None}
     for n in proj["nodes"]:
-        for entry in _entries(n["meta"].get("depends_on")):
-            ref = deps.classify(entry, proj["project"])
-            if ref.kind == "local" and ref.issue in dropped:
+        for _, ref in _local_deps(n, proj["project"]):
+            if ref.issue in dropped:
                 raise ValueError(f"line {n['source_line']} depends on {ref.issue}, which is dropped")
     out["parse_report"] = [e for e in out["parse_report"]
                            if e["project"] != proj["project"] or e["source_line"] not in lines]
@@ -211,7 +215,16 @@ def drop_lines(doc, *lines) -> dict:
 
 
 AUTO_KINDS = ("leaf_no_issue", "duplicate_issue", "dep_unresolved")
-LOCAL_UNRESOLVED = "matches no issue in this project"
+
+
+def auto_entry(entry, project_name):
+    """True for an entry of `project_name` of a kind auto_report writes. devagent words a
+    foreign or malformed dep_unresolved the same as a local one, so the entry it names decides."""
+    if entry["project"] != project_name or entry["kind"] not in AUTO_KINDS:
+        return False
+    if entry["kind"] != "dep_unresolved":
+        return True
+    return deps.classify(entry["message"].split("'")[1], project_name).kind == "local"
 
 
 def append_nodes(doc, project_name, *nodes) -> dict:
@@ -230,11 +243,7 @@ def append_nodes(doc, project_name, *nodes) -> dict:
         n["id"], n["parent"] = ids[n["id"]], ids.get(n["parent"])
     proj["nodes"] += added
 
-    def regenerated(entry):
-        return (entry["project"] == project_name and entry["kind"] in AUTO_KINDS
-                and (entry["kind"] != "dep_unresolved" or entry["message"].endswith(LOCAL_UNRESOLVED)))
-
-    out["parse_report"] = [e for e in out["parse_report"] if not regenerated(e)] + auto_report(proj)
+    out["parse_report"] = [e for e in out["parse_report"] if not auto_entry(e, project_name)] + auto_report(proj)
     return out
 
 
@@ -259,14 +268,9 @@ DESCRIBED = {
 }
 
 
-def described_site(name, site="alpha"):
-    _, start, nodes = DESCRIBED[name]
-    return site_of(document(project(site, *nodes, start=start)))
-
-
-def sample_doc() -> dict:
-    """tests/fixtures/portfolio/samples.json, parsed: a fresh copy on every call."""
-    return json.loads(sp.SAMPLES_WRITTEN.read_bytes().decode("utf-8"))
+def described_site(which, name="alpha"):
+    _, start, nodes = DESCRIBED[which]
+    return site(*nodes, name=name, start=start)
 
 
 def sample_site(site):
