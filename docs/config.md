@@ -11,12 +11,15 @@ Every run names its config explicitly:
 ```
 gantry build --config <file>
 python -m gantry build --config <file>
+gantry build --config <file> --output-dir <dir>
 gantry portfolio --config <file>
 python -m gantry portfolio --config <file>
 gantry fires --config <file>
 python -m gantry fires --config <file>
 ```
 
+`--output-dir` writes one build into another folder, with a completion
+marker ([worksite-page.md](worksite-page.md#every-site-and-the-index)).
 `gantry portfolio` checks the portfolio file the config names, without
 building ([the portfolio file](portfolio-file.md#checking-the-file)), and
 `gantry fires` checks the fires list

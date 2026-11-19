@@ -858,12 +858,19 @@ def test_an_unknown_purpose_raises():
 
 
 def test_output_dir_argument_replaces_the_key_root(tmp_path):
+    # `gantry build --output-dir` replaces Config.output_dir once (#35); the
+    # roots follow the replaced config, and config_roots takes no output_dir=.
+    from dataclasses import replace
+
     from gantry.config import load_config
     from gantry.sites import config_roots
 
     copy = copy_samples(tmp_path)
     other = tmp_path / "other"
-    roots = config_roots(load_config(copy / "gantry.sample.toml"), output_dir=other)
+    config = replace(load_config(copy / "gantry.sample.toml"), output_dir=PurePath(os.path.abspath(other)))
+    with pytest.raises(TypeError):
+        config_roots(config, output_dir=other)
+    roots = config_roots(config)
     (writable,) = [r for r in roots.roots if r.writable]
     assert writable.key == "output_dir"
     assert os.path.normcase(str(writable.path)) == os.path.normcase(os.path.realpath(other))

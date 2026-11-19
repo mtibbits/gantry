@@ -10,7 +10,8 @@ import tomllib
 
 import pytest
 
-from gantry import stamp
+from gantry import build, cli, stamp
+from gantry.build import MARKER_FILE, marker_bytes
 from gantry.cli import main
 from gantry.config import load_config
 from gantry.requirements import in_trace_sites
@@ -23,6 +24,7 @@ from helpers_config import (
     copy_samples,
     demo_build,
     replace_bytes,
+    run_main,
     sample_projects,
     write_config,
     write_site_tree,
@@ -160,6 +162,140 @@ def test_write_site_tree_builds_sites(tmp_path, capsys):
         "fires: 0; sources not fully read: 2"]  # no fires_list; beta has no node line
     assert "14 open leaves" in (out / "index.html").read_bytes().decode("utf-8")
     assert NO_LEAVES in (out / "sites" / "beta.html").read_bytes().decode("utf-8")
+
+
+# --- build --output-dir and its completion marker (#35) -------------------------
+
+
+def gen_build(capsys, config, gen, *args):
+    """(exit code, stdout, stderr) of `build --config CONFIG --output-dir GEN ARGS...`."""
+    code = main(["build", "--config", str(config), "--output-dir", str(gen), *args])
+    out, err = capsys.readouterr()
+    return code, out, err
+
+
+def test_output_dir_writes_there_and_nothing_to_output_dir(tmp_path, capsys):
+    copy = copy_samples(tmp_path)
+    gen = tmp_path / "gen"
+    code, out, err = gen_build(capsys, copy / "gantry.sample.toml", gen)
+    assert code == 0, err
+    check_written(out.encode("utf-8"), gen)
+    assert not (copy / "out").exists()
+    assert (gen / MARKER_FILE).read_bytes() == marker_bytes(0)
+
+
+def test_marker_is_the_last_file_written(tmp_path, capsys, monkeypatch):
+    copy = copy_samples(tmp_path)
+    gen = tmp_path / "gen"
+    targets, real = [], os.replace
+
+    def spy(src, dst, *args, **kwargs):
+        targets.append(os.path.basename(dst))
+        return real(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(os, "replace", spy)
+    code, out, err = gen_build(capsys, copy / "gantry.sample.toml", gen)
+    assert code == 0, err
+    assert targets[-2:] == ["week-plan.json", MARKER_FILE] and targets.count(MARKER_FILE) == 1
+    assert (gen / MARKER_FILE).read_bytes() == marker_bytes(0)
+    assert MARKER_FILE not in out and out.splitlines()[-1].startswith("fires: ")
+
+
+def test_no_marker_without_output_dir(tmp_path, capsys):
+    copy = copy_samples(tmp_path)
+    assert main(["build", "--config", str(copy / "gantry.sample.toml")]) == 0
+    assert (copy / "out" / "index.html").is_file() and not (copy / "out" / MARKER_FILE).exists()
+
+
+def test_no_marker_for_an_invalid_config(tmp_path, capsys):
+    config = write_config(tmp_path / "cfg", foo="1")
+    gen = tmp_path / "gen"
+    code, _, err = gen_build(capsys, config, gen)
+    assert code == 1 and "'foo'" in err
+    assert not gen.exists()
+
+
+def test_site_build_writes_no_marker(tmp_path, capsys):
+    copy = copy_samples(tmp_path)
+    gen = tmp_path / "gen"
+    code, out, err = gen_build(capsys, copy / "gantry.sample.toml", gen, "--site", SMALL)
+    assert code == 0, err
+    assert out.splitlines()[0] == str(gen / "sites" / f"{SMALL}.html")
+    assert (gen / "sites" / f"{SMALL}.html").is_file()
+    assert not (gen / MARKER_FILE).exists() and not (copy / "out").exists()
+
+
+def test_marker_exit_1_when_no_site_page(tmp_path, capsys):
+    config = write_site_tree(tmp_path / "tree", {"alpha": None})
+    gen = tmp_path / "gen"
+    code, _, err = gen_build(capsys, config, gen)
+    assert code == 1 and "no site page was written" in err
+    assert (gen / "index.html").is_file()
+    assert (gen / MARKER_FILE).read_bytes() == marker_bytes(1)
+
+
+def test_no_marker_when_the_build_raises_after_the_index(tmp_path, capsys, monkeypatch):
+    copy = copy_samples(tmp_path)
+    gen = tmp_path / "gen"
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("planted")
+
+    monkeypatch.setattr(cli, "_write_plan", boom)
+    with pytest.raises(RuntimeError):
+        gen_build(capsys, copy / "gantry.sample.toml", gen)
+    assert (gen / "index.html").is_file() and not (gen / MARKER_FILE).exists()
+
+
+def test_no_marker_when_the_index_cannot_be_written(tmp_path, capsys, monkeypatch):
+    copy = copy_samples(tmp_path)
+    gen = tmp_path / "gen"
+
+    def boom(*args, **kwargs):
+        raise OSError("planted")
+
+    monkeypatch.setattr(build, "render_index", boom)
+    code, _, err = gen_build(capsys, copy / "gantry.sample.toml", gen)
+    assert code == 1 and "cannot write" in err
+    assert not (gen / "index.html").exists() and not (gen / MARKER_FILE).exists()
+
+
+def test_output_dir_decides_sample_mode(tmp_path, capsys, monkeypatch):
+    copy = copy_samples(tmp_path)
+    monkeypatch.setattr(stamp, "sample_dir", lambda: copy)
+    config = copy / "gantry.sample.toml"
+    assert main(["build", "--config", str(config)]) == 0
+    flagless = written_bytes(copy / "out")
+    code, _, err = gen_build(capsys, config, copy / "gen")
+    assert code == 0, err
+    inside = written_bytes(copy / "gen")
+    assert "sample data as of" in inside["index.html"].decode("utf-8")
+    assert inside == {**flagless, MARKER_FILE: marker_bytes(0)}
+    code, _, err = gen_build(capsys, config, tmp_path / "elsewhere")
+    assert code == 0, err
+    assert "built " in (tmp_path / "elsewhere" / "index.html").read_bytes().decode("utf-8")
+
+
+@pytest.mark.parametrize("value", ["", "  "])
+def test_empty_output_dir_is_a_usage_error(tmp_path, capsys, monkeypatch, value):
+    config = write_config(tmp_path / "cfg")
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.chdir(work)
+    code, out, err = gen_build(capsys, config, value)
+    assert code == 2 and out == ""
+    assert err == "gantry: error: --output-dir is empty\n"
+    assert os.listdir(work) == [] and not (tmp_path / "cfg" / "out").exists()
+
+
+def test_output_dir_refusal_names_the_flag(tmp_path, capsys):
+    # The containment rule refuses a writable root that equals or contains an
+    # input root: here the flag's value is a site's planning directory.
+    copy = copy_samples(tmp_path)
+    code, _, err = gen_build(capsys, copy / "gantry.sample.toml", copy / BUSY)
+    assert code == 1
+    assert "--output-dir equals devdoc_dir of site harbor" in err and "key 'output_dir'" not in err
+    assert not (copy / BUSY / MARKER_FILE).exists()
 
 
 # --- build --site ---------------------------------------------------------------

@@ -1284,3 +1284,46 @@ def test_no_home_defers_to_38():
     stale = ("is " + "#38 and does not exist", "the week view (" + "#38) will", "provisional until " + "#38",
              "the first view reads it (" + "#38)", "view reads them (" + "#38)", "#24 or " + "#33, the first to read it")
     assert_no_stale(stale, [*swept_files(), ROOT / "tests" / "test_plan_file.py"])
+
+
+# --- the completion marker (#35) ------------------------------------------------------
+
+
+@pytest.mark.parametrize("data", [
+    b"",
+    b"null",
+    b"[]",
+    b"{}",
+    b'{"build_version": 2, "exit": 0}',
+    b'{"build_version": true, "exit": 0}',
+    b'{"build_version": "1", "exit": 0}',
+    b'{"build_version": 1, "exit": true}',
+    b'{"build_version": 1, "exit": 0.0}',
+    b'{"build_version": 1, "exit": null}',
+    b'{"build_version": 1, "exit": 0, "extra": 1}',
+    b'{"build_version": 1}',
+    b'{"exit": 0}',
+    b'{"build_version": 1, "exit": 0, "exit": 1}',
+    b'{"build_version": 1, "exit": NaN}',
+    b'{"build_version": 1, "exit": 0',
+    b"\xff",
+    b"\xef\xbb\xbf" + build.marker_bytes(0),
+    b"[" * 100_000,
+], ids=lambda data: repr(data[:48]))
+def test_marker_exit_refuses(data):
+    assert build.marker_exit(data) is None
+
+
+def test_marker_exit_table():
+    assert build.marker_bytes(0) == b'{"build_version": 1, "exit": 0}\n'
+    assert build.marker_exit(build.marker_bytes(0)) == 0
+    assert build.marker_exit(build.marker_bytes(1)) == 1
+    assert build.MARKER_FILE == "build.json"
+
+
+@pytest.mark.parametrize("data", [b"\xff", b'{"a": 1, "a": 2}', b"NaN", b"[Infinity]", b"1e400",
+                                  b"9" * 5000, b"[" * 100_000, b"{"], ids=lambda data: repr(data[:48]))
+def test_strict_json_loads_raises_only_value_error(data):
+    with pytest.raises(ValueError):
+        build.strict_json_loads(data)
+

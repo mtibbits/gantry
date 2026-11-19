@@ -153,14 +153,14 @@ def _inner(root):
     return f"key '{root.key}'"
 
 
-def config_roots(config, *, output_dir=None, purpose="build"):
+def config_roots(config, *, purpose="build"):
     """Every root of a run: the two config files, every set path key's value
     (its kind from the registry), `[refresh] dir`, every planning directory,
     and the package directory. Writable: the keys WRITABLE names for
     `purpose` ("check", for a command that writes nothing, has none). A
     writable root that equals or contains an input root is a ConfigError.
-    `output_dir=` is provisional for #35's build flag; the "serve" purpose is
-    provisional for #64."""
+    `gantry build --output-dir` replaces `config.output_dir` before this is
+    called (#35). The "serve" purpose is provisional for #64."""
     if purpose not in WRITABLE:
         raise ValueError(f"unknown purpose {purpose!r}")
     roots = _config_files(config)
@@ -177,8 +177,6 @@ def config_roots(config, *, output_dir=None, purpose="build"):
         if key.root is None or key.name == "devagent_config":
             continue
         value = getattr(config, key.name)
-        if key.name == "output_dir" and output_dir is not None:
-            value = PurePath(os.path.abspath(output_dir))
         if value is not None:
             roots = add(roots, value, key.name, key)
     for name, override in config.sites.items():

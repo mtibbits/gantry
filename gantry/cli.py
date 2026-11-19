@@ -1,5 +1,6 @@
-"""The gantry command line: `gantry build --config FILE [--site NAME]`,
-`gantry portfolio --config FILE` and `gantry fires --config FILE`.
+"""The gantry command line: `gantry build --config FILE [--site NAME]
+[--output-dir DIR]`, `gantry portfolio --config FILE` and `gantry fires
+--config FILE`.
 
 `gantry build` builds every configured site's page, the week view
 (<output_dir>/week.html, #38), the strategic page
@@ -14,7 +15,14 @@ sources not fully read (#32, docs/daily-screen.md). `gantry portfolio` checks th
 portfolio file the config names, without building (#22); `gantry fires`
 checks the fires list, without building (#30). There is no default
 config location: `--config` is required, and nothing here reads the
-environment or the home folder to find one. Exit codes:
+environment or the home folder to find one.
+
+`--output-dir DIR` (#35) replaces the config's `output_dir` for the run, a
+relative DIR resolving against the working directory; a refusal of its value
+names the flag. With it, a full build that wrote the index writes `build.json`
+(gantry/build.py's completion marker, holding the exit code) as its last file,
+without printing its path; `--site` writes no marker. An empty DIR is a usage
+error. Exit codes:
 
 - 0: the full build wrote the week view, the strategic page, the index and
   at least one site page; `--site` wrote its page; `portfolio` found no
@@ -28,15 +36,19 @@ environment or the home folder to find one. Exit codes:
   included), or the config sets no portfolio_file; `fires` read the fires
   list with a report entry, could not read it, or the config sets no
   fires_list (`fires` exits 0 only for status `read`);
-- 2: a usage error (argparse's own).
+- 2: a usage error (argparse's own, or an empty `--output-dir`).
 """
 
 import argparse
+import os
 import sys
+from dataclasses import replace
 from datetime import datetime
+from pathlib import PurePath
 
 from gantry.build import (
     FIRES_STEP,
+    MARKER_FILE,
     build_all,
     clashes,
     read_site,
@@ -44,6 +56,7 @@ from gantry.build import (
     render_site,
     site_list,
     write_all,
+    write_marker,
     write_page,
     why_not_written,
 )
@@ -82,6 +95,12 @@ def _parser():
         "--site",
         metavar="NAME",
         help="build only that site's worksite page, and no week view, no strategic page, no index and no plan",
+    )
+    build.add_argument(
+        "--output-dir",
+        metavar="DIR",
+        help="write into DIR instead of the config's output_dir (relative to the working directory); a full "
+        "build then writes build.json, holding its exit code, as its last file",
     )
     portfolio = commands.add_parser(
         "portfolio",
@@ -175,11 +194,22 @@ def _write_plan(result, text):
     return path, None
 
 
-def _build_all(config):
+def _config_error(e, flag):
+    """Print a ConfigError. With --output-dir, a refusal of the flag's value
+    names the flag, not the key it replaced (#35)."""
+    text = str(e)
+    if flag:
+        text = text.replace("key 'output_dir'", "--output-dir")
+    print(f"gantry: error: {text}", file=sys.stderr)
+
+
+def _build_all(config, *, marker=False):
+    """The full build. With `marker` (--output-dir), a build that wrote the
+    index writes build.json last, holding the exit code (#35)."""
     try:
         result = build_all(config)
     except ConfigError as e:
-        print(f"gantry: error: {e}", file=sys.stderr)
+        _config_error(e, marker)
         return 1
     _warn(result.warnings)
     # The plan's text is made here, before any view is rendered from the result.
@@ -214,25 +244,41 @@ def _build_all(config):
         # "cannot render" or "cannot write", as the week view's line; the index has no headline, shares or link (#23).
         print(f"gantry: error: {result.strategic_error}", file=sys.stderr)
     if index_error is not None:
-        # The index, or the output folder itself, cannot be written.
+        # The index, or the output folder itself, cannot be written: no marker.
         print(f"gantry: error: cannot write {index}: {index_error}", file=sys.stderr)
         return 1
     if not result.pages:
         print("gantry: error: no site page was written", file=sys.stderr)
-        return 1
-    return 0 if plan_error is None and result.week_error is None and result.strategic_error is None else 1
+        code = 1
+    else:
+        code = 0 if plan_error is None and result.week_error is None and result.strategic_error is None else 1
+    if marker:
+        # The last write: after the plan file, never printed (the fires line stays last on stdout).
+        try:
+            write_marker(result.roots, config.output_dir, code)
+        except (OSError, OutsideRoots) as e:
+            print(f"gantry: error: cannot write {MARKER_FILE}: {why_not_written(e, result.roots)}", file=sys.stderr)
+            return 1
+    return code
 
 
 def _build(args):
     _utf8_streams()
+    flag = args.output_dir is not None
+    if flag and not args.output_dir.strip():
+        print("gantry: error: --output-dir is empty", file=sys.stderr)
+        return 2
     try:
         config = load_config(args.config)
+        if flag:
+            # Replaced once: roots, sample mode, the stamp, writes and messages all read config.output_dir.
+            config = replace(config, output_dir=PurePath(os.path.abspath(args.output_dir)))
         if args.site is None:
-            return _build_all(config)
+            return _build_all(config, marker=flag)
         roots = config_roots(config)
         sites, warnings = site_list(config, roots)
     except ConfigError as e:
-        print(f"gantry: error: {e}", file=sys.stderr)
+        _config_error(e, flag)
         return 1
     _warn(warnings)
     return _build_site(config, roots, sites, args.site)
