@@ -15,7 +15,9 @@ from gantry import render
 from gantry.build import build_all
 from gantry.config import load_config
 from gantry.planner import ALLOCATION_RULE, NO_PLAN, PLAN_VERSION, UNPLANNED_REASONS, WeekPlan
-from gantry.render import SLACK_CLASSES, STATE_CLASSES, STATE_FALLBACK, WEEK_CLASSES
+from gantry.links import leaf_href
+from gantry.render import (MODEL_CLASSES, MODEL_FALLBACK, SLACK_CLASSES, STATE_CLASSES, STATE_FALLBACK,
+                           WEEK_CLASSES)
 from gantry.views import week
 from gantry.views.week import render_week
 from helpers_config import sample_build
@@ -35,8 +37,10 @@ NEW_ATTRS = ("data-beyond", "data-block", "data-day", "data-figure", "data-lanes
 STRUCTURAL = frozenset({"wrap", "label", "stamp", "not-working", "rule", "mapping", "capacity", "shareless", "day", "later",
                         "today", "hours", "reserved", "none", "block", "lanes", "left", "leaf", "title", "unest",
                         "state", "tier", "need", "basis", "cont", "site-unplanned", "beyond-list", "reason", "held",
-                        "p0-leaf", "gone", "site"})
-ALLOWED_CLASSES = WEEK_CLASSES | STRUCTURAL | set(STATE_CLASSES.values()) | {STATE_FALLBACK}
+                        "p0-leaf", "gone", "site", "top", "key", "meta", "prio", "ttl", "tl", "facts", "bands",
+                        "band", "lane-site", "sw", "xsite"})
+ALLOWED_CLASSES = (WEEK_CLASSES | STRUCTURAL | set(STATE_CLASSES.values()) | {STATE_FALLBACK} | set(SLACK_CLASSES)
+                   | set(MODEL_CLASSES.values()) | {MODEL_FALLBACK})
 
 
 # --- constructed plans --------------------------------------------------------------------
@@ -99,17 +103,20 @@ def site_record(name, unplanned=(), p0=(), share=50.0, shareless=(), **kw):
     return record
 
 
-def make_result(leaves=(), pages=("alpha",), not_built=()):
-    """A BuildResult stand-in: `leaves` are (site, key, title, est) tuples."""
+def make_result(leaves=(), pages=("alpha",), not_built=(), page_models=None):
+    """A BuildResult stand-in: `leaves` are (site, key, title, est) tuples, or
+    (site, key, title, est, {field: value}) to set priority, models or
+    waits_on_other_site."""
     inputs = {}
-    for site, key, title, est in leaves:
+    for site, key, title, est, *more in leaves:
         meta = {} if est is None else {"est": est}
+        fields = {"priority": None, "models": None, "waits_on_other_site": False, **(more[0] if more else {})}
         data = inputs.setdefault(site, SimpleNamespace(data=SimpleNamespace(leaves=[]))).data
-        data.leaves.append(SimpleNamespace(key=key, title=title, meta=meta))
+        data.leaves.append(SimpleNamespace(key=key, title=title, meta=meta, **fields))
     summaries = [SimpleNamespace(name=name, status="built", reason=None) for name in pages]
     summaries += [SimpleNamespace(name=name, status="not_built", reason=reason) for name, reason in not_built]
     return SimpleNamespace(inputs=inputs, pages={name: "" for name in pages}, summaries=tuple(summaries),
-                           stamp=STAMP)
+                           stamp=STAMP, page_models={} if page_models is None else page_models)
 
 
 def fixture_build(tmp_path, base, **changes):
@@ -140,11 +147,6 @@ def with_attr(t, name, value=None, within=None):
 
 def children(t, i):
     return [j for j, el in enumerate(t.elements) if el["parent"] == i]
-
-
-def parts(t, i):
-    """The texts of an element's child elements, in order: a leaf line's parts."""
-    return [text_of(t, j) for j in children(t, i)]
 
 
 def texts(t, tag=None, classes=(), within=None):
@@ -195,9 +197,10 @@ def test_constructed_days_blocks_and_hours():
     assert [(attr(t, i, "data-block"), attr(t, i, "data-site")) for i in blocks] == [("1", "alpha"), ("2", "beta")]
     assert texts(t, "h3", within=blocks[0]) == ["alpha · 2.25 h · start cost 0.25 h"]
     assert texts(t, "p", ["left"], monday) == ["left: operator attention hours 0.5 h; agent lanes 0.12 h"]
-    assert parts(t, leaf_lines(t, within=blocks[0])[0])[:2] == ["One", "2 h"]
+    first = leaf_lines(t, within=blocks[0])[0]
+    assert (texts(t, "span", ["tl"], first), texts(t, "span", ["hours"], first)) == (["One"], ["2 h"])
     # A missing title shows the key.
-    assert parts(t, leaf_lines(t, within=blocks[1])[0])[0] == "Issue-1"
+    assert texts(t, "span", ["tl"], leaf_lines(t, within=blocks[1])[0]) == ["Issue-1"]
 
 
 def test_constructed_merged_block_one_start_cost():
@@ -218,7 +221,8 @@ def test_constructed_lanes_row_under_blocks():
     row = one(t, "data-lanes", "1")
     assert row > with_attr(t, "data-block")[-1]
     assert texts(t, "h3", within=row) == ["runs in a lane; no block needed"]
-    assert parts(t, leaf_lines(t, within=row)[0])[:3] == ["alpha", "Issue-2", "4 h"]
+    first = leaf_lines(t, within=row)[0]
+    assert [texts(t, "span", [cls], first) for cls in ("site", "key", "hours")] == [["alpha"], ["Issue-2"], ["4 h"]]
     # A block's leaves take their site from the block header.
     assert texts(t, "span", ["site"], with_attr(t, "data-block")[-1]) == []
 
@@ -228,7 +232,7 @@ def test_mixed_site_lanes_row_names_each_site(tmp_path):
     rows = with_attr(t, "data-lanes")
     lines = [i for row in rows for i in leaf_lines(t, within=row)]
     assert any({attr(t, i, "data-site") for i in leaf_lines(t, within=row)} == {"a", "b"} for row in rows)
-    assert all(parts(t, i)[0] == attr(t, i, "data-site") for i in lines)
+    assert all(texts(t, "span", ["site"], i) == [attr(t, i, "data-site")] for i in lines)
 
 
 def test_constructed_split_leaf_continues():
@@ -325,7 +329,7 @@ def test_constructed_failed_write_site_shows_unlinked_and_not_built():
                          not_built=[("alpha", "cannot write sites/alpha.html: Permission denied")])
     t = tree(render_week(plan, result, STAMP))
     (line,) = leaf_lines(t, "Issue-1")
-    assert find(t, "a", within=line) == [] and parts(t, line)[0] == "One"
+    assert find(t, "a", within=line) == [] and texts(t, "span", ["tl"], line) == ["One"]
     assert texts(t, "li", within=one(t, "id", "not-built")) == [
         "alpha: not built: cannot write sites/alpha.html: Permission denied"]
 
@@ -376,6 +380,19 @@ def worksite_box(page, key):
             "cues": set(t.elements[nodes[0]]["classes"]) & CUES}
 
 
+def leaf_boxes(tmp_path):
+    """(result, tree of the week page, {(site, key): its first box}) for the leaf_boxes fixture."""
+    result, html = fixture_build(tmp_path, "leaf_boxes")
+    t = tree(html)
+    return result, t, {node: leaf_lines(t, node[1], within=one(t, "id", "days"))
+                       for node in placed_nodes(result.plan)}
+
+
+def first_box(t, lines, site):
+    (i,) = [i for i in lines if attr(t, i, "data-site") == site][:1]
+    return i
+
+
 def test_leaf_boxes_fixture_premises(tmp_path):
     """leaf_boxes plants one leaf of each box kind, all placed in the 10 days."""
     result, _ = fixture_build(tmp_path, "leaf_boxes")
@@ -404,6 +421,113 @@ def test_leaf_boxes_fixture_premises(tmp_path):
     assert (records[("a", "Issue-2")]["state"], records[("a", "Issue-3")]["state"]) == ("in_progress", "stuck")
     rows = [[e["site"] for e in d["lanes_row"]] for d in plan.days if d["lanes_row"]]
     assert any(set(row) == {"a", "b"} and row[0] == "b" for row in rows)
+
+
+def test_box_matches_worksite_for_boxed_leaves(tmp_path):
+    result, t, boxes = leaf_boxes(tmp_path)
+    compared = 0
+    for (site, key), lines in boxes.items():
+        node = worksite_box(result.pages[site], key) if site in result.pages else None
+        if node is None or not node["title"]:  # an empty title shows the key on the week (OQ1 (a))
+            continue
+        for i in [i for i in lines if attr(t, i, "data-site") == site]:
+            assert week_box(t, i) == node, (site, key)
+        compared += 1
+    assert compared >= 6
+
+
+def test_box_literal_rules_for_unboxed_leaves(tmp_path):
+    result, t, boxes = leaf_boxes(tmp_path)
+    long_key = "Issue-12345678901234"
+    got = week_box(t, first_box(t, boxes[("a", long_key)], "a"))
+    assert got["key"] == ["Issue-123456789…"] and got["prio"] == "urgen…"
+    assert got["title"] == ["The quick brown fox jumps", "over the lazy…"] and got["band"] == []
+    got = week_box(t, first_box(t, boxes[("a", "Issue-11")], "a"))
+    assert got["band"] == [("think sonnet-4…", ["m-other"]), ("check inherit", ["m-other"])]
+    # Every other unboxed placement, against the rule as the docs state it: no
+    # cut reaches these short values, so each text is the value itself.
+    leaves = {(site, leaf.key): leaf for site, i in result.inputs.items() for leaf in i.data.leaves}
+    subjects = 0
+    for (site, key), lines in boxes.items():
+        if key in (long_key, "Issue-11") or worksite_box(result.pages[site], key) is not None:
+            continue
+        leaf = leaves[(site, key)]
+        assert len(key) <= 16 and len(leaf.title) <= 25
+        tiers = [leaf.models.thinking or None, leaf.models.checking or None] if leaf.models else None
+        band = [(f"{label} {tier or 'none'}", [MODEL_CLASSES.get(tier, MODEL_FALLBACK)])
+                for label, tier in zip(("think", "check"), tiers)] if tiers and any(tiers) else []
+        assert week_box(t, first_box(t, lines, site)) == {
+            "key": [key], "prio": leaf.priority, "title": [leaf.title or key], "band": band,
+            "cues": week_box(t, first_box(t, lines, site))["cues"]}, (site, key)
+        subjects += 1
+    assert subjects >= 1
+
+
+def test_fixture_box_classes(tmp_path):
+    _, t, boxes = leaf_boxes(tmp_path)
+    classes = [set(t.elements[i]["classes"]) for lines in boxes.values() for i in lines]
+    assert set().union(*classes) & set(SLACK_CLASSES) == {"crit", "near", "free"}
+    assert any(not c & set(SLACK_CLASSES) for c in classes)
+    for cls in ("st-wip", "st-stuck", "unest", "xsite"):
+        assert any(cls in c for c in classes), cls
+
+
+def test_box_keeps_facts_and_data_attrs():
+    plan = make_plan(days=[day(HORIZON[0], [block(1, "alpha", [("Issue-1", 1.0)])]),
+                           day(HORIZON[1], [block(1, "alpha", [("Issue-1", 1.0)])], weekday="tue")],
+                     leaves=[leaf_record("alpha", "Issue-1", unestimated=True, state="stuck", tier="p0",
+                                         days=HORIZON[:2])],
+                     sites=[site_record("alpha")])
+    t = tree(render_week(plan, make_result([("alpha", "Issue-1", "One", "3pr")]), STAMP))
+    line = leaf_lines(t, "Issue-1")[0]
+    (facts,) = find(t, "p", ["facts"], line)
+    assert [(t.elements[j]["classes"], text_of(t, j)) for j in children(t, facts)] == [
+        (["unest"], "unestimated (3 pr)"), (["state"], "stuck"), (["tier"], "P0"), (["need"], "need 1, scored"),
+        (["basis"], "scored: h: 1"), (["cont"], "continues Tuesday 2026-01-20")]
+    assert [attr(t, line, a) for a in ("data-leaf", "data-site", "data-tag", "data-state", "data-tier")] == [
+        "Issue-1", "alpha", "scored", "stuck", "p0"]
+
+
+def test_hand_built_result_draws_boxes_without_slack():
+    plan = make_plan(days=[day(HORIZON[0], [block(1, "alpha", [("Issue-1", 2.0), ("Issue-2", 1.0)])])],
+                     leaves=[leaf_record("alpha", "Issue-1"), leaf_record("alpha", "Issue-2")],
+                     sites=[site_record("alpha")])
+    t = tree(render_week(plan, make_result([("alpha", "Issue-1", "One", None)], page_models={}), STAMP))
+    lines = leaf_lines(t)
+    assert len(lines) == 2
+    for i in lines:
+        assert len(find(t, "span", ["key"], i)) == len(find(t, "p", ["ttl"], i)) == len(find(t, "span", ["hours"], i)) == 1
+        assert not set(t.elements[i]["classes"]) & set(SLACK_CLASSES)
+
+
+def test_empty_title_boxed_leaf_shows_key(tmp_path):
+    result, t, boxes = leaf_boxes(tmp_path)
+    (i,) = boxes[("a", "Issue-14")]
+    (a,) = find(t, "a", within=i)
+    assert attr(t, a, "href") == leaf_href("a", "Issue-14", from_top=True)
+    assert texts(t, "span", ["tl"], a) == ["Issue-14"]
+    node = worksite_box(result.pages["a"], "Issue-14")
+    assert node["title"] == []
+    assert {**week_box(t, i), "title": []} == node
+
+
+def test_placed_leaves_have_page_model_records(tmp_path):
+    """Every placed leaf on a site with a page model has a record in it.
+
+    Placed items come from _site_work's open leaves (planner.py), the same
+    inputs.scheduled the page model reads; a held-out leaf is never placed,
+    since it gets an unplanned reason instead.
+    """
+    results = [sample_build(tmp_path / "demo")]
+    results += [fixture_build(tmp_path / base, base)[0] for base in FIXTURE_NAMES]
+    checked = 0
+    for result in results:
+        records = {(site, leaf["key"]) for site, m in result.page_models.items() for leaf in m["leaves"]}
+        for site, key in placed_nodes(result.plan) if result.plan.status == "planned" else []:
+            if site in result.page_models:
+                assert (site, key) in records, (site, key)
+                checked += 1
+    assert checked > 0
 
 
 # --- AC 2: the as-of date is not a working day ---------------------------------------------
@@ -745,7 +869,18 @@ def test_data_block_covers_named_leaves(tmp_path):
     assert data["plan"] == json.loads(json.dumps(asdict(result.plan)))
     named = {(entry["site"], entry["key"]) for entry in result.plan.leaves}
     named |= {(s["name"], e["key"]) for s in result.plan.sites for e in [*s["unplanned"], *s["p0"]]}
-    assert {(site, key) for site, key, _, _ in data["leaves"]} == named
+    assert {(site, key) for site, key, *_ in data["leaves"]} == named
+    # Each named leaf's priority and model tiers, from the inputs leaf the box reads (#170).
+    leaves = {(site, leaf.key): leaf for site, i in result.inputs.items() for leaf in i.data.leaves}
+    entries = {(site, key): rest for site, key, *rest in data["leaves"]}
+    assert all(len(rest) == 5 for rest in entries.values())
+    for site, key in placed_nodes(result.plan):
+        leaf = leaves[(site, key)]
+        tiers = [None, None]
+        if leaf.models is not None and (leaf.models.thinking or leaf.models.checking):
+            tiers = [leaf.models.thinking or None, leaf.models.checking or None]
+        assert entries[(site, key)][2:] == [leaf.priority, *tiers], (site, key)
+    assert any(rest[3] is not None for rest in entries.values())
     assert data["not_built"] == [["bakery", "no WBS.md in the planning directory"],
                                  ["marsh", "WBS.md is not valid UTF-8 at byte 88"]]
 

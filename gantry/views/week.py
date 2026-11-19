@@ -1,10 +1,13 @@
 """The week view: the build's week plan as one page, read only (#38).
 
 render_week reads the plan's file form (planner.WeekPlan) and the BuildResult
-every view reads: leaf titles and raw est: values from result.inputs, which
-sites have pages, and the not-built reasons. It computes no planning value
-and never changes the plan. All 10 days are rendered here; the page script
-only shows or hides days and lists. docs/week-plan.md describes the page.
+every view reads: each leaf's title, raw est: value, own priority, model
+tiers and waits_on_other_site from result.inputs, each site page model's
+slack class from result.page_models, which sites have pages, and the
+not-built reasons. A placement is drawn as the worksite network's leaf box,
+by the one rule in gantry/views/leafbox.py (#170). It computes no planning
+value and never changes the plan. All 10 days are rendered here; the page
+script only shows or hides days and lists. docs/week-plan.md describes the page.
 """
 
 from dataclasses import asdict
@@ -111,20 +114,34 @@ class _Page:
             for leaf in inputs.data.leaves:
                 self.leaves[(site, leaf.key)] = leaf
         self.records = {(entry["site"], entry["key"]): entry for entry in plan.leaves}
-        self.named = {}  # (site, key) -> [site, key, title, est], in the order the page names them
+        # {(site, key): its slack class or None}, from each rendered site's page model (#170).
+        self.sclass = {(site, leaf["key"]): leaf["sclass"]
+                       for site, m in result.page_models.items() for leaf in m["leaves"]}
+        # (site, key) -> [site, key, title, est, priority, thinking, checking], in the order the page names them
+        self.named = {}
 
     def title(self, site, key):
         leaf = self.leaves.get((site, key))
-        self.named.setdefault((site, key), [site, key, leaf.title if leaf else None,
-                                            leaf.meta.get("est") if leaf else None])
+        if (site, key) not in self.named:
+            tiers = (leafbox.model_tiers(leaf.models) if leaf else None) or [None, None]
+            self.named[(site, key)] = [site, key, leaf.title if leaf else None, leaf.meta.get("est") if leaf else None,
+                                       leaf.priority if leaf else None, *tiers]
         return leaf.title if leaf is not None and leaf.title else key
 
-    def link(self, site, key):
-        """The leaf's title, linked to its worksite anchor when the site's page was written."""
-        title = esc(self.title(site, key))
+    def link(self, site, key, inner=None):
+        """The leaf's title (or `inner`, markup), linked to its worksite anchor when the site's page was written."""
+        title = esc(self.title(site, key)) if inner is None else inner
         if site not in self.result.pages:
             return f'<span class="title">{title}</span>'
         return f'<a href="{esc(leaf_href(site, key, from_top=True))}">{title}</a>'
+
+    def box(self, site, key, record):
+        """(leafbox.Box, its cue classes) for a placement, by the worksite's rule."""
+        leaf = self.leaves.get((site, key))
+        b = leafbox.box(key, leaf.priority if leaf else None, self.title(site, key),
+                        leafbox.model_tiers(leaf.models) if leaf else None)
+        return b, leafbox.box_classes(self.sclass.get((site, key)), render.state_class(record["state"]),
+                                      record["unestimated"], bool(leaf and leaf.waits_on_other_site))
 
 
 def _p(cls, text):
@@ -144,14 +161,21 @@ def _placements(plan):
     return found
 
 
-def _leaf_line(page, entry, cont, show_site=False):
+def _box(page, entry, cont, show_site=False):
+    """A placement as the worksite's leaf box: the top line, the title lines,
+    the facts, then the model band."""
     site, key = entry["site"], entry["key"]
     record = page.records[(site, key)]
     leaf = page.leaves.get((site, key))
     state, tier, tag = record["state"], record["tier"], record["tag"]
+    b, cues = page.box(site, key, record)
     # A lanes row mixes sites and has no site header, so its leaves name their own.
-    parts = [_span("site", site)] if show_site else []
-    parts += [page.link(site, key), _span("hours", hours_text(entry["agent_hours"]))]
+    site_part = _span("site", site) if show_site else ""
+    prio = f'{_span("prio", b.priority)}{esc(DOT)}' if b.priority is not None else ""
+    top = (f'<p class="top">{site_part}{_span("key", b.key)}'
+           f'<span class="meta">{prio}{_span("hours", hours_text(entry["agent_hours"]))}</span></p>')
+    ttl = f'<p class="ttl">{page.link(site, key, "".join(_span("tl", line) for line in b.title_lines))}</p>'
+    parts = []
     if record["unestimated"]:
         parts.append(_span("unest", unestimated_text(leaf.meta.get("est") if leaf is not None else None)))
     if state != "pending":
@@ -167,9 +191,13 @@ def _leaf_line(page, entry, cont, show_site=False):
     parts.append(_span("basis", record["basis"]))
     if cont:
         parts.append(_span("cont", cont))
-    classes = " ".join(["leaf", render.state_class(state), render.tier_class(tier), render.tag_class(tag)])
+    bands = ""
+    if b.band:
+        bands = f'<p class="bands">{"".join(_span(f"band {cls}", text) for text, cls in b.band)}</p>'
+    classes = " ".join(["leaf", *cues, render.tier_class(tier), render.tag_class(tag)])
     return (f'<li class="{classes}" data-leaf="{esc(key)}" data-site="{esc(site)}" data-tag="{esc(tag)}" '
-            f'data-state="{esc(state)}" data-tier="{esc(tier)}">{"".join(parts)}</li>')
+            f'data-state="{esc(state)}" data-tier="{esc(tier)}">{top}{ttl}<p class="facts">{"".join(parts)}</p>'
+            f'{bands}</li>')
 
 
 def _conts(plan, records, placements):
@@ -201,7 +229,7 @@ def _day(page, day, conts):
         head.append(_p("reserved", text))
 
     def line(entry, show_site=False):
-        return _leaf_line(page, entry, next(conts[(entry["site"], entry["key"])]), show_site)
+        return _box(page, entry, next(conts[(entry["site"], entry["key"])]), show_site)
 
     body = []
     for blk in day["blocks"]:

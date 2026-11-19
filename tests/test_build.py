@@ -3,6 +3,7 @@ writing the pages and the index (#11)."""
 
 import os
 import re
+from pathlib import Path
 from datetime import date
 
 import pytest
@@ -1147,7 +1148,9 @@ def test_week_hostile_key_href_lands(tmp_path):
     t = tree((out / "week.html").read_bytes().decode("utf-8"))
     (line,) = [i for i, el in enumerate(t.elements) if el["tag"] == "li" and el["attrs"].get("data-leaf") == key
                and "leaf" in el["classes"]]
-    (href,) = [el["attrs"]["href"] for el in t.elements if el["tag"] == "a" and el["parent"] == line]
+    # The link sits in the box's title paragraph (#170).
+    (href,) = [el["attrs"]["href"] for el in t.elements if el["tag"] == "a"
+               and "ttl" in t.elements[el["parent"]]["classes"] and t.elements[el["parent"]]["parent"] == line]
     assert href == leaf_href("alpha", key, from_top=True)
     assert lands(out, "week.html", href)
     assert page_ids((out / "sites" / "alpha.html").read_bytes().decode("utf-8")).count(leaf_anchor(key)) == 1
@@ -1297,7 +1300,6 @@ def test_page_models_cover_rendered_sites(tmp_path):
     assert list(result.page_models) == planner._built_sites(result)
 
 
-@pytest.mark.xfail(strict=True, reason="#170 Task 6")
 def test_page_models_survive_write_failure(tmp_path, monkeypatch):
     """A site page that fails to write keeps its slack on the week view."""
     result = sample_build(tmp_path)
@@ -1318,7 +1320,7 @@ def test_page_models_survive_write_failure(tmp_path, monkeypatch):
     assert site not in written.pages and site in written.page_models
     from test_worksite_page import tree
 
-    t = tree((result.config.output_dir / "week.html").read_bytes().decode("utf-8"))
+    t = tree(Path(result.config.output_dir, "week.html").read_bytes().decode("utf-8"))
     boxes = [el for el in t.elements if el["tag"] == "li" and "leaf" in el["classes"]
              and el["attrs"].get("data-site") == site]
     expect = {key: cls for (s, key), cls in slack.items() if s == site}

@@ -84,10 +84,12 @@ class Page:
     def __init__(self, source):
         self.source = source
         self.ids, self.links, self.texts, self.stamps, self.items = set(), [], [], [], []
+        self.joined = []  # each week box's title lines (#170), joined by a space
         self.built_at = False
         raw = None  # the open script or style, whose text is not visible
         stamp = None  # [tag, nesting, direct text] of the open stamp element
         items = []  # [text, has a link] per open li
+        ttl = None  # [nesting, [text]] of the open week box title paragraph
         for e in _scan(source):
             if e.is_start:
                 attrs = dict(e.attrs)
@@ -110,9 +112,19 @@ class Page:
                         self.stamps.append("")
                 if e.kind == "start" and e.tag == "li":
                     items.append(["", False])
+                if ttl is not None:
+                    ttl[0] += e.kind == "start" and e.tag not in VOID
+                elif e.kind == "start" and e.tag == "p" and "ttl" in (attrs.get("class") or "").split():
+                    ttl = [0, []]
             elif e.kind == "end":
                 if e.tag == raw:
                     raw = None
+                if ttl is not None:
+                    if ttl[0] == 0 and e.tag == "p":
+                        self.joined.append(" ".join(ttl[1]))
+                        ttl = None
+                    else:
+                        ttl[0] -= 1
                 if stamp is not None:
                     if stamp[1] == 0 and e.tag == stamp[0]:
                         self.stamps.append(" ".join(stamp[2].split()))
@@ -123,6 +135,8 @@ class Page:
                     self.items.append(tuple(items.pop()))
             elif e.kind == "text" and raw is None:
                 self.texts.append(e.data)
+                if ttl is not None:
+                    ttl[1].append(e.data)
                 if stamp is not None and stamp[1] == 0:
                     stamp[2] += e.data
                 for item in items:
@@ -132,8 +146,9 @@ class Page:
         self.items += [tuple(item) for item in items]
 
     def shows_title(self) -> bool:
-        """A text node holds the hostile title, or a prefix of it (10+ characters) cut with an ellipsis."""
-        for text in self.texts:
+        """A text node, or a week box's title lines joined, holds the hostile title, or a
+        prefix of it (10+ characters) cut with an ellipsis."""
+        for text in self.texts + self.joined:
             if HOSTILE_TITLE in text:
                 return True
             if ELLIPSIS in text and any(HOSTILE_TITLE[:k] + ELLIPSIS in text

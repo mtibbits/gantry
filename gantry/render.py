@@ -113,6 +113,8 @@ CLASS_TOKENS = frozenset(
 
 # The week view's tables (#38), outside CLASS_TOKENS: the worksite script
 # reads no class from them, and the week script reads no class from data.
+# The week view's leaf box also carries the slack, state, model and unest
+# classes above (#170), by the worksite's rule in gantry/views/leafbox.py.
 TAG_CLASSES = {"scored": "tag-scored", "measured": "tag-measured", "declared": "tag-declared",
                "estimated": "tag-estimated"}
 TAG_FALLBACK = "tag-other"
