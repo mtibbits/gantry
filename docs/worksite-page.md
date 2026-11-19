@@ -370,6 +370,13 @@ Three tests in `tests/test_portfolio_equivalence.py` stand on them:
 3. The reader against the six sample snapshots, on a document made during
    the test. It needs a devagent checkout (below).
 
+`tests/test_site_builder.py` also checks the committed sample document,
+`tests/fixtures/portfolio/samples.json`, against the six sample snapshots,
+with no checkout, so the unit tests that read sample sites from it read what
+the pinned release writes. When a file under `samples/` that the document
+was made from changes, a test there fails and names the command that
+regenerates it.
+
 `known_differences.json` is kept by hand. Today it holds fourteen entries.
 On the sample sites the one difference is a report text; across both
 sets, no link or held-out key differs. devagent words an
@@ -407,7 +414,9 @@ flag but `--devagent` it writes the sample document,
 `samples/devagent/config.toml`, and runs the aggregator from
 `samples/devagent/`, so devagent and Gantry resolve a relative `devdoc_dir`
 alike. `--fixtures` writes `tests/fixtures/portfolio/written.json` and its
-`provenance.json`. `tools/update_expected_leaves.py` writes both snapshot
+`provenance.json`, then `samples.json`, the aggregator's document over a
+copy of `samples/`, and `samples_provenance.json`, the sha256 of the devagent
+config and of each configured `WBS.md` it read. `tools/update_expected_leaves.py` writes both snapshot
 sets; for the sample set it runs the aggregator on a temporary copy of
 `samples/`. Each `--check` writes nothing and prints one line per file that
 differs, is missing or is extra. `--devagent` defaults to

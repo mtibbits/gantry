@@ -298,7 +298,10 @@ pin and a test holds it equal to `tests/devagent.pin`:
   two commands.
 - `tests/fixtures/portfolio/written.json` and
   `tests/fixtures/portfolio/provenance.json`: devagent's portfolio JSON over
-  Gantry's `WBS.md` fixtures (`tools/sample_portfolio.py --fixtures`).
+  Gantry's `WBS.md` fixtures; `tests/fixtures/portfolio/samples.json` and
+  `tests/fixtures/portfolio/samples_provenance.json`: its document over
+  `samples/`, which the sample-site unit tests read, and the hash of each
+  input (`tools/sample_portfolio.py --fixtures` writes all four).
 - `tests/fixtures/expected_leaves/`: the six sample snapshots and the 14
   under `fixture/` (`tools/update_expected_leaves.py`). Run it after the
   line above, since the fixture snapshots are read from `written.json`.

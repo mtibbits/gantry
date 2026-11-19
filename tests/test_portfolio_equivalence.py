@@ -744,6 +744,7 @@ def test_pin_move_recipe_names_the_new_tools_and_files(capsys):
     assert all("--fixtures" in w for w in commands if Path(w[1]).name == "sample_portfolio.py")
     capsys.readouterr()
     for name in ("tests/fixtures/portfolio/written.json", "tests/fixtures/portfolio/provenance.json",
+                 "tests/fixtures/portfolio/samples.json", "tests/fixtures/portfolio/samples_provenance.json",
                  "tests/fixtures/expected_leaves/", "known_differences.json",
                  "tests/fixtures/devagent_records/written/"):
         assert name in part, name
