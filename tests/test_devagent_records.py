@@ -650,9 +650,9 @@ def test_sample_site_records_shapes():
 
 
 def test_sample_stuck_folders_name_open_leaves():
-    from gantry.wbs_stopgap import parse_wbs
+    import helpers_portfolio as hp
 
-    data = parse_wbs((HARBOR / "WBS.md").read_bytes().decode("utf-8"), "harbor")
+    data = hp.sample_site(HARBOR.name)
     open_issues = {leaf.issue for leaf in data.leaves if leaf.open and leaf.issue}
     stuck = {p.parent.name for p in HARBOR.glob("*/STUCK")}
     assert stuck == {"Issue-13", "Issue-14"}

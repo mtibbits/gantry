@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+import helpers_portfolio as hp
 from gantry import build
 from gantry.build import CLASH, build_all, read_sites, site_list, write_all
 from gantry.config import load_config
@@ -15,7 +16,6 @@ from gantry.deps import classify, refs
 from gantry.crosssite import MESSAGES, NO_ISSUE, NOT_BUILT, resolve_foreign
 from gantry.model import REPORT_KINDS, meta_values, report_order
 from gantry.sites import config_roots
-from gantry.wbs_stopgap import parse_wbs
 from gantry.views import worksite
 from gantry.views.worksite import (
     BW,
@@ -55,7 +55,7 @@ def test_report_kinds_registered():
 
 
 def test_leaf_defaults_unresolved():
-    data = parse_wbs("- [ ] One {issue: Issue-1, depends_on: [beta:Issue-1]}\n", "alpha")
+    data = hp.site(hp.node("One", issue="Issue-1", depends_on=["beta:Issue-1"]))
     (leaf,) = data.leaves
     assert leaf.waits_on_other_site is False
     assert leaf.foreign_targets is None
@@ -573,7 +573,7 @@ CASES = [
 
 
 def sample_node(site, name):
-    data = parse_wbs((SAMPLES / site / "WBS.md").read_bytes().decode("utf-8"), site)
+    data = hp.sample_site(site)
     (node,) = [n for n in (*data.leaves, *data.rows) if name in (n.key, n.title)]
     return node
 

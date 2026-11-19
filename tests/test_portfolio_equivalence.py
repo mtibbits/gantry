@@ -26,7 +26,6 @@ import update_expected_leaves as ue
 from gantry import portfolio_json as pj
 from gantry.portfolio_json import ProjectInput, map_document, read_portfolio
 from gantry.roots import directory_roots
-from gantry.wbs_stopgap import read_wbs
 from helpers_config import sample_projects, written_bytes
 from helpers_docs import heading_anchors, markdown_text, section
 from sample_roles import NO_WBS, READABLE, UNREADABLE
@@ -386,6 +385,8 @@ def known(which):
 
 def stopgap_snapshot(site, path, namespaces):
     """The stopgap's reading of one WBS.md in the snapshot's form: read, or unreadable with its reason."""
+    from gantry.wbs_stopgap import read_wbs
+
     data = read_wbs(directory_roots([path.parent]), path, site)
     unreadable = [e.message for e in data.report if e.kind == "site_unreadable"]
     wrapped = ProjectInput(site, "unreadable" if unreadable else "read", unreadable[0] if unreadable else None, data)
