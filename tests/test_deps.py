@@ -2,21 +2,14 @@
 
 import pytest
 
+import helpers_portfolio as hp
 from gantry.deps import classify, find_cycles
 from gantry.model import DepRef
 from gantry.priority import effective
-from gantry.wbs_stopgap import parse_wbs
-from test_samples import ROOT
-
-FIXTURES = ROOT / "tests" / "fixtures" / "wbs"
-
-
-def fixture_text(name):
-    return (FIXTURES / f"{name}.md").read_bytes().decode("utf-8")
 
 
 def parse(name):
-    return parse_wbs(fixture_text(name), "alpha")
+    return hp.fixture_site(name)
 
 
 def at(data, line, kind=None):
@@ -133,9 +126,7 @@ def effective_map(data):
 
 
 def test_cycle_leaves_others_unaffected():
-    text = fixture_text("cycle")
-    lines = text.splitlines(keepends=True)
-    cut = parse_wbs("".join(lines[:1] + lines[4:]), "alpha")
+    cut = hp.site_of(hp.drop_lines(hp.fixture_doc("cycle"), 2, 3, 4))
     data = parse("cycle")
     kept = tuple(link for link in data.links if not set(link) & set(data.held_out))
     assert kept == cut.links == (("Issue-5", "Issue-4"),)
@@ -144,10 +135,10 @@ def test_cycle_leaves_others_unaffected():
 
 
 def test_long_chain_no_recursion():
-    lines = [f"- [ ] L{i} {{issue: Issue-{i}, depends_on: [Issue-{i - 1}]}}" for i in range(1, 3000)]
-    lines.insert(0, "- [ ] L0 {issue: Issue-0}")
-    lines[-1] = lines[-1][:-1] + ", priority: P1}"
-    data = parse_wbs("".join(line + "\n" for line in lines), "alpha")
+    nodes = [hp.node(f"L{i}", issue=f"Issue-{i}", depends_on=[f"Issue-{i - 1}"]) for i in range(1, 2999)]
+    nodes.insert(0, hp.node("L0", issue="Issue-0"))
+    nodes.append(hp.node("L2999", issue="Issue-2999", depends_on=["Issue-2998"], priority="P1"))
+    data = hp.site(*nodes)
     assert len(data.leaves) == 3000
     assert data.held_out == ()
     assert effective_map(data)["Issue-0"] == 1
