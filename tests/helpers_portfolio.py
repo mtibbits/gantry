@@ -30,7 +30,6 @@ DOC_NAME = "portfolio.json"
 
 written_doc = sp.written_doc
 sample_doc = sp.sample_doc
-_written_once = functools.cache(sp.written_doc)  # read-only: narrow() copies what it keeps
 
 
 def build_sample_document(tmp, env=None, os_name=None):
@@ -181,9 +180,15 @@ def narrow(doc, name, site=None) -> dict:
     return out
 
 
+@functools.cache
+def _parsed(path) -> dict:
+    """`path` parsed once per session, keyed by path (a test may point sp.WRITTEN elsewhere); read-only."""
+    return sp._load(path)
+
+
 def fixture_doc(name, site="alpha") -> dict:
     """written.json's project `name` alone, renamed `site`."""
-    return narrow(_written_once(), name, site)
+    return narrow(_parsed(sp.WRITTEN), name, site)
 
 
 def fixture_site(name, site="alpha"):
@@ -215,16 +220,24 @@ def drop_lines(doc, *lines) -> dict:
 
 
 AUTO_KINDS = ("leaf_no_issue", "duplicate_issue", "dep_unresolved")
+LOCAL_UNRESOLVED = ("depends_on '", "' matches no issue in this project")
 
 
 def auto_entry(entry, project_name):
-    """True for an entry of `project_name` of a kind auto_report writes. devagent words a
-    foreign or malformed dep_unresolved the same as a local one, so the entry it names decides."""
+    """True for an entry of `project_name` of a kind auto_report writes.
+
+    A local dep_unresolved has devagent's local wording and names an entry the
+    project calls local. A malformed entry shares that wording, and a foreign one
+    is worded apart but can read as local once fixture_doc renames its project."""
     if entry["project"] != project_name or entry["kind"] not in AUTO_KINDS:
         return False
     if entry["kind"] != "dep_unresolved":
         return True
-    return deps.classify(entry["message"].split("'")[1], project_name).kind == "local"
+    head, tail = LOCAL_UNRESOLVED
+    message = entry["message"]
+    if not (message.startswith(head) and message.endswith(tail)):
+        return False
+    return deps.classify(message[len(head):-len(tail)], project_name).kind == "local"
 
 
 def append_nodes(doc, project_name, *nodes) -> dict:
@@ -234,7 +247,9 @@ def append_nodes(doc, project_name, *nodes) -> dict:
     entries of the kinds auto_report writes are written again, and every other
     entry (a foreign or malformed dep_unresolved among them) is kept."""
     out = copy.deepcopy(doc)
-    proj = next(p for p in out["projects"] if p["project"] == project_name)
+    proj = next((p for p in out["projects"] if p["project"] == project_name), None)
+    if proj is None:
+        raise ValueError(f"the document holds no project {project_name!r}")
     last = max((n["source_line"] for n in proj["nodes"]), default=0)
     used = [int(n["id"][1:]) for p in out["projects"] for n in p["nodes"] if n["id"][1:].isdigit()]
     added = project(project_name, *nodes, start=last + 1)["nodes"]

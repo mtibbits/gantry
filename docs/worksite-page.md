@@ -373,9 +373,9 @@ Three tests in `tests/test_portfolio_equivalence.py` stand on them:
 `tests/test_site_builder.py` also checks the committed sample document,
 `tests/fixtures/portfolio/samples.json`, against the six sample snapshots,
 with no checkout, so the unit tests that read sample sites from it read what
-the pinned release writes. When a file under `samples/` that the document
-was made from changes, a test there fails and names the command that
-regenerates it.
+the pinned release writes. When the sample devagent config or a sample
+`WBS.md` changes, a test there fails and names the command that regenerates
+it; other changes under `samples/` reach only the gated byte check.
 
 `known_differences.json` is kept by hand. Today it holds fourteen entries.
 On the sample sites the one difference is a report text; across both

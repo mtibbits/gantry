@@ -234,12 +234,15 @@ def test_fixture_sites_agree_with_the_stopgap(name):
 
 
 def test_append_nodes_keeps_foreign_and_malformed_unresolved():
-    # devagent words these like a local dep_unresolved; auto_report never writes them again.
+    # refs.md's nine dep_unresolved entries: only 'Issue-99' is one auto_report writes again. The
+    # malformed ones share its wording, and 'alpha:Issue-1' is foreign though the rename makes it read local.
     doc = hp.fixture_doc("refs")
-    kept = [e for e in doc["parse_report"] if e["kind"] == "dep_unresolved" and not hp.auto_entry(e, "alpha")]
-    assert kept
+    before = sorted(e["message"] for e in doc["parse_report"] if e["kind"] == "dep_unresolved")
+    assert len(before) == 9 and "depends_on 'alpha:Issue-1' names project 'alpha', which is not configured" in before
     out = hp.append_nodes(doc, "alpha", hp.node("Late", issue="Issue-98"))
-    assert [e for e in out["parse_report"] if e in kept] == kept
+    assert sorted(e["message"] for e in out["parse_report"] if e["kind"] == "dep_unresolved") == before
+    with pytest.raises(ValueError, match="no project 'beta'"):
+        hp.append_nodes(doc, "beta", hp.node("Late"))
 
 
 def test_append_nodes():

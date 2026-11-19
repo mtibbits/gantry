@@ -161,7 +161,8 @@ def test_satisfies_from_parsed_meta():
         "limit-unknown-second", "repeat-shifts", "limit-closed-bracket"])
 def test_unbracketed_list_only_directly_after_a_scalar_satisfies(meta, keys, extra, reported):
     # Only the key read directly after a satisfies that is not a bracketed list counts (#114). The limit-* legs
-    # are the known limits that docs/requirements-format.md states.
+    # are the known limits that docs/requirements-format.md states. devagent keeps one value of a repeated key,
+    # so limit-repeat and repeat-shifts hold no repeat any more; their ids name the written text they came from.
     parsed = hp.site(hp.node("Leaf", **meta), name="lighthouse").leaves[0]
     assert list(parsed.meta) == keys
     ids, problems = satisfies_ids(parsed, frozenset({"lighthouse", *extra}))
