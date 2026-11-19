@@ -131,7 +131,7 @@ def test_foreign_leaf_found_without_config(tmp_path):
 def test_foreign_objective_only(tmp_path):
     cat = catalog(tree(tmp_path, {"alpha": "- SR-1: s\n- FR-1: a {refines: SR-1}\n- FR-2: b\n", "beta": None}))
     found, _ = installation_trace(cat, {"alpha": [], "beta": [
-        leaf("B1", 2, satisfies="[alpha:FR-1, alpha:FR-2]", objective="alpha:FR-1")]})
+        leaf("B1", 2, satisfies=["alpha:FR-1", "alpha:FR-2"], objective="alpha:FR-1")]})
     (f,) = found["alpha"].foreign
     assert f.serves == (("alpha:SR-1", "indirect"), ("alpha:FR-1", "direct"), ("alpha:FR-2", "direct"))
     assert f.objective_only == ("alpha:SR-1", "alpha:FR-1")
@@ -159,7 +159,7 @@ def test_foreign_indirect_counts(tmp_path):
 def test_foreign_serves_own_requirements_only(tmp_path):
     cat = catalog(tree(tmp_path, {"alpha": ALPHA, "gamma": "- FR-1: g\n", "beta": None}))
     found, _ = installation_trace(cat, {"alpha": [], "gamma": [],
-                                        "beta": [leaf("B1", 2, satisfies="[alpha:FR-1, gamma:FR-1]")]})
+                                        "beta": [leaf("B1", 2, satisfies=["alpha:FR-1", "gamma:FR-1"])]})
     (f,) = found["alpha"].foreign
     assert f.ids == (rid("alpha:FR-1"), rid("gamma:FR-1")) and f.serves == (("alpha:FR-1", "direct"),)
     assert [g.serves for g in found["gamma"].foreign] == [(("gamma:FR-1", "direct"),)]
@@ -219,7 +219,7 @@ def test_scope_and_not_read_set_on_every_site(tmp_path):
 
 def test_inputs_not_mutated(tmp_path):
     cat = catalog(tree(tmp_path, {"alpha": ALPHA, "beta": None}))
-    leaves = {"alpha": [], "beta": [leaf("B1", 2, satisfies="[alpha:FR-1, alpha:FR-9]")]}
+    leaves = {"alpha": [], "beta": [leaf("B1", 2, satisfies=["alpha:FR-1", "alpha:FR-9"])]}
     traces = {name: build_site_trace(name, found, cat) for name, found in leaves.items()}
     kept = copy.deepcopy(traces)
     build_installation_trace([entry(n) for n in leaves], {n: inputs_of(v) for n, v in leaves.items()}, traces, {}, cat)
@@ -529,7 +529,7 @@ def test_sample_panel_rendered(tmp_path):
 def test_panel_item_forms(tmp_path):
     cat = catalog(tree(tmp_path, {"alpha": ALPHA, "beta": None, "gamma": "- FR-1: g\n"}))
     found, _ = installation_trace(cat, {"alpha": [], "beta": [
-        leaf("B1", 2, "x", satisfies="[alpha:FR-1, gamma:FR-1]"), leaf("B2", 3, "~", satisfies="alpha:FR-2")],
+        leaf("B1", 2, "x", satisfies=["alpha:FR-1", "gamma:FR-1"]), leaf("B2", 3, "~", satisfies="alpha:FR-2")],
         "gamma": []})
     data = inputs_of([]).data
     page = worksite.render_page("alpha", data, default_unit_hours=6,
