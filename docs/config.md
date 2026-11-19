@@ -72,7 +72,7 @@ Keys of the `[refresh]` table:
 | `dir` | path | no | none | the refresh folder, which `gantry refresh` creates and is the one folder it writes: its lock, its update record (`update.json`), its log, the `current` pointer and the generations it builds ([the folder](refresh-and-serve.md#the-refresh-folder)); it may not equal or contain an input root; `gantry refresh` refuses to run without it | #35 |
 | `interval_minutes` | an integer from 1 to 1440 | no | `15` | how often the operator's scheduler runs `gantry refresh`; Gantry runs no timer, and records this value with each update for a reader judging how fresh the data is | #35 |
 | `update` | a list of commands, each a non-empty list of strings (one string, a flat list or an empty command is refused) | no | `[]` (no update step) | the commands `gantry refresh` runs, in order and with no shell, in the installation config's folder, before it builds; the first that fails ends the update ([the update list](refresh-and-serve.md#the-update-list)) | #35 |
-| `step_timeout_minutes` | an integer, 1 or more | no | `10` | the limit for each update command and for the build; one that runs longer is stopped with every process it started | #35 |
+| `step_timeout_minutes` | an integer from 1 to 1440 | no | `10` | the limit for each update command and for the build; one that runs longer is stopped with every process it started | #35 |
 
 Keys of the `[requirements]` table:
 

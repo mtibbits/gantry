@@ -41,11 +41,12 @@ docs/refresh-and-serve.md). Exit codes:
   included), or the config sets no portfolio_file; `fires` read the fires
   list with a report entry, could not read it, or the config sets no
   fires_list (`fires` exits 0 only for status `read`);
-- 0 for `refresh`: the update succeeded, the build exited 0 and its
-  generation was swapped in, or another run holds the lock (skipped);
-  1: anything else, including a config error or a config with no
-  `[refresh] dir`;
 - 2: a usage error (argparse's own, or an empty `--output-dir`).
+
+`refresh` exits 0 when the update succeeded, the build exited 0 and its
+generation was swapped in, or another run holds the lock (skipped); 1 for
+anything else, including a config error or a config with no
+`[refresh] dir`; 2 for a usage error.
 """
 
 import argparse
@@ -223,8 +224,8 @@ FLAG_TEXTS = (
 def _flagged(text, flag):
     """With --output-dir, a refusal of the flag's value (containment, a write
     outside the roots, a file where the folder goes) names the flag, not the
-    key it replaced (#35). Only
-    errors raised after the flag replaced output_dir pass through here."""
+    key it replaced (#35). Only errors raised after the flag replaced
+    output_dir pass through here."""
     if not flag:
         return text
     for key_text, flag_text in FLAG_TEXTS:

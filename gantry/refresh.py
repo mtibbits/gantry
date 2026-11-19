@@ -30,7 +30,7 @@ from dataclasses import asdict, dataclass, fields, replace
 from datetime import datetime, timezone
 
 from gantry.build import MARKER_FILE, marker_exit, strict_json_loads
-from gantry.config import INTERVAL_MINUTES_MAX, ConfigError, error_reason
+from gantry.config import REFRESH_MINUTES_MAX, ConfigError, error_reason
 from gantry.roots import (
     OutsideRoots,
     find_program,
@@ -175,8 +175,8 @@ def _record(value) -> UpdateRecord:
     if not _is_int(value["steps_run"]) or value["steps_run"] < 0:
         raise _Shape("steps_run is not an integer, 0 or more")
     interval = value["interval_minutes"]
-    if not _is_int(interval) or not 1 <= interval <= INTERVAL_MINUTES_MAX:
-        raise _Shape(f"interval_minutes is not an integer from 1 to {INTERVAL_MINUTES_MAX}")
+    if not _is_int(interval) or not 1 <= interval <= REFRESH_MINUTES_MAX:
+        raise _Shape(f"interval_minutes is not an integer from 1 to {REFRESH_MINUTES_MAX}")
     last_ok_at = value["last_ok_at"]
     record = UpdateRecord(
         record_version=value["record_version"],
@@ -311,11 +311,10 @@ def kill_tree(proc, log, environ=None):
 def run_step(argv, *, cwd, timeout, log, env=None) -> StepResult:
     """Run one command with no shell in `cwd`, its output into `log`, for at
     most `timeout` seconds. A program that cannot be found or started is
-    "could not start"; one that runs too long is "timed out" with its tree
-    stopped, whatever code it then reports; why a program could not start
-    goes to the log. An interrupt (Ctrl+C) stops the
-    tree too and is raised again: the child's own session keeps it out of
-    the terminal's foreground group."""
+    "could not start", and the log says why; one that runs too long is
+    "timed out" with its tree stopped, whatever code it then reports. An
+    interrupt (Ctrl+C) stops the tree too and is raised again: the child's
+    own session keeps it out of the terminal's foreground group."""
     program = find_program(argv[0], os.environ if env is None else env)
     if program is None:
         log_line(log, "gantry: could not start: the program is in no absolute PATH entry")

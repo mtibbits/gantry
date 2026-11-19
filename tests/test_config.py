@@ -104,7 +104,9 @@ ERROR_CASES = {
     "refresh-interval-1441": (_raw(tail=RF + "interval_minutes = 1441\n"), ["'refresh.interval_minutes'", FROM_1_TO_1440]),
     "refresh-interval-bool": (_raw(tail=RF + "interval_minutes = true\n"), ["'refresh.interval_minutes'", FROM_1_TO_1440]),
     "refresh-timeout-zero": (_raw(tail=RF + "step_timeout_minutes = 0\n"),
-                             ["'refresh.step_timeout_minutes'", "an integer, 1 or more"]),
+                             ["'refresh.step_timeout_minutes'", FROM_1_TO_1440]),
+    "refresh-timeout-1441": (_raw(tail=RF + "step_timeout_minutes = 1441\n"),
+                             ["'refresh.step_timeout_minutes'", FROM_1_TO_1440]),
     "refresh-update-string": (_raw(tail=RF + 'update = "git pull"\n'), ["'refresh.update'", COMMANDS]),
     "refresh-update-flat": (_raw(tail=RF + 'update = ["git", "pull"]\n'), ["'refresh.update'", COMMANDS]),
     "refresh-update-empty-command": (_raw(tail=RF + "update = [[]]\n"), ["'refresh.update'", COMMANDS]),
@@ -593,7 +595,7 @@ def test_config_doc_refresh_rows():
         "dir": ("path", "none"),
         "interval_minutes": (FROM_1_TO_1440, "`15`"),
         "update": (COMMANDS, "`[]`"),
-        "step_timeout_minutes": ("integer, 1 or more", "`10`"),
+        "step_timeout_minutes": (FROM_1_TO_1440, "`10`"),
     }
     for name, (kind, default) in expected.items():
         cells = [cell.strip() for cell in _doc_row(name).split("|")[1:-1]]

@@ -578,8 +578,9 @@ def test_refresh_doc_covers_the_setup_points():
 
 
 def _refresh_command_lines(text):
-    """Every `gantry refresh` command line in the doc's fenced blocks: the text
-    after ExecStart=, the text inside /TR "...", or the whole line."""
+    """Every `gantry refresh` command line in the doc's fenced blocks, as
+    (kind, line): ("systemd", the text after ExecStart=), ("schtasks", the
+    text inside /TR "...") or ("plain", the whole line)."""
     found, fence = [], None
     for line in text.split("\n"):
         if line.startswith("```"):
@@ -587,11 +588,12 @@ def _refresh_command_lines(text):
             continue
         if not fence or "gantry refresh" not in line:
             continue
+        kind = "plain"
         if "ExecStart=" in line:
-            line = line.split("ExecStart=", 1)[1]
+            kind, line = "systemd", line.split("ExecStart=", 1)[1]
         elif '/TR "' in line:
-            line = line.split('/TR "', 1)[1].rsplit('"', 1)[0].replace('\\"', '"')
-        found.append(line)
+            kind, line = "schtasks", line.split('/TR "', 1)[1].rsplit('"', 1)[0].replace('\\"', '"')
+        found.append((kind, line))
     return found
 
 
@@ -600,10 +602,9 @@ def test_refresh_doc_commands_parse():
 
     from gantry.cli import _parser
 
-    lines = _refresh_command_lines(markdown_text(REFRESH_DOC))
-    assert len(lines) >= 2
-    assert any("ExecStart" not in line and "schtasks" not in line for line in lines)
-    for line in lines:
+    found = _refresh_command_lines(markdown_text(REFRESH_DOC))
+    assert {kind for kind, _ in found} == {"plain", "systemd", "schtasks"}
+    for _, line in found:
         words = shlex.split(line)
         at = words.index("gantry")
         args = _parser().parse_args(words[at + 1:])

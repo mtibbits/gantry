@@ -870,7 +870,11 @@ def test_find_program_ignores_cwd_and_relative_entries(tmp_path, monkeypatch):
     assert find_program("probe", {"PATH": "bin"}) is None
     with_separator = os.path.join("sub", "probe")
     assert find_program(with_separator, {"PATH": str(tmp_path / "bin")}) == with_separator
-    if not WINDOWS:
+    if WINDOWS:
+        for empty in ("", os.pathsep):  # set but empty: the default extensions
+            found = find_program("probe", {"PATH": str(tmp_path / "bin"), "PATHEXT": empty})
+            assert found is not None and os.path.samefile(found, tmp_path / "bin" / name)
+    else:
         (tmp_path / "bin" / name).chmod(0o644)
         assert find_program("probe", {"PATH": str(tmp_path / "bin")}) is None
 

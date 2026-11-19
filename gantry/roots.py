@@ -293,7 +293,7 @@ def program_on_path(name, environ) -> bool:
 
 
 # The extensions a bare program name is tried with on Windows when the
-# environment sets no PATHEXT.
+# environment sets no PATHEXT, or an empty one.
 DEFAULT_PATHEXT = ".COM;.EXE;.BAT;.CMD"
 
 
@@ -314,7 +314,8 @@ def find_program(name, environ) -> str | None:
         return name
     names = [name]
     if os.name == "nt":
-        extensions = [e for e in environ.get("PATHEXT", DEFAULT_PATHEXT).split(os.pathsep) if e]
+        extensions = ([e for e in environ.get("PATHEXT", "").split(os.pathsep) if e]
+                      or DEFAULT_PATHEXT.split(os.pathsep))
         if not any(name.lower().endswith(e.lower()) for e in extensions):
             names = [name + e for e in extensions]
     for entry in environ.get("PATH", os.defpath).split(os.pathsep):

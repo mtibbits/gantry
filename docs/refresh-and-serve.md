@@ -43,7 +43,10 @@ the programs the update list names. In order, it:
    `lock` in that folder. When another run holds it, it prints
    `skipped: a refresh is still running`, exits 0 and changes nothing. The
    OS frees the lock when its holder ends, so a run that crashed never
-   blocks the next one.
+   blocks the next one. Stopping the job from outside (a hand `kill`, or a
+   wrapper's own time limit) does not stop an update command that is
+   running: it goes on outside the lock and with no time limit, and a pull
+   may still hold `.git/index.lock`.
 2. **Updates the data root.** It runs each command of `[refresh] update` in
    order, without a shell, in the installation config's folder, each for at
    most `step_timeout_minutes`. A command that runs longer is stopped with
@@ -71,8 +74,8 @@ the programs the update list names. In order, it:
    generation (a reader on Windows can hold `current` open, so the rewrite
    is retried for 2 seconds; when it still fails, the live generation stays,
    the new one is deleted and the record says `swap failed`). A build that
-   exits 1 on purpose (no site page
-   was written, say) is swapped in: its pages say why. Any other build (no
+   exits 1 on purpose (no site page was written, say) is swapped in: its
+   pages say why. Any other build (no
    marker, a marker that does not match, another exit code, a crash after
    the index, a timeout) leaves the live generation as it was, and its own
    generation is deleted.
@@ -101,7 +104,8 @@ when data was last updated.
 the installation config, the devagent config, a planning directory, a
 site's `history` directory or the `gantry` package: that is a config error
 naming `refresh.dir` ([the rule](config.md#where-a-build-may-read-and-write)).
-`gantry refresh` writes nothing outside it.
+Gantry itself writes nothing outside it; the update commands write where
+they are pointed (the data clones).
 
 - `lock`: the file the run locks; it stays empty.
 - `update.json`: [the update record](#the-update-record).
@@ -274,7 +278,9 @@ A run the scheduler starts while the last one is still going is skipped
 
 `[refresh] update` is the list of commands that bring the data root up to
 date. Each command is a list of words, run without a shell, so no word is
-expanded or split. Typically it is one pull per repository the data root
+expanded or split. On Windows a `.bat` or `.cmd` program may still be run
+through `cmd.exe`, which parses its words by shell rules, so name an
+`.exe` there. Typically it is one pull per repository the data root
 needs, the planning repository and the fires list's included:
 
 ```toml
@@ -297,7 +303,9 @@ goes after the pulls, so a failed aggregator run is a failed update.
   `PATH`**, never in the current folder or a relative `PATH` entry. A
   scheduler's `PATH` is short, so name each program by its full path when
   it is not on that `PATH`; a program that cannot be found is
-  `could not start`.
+  `could not start`. Name a program by a bare name or its full path, never
+  a relative path such as `bin/pull`: Linux reads that from the
+  installation config's folder, Windows from the job's own working folder.
 
 ## First-day failures
 

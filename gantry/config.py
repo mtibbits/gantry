@@ -72,7 +72,7 @@ REFRESH_KEYS = (
     Key("dir", "path", False, None, "#35", "`dir`", "directory"),
     Key("interval_minutes", "int_1_to_1440", False, 15, "#35", "`interval_minutes`"),
     Key("update", "commands", False, (), "#35", "`update`"),
-    Key("step_timeout_minutes", "int_min_1", False, 10, "#35", "`step_timeout_minutes`"),
+    Key("step_timeout_minutes", "int_1_to_1440", False, 10, "#35", "`step_timeout_minutes`"),
 )
 _REFRESH_KEYS_BY_NAME = {key.name: key for key in REFRESH_KEYS}
 
@@ -185,14 +185,15 @@ def resolve_path(raw: str, base_dir, *, flavour: str) -> PurePath:
 
 # --- types -----------------------------------------------------------------------
 
-# The most minutes [refresh] interval_minutes may name (a day); update.json's
-# reader holds its recorded interval to the same bound.
-INTERVAL_MINUTES_MAX = 1440
+# The most minutes a [refresh] key may name (a day): interval_minutes and
+# step_timeout_minutes. update.json's reader holds its recorded interval to
+# the same bound.
+REFRESH_MINUTES_MAX = 1440
 
 _KIND_TEXT = {
     "int": "an integer",
     "int_min_1": "an integer, 1 or more",
-    "int_1_to_1440": f"an integer from 1 to {INTERVAL_MINUTES_MAX}",
+    "int_1_to_1440": f"an integer from 1 to {REFRESH_MINUTES_MAX}",
     "commands": "a list of commands, each a non-empty list of strings",
     "path": "a path string",
     "date": "a TOML date (YYYY-MM-DD)",
@@ -244,7 +245,7 @@ def _kind_ok(kind: str, value) -> bool:
     if kind == "int_min_1":
         return _kind_ok("int", value) and value >= 1
     if kind == "int_1_to_1440":
-        return _kind_ok("int", value) and 1 <= value <= INTERVAL_MINUTES_MAX
+        return _kind_ok("int", value) and 1 <= value <= REFRESH_MINUTES_MAX
     if kind == "commands":
         return isinstance(value, list) and all(
             isinstance(command, list) and command and all(isinstance(word, str) for word in command)
