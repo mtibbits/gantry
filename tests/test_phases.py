@@ -354,6 +354,8 @@ def test_leaf_row_causes():
         phases.PhaseRow((U,) * 5, "issue folder cannot be read: Permission denied")
     absent = dr.Record(dr.ABSENT, None, None)
     assert phases.leaf_row(site(issues={"Issue-1": folder("Issue-1", absent)}), "Issue-1") is None
+    vanished = dr.Record(dr.UNREADABLE, None, dr.FOLDER_MISSING)
+    assert phases.leaf_row(site(issues={"Issue-1": folder("Issue-1", vanished)}), "Issue-1") is None
     fresh = dr.Record(dr.PRESENT, dr.read_checklist(HEADER + STANDARD), None)
     readable = site(issues={"Issue-1": folder("Issue-1", fresh)})
     assert phases.leaf_row(readable, "Issue-1") == phases.PhaseRow((C, A, A, A, A), None)
@@ -380,3 +382,10 @@ def test_look_words():
         "done": "done", "current": "current", "stuck": "stuck", "parked": "parked",
         "blocked": "blocked outside", "ahead": "ahead", "none": "not in this workflow", "unknown": "unknown",
     }
+
+
+def test_lookup_tables_cover_the_reader():
+    """Every problem kind and open glyph the reader can give has an entry, so
+    checklist_row never raises KeyError on a reader change (#173 redmr)."""
+    assert set(phases.WHY_PROBLEM) == {dr.CHECKLIST_NO_STEPS, dr.CHECKLIST_ACTIVE_BLOCK_EMPTY, dr.CHECKLIST_BAD_GLYPH}
+    assert set(phases.GLYPH_LOOKS) == set(dr.GLYPHS) - set(dr.DONE_GLYPHS)

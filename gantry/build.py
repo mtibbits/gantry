@@ -388,10 +388,10 @@ def read_records(roots, sites) -> dict:
             continue
         try:
             got = read_site_records(roots, site.planning_dir, site=site.name)
+            if got.status == NOT_READ and got.reason is not None:
+                got = replace(got, reason=public_text(got.reason, roots))
         except Exception as e:
             got = SiteRecords(NOT_READ, source_failed(e, "records read"), {}, {})
-        if got.status == NOT_READ and got.reason is not None:
-            got = replace(got, reason=public_text(got.reason, roots))
         found[site.name] = got
     return found
 

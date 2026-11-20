@@ -1444,6 +1444,17 @@ def test_records_read_failure_keeps_every_page(tmp_path, monkeypatch, leg):
     assert all(tip.endswith(f" \u00b7 phases unknown: devagent records not read: {reason}") for tip in tips)
 
 
+@pytest.mark.parametrize("leg", ["raises", "fails"])
+def test_site_build_records_read_failure_keeps_page(tmp_path, monkeypatch, leg):
+    reason = harbor_failure(monkeypatch, leg)
+    code, out, _, stderr = demo_build(tmp_path, monkeypatch, "--site", BUSY)
+    assert code == 0, stderr
+    page = (out / "sites" / f"{BUSY}.html").read_bytes().decode("utf-8")
+    assert f"phases unknown: devagent records not read: {reason}" in page
+    assert worksite.RECORDS_LINE.format(reason=reason) in page
+    assert "no records" not in page  # the exception's message stays off the page
+
+
 def test_page_model_records_switch():
     data = page_tree_site()
     plain = worksite.page_model("alpha", data, default_unit_hours=6)

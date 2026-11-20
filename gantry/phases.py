@@ -87,8 +87,8 @@ def checklist_row(state: dr.ChecklistState) -> PhaseRow:
 
 def leaf_row(records: dr.SiteRecords, issue: str | None) -> PhaseRow | None:
     """The row of the leaf whose `issue:` value is `issue`, from its site's
-    records; None when the leaf has no issue value, no folder, or no
-    checklist. The folder name must equal `issue` exactly."""
+    records; None when the leaf has no issue value, no folder (also one
+    that vanished mid-read), or no checklist. The folder name must equal `issue` exactly."""
     if not isinstance(records, dr.SiteRecords):
         raise TypeError(f"leaf_row needs SiteRecords, not {type(records).__name__}")
     if issue is None:
@@ -100,6 +100,8 @@ def leaf_row(records: dr.SiteRecords, issue: str | None) -> PhaseRow | None:
     folder = records.issues.get(issue)
     if folder is None or folder.checklist.status == dr.ABSENT:
         return None
+    if folder.checklist.status == dr.UNREADABLE and folder.checklist.reason == dr.FOLDER_MISSING:
+        return None  # the folder went between the listing and its read: no folder, as fires.holds_marker reads it
     if folder.checklist.status != dr.PRESENT:
         return _unknown(folder.checklist.reason)
     return checklist_row(folder.checklist.value)

@@ -295,8 +295,6 @@ def test_checklist_text_never_reaches_page():
     page, _ = render(chain_site("Issue-1", "Issue-2"), records(**{"Issue-1": folder("Issue-1", text)}))
     assert page.count('class="ph-row"') == 1 + 8  # the row and the legend swatches
     for hostile in HOSTILE:
-        if hostile in ("__proto__", "{{DATA}}"):
-            continue  # plain words the page may hold for its own reasons; checked as planted below
         assert hostile not in page
     assert_page_safe(page, [])
 
