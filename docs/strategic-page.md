@@ -187,6 +187,12 @@ source follows each figure. The kinds:
 | `group-sum` | each group heading | its parts' sources joined with `; `, or `no intended or backlog share in this group` |
 | `headline` | the index's headline | `computed from open work and the portfolio file, allocation from {date}`; with no applying allocation, `the portfolio file`, or `no portfolio file configured` |
 | `index-share` | each built site's line on the index | `computed from open work` |
+| `thief-wip` | a built panel's thieves row: too much WIP | `WBS.md glyphs and committed checklists; this machine's checklists for the labelled part` |
+| `thief-unknown-deps` | the row's unknown dependencies | `WBS.md depends_on entries on open leaves` |
+| `thief-unplanned` | the row's unplanned work | `the fire collector: fires list, open P0 leaves and STUCK markers`, ending `; fires list not configured` when none is |
+| `thief-priorities` | the row's conflicting priorities | `the panel's gap: backlog share against intended share, backlog basis` |
+| `thief-neglect` | the row's neglected work | `WBS.md history in the planning repository` |
+| `fires-no-site` | the line above the groups | `the fires list` |
 
 A figure element exists only where a value is shown, except that the
 headline, every index share and every group heading's `group-sum` are
@@ -207,6 +213,74 @@ The page has no script. Its one `script` element is the embedded data
 block (`gantry-data`): the stamp, the as-of date, whether a portfolio file
 is configured, the applying allocation as given, the projects, the groups,
 one entry per panel with its unrounded figures, the totals and the report.
+Each built panel's entry has `thieves` (None on a not-built panel, and when
+the thieves were not derived): per thief its `value` (a date as
+`YYYY-MM-DD`), `text`, `threshold`, `flagged`, `source`, `no_data` (the
+reason, or None), `by_kind`, `parts` (each `text` and `machine`), `label`
+and `counts` (WIP's `parked` and `started`, each None when not checked). The
+top level has `fires_no_site` (`count`, None when not known, and `text`).
+A thief figure carries `data-source` and its visible source like every
+figure, its text being a value or its `no data: <reason>`.
+
+## Time thieves
+
+Each built site's panel ends with a `Time thieves` row (#29): five lines,
+each a figure (`thief-*`) with its source, its threshold, whether it is
+flagged and its parts. A thieves row is never shown with zeros it did not
+count: a panel whose thieves were not derived has no row.
+
+### The texts
+
+Titles: `Too much WIP`, `Unknown dependencies`, `Unplanned work`,
+`Conflicting priorities`, `Neglected work`. Flag texts: `flagged`,
+`not flagged`; thresholds `flagged above {n}` (WIP, unknown dependencies,
+unplanned work), `flagged above {n} points` (conflicting priorities) and
+`flagged at {n} weeks or more` (neglected work). A thief with no value
+reads `no data: {reason}`; one whose derivation raised reads
+`thieves not derived: {type}` as that reason, and one with no history read
+`history not read for this site`.
+
+Labels and machine parts: `as seen by this build machine`,
+``as seen by this build machine: `WBS.md` has uncommitted changes``,
+`as seen by this build machine: not checked against a commit ({reason})`.
+
+Too much WIP: `{n} parked, not counted`, `{n} started, glyph pending`,
+`parked, not counted: no data: {reason}`,
+`started, glyph pending: no data: {reason}`,
+`{n} parked here only, still counted: {issues}`,
+`{n} started here only, glyph pending, not counted: {issues}`,
+`{n} parked here, still counted: {issues}`,
+`{n} started here, glyph pending, not counted: {issues}`,
+`checklists here not read: {n} ({issues})`,
+`nothing parked or started here`, `checklists here not read: {reason}`,
+`lanes in flight: no data: lane records are per-machine (mtibbits/devagent#748)`;
+source `WBS.md glyphs and committed checklists; this machine's checklists for the labelled part`.
+
+Unknown dependencies: `{n} {kind}` (joined with `, `),
+`cross-site: no data: no cross-site entries recorded (mtibbits/devagent#887)`,
+`resolved cross-site links: {n}, not flagged`; source
+`WBS.md depends_on entries on open leaves`.
+
+Unplanned work: `as seen by this build machine: {n} from STUCK markers`,
+`as seen by this build machine: STUCK markers not read`,
+`incomplete: {sources} not read`, `{n}, incomplete: {sources} not read`,
+naming `fires list`, `P0 leaves`, `STUCK markers` or `fires step`; source
+`the fire collector: fires list, open P0 leaves and STUCK markers`, with
+`; fires list not configured` appended when no fires list is configured.
+Above the groups: `Fires with no site: {text}`, its text a count, an
+incomplete count or `no data: no fires list configured`; source
+`the fires list`.
+
+Conflicting priorities: `{points} points, backlog basis`; source
+`the panel's gap: backlog share against intended share, backlog basis`.
+With no gap the reason is `no intended share set`,
+`no open work across built sites` or
+`the built sites' intended shares sum to 0`, the first that applies.
+
+Neglected work: `last state change {date}`, `no state change in {n} weeks`,
+`no state change since history began {date}`,
+``uncommitted changes to `WBS.md` not counted``; source
+`WBS.md history in the planning repository`.
 
 ## The report panel
 

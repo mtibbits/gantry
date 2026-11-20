@@ -305,6 +305,8 @@ def test_two_days_byte_identical(two_days):
         assert ran.returncode == 0, stderr_of(ran)
         assert ran.stdout.decode("utf-8").splitlines()[-1] == f"samples/{config['output_dir']}"
     (_, first), (_, second) = runs
+    # The identity covers the thieves' row (#29): one neglected-work figure per built panel.
+    assert first["strategic.html"].count(b'data-figure="thief-neglect"') == len(first) - 4
     assert first and first == second
     devagent = tomllib.loads((clone / "samples" / "devagent" / "config.toml").read_bytes().decode("utf-8"))
     sites = set(devagent["project"]) - NOT_BUILT
