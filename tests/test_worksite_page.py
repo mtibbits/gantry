@@ -238,6 +238,9 @@ STRUCTURAL = {
     "lit", "ln", "mk-end", "mode-wave", "mono", "mt-h", "mt-m", "mt-row", "mt-rule", "mt-sw",
     "mt-v", "net", "nid", "nmeta", "node", "note", "ntitle", "outline", "panel", "plate", "prose",
     "seg", "sw", "tracing", "work", "wrap", "zero",
+    # The workflow phase row (#173).
+    "ph-svg", "ph-row", "ph-cell", "ph-box", "ph-mark", "ph-t", "ph-done", "ph-current", "ph-stuck", "ph-parked",
+    "ph-blocked", "ph-ahead", "ph-none", "ph-unknown",
     # The re-ported prototype figures (#10).
     "limits", "lim-label", "lim-val", "lim-note", "lim-axis", "bar-crit", "bar-open", "span", "summary",
     "mk-crit", "pmark",

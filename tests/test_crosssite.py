@@ -914,3 +914,7 @@ def test_rerender_keeps_rows(tmp_path, monkeypatch):
     (leaf,) = result.page_models["alpha"]["leaves"]
     assert (leaf["phases"], leaf["phases_why"]) == (["done", "current", "none", "none", "ahead"], None)
     assert not [line for line in result.page_models["alpha"]["panel"] if line.startswith("Phase rows")]
+    # The re-rendered page draws the row (B2).
+    page = result.pages["alpha"]
+    assert page.count('<g class="ph-cell ph-') == 5 + 8  # the row and the legend swatches
+    assert "phases: plan done; implement current; check, merge not in this workflow; wrap up ahead" in page

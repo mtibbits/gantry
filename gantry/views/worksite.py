@@ -700,7 +700,10 @@ VAL_CHAR_WIDTH = 7.8
 ARROW = " \u2192 "
 # The network's geometry, in SVG units: the label gutter, a column, a box, a
 # row, a lane's padding, the header and the model band.
-GUT, COLW, BW, BH, ROWH, PAD, TOP, BAND = 204, 170, 152, 66, 80, 14, 46, 17
+GUT, COLW, BW, BH, ROWH, PAD, TOP, BAND = 204, 170, 152, 78, 92, 14, 46, 17
+# The workflow phase row's top, below the box's top (#173): under the second
+# title line, above the model band; every box is this tall, row or not.
+PH_DY = 48
 # A box on another site (#68): its height, its row and its cuts. Each takes a
 # row of its own below its lane's leaf rows, in its waiting leaf's column.
 FBH, FROWH, FID_MAX, FTITLE_MAX = 36, 46, 22, 25
@@ -924,6 +927,10 @@ def _network_svg(m):
             out.append(f'<g class="dot-form"><circle class="{dot}" cx="{_n(cx)}" cy="{_n(cy)}" r="{_n(r)}"/>'
                        + _text("dot-l", cx, cy + r + 12, _cut(n, 14), "middle") + "</g>")
         out.append('<g class="full-form">')
+        if leaf["phases"] is not None:
+            # The full box's own tooltip states its row; the compact form keeps the node's.
+            row = phases.PhaseRow(tuple(leaf["phases"]), leaf["phases_why"])
+            out.append(f"<title>{esc(tip + DOT + leafbox.phase_text(row))}</title>")
         out.append(f'<rect class="box" x="{_n(x)}" y="{_n(yy)}" width="{BW}" height="{BH}" rx="3"/>')
         b = leafbox.box(n, leaf["priority"], leaf["title"], leaf["models"])
         out.append(_text("nid", x + 8, yy + 15, b.key))
@@ -931,6 +938,8 @@ def _network_svg(m):
         out.append(_text("nmeta", x + BW - 8, yy + 15, DOT.join(meta), "end"))
         for j, ln in enumerate(b.title_lines):
             out.append(_text("ntitle", x + 8, yy + 30 + j * 12.5, ln))
+        if leaf["phases"] is not None:
+            out += leafbox.phase_row(leaf["phases"], x + 8, yy + PH_DY)
         if b.band:
             by, half = yy + BH - BAND, BW / 2
             for k, (text, cls) in enumerate(b.band):
@@ -1176,6 +1185,21 @@ def render_page(site, data, *, default_unit_hours, inputs=None, stamp="", trace=
                         stamp=stamp)
 
 
+def _phase_legend():
+    """The phase row's legend (#173): what the row is, each look's cell and
+    word, and the build-machine limit. Not aria-hidden: the words carry it."""
+    items = [f"<span>{esc(leafbox.PHASE_LEGEND)}</span>"]
+    items += [f"<span>{leafbox.phase_swatch(look)}{esc(phases.LOOK_WORDS[look])}</span>" for look in phases.LOOKS]
+    items.append(f"<span>{esc(leafbox.PHASE_LIMIT)}</span>")
+    return Markup(f'<div class="legend">{"".join(items)}</div>')
+
+
+def _embedded(m):
+    """The page model the page embeds: each leaf's phase reason dropped, so the
+    data carries only look names (#173); the reason is in the box's tooltip."""
+    return {**m, "leaves": [{k: v for k, v in leaf.items() if k != "phases_why"} for leaf in m["leaves"]]}
+
+
 def render_model(m, *, stamp="") -> str:
     """The worksite page for a page_model result, as one HTML text; `stamp` is the build stamp, if any."""
     site = m["site"]
@@ -1202,6 +1226,8 @@ def render_model(m, *, stamp="") -> str:
     return fill(
         render.asset("templates/worksite.html"),
         LEAF_COLOURS=leafbox.colours(),
+        PHASE_CSS=leafbox.phases_css(),
+        PHASE_LEGEND=_phase_legend(),
         SITE=site,
         STAMP=render.stamp_html(stamp),
         STATUS=_note(status),
@@ -1239,7 +1265,7 @@ def render_model(m, *, stamp="") -> str:
         REQUIREMENTS=_requirements(m["trace"], m.get("req_links", ())),
         FOREIGN=_served_elsewhere(m["trace"]),
         TRACE=_trace_panel(m["trace"]),
-        DATA=embed_json(m),
+        DATA=embed_json(_embedded(m)),
         SCHEDULE_JS=_script("static/schedule.js"),
         PAGE_JS=_script("static/worksite.js"),
     )

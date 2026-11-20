@@ -1430,6 +1430,16 @@ def test_records_read_failure_keeps_every_page(tmp_path, monkeypatch, leg):
     before = {s.name: s.report_count for s in plain.summaries}
     assert counts == {**before, BUSY: before[BUSY] + 1}
     assert worksite.RECORDS_LINE.format(reason=reason) not in plain.page_models[BUSY]["panel"]
+    # The page (B2, #173): each issue leaf's full box states the reason in its tooltip.
+    from test_worksite_page import find, text_of, tree
+
+    t = tree((out / "sites" / f"{BUSY}.html").read_bytes().decode("utf-8"))
+    tips = [text_of(t, kids[0]) for i in find(t, "g", ["full-form"])
+            if (kids := [j for j, el in enumerate(t.elements) if el["parent"] == i])
+            and t.elements[kids[0]]["tag"] == "title"]
+    drawn = [leaf for leaf in with_issue if leaf["key"] in m["network"]["nodes"]]
+    assert len(tips) == len(drawn) >= 1
+    assert all(tip.endswith(f" \u00b7 phases unknown: devagent records not read: {reason}") for tip in tips)
 
 
 def test_page_model_records_switch():
