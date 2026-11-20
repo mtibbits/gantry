@@ -2,21 +2,26 @@
 
 A plain module, not a test module, imported as page_script.harness. It imports
 only the standard library and page_safety, and drives a Node child running
-driver.js, which loads a page into jsdom. See docs/page-safety.md for the
-protocol, the gate and the limits.
+driver.js, which loads a page into jsdom: from a file, or from a loopback URL
+(open_url), with or without a controlled clock (#63). See docs/page-safety.md
+for the protocol, the gate and the limits.
 """
 
 import atexit
 import json
+import math
 import os
 import queue
+import re
 import shutil
 import subprocess
 import tempfile
 import threading
 from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import NamedTuple
+from urllib.parse import urlsplit
 
 import page_safety
 
@@ -33,8 +38,13 @@ REPLY_TIMEOUT = 60
 # REPLY_TIMEOUT times the page, not the load.
 START_TIMEOUT = 120
 CLOSE_WAIT = 5
-# The driver's environment never takes these from ours.
-DROPPED_ENV = ("NODE_OPTIONS", "NODE_PATH")
+# The driver's environment never takes these from ours; NODE_USE_ENV_PROXY
+# would route Node's global agent through a proxy (#63).
+DROPPED_ENV = ("NODE_OPTIONS", "NODE_PATH", "NODE_USE_ENV_PROXY")
+# The URLs open_url opens, matched on the string as written: http on the
+# loopback address, never localhost (#63).
+LOOPBACK_URL = re.compile(r"http://(?:127\.0\.0\.1|\[::1\])(?::[0-9]{1,5})?(?:/[!-~]*)?")
+EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
 class PageScriptError(Exception):
@@ -50,6 +60,15 @@ class Element(NamedTuple):
     attrs: dict
     classes: list
     text: str
+
+
+class Request(NamedTuple):
+    """A request a clock page made; None where the call stated nothing."""
+
+    method: str | None
+    url: str | None
+    cache: str | None
+    api: str
 
 
 class Planted(NamedTuple):
@@ -110,6 +129,8 @@ class _Driver:
         if reason is not None:
             raise HarnessError(reason)
         env = {k: v for k, v in os.environ.items() if k not in DROPPED_ENV}
+        # One time zone on every machine; the locale is left alone (#63).
+        env["TZ"] = "UTC"
         self._stderr = tempfile.TemporaryFile()
         try:
             # node itself, never the npm shim.
@@ -213,8 +234,22 @@ class _Driver:
                 pass
 
 
+def _instant_ms(name, value):
+    """A timezone-aware datetime as whole milliseconds since the epoch."""
+    if not isinstance(value, datetime) or value.utcoffset() is None:
+        raise TypeError(f"{name}: the instant must be a timezone-aware datetime, not {value!r}")
+    return (value - EPOCH) // timedelta(milliseconds=1)
+
+
 class Page(_Driver):
-    """A page loaded into jsdom by open_page."""
+    """A page loaded into jsdom by open_page or open_url."""
+
+    # Whether the page was opened with a controlled clock.
+    _clock = False
+
+    def _need_clock(self, name):
+        if not self._clock:
+            raise HarnessError(f"{name}: the page was opened without a clock")
 
     def query(self, selector):
         """The elements matching a CSS selector, in document order."""
@@ -268,20 +303,98 @@ class Page(_Driver):
         _strings((name,), f"same({name!r}): the name must be a string")
         return self._request({"op": "same", "name": name})
 
+    def set_visible(self, visible):
+        """Show or hide the page; a change fires visibilitychange on the document."""
+        if not isinstance(visible, bool):
+            raise TypeError(f"set_visible({visible!r}): visible must be True or False")
+        self._request({"op": "set_visible", "visible": visible})
+
+    def advance(self, seconds):
+        """Move the clock forward and run every timer that falls due in the span."""
+        self._need_clock("advance")
+        if isinstance(seconds, bool) or not isinstance(seconds, (int, float)):
+            raise TypeError(f"advance({seconds!r}): seconds must be a number")
+        if not math.isfinite(seconds) or seconds < 0:
+            raise ValueError(f"advance({seconds!r}): seconds must be finite and not negative")
+        # Whole milliseconds.
+        self._request({"op": "advance", "ms": round(seconds * 1000)})
+
+    def set_clock(self, instant):
+        """Set the clock Date reads; no timer runs and performance.now() stays."""
+        self._need_clock("set_clock")
+        self._request({"op": "set_clock", "ms": _instant_ms("set_clock", instant)})
+
+    def set_status(self, code):
+        """The status the page's own HEAD is answered with; None makes it reject."""
+        self._need_clock("set_status")
+        if code is not None and (isinstance(code, bool) or not isinstance(code, int) or not 200 <= code <= 599):
+            raise ValueError(f"set_status({code!r}): the status must be None or an integer from 200 to 599")
+        self._request({"op": "set_status", "status": code})
+
+    def requests(self):
+        """Every request the page made, refused ones included, in order."""
+        self._need_clock("requests")
+        return [Request(r["method"], r["url"], r["cache"], r["api"]) for r in self._request({"op": "requests"})]
+
+    def reloads(self):
+        """How many times the page called location.reload() or history.go(0)."""
+        self._need_clock("reloads")
+        return self._request({"op": "reloads"})
+
 
 @contextmanager
-def open_page(path):
+def open_page(path, clock=None):
     """Load the page at path into jsdom, run its scripts, and yield a Page.
 
-    The page's script runs with this process's rights: open only pages
-    Gantry's own templates built.
+    With clock, a timezone-aware datetime, the page runs on a controlled
+    clock set to that instant. The page's script runs with this process's
+    rights: open only pages Gantry's own templates built.
     """
+    with _open("open_page", {"path": str(Path(path).resolve())}, clock) as page:
+        yield page
+
+
+@contextmanager
+def _open(name, source, clock):
+    """Open source, the open request's path or url field, and yield the Page."""
+    ms = None if clock is None else _instant_ms(name, clock)
     page = Page()
+    page._clock = ms is not None
     try:
-        page._request({"op": "open", "path": str(Path(path).resolve())})
+        page._request({"op": "open", **source, "clock": ms})
         yield page
     finally:
         page.stop()
+
+
+def _loopback(url):
+    """Whether open_url opens url: LOOPBACK_URL, and a port of at most 65535."""
+    if LOOPBACK_URL.fullmatch(url) is None:
+        return False
+    try:
+        urlsplit(url).port
+    except ValueError:
+        return False
+    return True
+
+
+@contextmanager
+def open_url(url, clock=None):
+    """Fetch the page at a loopback http:// URL with GET, load it into jsdom, and yield a Page.
+
+    Only http:// on 127.0.0.1 or [::1] (never localhost) with a port of at
+    most 65535 is opened, through no proxy; a non-2xx answer or no answer
+    raises HarnessError, on open and on reload. The URL is the page's own
+    URL, and clock is as for open_page. open_url runs whatever answers on
+    the loopback port, with this process's rights, so it is only for pages
+    a test serves itself.
+    """
+    if not isinstance(url, str):
+        raise TypeError(f"open_url({url!r}): the URL must be a string")
+    if not _loopback(url):
+        raise HarnessError(f"open_url({url!r}): only an http:// URL on 127.0.0.1 or [::1] is opened")
+    with _open("open_url", {"url": url}, clock) as page:
+        yield page
 
 
 # --- the shared driver --------------------------------------------------------------
