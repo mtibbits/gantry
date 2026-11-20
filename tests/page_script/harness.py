@@ -55,6 +55,15 @@ class Element(NamedTuple):
     text: str
 
 
+class Request(NamedTuple):
+    """A request a clock page made; None where the call stated nothing."""
+
+    method: str | None
+    url: str | None
+    cache: str | None
+    api: str
+
+
 class Planted(NamedTuple):
     created: list
     violations: list
@@ -311,12 +320,14 @@ class Page(_Driver):
     def set_status(self, code):
         """The status the page's own HEAD is answered with; None makes it reject."""
         self._need_clock("set_status")
+        if code is not None and (isinstance(code, bool) or not isinstance(code, int) or not 200 <= code <= 599):
+            raise ValueError(f"set_status({code!r}): the status must be None or an integer from 200 to 599")
         self._request({"op": "set_status", "status": code})
 
     def requests(self):
         """Every request the page made, refused ones included, in order."""
         self._need_clock("requests")
-        return self._request({"op": "requests"})
+        return [Request(r["method"], r["url"], r["cache"], r["api"]) for r in self._request({"op": "requests"})]
 
     def reloads(self):
         """How many times the page called location.reload()."""

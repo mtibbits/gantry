@@ -69,6 +69,55 @@ function installClock(page, window) {
   window.clearInterval = clear;
 }
 
+// --- requests on a clock page (#63) -----------------------------------------------
+
+// A request URL resolved by the page's own URL parser against location.href,
+// without its fragment; an unparsable one is kept as written.
+function resolveURL(window, url) {
+  try {
+    const u = new window.URL(String(url), window.location.href);
+    u.hash = "";
+    return u.href;
+  } catch (e) {
+    return String(url);
+  }
+}
+
+// The page's own HEAD is answered from page.status; every other request is
+// logged, recorded as a refusal the step's end raises even when the page
+// catches it, and thrown into the page.
+function installNetwork(page, window, errors) {
+  const refuse = (entry, message) => {
+    page.requests.push(entry);
+    errors.push({ type: "refused", message });
+    throw new window.Error(message);
+  };
+  window.fetch = function (input, init) {
+    const options = init === undefined || init === null ? {} : init;
+    const method = String(options.method === undefined ? "GET" : options.method).toUpperCase();
+    const url = resolveURL(window, input);
+    const entry = { method, url, cache: options.cache === undefined ? "default" : String(options.cache), api: "fetch" };
+    if (method !== "HEAD" || url !== page.ownURL) {
+      refuse(entry, "the page-script harness loads no subresource: fetch " + method + " " + url);
+    }
+    page.requests.push(entry);
+    if (page.status === null) return window.Promise.reject(new window.TypeError("Failed to fetch"));
+    // A page-realm object with these three own keys only; a 3xx is answered,
+    // not followed.
+    const response = new window.Object();
+    response.status = page.status;
+    response.ok = page.status >= 200 && page.status <= 299;
+    response.statusText = "";
+    return window.Promise.resolve(response);
+  };
+  for (const name of ["XMLHttpRequest", "WebSocket", "EventSource"]) {
+    window[name] = function (url) {
+      const entry = { method: null, url: name === "XMLHttpRequest" ? null : resolveURL(window, url), cache: null, api: name };
+      refuse(entry, "the page-script harness loads no subresource: " + name);
+    };
+  }
+}
+
 function moveTo(time, at) {
   time.wall += at - time.span;
   time.span = at;
@@ -134,7 +183,12 @@ function beforeParse(page, window) {
   Object.defineProperty(window.document, "visibilityState", {
     get: () => (page.visible ? "visible" : "hidden"), configurable: true,
   });
-  if (page.time !== null) installClock(page, window);
+  if (page.time !== null) {
+    // The own URL is the URL opened, without its fragment, fixed at open.
+    if (page.ownURL === null) page.ownURL = resolveURL(window, page.url);
+    installClock(page, window);
+    installNetwork(page, window, page.errors);
+  }
 }
 
 function settle() {
@@ -168,6 +222,7 @@ function drain(errors) {
     if (e.type === "unhandled-exception" || e.type === "unhandled-rejection") {
       throw new PageError("page script error: " + (e.cause === undefined ? e.message : describe(e.cause)));
     }
+    if (e.type === "refused") throw new PageError(e.message);
     if (e.type === "not-implemented") {
       throw new PageError("page used something jsdom does not implement: " + e.message);
     }
@@ -222,6 +277,10 @@ async function load(source, clock) {
     remembered: new Map(),
     visible: true,
     time: clock === null ? null : makeTime(clock),
+    // Clock pages only: the own URL, the HEAD answer and the request log.
+    ownURL: null,
+    status: null,
+    requests: [],
   };
   try {
     await build(page, fs.readFileSync(source.path, "utf8"));
@@ -617,6 +676,11 @@ async function handle(request, state) {
     case "set_visible":
       await setVisible(needPage(state), request.visible);
       return null;
+    case "set_status":
+      needClock(state, "set_status").status = request.status;
+      return null;
+    case "requests":
+      return needClock(state, "requests").requests;
     case "set_clock":
       needClock(state, "set_clock").time.wall = request.ms;
       return null;

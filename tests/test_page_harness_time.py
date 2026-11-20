@@ -332,3 +332,96 @@ def test_visibility_negative_control(node, tmp_path, listener, shown):
         assert text(page, "#state") == shown
         page.advance(0)
         assert text(page, "#state") == "stale"
+
+
+# --- the own HEAD and the request log -----------------------------------------------
+
+
+OUT = 'function out(x) { document.getElementById("out").textContent = String(x); }'
+ANSWER = ('function (r) { out(r.status + ":" + r.ok + ":" + r.statusText + ":" + Object.keys(r).sort().join("+")); }, '
+          'function (e) { out(e.name + ":" + (e instanceof TypeError)); }')
+OWN_HEAD = 'fetch(location.href, {method: "HEAD", cache: "no-store"})'
+
+
+def test_own_head_answered(node, tmp_path):
+    script = OUT + "\nsetInterval(function () { " + OWN_HEAD + ".then(" + ANSWER + "); }, 60000);"
+    settings = ["none", 200, 301, 304, 404, 502, 503, None]
+    expected = ["TypeError:true", "200:true::ok+status+statusText"]
+    expected += [f"{code}:false::ok+status+statusText" for code in (301, 304, 404, 502, 503)]
+    expected += ["TypeError:true"]
+    with open_page(make_page(tmp_path, '<p id="out"></p>', script), clock=T0) as page:
+        own = text(page, "#href")
+        got = []
+        for setting in settings:
+            if setting != "none":
+                page.set_status(setting)
+            page.advance(60)
+            got.append(text(page, "#out"))
+        assert got == expected
+        assert page.requests() == [harness.Request("HEAD", own, "no-store", "fetch")] * 8
+
+
+MATCHING = [
+    ("frag", 'fetch(location.href + "#x", {method: "head"})'),
+    ("rel", 'fetch("page.html", {method: "HEAD"})'),
+    ("query", 'fetch(location.href + "?v=1", {method: "HEAD"})'),
+    ("own", 'fetch(location.href, {method: "HEAD"})'),
+]
+
+
+def test_own_head_matching(node, tmp_path):
+    script = "\n".join([OUT] + [
+        on_click(name, 'out(""); try { ' + call + ".then(" + ANSWER + '); } catch (e) { out("caught"); }')
+        for name, call in MATCHING
+    ])
+    body = '<p id="out"></p>' + buttons(*[m[0] for m in MATCHING])
+    with open_page(make_page(tmp_path, body, script), clock=T0) as page:
+        own = text(page, "#href")
+        page.set_status(200)
+        for name in ("frag", "rel"):
+            page.drive(name, "now")
+            assert text(page, "#out") == "200:true::ok+status+statusText", name
+            assert page.requests()[-1] == harness.Request("HEAD", own, "default", "fetch"), name
+        with pytest.raises(PageScriptError, match=r"loads no subresource: fetch HEAD .*page\.html\?v=1"):
+            page.drive("query", "now")
+        page.drive("own", "now")
+        assert text(page, "#out") == "200:true::ok+status+statusText"
+
+
+@pytest.mark.parametrize("code", [199, 600, "200", 200.0, True], ids=["199", "600", "str", "float", "bool"])
+def test_set_status_rejects(node, tmp_path, monkeypatch, code):
+    with open_page(make_page(tmp_path), clock=T0) as page:
+        sent = []
+        monkeypatch.setattr(page, "_request", sent.append)
+        with pytest.raises(ValueError, match="the status must be None or an integer from 200 to 599"):
+            page.set_status(code)
+    assert sent == []
+
+
+# (id, call, match, method, url check, cache, api); the url check takes the own URL.
+REFUSED = [
+    ("own_get", "fetch(location.href)", "loads no subresource: fetch GET ",
+     "GET", lambda url, own: url == own, "default", "fetch"),
+    ("other_head", 'fetch("other.html", {method: "HEAD"})', "loads no subresource: fetch HEAD .*other.html",
+     "HEAD", lambda url, own: url.endswith("/other.html"), "default", "fetch"),
+    ("xhr", "new XMLHttpRequest()", "loads no subresource: XMLHttpRequest",
+     None, lambda url, own: url is None, None, "XMLHttpRequest"),
+    ("websocket", 'new WebSocket("ws://127.0.0.1:9/socket")', "loads no subresource: WebSocket",
+     None, lambda url, own: url == "ws://127.0.0.1:9/socket", None, "WebSocket"),
+    ("eventsource", 'new EventSource("events")', "loads no subresource: EventSource",
+     None, lambda url, own: url.endswith("/events"), None, "EventSource"),
+]
+
+
+@pytest.mark.parametrize("call,pattern,method,url_ok,cache,api", [c[1:] for c in REFUSED], ids=[c[0] for c in REFUSED])
+def test_other_requests_refused(node, tmp_path, call, pattern, method, url_ok, cache, api):
+    script = OUT + "\n" + on_click("go", "try { " + call + '; } catch (e) { out("caught"); }') + "\n" + on_click("noop", "")
+    with open_page(make_page(tmp_path, '<p id="out"></p>' + buttons("go", "noop"), script), clock=T0) as page:
+        own = text(page, "#href")
+        with pytest.raises(PageScriptError, match=pattern):
+            page.drive("go", "now")
+        assert text(page, "#out") == "caught"
+        last = page.requests()[-1]
+        assert (last.method, last.cache, last.api) == (method, cache, api)
+        assert url_ok(last.url, own), last.url
+        page.drive("noop", "now")
