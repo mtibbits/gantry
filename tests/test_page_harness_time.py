@@ -630,6 +630,8 @@ NAVIGATIONS = [
     ("same_fragment", 'location.hash = "#a";', "location.href = location.href;"),
     ("link_other", "", 'var a = document.createElement("a"); a.href = "other.html"; document.body.appendChild(a); a.click();'),
     ("link_self", "", 'var a = document.createElement("a"); a.href = location.href; document.body.appendChild(a); a.click();'),
+    ("href_data", "", 'location.href = "data:text/html,x#a";'),
+    ("href_vbscript", "", 'location.href = "vbscript:x";'),
 ]
 
 

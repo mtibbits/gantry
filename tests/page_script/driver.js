@@ -32,10 +32,14 @@ navigation.navigate = function (window, newURL, flags) {
     page.pendingReload = true;
     return undefined;
   }
-  if (newURL.scheme === "javascript") return jsdomNavigate.apply(this, arguments);
-  // A change of fragment alone, to a fragment that is there and differs.
+  const scheme = newURL.scheme;
+  if (scheme === "javascript") return jsdomNavigate.apply(this, arguments);
+  // A change of fragment alone, to a fragment that is there and differs. data:
+  // and vbscript: load a new document, so they go straight to the refusal;
+  // naming them keeps the scheme test whole (CodeQL js/incomplete-url-scheme-check).
   const current = window._document._URL;
-  if (newURL.fragment !== null && newURL.fragment !== current.fragment &&
+  if (scheme !== "data" && scheme !== "vbscript" &&
+      newURL.fragment !== null && newURL.fragment !== current.fragment &&
       serializeURL(newURL, true) === serializeURL(current, true)) {
     return jsdomNavigate.apply(this, arguments);
   }
