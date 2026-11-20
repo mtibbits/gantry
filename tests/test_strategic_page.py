@@ -568,7 +568,8 @@ def constructed_page(tmp_path, monkeypatch):
     statuses += [SourceStatus(s, name, "read", None) for name in model.panels for s in ("p0_leaf", "stuck")]
     fires = FireReport((Fire(("p0_leaf", "stuck"), ("a", "b"), site=BUSY), Fire(("fires_list",), ("x",)),
                         Fire(("fires_list",), ("y",))), tuple(statuses))
-    by_site = thieves.derive_thieves(result, model, result.portfolio, fires, records, history, model.as_of)
+    by_site = thieves.derive_thieves(result, model, thieves.thresholds(result.portfolio), fires, records, history,
+                                     model.as_of)
     model = thieves.attach(model, by_site, thieves.fires_without_site(fires))
     return render_strategic(result, model), model
 
@@ -692,7 +693,7 @@ def test_strategic_hostile_thieves(tmp_path, monkeypatch):
     def answer(roots, site, config, as_of, weeks, cache):
         if site.name in reasons:
             no_data = wbs_history.NoData(reasons[site.name])
-            return wbs_history._no_data_result(no_data, no_data)
+            return wbs_history.no_data_result(no_data, no_data)
         return real(roots, site, config, as_of, weeks, cache)
 
     def collect(result, config, fires_list, records, reference):

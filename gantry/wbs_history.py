@@ -19,7 +19,7 @@ import posixpath
 import re
 import stat
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import PurePath, PureWindowsPath
 
@@ -48,6 +48,7 @@ class NoData:
     """git could not answer, and why."""
 
     reason: str
+    git: bool = field(default=False, compare=False)  # git itself failed or was not found
 
     @property
     def text(self) -> str:
@@ -294,17 +295,17 @@ def run_git(args, *, cwd, ceiling):
     _check_args(args)
     env = git_env(ceiling)
     if not program_on_path("git", env):
-        return NoData(GIT_NOT_FOUND)
+        return NoData(GIT_NOT_FOUND, git=True)
     try:
         return subprocess.run(["git", *args], cwd=str(cwd), env=env, stdin=subprocess.DEVNULL,
                               capture_output=True, timeout=GIT_TIMEOUT)
     except subprocess.TimeoutExpired:
-        return NoData(GIT_FAILED.format(message="timed out"))
+        return NoData(GIT_FAILED.format(message="timed out"), git=True)
     except OSError as e:
-        return NoData(GIT_FAILED.format(message=e.strerror or type(e).__name__))
+        return NoData(GIT_FAILED.format(message=e.strerror or type(e).__name__), git=True)
     except ValueError as e:
         # An argument git cannot be given, such as one holding a NUL.
-        return NoData(GIT_FAILED.format(message=str(e)))
+        return NoData(GIT_FAILED.format(message=str(e)), git=True)
 
 
 # An absolute path in git's message: quoted (kept quoted), or bare, which
@@ -337,7 +338,7 @@ def _first_line(data: bytes) -> str:
 def _failed(ran, known, site) -> NoData:
     line = _first_line(ran.stderr)
     message = clean(line, known, site) if line else f"exit {ran.returncode}"
-    return NoData(GIT_FAILED.format(message=message))
+    return NoData(GIT_FAILED.format(message=message), git=True)
 
 
 def _out(ran) -> str:
@@ -511,7 +512,7 @@ def _read_chain(repo, head: str, path: str):
             day = date.fromisoformat(when.strip()[:10])
         except ValueError:
             # git prints no date for a commit whose committer date it cannot parse.
-            return NoData(GIT_FAILED.format(message=f"commit {parts[0][:12]} has no readable date"))
+            return NoData(GIT_FAILED.format(message=f"commit {parts[0][:12]} has no readable date"), git=True)
         chain.append((parts[0], parts[1] if len(parts) > 1 else None, day))
     return chain
 
@@ -578,7 +579,8 @@ def _walk(repo, as_of, weeks, cache):
     return (latest, False), read
 
 
-def _no_data_result(no_data, repo, read=0) -> HistoryResult:
+def no_data_result(no_data, repo, read=0) -> HistoryResult:
+    """A HistoryResult that is `no_data` throughout."""
     return HistoryResult(None, False, read, None, no_data.text, repo, no_data)
 
 
@@ -588,13 +590,13 @@ def last_state_change(roots, site, config, as_of, weeks, cache) -> HistoryResult
     (a sites.SiteEntry); never raises. The time thieves (#29) read it."""
     path, key = history_dir(site, config)
     if path is None:
-        return _no_data_result(NoData(NO_PLANNING_DIR), NoData(NO_PLANNING_DIR))
+        return no_data_result(NoData(NO_PLANNING_DIR), NoData(NO_PLANNING_DIR))
     repo = history_repository(roots, path, gantry_root(), key=key, site=site.name)
     if isinstance(repo, NoData):
-        return _no_data_result(repo, repo)
+        return no_data_result(repo, repo)
     walked, read = _walk(repo, as_of, weeks, cache)
     if isinstance(walked, NoData):
-        return _no_data_result(walked, repo, read)
+        return no_data_result(walked, repo, read)
     day, history_start = walked
     uncommitted, reason = _uncommitted(roots, site, repo, cache)
     return HistoryResult(day, history_start, read, uncommitted, reason, repo, None)
@@ -667,7 +669,7 @@ def committed_paths(repo, name):
     ran = _checked(repo, _git(repo, ["ls-tree", "-r", "--name-only", "-z", "HEAD", "--", repo.prefix or "."]))
     if isinstance(ran, NoData):
         return ran
-    lead = f"{repo.prefix}/" if repo.prefix else ""
+    lead = _repo_path(repo, "")
     found = set()
     for path in _out(ran).split("\0"):
         if not path.startswith(lead):

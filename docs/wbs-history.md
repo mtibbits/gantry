@@ -247,6 +247,10 @@ Each reason, as the result's text gives it (`no data: <reason>`):
 - `git failed: <first line of git's message>`: any other git call failed,
   with every absolute path in the message replaced by the site's name.
 
+A `NoData` for `git not found` or `git failed` carries `git=True` (not part of
+its equality), so a caller tells git's own failure from the others without
+reading the reason text.
+
 The uncommitted check alone can also read ``cannot check the working-tree
 `WBS.md`: <reason>``, or the roots refusal for the working-tree file. No case
 raises.

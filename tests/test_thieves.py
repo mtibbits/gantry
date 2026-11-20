@@ -5,7 +5,7 @@ tests/test_build.py."""
 import ast
 import dataclasses
 import os
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path, PurePath
 from types import SimpleNamespace
 
@@ -94,7 +94,7 @@ def planning_repo(tmp_path, committed):
 def derive(data, *, hist, records=None, fires=None, portfolio=None, foreign=None, gap=None, gap_reason=None):
     """The one site's Thieves."""
     got = thieves.derive_thieves(result_of({SITE: data}, foreign), model_of(panel(gap=gap, gap_reason=gap_reason)),
-                                 portfolio, fires if fires is not None else all_read(SITE),
+                                 thieves.thresholds(portfolio), fires if fires is not None else all_read(SITE),
                                  {SITE: records if records is not None else local({})}, {SITE: hist}, AS_OF)
     return got[SITE]
 
@@ -192,7 +192,7 @@ def test_wip_absent_checklist_is_per_leaf(tmp_path, git_ready):
 
 
 def test_wip_committed_no_data():
-    failed = NoData(GIT_FAILED.format(message="boom"))
+    failed = NoData(GIT_FAILED.format(message="boom"), git=True)
     wip = derive(leaves(("~", "Issue-1"), (" ", "Issue-2"), ("~", "Issue-3")), hist=history(failed),
                  records=local({"Issue-1": PARKED, "Issue-2": PROGRESS})).wip
     assert wip.value == 2  # Issue-1 and Issue-3 counted; nothing subtracted, the pending one not counted
@@ -259,7 +259,7 @@ def test_wip_committed_paths_no_data(monkeypatch):
 
 def test_wip_history_failure_skips_committed_reads(monkeypatch):
     calls = spy_reads(monkeypatch, frozenset(), {})
-    failed = NoData(GIT_FAILED.format(message="timed out"))
+    failed = NoData(GIT_FAILED.format(message="timed out"), git=True)
     wip = derive(leaves(("~", "Issue-1")), hist=history(FAKE_REPO, no_data=failed)).wip
     assert calls == {"paths": [], "text": []}
     assert texts(wip)[0] == "parked, not counted: no data: git failed: timed out"
@@ -315,8 +315,8 @@ def test_uncommitted_labels():
 
 
 def test_missing_history_and_records_fail_closed(monkeypatch):
-    got = thieves.derive_thieves(result_of({SITE: leaves(("~", "Issue-1"))}), model_of(panel()), None,
-                                 all_read(SITE), {}, {}, AS_OF)[SITE]
+    got = thieves.derive_thieves(result_of({SITE: leaves(("~", "Issue-1"))}), model_of(panel()),
+                                 thieves.thresholds(None), all_read(SITE), {}, {}, AS_OF)[SITE]
     assert got.neglect.text == "no data: history not read for this site" and got.neglect.flagged is False
     assert got.wip.label == thieves.NOT_CHECKED.format(reason=thieves.HISTORY_NOT_READ)
     assert machine_parts(got.wip)[0].endswith(": checklists here not read: records not read")
@@ -402,7 +402,7 @@ def test_unplanned_counts_every_fire():
                     fire("fires_list", site=None)])
     unplanned = derive(leaves(), hist=history(), fires=fires).unplanned
     assert (unplanned.value, unplanned.text, unplanned.flagged, unplanned.threshold) == (2, "2", True, 0)
-    assert machine_parts(unplanned) == ["as seen by this build machine: 1 from STUCK markers"]
+    assert machine_parts(unplanned) == [MACHINE + "1 from STUCK markers"]
     assert unplanned.source == thieves.SOURCE_UNPLANNED
 
 
@@ -419,7 +419,8 @@ def test_unplanned_incomplete():
     assert got.text == "incomplete: fires list, STUCK markers not read"
     other = FireReport((), (SourceStatus("p0_leaf", "beta", "not_read", "r"),) + report().sources)
     assert derive(leaves(), hist=history(), fires=other).unplanned.text == "0"
-    got = thieves.derive_thieves(result_of({SITE: leaves()}), model_of(panel()), None, None, {SITE: local({})},
+    got = thieves.derive_thieves(result_of({SITE: leaves()}), model_of(panel()), thieves.thresholds(None), None,
+                                 {SITE: local({})},
                                  {SITE: history()}, AS_OF)[SITE].unplanned
     assert (got.text, got.value) == ("incomplete: fires step not read", None)
 
@@ -441,10 +442,10 @@ def test_unplanned_rules_every_status():
 
 def test_unplanned_stuck_source_not_read():
     got = derive(leaves(), hist=history(), fires=report([fire("p0_leaf")], stuck="not_read")).unplanned
-    assert machine_parts(got) == ["as seen by this build machine: STUCK markers not read"]
+    assert machine_parts(got) == [MACHINE + "STUCK markers not read"]
     assert not any("from STUCK markers" in t for t in texts(got))
     got = derive(leaves(), hist=history(), fires=report()).unplanned
-    assert machine_parts(got) == ["as seen by this build machine: 0 from STUCK markers"]
+    assert machine_parts(got) == [MACHINE + "0 from STUCK markers"]
 
 
 def test_fires_without_site():
@@ -495,8 +496,6 @@ def neglect(day, *, start=False, weeks=None):
 
 
 def test_neglect_window_boundary():
-    from datetime import timedelta
-
     day = AS_OF - timedelta(days=27)
     got = neglect(day)
     assert (got.text, got.flagged, got.value, got.threshold) == (f"last state change {day.isoformat()}", False, day, 4)
@@ -512,8 +511,6 @@ def test_neglect_no_change():
 
 
 def test_neglect_history_start():
-    from datetime import timedelta
-
     day = AS_OF - timedelta(days=10)
     got = neglect(day, start=True)
     assert (got.text, got.flagged) == (f"no state change since history began {day.isoformat()}", False)
@@ -539,8 +536,6 @@ def test_thresholds_from_portfolio_file():
                                              "neglect": 1}
     assert thieves.thresholds(None) == {kind: DEFAULTS[f"thresholds.{key}"]
                                         for kind, key in thieves.THRESHOLD_KEYS.items()}
-    from datetime import timedelta
-
     data = hp.site(hp.node("A", glyph="~", issue="Issue-1", depends_on="nope"))
     hist = history(day=AS_OF - timedelta(days=10))
     fires = report([fire("p0_leaf")])
@@ -566,12 +561,13 @@ def test_failing_site_is_isolated(monkeypatch):
 
     monkeypatch.setattr(thieves, "wip_thief", wip)
     result = result_of({"alpha": leaves(("~", "Issue-1")), "beta": hp.site()})
-    got = thieves.derive_thieves(result, model_of(panel("alpha"), panel("beta")), None, all_read("alpha", "beta"),
-                                 {}, {}, AS_OF)
+    got = thieves.derive_thieves(result, model_of(panel("alpha"), panel("beta")), thieves.thresholds(None),
+                                 all_read("alpha", "beta"), {}, {}, AS_OF)
     for kind in thieves.KINDS:
         thief = getattr(got["beta"], kind)
         assert (thief.text, thief.flagged) == ("no data: thieves not derived: RuntimeError", False), kind
         assert thief.source
+    assert (got["beta"].failed, got["alpha"].failed) == ("RuntimeError", None)
     assert got["alpha"].wip.value == 1
 
 
@@ -579,7 +575,8 @@ def test_attach_repoints_headline():
     alpha, beta = panel("alpha", gap=20.0), panel("beta", gap=5.0)
     model = model_of(alpha, beta, headline=alpha)
     result = result_of({"alpha": leaves(), "beta": leaves()})
-    by_site = thieves.derive_thieves(result, model, None, all_read("alpha", "beta"), {}, {}, AS_OF)
+    by_site = thieves.derive_thieves(result, model, thieves.thresholds(None), all_read("alpha", "beta"), {}, {},
+                                    AS_OF)
     no_site = thieves.fires_without_site(all_read())
     attached = thieves.attach(model, by_site, no_site)
     assert attached.headline is attached.panels["alpha"]

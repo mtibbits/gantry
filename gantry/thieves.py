@@ -41,6 +41,8 @@ FLAGGED, NOT_FLAGGED = "flagged", "not flagged"
 THRESHOLD_ABOVE = "flagged above {n}"            # wip, unknown_deps, unplanned
 THRESHOLD_POINTS = "flagged above {n} points"    # priorities
 THRESHOLD_WEEKS = "flagged at {n} weeks or more"  # neglect
+THRESHOLD_TEXTS = {"wip": THRESHOLD_ABOVE, "unknown_deps": THRESHOLD_ABOVE, "unplanned": THRESHOLD_ABOVE,
+                   "priorities": THRESHOLD_POINTS, "neglect": THRESHOLD_WEEKS}
 THIEVES_FAILED = "thieves not derived: {type}"
 HISTORY_NOT_READ = "history not read for this site"
 # WIP
@@ -134,6 +136,7 @@ class Thieves:
     priorities: Thief
     neglect: Thief
     uncommitted: bool | None = None  # the site's working-tree WBS.md against HEAD; None: not checked
+    failed: str | None = None  # the exception type name when the derivation raised (D8)
 
 
 def thresholds(portfolio) -> dict[str, int | float]:
@@ -175,10 +178,6 @@ def _valid_issue(issue) -> bool:
     return issue is not None and ID_TOKEN_RE.fullmatch(issue) is not None
 
 
-def _git_failed(reason) -> bool:
-    return reason == wbs_history.GIT_NOT_FOUND or reason.startswith(wbs_history.GIT_FAILED.split("{")[0])
-
-
 class _Unchecked(Exception):
     """A committed read gave no data: the whole site is unchecked (D6)."""
 
@@ -196,15 +195,13 @@ def _committed_states(history, issues):
     git call (one failure per site, not two)."""
     if isinstance(history.repo, wbs_history.NoData):
         raise _Unchecked(history.repo.reason)
-    if history.no_data is not None and _git_failed(history.no_data.reason):
+    if history.no_data is not None and history.no_data.git:
         raise _Unchecked(history.no_data.reason)
     listed = wbs_history.committed_paths(history.repo, CHECKLIST_FILE)
     if isinstance(listed, wbs_history.NoData):
         raise _Unchecked(listed.reason)
     out = {}
-    for issue in issues:
-        if issue in out:
-            continue
+    for issue in dict.fromkeys(issues):
         path = f"{issue}/{CHECKLIST_FILE}"
         if path not in listed:
             out[issue] = None
@@ -257,22 +254,17 @@ def wip_thief(data, history, records, threshold) -> Thief:
     except _Unchecked as e:
         committed, checked, reason = {}, False, e.reason
 
-    def at_head(leaf):
-        return committed.get(leaf.issue) if _valid_issue(leaf.issue) else None
-
-    def here(leaf):
-        return _local(records, leaf.issue) if _valid_issue(leaf.issue) else (None, False)
-
     if checked:
-        candidates = [leaf for leaf in open_leaves
-                      if leaf.glyph in STARTED_GLYPHS
-                      or (leaf.glyph == PENDING and at_head(leaf) is not None and at_head(leaf).shows_progress)]
-        parked = [leaf for leaf in candidates if at_head(leaf) is not None and at_head(leaf).parked]
-        counted = [leaf for leaf in candidates if leaf not in parked]
+        parked, counted, rest = [], [], []
+        for leaf in open_leaves:
+            head = committed.get(leaf.issue)  # only valid issues are keys
+            if leaf.glyph in STARTED_GLYPHS or (leaf.glyph == PENDING and head is not None and head.shows_progress):
+                (parked if head is not None and head.parked else counted).append(leaf)
+            elif leaf.glyph == PENDING:
+                rest.append(leaf)
         started_n = sum(leaf.glyph == PENDING for leaf in counted)
         parts = [Part(WIP_PARKED.format(n=len(parked))), Part(WIP_STARTED.format(n=started_n))]
         counts = (("parked", len(parked)), ("started", started_n))
-        rest = [leaf for leaf in pending if leaf not in candidates]
         prefix, here_parked, here_started, none_text = MACHINE, HERE_PARKED, HERE_STARTED, None
     else:
         counted = started
@@ -282,18 +274,18 @@ def wip_thief(data, history, records, threshold) -> Thief:
         prefix = NOT_CHECKED.format(reason=reason)
         here_parked, here_started, none_text = HERE_PARKED_UNCHECKED, HERE_STARTED_UNCHECKED, HERE_NONE
 
+    counted_ids, rest_ids = {id(leaf) for leaf in counted}, {id(leaf) for leaf in rest}
     parked_here, started_here, unreadable = [], [], []
-    for leaf in data.leaves:
-        if leaf in counted:
-            state, bad = here(leaf)
+    for leaf in open_leaves:
+        in_counted = id(leaf) in counted_ids
+        if not in_counted and id(leaf) not in rest_ids:
+            continue
+        state, bad = _local(records, leaf.issue) if _valid_issue(leaf.issue) else (None, False)
+        if in_counted:
             if state is not None and state.parked:
                 parked_here.append(leaf.issue)
-        elif leaf in rest:
-            state, bad = here(leaf)
-            if state is not None and state.shows_progress and not state.parked:
-                started_here.append(leaf.issue)
-        else:
-            continue
+        elif state is not None and state.shows_progress and not state.parked:
+            started_here.append(leaf.issue)
         if bad:
             unreadable.append(leaf.issue)
     pieces = _pieces(((here_parked, parked_here), (here_started, started_here), (HERE_UNREADABLE, unreadable)))
@@ -419,11 +411,6 @@ def priorities_thief(panel, threshold) -> Thief:
 # --- every site --------------------------------------------------------------------------------
 
 
-def _missing_history() -> wbs_history.HistoryResult:
-    no_data = wbs_history.NoData(HISTORY_NOT_READ)
-    return wbs_history.HistoryResult(None, False, 0, None, no_data.text, no_data, no_data)
-
-
 SOURCES = {"wip": SOURCE_WIP, "unknown_deps": SOURCE_DEPS, "unplanned": SOURCE_UNPLANNED,
            "priorities": SOURCE_PRIORITIES, "neglect": SOURCE_NEGLECT}
 
@@ -442,25 +429,22 @@ def derive_site(name, result, panel, limits, fires, records, history, as_of) -> 
 
 def failed_site(e: Exception, limits) -> Thieves:
     """Five no-data thieves for a site whose derivation raised (D8)."""
-    reason = THIEVES_FAILED.format(type=type(e).__name__)
-    return Thieves(*(no_data_thief(kind, reason, limits[kind], SOURCES[kind]) for kind in KINDS))
+    name = type(e).__name__
+    reason = THIEVES_FAILED.format(type=name)
+    return Thieves(*(no_data_thief(kind, reason, limits[kind], SOURCES[kind]) for kind in KINDS), failed=name)
 
 
-def failed(thieves) -> bool:
-    """Whether a site's thieves are the failed-derivation ones."""
-    return thieves.wip.no_data is not None and thieves.wip.no_data.startswith(THIEVES_FAILED.split("{")[0])
-
-
-def derive_thieves(result, model, portfolio, fires, records, history, as_of) -> dict[str, "Thieves"]:
-    """{built site: Thieves}, in the model's panel order. A site missing from
-    `history` or `records` reads as not read (fail closed)."""
-    limits = thresholds(portfolio)
+def derive_thieves(result, model, limits, fires, records, history, as_of) -> dict[str, "Thieves"]:
+    """{built site: Thieves}, in the model's panel order, against `limits`
+    (thresholds()). A site missing from `history` or `records` reads as not
+    read (fail closed)."""
+    missing = wbs_history.NoData(HISTORY_NOT_READ)
     out = {}
     for name, panel in model.panels.items():
         if not panel.built:
             continue
         try:
-            site_history = history.get(name) or _missing_history()
+            site_history = history.get(name) or wbs_history.no_data_result(missing, missing)
             out[name] = derive_site(name, result, panel, limits, fires, records.get(name), site_history, as_of)
         except Exception as e:  # one site's fault never fails the page (D8)
             out[name] = failed_site(e, limits)

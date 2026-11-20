@@ -495,12 +495,11 @@ def write_all(result):
         if path is not None:
             written.append(path)
             view_links.append(week.LINK)
-    slots, strategic_error = _write_strategic(result, roots, out)
+    slots, thieves_failed, strategic_error = _write_strategic(result, roots, out)
     if strategic_error is None:
         written.append(out / views_strategic.STRATEGIC_FILE)
-    result = replace(result, strategic_error=strategic_error)
+    result = replace(result, strategic_error=strategic_error, thieves_failed=thieves_failed)
     view_links += slots.pop("view_links", [])
-    result = replace(result, thieves_failed=slots.pop("thieves_failed", {}))
     try:
         write_page(roots, out, "index", render_index(result, view_links=view_links, **slots))
     except (OSError, OutsideRoots) as e:
@@ -512,8 +511,9 @@ def _write_strategic(result, roots, out):
     """Write strategic.html from one StrategicModel, made after the site
     pages are written so "built" means what the index says (#23).
 
-    Returns (the index's slots, None), or ({}, the error clause) when the
-    model, the render or the write failed: the index then gets no headline,
+    Returns (the index's slots, {site: exception type name} for each site
+    whose thieves were not derived, None), or ({}, {}, the error clause) when
+    the model, the render or the write failed: the index then gets no headline,
     shares or strategic link, so it never links a page that was not written.
     The clause is "cannot render strategic.html: ..." for a model or render
     fault and "cannot write strategic.html: ..." for a write fault, as the
@@ -523,20 +523,18 @@ def _write_strategic(result, roots, out):
         model = strategic.strategic_model(result)
         limits = thieves.thresholds(result.portfolio)
         history = site_history(result, limits["neglect"])
-        by_site = thieves.derive_thieves(result, model, result.portfolio, result.fires, result.records, history,
-                                         model.as_of)
+        by_site = thieves.derive_thieves(result, model, limits, result.fires, result.records, history, model.as_of)
         model = thieves.attach(model, by_site, thieves.fires_without_site(result.fires))
         text = views_strategic.render_strategic(result, model)
         slots = views_strategic.index_slots(model)
-        slots["thieves_failed"] = {name: got.wip.no_data.removeprefix(thieves.THIEVES_FAILED.format(type=""))
-                                   for name, got in by_site.items() if thieves.failed(got)}
+        failed = {name: got.failed for name, got in by_site.items() if got.failed is not None}
     except Exception as e:
-        return {}, render_reason(e, roots, (STRATEGIC_RENDER_ERROR, STRATEGIC_RENDER_ERROR_BARE))
+        return {}, {}, render_reason(e, roots, (STRATEGIC_RENDER_ERROR, STRATEGIC_RENDER_ERROR_BARE))
     try:
         write_page(roots, out, views_strategic.STRATEGIC_PAGE, text)
     except (OSError, OutsideRoots) as e:
-        return {}, STRATEGIC_WRITE_ERROR.format(why=why_not_written(e, roots))
-    return slots, None
+        return {}, {}, STRATEGIC_WRITE_ERROR.format(why=why_not_written(e, roots))
+    return slots, failed, None
 
 
 def site_history(result, weeks) -> dict:
@@ -551,7 +549,7 @@ def site_history(result, weeks) -> dict:
                                                       result.config.as_of, weeks, cache)
         except Exception as e:
             no_data = wbs_history.NoData(source_failed(e, "history read"))
-            out[name] = wbs_history.HistoryResult(None, False, 0, None, no_data.text, no_data, no_data)
+            out[name] = wbs_history.no_data_result(no_data, no_data)
     return out
 
 

@@ -840,6 +840,7 @@ def test_committed_paths_git_failure_is_no_data(tmp_path, git_ready):
     corrupt(top, git(top, "rev-parse", "HEAD^{tree}").strip())
     got = wbs_history.committed_paths(repo_for(tmp_path, top), CHECKLIST)
     assert isinstance(got, wbs_history.NoData) and got.text.startswith("no data: git failed: "), got
+    assert got.git is True
 
 
 def _uncommitted_site(tmp_path, planning_bytes):
@@ -931,6 +932,7 @@ def test_unreadable_commit_date_is_git_failed(tmp_path, git_ready):
 def test_nul_in_a_git_argument_is_git_failed(tmp_path, git_ready):
     got = wbs_history.run_git(["rev-parse", "--verify", "a\0b"], cwd=tmp_path, ceiling=tmp_path)
     assert isinstance(got, wbs_history.NoData) and got.text.startswith("no data: git failed: "), got
+    assert got.git is True
 
 
 def test_extreme_windows_never_raise(tmp_path, git_ready):

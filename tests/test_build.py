@@ -1622,7 +1622,7 @@ def test_build_with_shallow_or_failed_history(tmp_path, monkeypatch, no_data):
     from gantry import wbs_history
 
     def answer(roots, site, config, as_of, weeks, cache):
-        return wbs_history._no_data_result(wbs_history.NoData(no_data), wbs_history.NoData(no_data))
+        return wbs_history.no_data_result(wbs_history.NoData(no_data), wbs_history.NoData(no_data))
 
     monkeypatch.setattr(wbs_history, "last_state_change", answer)
     models = spy_attach(monkeypatch)

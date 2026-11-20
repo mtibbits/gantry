@@ -12,6 +12,8 @@ page script: the one script element is the gantry-data JSON block.
 docs/strategic-page.md states the page.
 """
 
+import datetime
+
 from gantry import render, thieves
 from gantry.portfolio_file import PORTFOLIO_LABEL, format_entry
 from gantry.render import Markup, embed_json, esc, fill
@@ -179,13 +181,7 @@ def _panel(model, panel) -> str:
 
 def threshold_text(thief) -> str:
     """The thief's threshold, its number as the page writes numbers."""
-    if thief.kind == "priorities":
-        template = thieves.THRESHOLD_POINTS
-    elif thief.kind == "neglect":
-        template = thieves.THRESHOLD_WEEKS
-    else:
-        template = thieves.THRESHOLD_ABOVE
-    return template.format(n=_num1(thief.threshold))
+    return thieves.THRESHOLD_TEXTS[thief.kind].format(n=_num1(thief.threshold))
 
 
 def shows_flag(thief) -> bool:
@@ -200,9 +196,9 @@ def _thief(kind, thief) -> str:
     if shows_flag(thief):
         out += [dot, esc(thieves.FLAGGED if thief.flagged else thieves.NOT_FLAGGED)]
     for part in thief.parts:
-        out += [dot, f'<span class="{"part machine" if part.machine else "part"}">{esc(part.text)}</span>']
+        out += [dot, _part("part machine" if part.machine else "part", part.text)]
     if thief.label is not None:
-        out += [dot, f'<span class="machine">{esc(thief.label)}</span>']
+        out += [dot, _part("machine", thief.label)]
     css = "thief flagged" if thief.flagged else "thief"
     return f'<p class="{css}">{esc(thieves.TITLES[kind])}: {"".join(out)}</p>'
 
@@ -224,7 +220,7 @@ def _thieves_data(found) -> dict | None:
         return None
 
     def one(thief):
-        value = thief.value.isoformat() if hasattr(thief.value, "isoformat") else thief.value
+        value = thief.value.isoformat() if isinstance(thief.value, datetime.date) else thief.value
         return {"value": value, "text": thief.text, "threshold": thief.threshold, "flagged": thief.flagged,
                 "source": thief.source, "no_data": thief.no_data, "by_kind": dict(thief.by_kind),
                 "parts": [{"text": part.text, "machine": part.machine} for part in thief.parts],
