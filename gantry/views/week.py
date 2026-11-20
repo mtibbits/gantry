@@ -220,8 +220,8 @@ def _box(page, entry, cont):
         bands = f'<p class="bands">{"".join(_span(f"band {cls}", text) for text, cls in b.band)}</p>'
     classes = " ".join(["leaf", *cues, render.tier_class(tier), render.tag_class(tag)])
     return (f'<li class="{classes}" data-leaf="{esc(key)}" data-site="{esc(site)}" data-tag="{esc(tag)}" '
-            f'data-state="{esc(state)}" data-tier="{esc(tier)}">{top}{ttl}{row_html}<p class="facts">{"".join(parts)}</p>'
-            f'{bands}</li>')
+            f'data-state="{esc(state)}" data-tier="{esc(tier)}">{top}{ttl}{row_html}'
+            f'<p class="facts">{"".join(parts)}</p>{bands}</li>')
 
 
 def _conts(plan, records, placements):

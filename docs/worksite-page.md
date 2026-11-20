@@ -663,8 +663,8 @@ dot, when the checklist has a problem anywhere in the file, a step in the
 active block has a name not in the table, the checklist could not be read,
 the issue folder was skipped, or the site's records were not read. The green
 is the `--done` token in `leaf_colours.css`, distinct from the `xsite` teal;
-every rule in `gantry/templates/leaf_phases.css` sits under `.ph-row` and
-outranks the node's text and fill rules. Nothing blinks: a build cannot
+every paint rule in `gantry/templates/leaf_phases.css` sits under `.ph-row`
+(only the `.ph-svg` wrapper rule does not) and outranks the node's text and fill rules. Nothing blinks: a build cannot
 know that a step is running now.
 
 The box's full form gets its own tooltip, the node's text and then the

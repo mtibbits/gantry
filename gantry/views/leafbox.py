@@ -40,6 +40,7 @@ PHASE_TEXT = "phases: {runs}"
 PHASE_TEXT_UNKNOWN = "phases unknown: {why}"
 GLYPH_MARKS = {"stuck": "!", "parked": "P", "blocked": "?"}
 _LOOK_SET = frozenset(LOOKS)
+num = render.num  # an SVG number: one decimal, none when whole
 UNSAFE_STYLE_RE = re.compile(r"</style", re.IGNORECASE)
 
 
@@ -124,23 +125,23 @@ def phases_css():
 def _mark(look, x, y):
     """A cell's mark, the cell's top left at (x, y)."""
     if look == "done":
-        return f'<path class="ph-mark" d="M{render.num(x + 2.2)},{render.num(y + 5.2)} L{render.num(x + 4.3)},{render.num(y + 7.4)} ' \
-               f'L{render.num(x + 7.8)},{render.num(y + 2.8)}"/>'
+        return f'<path class="ph-mark" d="M{num(x + 2.2)},{num(y + 5.2)} L{num(x + 4.3)},{num(y + 7.4)} ' \
+               f'L{num(x + 7.8)},{num(y + 2.8)}"/>'
     if look == "current":
-        return f'<circle class="ph-mark" cx="{render.num(x + 5)}" cy="{render.num(y + 5)}" r="2.6"/>'
+        return f'<circle class="ph-mark" cx="{num(x + 5)}" cy="{num(y + 5)}" r="2.6"/>'
     if look in GLYPH_MARKS:
-        return (f'<text class="ph-t" x="{render.num(x + 5)}" y="{render.num(y + 8.3)}" text-anchor="middle">'
+        return (f'<text class="ph-t" x="{num(x + 5)}" y="{num(y + 8.3)}" text-anchor="middle">'
                 f"{GLYPH_MARKS[look]}</text>")
     if look == "none":
-        return f'<line class="ph-mark" x1="{render.num(x + 2.5)}" y1="{render.num(y + 5)}" x2="{render.num(x + 7.5)}" y2="{render.num(y + 5)}"/>'
+        return f'<line class="ph-mark" x1="{num(x + 2.5)}" y1="{num(y + 5)}" x2="{num(x + 7.5)}" y2="{num(y + 5)}"/>'
     if look == "unknown":
-        return (f'<path class="ph-mark" d="M{render.num(x + 2)},{render.num(y + 2)} L{render.num(x + 8)},{render.num(y + 8)} '
-                f'M{render.num(x + 8)},{render.num(y + 2)} L{render.num(x + 2)},{render.num(y + 8)}"/>')
+        return (f'<path class="ph-mark" d="M{num(x + 2)},{num(y + 2)} L{num(x + 8)},{num(y + 8)} '
+                f'M{num(x + 8)},{num(y + 2)} L{num(x + 2)},{num(y + 8)}"/>')
     return ""  # ahead: the empty box
 
 
 def _cell(look, x, y):
-    return (f'<g class="ph-cell ph-{look}"><rect class="ph-box" x="{render.num(x)}" y="{render.num(y)}" width="{PH_CELL}" '
+    return (f'<g class="ph-cell ph-{look}"><rect class="ph-box" x="{num(x)}" y="{num(y)}" width="{PH_CELL}" '
             f'height="{PH_CELL}" rx="1.5"/>{_mark(look, x, y)}</g>')
 
 
