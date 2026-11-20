@@ -1,10 +1,7 @@
 "use strict";
 // The Node side of the page-script harness (#53). It reads one JSON request
 // per line on stdin and writes one JSON reply per line on stdout; harness.py
-// is the other side, and docs/page-safety.md describes the protocol. It wraps
-// navigate in jsdom/lib/jsdom/living/window/navigation.js before the first
-// require("jsdom"), which works only while jsdom ships no exports map and
-// Location-impl.js destructures navigate at load: re-check both on a bump.
+// is the other side, and docs/page-safety.md describes the protocol.
 
 const fs = require("fs");
 const http = require("http");
@@ -149,7 +146,7 @@ function installNetwork(page, window, errors) {
     response.statusText = "";
     return window.Promise.resolve(response);
   };
-  for (const name of ["XMLHttpRequest", "WebSocket", "EventSource"]) {
+  for (const name of NETWORK.filter((n) => n !== "fetch")) {
     window[name] = function (url) {
       const entry = { method: null, url: name === "XMLHttpRequest" ? null : resolveURL(window, url), cache: null, api: name };
       refuse(entry, "the page-script harness loads no subresource: " + name);
@@ -369,17 +366,15 @@ async function build(page, text) {
   const virtualConsole = new VirtualConsole();
   virtualConsole.on("jsdomError", (e) => errors.push(e));
   // No resources option (D6): jsdom loads no script, sheet or frame the page
-  // names (spike.md U2), and beforeParse stubs the network APIs.
-  const dom = new JSDOM(text, {
+  // names (spike.md U2), and beforeParse stubs the network APIs. beforeParse
+  // also sets page.window and page.document.
+  new JSDOM(text, {
     url: page.url,
     runScripts: "dangerously",
     pretendToBeVisual: true,
     virtualConsole,
     beforeParse: (window) => beforeParse(page, window),
   });
-  page.dom = dom;
-  page.window = dom.window;
-  page.document = dom.window.document;
   if (page.document.readyState !== "complete") {
     await new Promise((resolve) => page.window.addEventListener("load", resolve, { once: true }));
   }
@@ -392,7 +387,6 @@ async function load(source, clock) {
   const page = {
     source,
     url: source.url !== undefined ? source.url : pathToFileURL(source.path).href,
-    dom: null,
     window: null,
     document: null,
     errors: [],
@@ -747,8 +741,7 @@ async function call(path, name, args) {
       throw new PageError("run_function: " + name + " threw " + describe(e));
     }
     // A rejection the call leaves behind is this call's error.
-    await settle();
-    drain(page.errors);
+    await finish(page);
     try {
       return encode(result, "result", page.window.Object.prototype);
     } catch (e) {

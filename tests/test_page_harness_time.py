@@ -22,7 +22,7 @@ from page_safety import HOSTILE
 from page_script import harness
 from page_script.gate import CI_SUFFIX
 from page_script.harness import NODE_MISSING, HarnessError, PageScriptError, Planted, open_page
-from test_page_checkers import KNOWN_BAD, RENDER_SCRIPT, embed, hostile_page, write_page
+from test_page_checkers import IMG, KNOWN_BAD, RENDER_SCRIPT, embed, ext_page, hostile_page, write_page
 from test_samples import ROOT
 
 # 2026-11-05T07:45:00Z, and the same instant in milliseconds since the epoch.
@@ -32,23 +32,14 @@ MS0 = 1793864700000
 
 def page_text(body="", script=""):
     """A page that writes its location.href into #href, then runs script."""
-    return "\n".join([
-        "<!doctype html>",
-        '<html lang="en">',
-        "<head>",
-        '<meta charset="utf-8">',
-        "<title>t</title>",
-        "</head>",
-        "<body>",
+    return ext_page('<meta charset="utf-8">\n<title>t</title>', "\n".join([
         '<p id="href"></p>',
         body,
         "<script>",
         'document.getElementById("href").textContent = location.href;',
         script,
         "</script>",
-        "</body>",
-        "</html>",
-    ]) + "\n"
+    ]))
 
 
 def make_page(tmp_path, body="", script="", name="page.html"):
@@ -73,6 +64,15 @@ def write(selector, expression):
 
 def text(page, selector):
     return page.query(selector)[0].text
+
+
+def assert_unsent(monkeypatch, page, call, error, pattern):
+    """call() raises error matching pattern and sends the driver nothing."""
+    sent = []
+    monkeypatch.setattr(page, "_request", sent.append)
+    with pytest.raises(error, match=pattern):
+        call()
+    assert sent == []
 
 
 # --- without a clock --------------------------------------------------------------
@@ -229,11 +229,7 @@ BAD_SPANS = [
 @pytest.mark.parametrize("seconds,error,pattern", [c[1:] for c in BAD_SPANS], ids=[c[0] for c in BAD_SPANS])
 def test_advance_rejects_bad_spans(node, tmp_path, monkeypatch, seconds, error, pattern):
     with open_page(make_page(tmp_path), clock=T0) as page:
-        sent = []
-        monkeypatch.setattr(page, "_request", sent.append)
-        with pytest.raises(error, match=pattern):
-            page.advance(seconds)
-    assert sent == []
+        assert_unsent(monkeypatch, page, lambda: page.advance(seconds), error, pattern)
 
 
 def test_timer_error_stops_advance(node, tmp_path):
@@ -305,11 +301,8 @@ def test_set_visible_fires_event(node, tmp_path, clock):
 @pytest.mark.parametrize("visible", [1, "yes", None], ids=["int", "str", "none"])
 def test_set_visible_rejects_non_bool(node, tmp_path, monkeypatch, visible):
     with open_page(make_page(tmp_path)) as page:
-        sent = []
-        monkeypatch.setattr(page, "_request", sent.append)
-        with pytest.raises(TypeError, match=r"set_visible\(.*\): visible must be True or False"):
-            page.set_visible(visible)
-    assert sent == []
+        pattern = r"set_visible\(.*\): visible must be True or False"
+        assert_unsent(monkeypatch, page, lambda: page.set_visible(visible), TypeError, pattern)
 
 
 def test_hidden_holds_timers(node, tmp_path):
@@ -358,15 +351,22 @@ OUT = 'function out(x) { document.getElementById("out").textContent = String(x);
 ANSWER = ('function (r) { out(r.status + ":" + r.ok + ":" + r.statusText + ":" + Object.keys(r).sort().join("+")); }, '
           'function (e) { out(e.name + ":" + (e instanceof TypeError)); }')
 OWN_HEAD = 'fetch(location.href, {method: "HEAD", cache: "no-store"})'
+# The own HEAD every 60 s, its answer written to #out.
+HEAD_EACH_MINUTE = OUT + "\nsetInterval(function () { " + OWN_HEAD + ".then(" + ANSWER + "); }, 60000);"
+OK_200 = "200:true::ok+status+statusText"
+
+
+def head_probe(name, call):
+    """Script for the button `name`: call, its answer or "caught" written to #out."""
+    return on_click(name, 'out(""); try { ' + call + ".then(" + ANSWER + '); } catch (e) { out("caught"); }')
 
 
 def test_own_head_answered(node, tmp_path):
-    script = OUT + "\nsetInterval(function () { " + OWN_HEAD + ".then(" + ANSWER + "); }, 60000);"
     settings = ["none", 200, 301, 304, 404, 502, 503, None]
-    expected = ["TypeError:true", "200:true::ok+status+statusText"]
+    expected = ["TypeError:true", OK_200]
     expected += [f"{code}:false::ok+status+statusText" for code in (301, 304, 404, 502, 503)]
     expected += ["TypeError:true"]
-    with open_page(make_page(tmp_path, '<p id="out"></p>', script), clock=T0) as page:
+    with open_page(make_page(tmp_path, '<p id="out"></p>', HEAD_EACH_MINUTE), clock=T0) as page:
         own = text(page, "#href")
         got = []
         for setting in settings:
@@ -388,7 +388,7 @@ MATCHING = [
 
 def test_own_head_matching(node, tmp_path):
     script = "\n".join([OUT] + [
-        on_click(name, 'out(""); try { ' + call + ".then(" + ANSWER + '); } catch (e) { out("caught"); }')
+        head_probe(name, call)
         for name, call in MATCHING
     ])
     body = '<p id="out"></p>' + buttons(*[m[0] for m in MATCHING])
@@ -397,22 +397,19 @@ def test_own_head_matching(node, tmp_path):
         page.set_status(200)
         for name in ("frag", "rel"):
             page.drive(name, "now")
-            assert text(page, "#out") == "200:true::ok+status+statusText", name
+            assert text(page, "#out") == OK_200, name
             assert page.requests()[-1] == harness.Request("HEAD", own, "default", "fetch"), name
         with pytest.raises(PageScriptError, match=r"loads no subresource: fetch HEAD .*page\.html\?v=1"):
             page.drive("query", "now")
         page.drive("own", "now")
-        assert text(page, "#out") == "200:true::ok+status+statusText"
+        assert text(page, "#out") == OK_200
 
 
 @pytest.mark.parametrize("code", [199, 600, "200", 200.0, True], ids=["199", "600", "str", "float", "bool"])
 def test_set_status_rejects(node, tmp_path, monkeypatch, code):
     with open_page(make_page(tmp_path), clock=T0) as page:
-        sent = []
-        monkeypatch.setattr(page, "_request", sent.append)
-        with pytest.raises(ValueError, match="the status must be None or an integer from 200 to 599"):
-            page.set_status(code)
-    assert sent == []
+        pattern = "the status must be None or an integer from 200 to 599"
+        assert_unsent(monkeypatch, page, lambda: page.set_status(code), ValueError, pattern)
 
 
 # (id, call, match, method, url check, cache, api); the url check takes the own URL.
@@ -497,7 +494,7 @@ def test_reload_loads_again(node, tmp_path):
     v1 = "\n".join([
         version_reads("v1"),
         'document.getElementById("planted").textContent = ' + embed(HOSTILE[0]) + ";",
-        "setInterval(function () { " + OWN_HEAD + ".then(function () {}, function () {}); }, 60000);",
+        reload_on(""),
         on_click("reload", "location.reload(); location.reload();"),
     ])
     v2 = "\n".join([
@@ -672,11 +669,10 @@ def test_planted_reads_current_page(node, tmp_path):
 
 
 def test_raw_sink_with_clock(node):
-    img = HOSTILE[2]
     with open_page(KNOWN_BAD / "raw_sink.html", clock=T0) as page:
-        found = page.planted_nodes([img])
-    assert {"node": "element", "tag": "img", "value": img} in found.created
-    assert {"node": "attribute", "tag": "img", "attr": "onerror", "value": img} in found.created
+        found = page.planted_nodes([IMG])
+    assert {"node": "element", "tag": "img", "value": IMG} in found.created
+    assert {"node": "attribute", "tag": "img", "attr": "onerror", "value": IMG} in found.created
 
 
 # --- served pages -------------------------------------------------------------------
@@ -731,7 +727,8 @@ def served(tmp_path):
     site.folder.mkdir()
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _handler(site))
     site.port = server.server_address[1]
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    # shutdown() waits out a poll interval: poll often.
+    thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
     thread.start()
     try:
         yield site
@@ -752,14 +749,14 @@ def test_open_url_loads(node, served):
     for name, data in (("s.js", b'document.title = "loaded";'), ("s.css", b"body { color: red }"), ("i.png", b"png")):
         (served.folder / name).write_bytes(data)
     body = '<script src="s.js"></script><link rel="stylesheet" href="s.css"><img src="i.png"><p id="out"></p>'
-    make_page(served.folder, body, OUT + "\nsetInterval(function () { " + OWN_HEAD + ".then(" + ANSWER + "); }, 60000);")
+    make_page(served.folder, body, HEAD_EACH_MINUTE)
     url = served.url("page.html")
     with harness.open_url(url, clock=T0) as page:
         assert text(page, "#href") == url
         assert text(page, "title") == "t"
         page.set_status(200)
         page.advance(60)
-        assert text(page, "#out") == "200:true::ok+status+statusText"
+        assert text(page, "#out") == OK_200
         assert page.requests() == [harness.Request("HEAD", url, "no-store", "fetch")]
     assert served.log == [("GET", "/page.html")]
     # The log could have shown a HEAD: the test's own reaches it.
@@ -775,7 +772,7 @@ def test_open_url_loads(node, served):
 def test_own_url_fixed_at_open(node, served):
     # An http page may push another path; a file: page may not (jsdom, History-impl.js).
     script = "\n".join([OUT] + [
-        on_click(name, 'out(""); try { ' + call + ".then(" + ANSWER + '); } catch (e) { out("caught"); }')
+        head_probe(name, call)
         for name, call in MATCHING if name in ("own", "rel")
     ] + [on_click("push", 'history.pushState(null, "", "pushed.html");')])
     make_page(served.folder, '<p id="out"></p>' + buttons("own", "rel", "push"), script)
@@ -785,7 +782,7 @@ def test_own_url_fixed_at_open(node, served):
         with pytest.raises(PageScriptError, match="loads no subresource: fetch HEAD .*pushed.html"):
             page.drive("own", "now")
         page.drive("rel", "now")
-        assert text(page, "#out") == "200:true::ok+status+statusText"
+        assert text(page, "#out") == OK_200
         assert page.requests()[-1] == harness.Request("HEAD", served.url("page.html"), "default", "fetch")
 
 

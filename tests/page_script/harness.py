@@ -350,11 +350,18 @@ def open_page(path, clock=None):
     clock set to that instant. The page's script runs with this process's
     rights: open only pages Gantry's own templates built.
     """
-    ms = None if clock is None else _instant_ms("open_page", clock)
+    with _open("open_page", {"path": str(Path(path).resolve())}, clock) as page:
+        yield page
+
+
+@contextmanager
+def _open(name, source, clock):
+    """Open source, the open request's path or url field, and yield the Page."""
+    ms = None if clock is None else _instant_ms(name, clock)
     page = Page()
-    page._clock = clock is not None
+    page._clock = ms is not None
     try:
-        page._request({"op": "open", "path": str(Path(path).resolve()), "clock": ms})
+        page._request({"op": "open", **source, "clock": ms})
         yield page
     finally:
         page.stop()
@@ -386,14 +393,8 @@ def open_url(url, clock=None):
         raise TypeError(f"open_url({url!r}): the URL must be a string")
     if not _loopback(url):
         raise HarnessError(f"open_url({url!r}): only an http:// URL on 127.0.0.1 or [::1] is opened")
-    ms = None if clock is None else _instant_ms("open_url", clock)
-    page = Page()
-    page._clock = clock is not None
-    try:
-        page._request({"op": "open", "url": url, "clock": ms})
+    with _open("open_url", {"url": url}, clock) as page:
         yield page
-    finally:
-        page.stop()
 
 
 # --- the shared driver --------------------------------------------------------------
