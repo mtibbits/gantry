@@ -13,6 +13,105 @@ class PageError extends Error {}
 
 const NETWORK = ["fetch", "XMLHttpRequest", "WebSocket", "EventSource"];
 const TIMERS = ["setTimeout", "setInterval", "requestAnimationFrame"];
+const TIMER_LIMIT = 10000;
+
+// --- the controlled clock (#63) ----------------------------------------------------
+
+// wall is the time Date reads, in ms since the epoch. span counts the ms
+// advanced since open; timers and performance.now() ride it, so set_clock
+// moves no due time. start is the span when the current document loaded.
+function makeTime(wall) {
+  return { wall, span: 0, start: 0, queue: [], nextId: 1, nextSeq: 1 };
+}
+
+// Built in the page realm, so the page's Date is a page-realm function and
+// new Date() is still an instance of it. Only now() and the no-argument
+// forms read the controlled clock; everything else is the realm's own Date.
+const DATE_FACTORY = `(function (getNow) {
+  const Real = Date;
+  function Date_(...args) {
+    if (!new.target) return new Real(getNow()).toString();
+    return Reflect.construct(Real, args.length === 0 ? [getNow()] : args, new.target);
+  }
+  Date_.prototype = Real.prototype;
+  Real.prototype.constructor = Date_;
+  Date_.now = function now() { return getNow(); };
+  Date_.parse = Real.parse;
+  Date_.UTC = Real.UTC;
+  Object.defineProperty(Date_, "name", { value: "Date" });
+  Object.defineProperty(Date_, "length", { value: 7 });
+  return Date_;
+})`;
+
+function installClock(page, window) {
+  const time = page.time;
+  window.Date = window.eval(DATE_FACTORY)(() => time.wall);
+  Object.defineProperty(window.performance, "now", {
+    value: () => time.span - time.start, configurable: true, writable: true, enumerable: true,
+  });
+  // One id sequence for both kinds; a timer runs only inside advance.
+  const add = (name, repeat) => function (handler, delay, ...args) {
+    if (typeof handler !== "function") {
+      throw new window.Error("the page-script harness runs no timer: " + name + " handler is not a function");
+    }
+    // Whole milliseconds, as a browser converts the delay.
+    const ms = Math.max(0, Math.trunc(Number(delay)) || 0);
+    const id = time.nextId++;
+    time.queue.push({ id, handler, args, due: time.span + ms, period: repeat ? ms : null, seq: time.nextSeq++ });
+    return id;
+  };
+  const clear = function (id) {
+    time.queue = time.queue.filter((t) => t.id !== id);
+  };
+  window.setTimeout = add("setTimeout", false);
+  window.setInterval = add("setInterval", true);
+  window.clearTimeout = clear;
+  window.clearInterval = clear;
+}
+
+function moveTo(time, at) {
+  time.wall += at - time.span;
+  time.span = at;
+}
+
+// The timer due first by end: earliest due time, then the order it was set.
+function nextDue(time, end) {
+  let first = null;
+  for (const t of time.queue) {
+    if (t.due <= end && (first === null || t.due < first.due || (t.due === first.due && t.seq < first.seq))) first = t;
+  }
+  return first;
+}
+
+// Run each timer due within the span, one at a time, each with the clocks at
+// max(due, now) and a settle after it; the clocks end at the span's end, or
+// at the run that failed.
+async function advance(page, ms) {
+  const time = page.time;
+  const end = time.span + ms;
+  let runs = 0;
+  for (;;) {
+    const timer = nextDue(time, end);
+    if (timer === null) break;
+    if (runs === TIMER_LIMIT) throw new PageError("timer limit: more than 10000 timer runs in one advance");
+    runs++;
+    moveTo(time, Math.max(timer.due, time.span));
+    if (timer.period === null) {
+      time.queue = time.queue.filter((t) => t !== timer);
+    } else {
+      // Re-queued before its call, so the callback can clear it.
+      timer.due = time.span + timer.period;
+      timer.seq = time.nextSeq++;
+    }
+    try {
+      timer.handler.apply(page.window, timer.args);
+    } catch (e) {
+      page.errors.push({ type: "unhandled-exception", cause: e });
+    }
+    await finish(page);
+  }
+  moveTo(time, end);
+}
 
 // Each open page's record, by its window: jsdom's own calls name a window,
 // and an inline script runs inside the JSDOM constructor, before it returns.
@@ -30,6 +129,7 @@ function beforeParse(page, window) {
       };
     }
   }
+  if (page.time !== null) installClock(page, window);
 }
 
 function settle() {
@@ -79,6 +179,7 @@ async function finish(page) {
 // Build a document from source text into the page record. The record exists
 // first, so beforeParse can file it under the window before any script runs.
 async function build(page, text) {
+  if (page.time !== null) page.time.start = page.time.span;
   const errors = [];
   page.errors = errors;
   activeErrors = errors;
@@ -115,7 +216,7 @@ async function load(source, clock) {
     errors: [],
     remembered: new Map(),
     visible: true,
-    time: clock === null ? null : { wall: clock },
+    time: clock === null ? null : makeTime(clock),
   };
   try {
     await build(page, fs.readFileSync(source.path, "utf8"));
@@ -464,6 +565,12 @@ function needPage(state) {
   return state.page;
 }
 
+function needClock(state, op) {
+  const page = needPage(state);
+  if (page.time === null) throw new Error(op + ": the page was opened without a clock");
+  return page;
+}
+
 async function handle(request, state) {
   switch (request.op) {
     case "open":
@@ -489,6 +596,12 @@ async function handle(request, state) {
       return null;
     case "key":
       await key(needPage(state), request.key);
+      return null;
+    case "advance":
+      await advance(needClock(state, "advance"), request.ms);
+      return null;
+    case "set_clock":
+      needClock(state, "set_clock").time.wall = request.ms;
       return null;
     case "call":
       return await call(request.path, request.name, request.args);

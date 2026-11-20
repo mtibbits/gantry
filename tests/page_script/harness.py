@@ -8,6 +8,7 @@ protocol, the gate and the limits.
 
 import atexit
 import json
+import math
 import os
 import queue
 import shutil
@@ -289,6 +290,11 @@ class Page(_Driver):
     def advance(self, seconds):
         """Move the clock forward and run every timer that falls due in the span."""
         self._need_clock("advance")
+        if isinstance(seconds, bool) or not isinstance(seconds, (int, float)):
+            raise TypeError(f"advance({seconds!r}): seconds must be a number")
+        if not math.isfinite(seconds) or seconds < 0:
+            raise ValueError(f"advance({seconds!r}): seconds must be finite and not negative")
+        # Whole milliseconds.
         self._request({"op": "advance", "ms": round(seconds * 1000)})
 
     def set_clock(self, instant):
