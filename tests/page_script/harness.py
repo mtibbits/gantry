@@ -15,6 +15,7 @@ import subprocess
 import tempfile
 import threading
 from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import NamedTuple
 
@@ -35,6 +36,7 @@ START_TIMEOUT = 120
 CLOSE_WAIT = 5
 # The driver's environment never takes these from ours.
 DROPPED_ENV = ("NODE_OPTIONS", "NODE_PATH")
+EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
 class PageScriptError(Exception):
@@ -110,6 +112,8 @@ class _Driver:
         if reason is not None:
             raise HarnessError(reason)
         env = {k: v for k, v in os.environ.items() if k not in DROPPED_ENV}
+        # One time zone on every machine; the locale is left alone (#63).
+        env["TZ"] = "UTC"
         self._stderr = tempfile.TemporaryFile()
         try:
             # node itself, never the npm shim.
@@ -213,8 +217,22 @@ class _Driver:
                 pass
 
 
+def _instant_ms(name, value):
+    """A timezone-aware datetime as whole milliseconds since the epoch."""
+    if not isinstance(value, datetime) or value.utcoffset() is None:
+        raise TypeError(f"{name}: the instant must be a timezone-aware datetime, not {value!r}")
+    return (value - EPOCH) // timedelta(milliseconds=1)
+
+
 class Page(_Driver):
     """A page loaded into jsdom by open_page."""
+
+    # Whether the page was opened with a controlled clock.
+    _clock = False
+
+    def _need_clock(self, name):
+        if not self._clock:
+            raise HarnessError(f"{name}: the page was opened without a clock")
 
     def query(self, selector):
         """The elements matching a CSS selector, in document order."""
@@ -268,17 +286,45 @@ class Page(_Driver):
         _strings((name,), f"same({name!r}): the name must be a string")
         return self._request({"op": "same", "name": name})
 
+    def advance(self, seconds):
+        """Move the clock forward and run every timer that falls due in the span."""
+        self._need_clock("advance")
+        self._request({"op": "advance", "ms": round(seconds * 1000)})
+
+    def set_clock(self, instant):
+        """Set the clock Date reads; no timer runs and performance.now() stays."""
+        self._need_clock("set_clock")
+        self._request({"op": "set_clock", "ms": _instant_ms("set_clock", instant)})
+
+    def set_status(self, code):
+        """The status the page's own HEAD is answered with; None makes it reject."""
+        self._need_clock("set_status")
+        self._request({"op": "set_status", "status": code})
+
+    def requests(self):
+        """Every request the page made, refused ones included, in order."""
+        self._need_clock("requests")
+        return self._request({"op": "requests"})
+
+    def reloads(self):
+        """How many times the page called location.reload()."""
+        self._need_clock("reloads")
+        return self._request({"op": "reloads"})
+
 
 @contextmanager
-def open_page(path):
+def open_page(path, clock=None):
     """Load the page at path into jsdom, run its scripts, and yield a Page.
 
-    The page's script runs with this process's rights: open only pages
-    Gantry's own templates built.
+    With clock, a timezone-aware datetime, the page runs on a controlled
+    clock set to that instant. The page's script runs with this process's
+    rights: open only pages Gantry's own templates built.
     """
+    ms = None if clock is None else _instant_ms("open_page", clock)
     page = Page()
+    page._clock = clock is not None
     try:
-        page._request({"op": "open", "path": str(Path(path).resolve())})
+        page._request({"op": "open", "path": str(Path(path).resolve()), "clock": ms})
         yield page
     finally:
         page.stop()

@@ -14,7 +14,13 @@ class PageError extends Error {}
 const NETWORK = ["fetch", "XMLHttpRequest", "WebSocket", "EventSource"];
 const TIMERS = ["setTimeout", "setInterval", "requestAnimationFrame"];
 
-function beforeParse(window) {
+// Each open page's record, by its window: jsdom's own calls name a window,
+// and an inline script runs inside the JSDOM constructor, before it returns.
+const records = new WeakMap();
+
+function beforeParse(page, window) {
+  records.set(window, page);
+  page.window = window;
   // Network and timers both throw. With no timer, the setImmediate after
   // each step is a true settle point.
   for (const [names, refusal] of [[NETWORK, "loads no subresource"], [TIMERS, "runs no timer"]]) {
@@ -63,31 +69,58 @@ function drain(errors) {
   }
 }
 
-async function load(path) {
+// Every step that runs page code ends here: settle, then fail on the first
+// error the step left.
+async function finish(page) {
+  await settle();
+  drain(page.errors);
+}
+
+// Build a document from source text into the page record. The record exists
+// first, so beforeParse can file it under the window before any script runs.
+async function build(page, text) {
   const errors = [];
+  page.errors = errors;
   activeErrors = errors;
   const virtualConsole = new VirtualConsole();
   virtualConsole.on("jsdomError", (e) => errors.push(e));
   // No resources option (D6): jsdom loads no script, sheet or frame the page
   // names (spike.md U2), and beforeParse stubs the network APIs.
-  const dom = new JSDOM(fs.readFileSync(path, "utf8"), {
-    url: pathToFileURL(path).href,
+  const dom = new JSDOM(text, {
+    url: page.url,
     runScripts: "dangerously",
     pretendToBeVisual: true,
     virtualConsole,
-    beforeParse,
+    beforeParse: (window) => beforeParse(page, window),
   });
+  page.dom = dom;
+  page.window = dom.window;
+  page.document = dom.window.document;
+  if (page.document.readyState !== "complete") {
+    await new Promise((resolve) => page.window.addEventListener("load", resolve, { once: true }));
+  }
+  await finish(page);
+}
+
+// source is {path}; clock is the controlled clock's start in ms, or null.
+async function load(source, clock) {
   // remembered: name -> {selector, nodes}, the references remember keeps for
   // same. Nothing is written to a DOM node.
-  const page = { dom, window: dom.window, document: dom.window.document, errors, remembered: new Map() };
+  const page = {
+    source,
+    url: pathToFileURL(source.path).href,
+    dom: null,
+    window: null,
+    document: null,
+    errors: [],
+    remembered: new Map(),
+    visible: true,
+    time: clock === null ? null : { wall: clock },
+  };
   try {
-    if (page.document.readyState !== "complete") {
-      await new Promise((resolve) => page.window.addEventListener("load", resolve, { once: true }));
-    }
-    await settle();
-    drain(errors);
+    await build(page, fs.readFileSync(source.path, "utf8"));
   } catch (e) {
-    page.window.close();
+    if (page.window !== null) page.window.close();
     throw e;
   }
   return page;
@@ -288,8 +321,7 @@ async function drive(page, control, value) {
   } else {
     throw new PageError("control " + name + " is not a select, a button with data-value or a data-control-items container");
   }
-  await settle();
-  drain(page.errors);
+  await finish(page);
 }
 
 // The item of a data-control-items container: shared by drive and leave.
@@ -313,8 +345,7 @@ async function leave(page, control, value) {
   const item = controlItem(page.document, control, value);
   // No relatedTarget: focus leaves for nowhere, as on a blur.
   item.dispatchEvent(new page.window.FocusEvent("focusout", { bubbles: true }));
-  await settle();
-  drain(page.errors);
+  await finish(page);
 }
 
 // A chip: a [data-req] element inside the item of any data-control-items
@@ -333,8 +364,7 @@ async function chip(page, item, req, action) {
     found.focus();
     if (document.activeElement !== found) throw new PageError('chip "' + req + '" cannot take focus');
   }
-  await settle();
-  drain(page.errors);
+  await finish(page);
 }
 
 // A key pressed where the focus is: on the active element, else on the body.
@@ -342,8 +372,7 @@ async function key(page, name) {
   const { document, window } = page;
   const target = document.activeElement !== null ? document.activeElement : document.body;
   target.dispatchEvent(new window.KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true }));
-  await settle();
-  drain(page.errors);
+  await finish(page);
 }
 
 // --- call --------------------------------------------------------------------------
@@ -393,7 +422,7 @@ function encode(value, path, pageObject) {
 }
 
 async function call(path, name, args) {
-  const page = await load(path);
+  const page = await load({ path }, null);
   try {
     let parent = null;
     let target = page.window;
@@ -439,7 +468,7 @@ async function handle(request, state) {
   switch (request.op) {
     case "open":
       if (state.page !== null) throw new Error("a page is already open");
-      state.page = await load(request.path);
+      state.page = await load({ path: request.path }, request.clock === undefined ? null : request.clock);
       return null;
     case "query":
       return query(needPage(state), request.selector);
