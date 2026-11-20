@@ -355,7 +355,9 @@ UNREAD_STUCK = dr.Record(dr.UNREADABLE, None, "STUCK is not valid UTF-8 at byte 
 
 def checklist(parked=False):
     step = dr.Step(3, "scope", "P") if parked else None
-    return present(dr.ChecklistState(None, step, None, False, True, 1, ()))
+    # next_step None with all_done False: an active block with no steps (the
+    # parked row, if any, sits in an earlier block), so steps is ().
+    return present(dr.ChecklistState(None, step, None, False, True, 1, (), ()))
 
 
 UNPARKED, PARKED = checklist(False), checklist(True)
@@ -881,9 +883,14 @@ def test_sample_quarry_records_read_clean():
     quarry = next(s for s in load_sites(cfg, roots)[0] if s.name == "quarry")
     got = dr.read_site_records(roots, quarry.planning_dir, site="quarry")
     assert (got.status, got.skipped) == ("read", {})
-    assert sorted(got.issues) == ["Issue-20", "Issue-9"]
+    assert sorted(got.issues) == ["Issue-20", "Issue-3", "Issue-5", "Issue-9"]
+    # Issue-3 and Issue-5 (#173) hold a checklist only.
+    assert {name for name, r in got.issues.items() if r.stuck.status == "present"} == {"Issue-20", "Issue-9"}
     formats = []
     for name, records in got.issues.items():
+        if name in ("Issue-3", "Issue-5"):
+            assert records.stuck.status == "absent" and records.checklist.value.problems == (), name
+            continue
         assert records.stuck.status == "present" and records.stuck.value.problems == (), name
         assert records.checklist.status == "present" and records.checklist.value.problems == (), name
         assert records.stuck.value.created.date() < cfg.as_of

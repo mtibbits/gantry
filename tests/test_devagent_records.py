@@ -204,6 +204,30 @@ def test_bad_glyph_reported():
     assert got.problems == ("checklist_bad_glyph",)
 
 
+def test_checklist_steps_are_the_active_block():
+    text = (
+        "# x\n\n## Revision 1\n\n- [x]  0. pull\n- [ ]  2. draft\n\n"
+        "## Revision 2\n\n- [x]  2. draft\n- [-]  3. spike\n- [~]  4. scope\n- [ ]  5. improve\n"
+    )
+    assert dr.read_checklist(text).steps == (
+        dr.Step(2, "draft", "x"),
+        dr.Step(3, "spike", "-"),
+        dr.Step(4, "scope", "~"),
+        dr.Step(5, "improve", " "),
+    )
+
+
+def test_checklist_steps_empty_cases():
+    assert dr.read_checklist("# a checklist\n\nno steps here\n").steps == ()
+    assert dr.read_checklist("- [x]  0. pull\n- [ ]  2. draft\n\n## Revision 2\n").steps == ()
+
+
+def test_checklist_steps_keep_bad_glyph():
+    got = dr.read_checklist("## Revision 1\n- [x]  0. pull\n- [o]  2. draft\n- [ ]  4. scope\n")
+    assert got.steps == (dr.Step(0, "pull", "x"), dr.Step(2, "draft", "o"), dr.Step(4, "scope", " "))
+    assert got.problems == ("checklist_bad_glyph",)
+
+
 def test_checklist_overlong_numbers():
     text = written("Issue-15", "checklist.md")
     long_step = text.replace("- [ ]  0. pull", "- [ ]  " + "1" * 5000 + ". pull")
@@ -602,7 +626,9 @@ def test_single_reader_scan_planted(tmp_path):
 
 SAMPLE_CONFIG = ROOT / "samples" / "gantry.sample.toml"
 HARBOR = ROOT / "samples" / "harbor"
-SAMPLE_ISSUES = ("Issue-12", "Issue-13", "Issue-14", "Issue-15", "Issue-6", "Issue-7", "Issue-8")
+SAMPLE_ISSUES = ("Issue-12", "Issue-13", "Issue-14", "Issue-15", "Issue-16", "Issue-6", "Issue-7", "Issue-8")
+# Sample issue folders written by hand, not by a recipe: (site, folder).
+HAND_WRITTEN = {("quarry", "Issue-9"), ("quarry", "Issue-20"), ("lighthouse", "Issue-12")}
 
 
 def sample_site(name):
@@ -616,13 +642,21 @@ def sample_site(name):
 
 
 def test_sample_records_are_fixture_copies():
-    copies = sorted(p for p in HARBOR.rglob("*") if p.is_file() and p.name in ("STUCK", "checklist.md"))
-    assert len(copies) == 9
-    for path in copies:
-        assert path.read_bytes() == (WRITTEN / path.parent.name / path.name).read_bytes(), path
     from devagent_record_fixtures import RECIPES
 
-    assert sorted(r.issue for r in RECIPES if r.sample) == sorted(SAMPLE_ISSUES)
+    copies = sorted(p for p in (ROOT / "samples").glob("*/Issue-*/*")
+                    if p.is_file() and p.name in ("STUCK", "checklist.md"))
+    recipes = {(r.site, r.issue) for r in RECIPES if r.sample}
+    assert {(p.parent.parent.name, p.parent.name) for p in copies} == recipes | HAND_WRITTEN
+    compared = 0
+    for path in copies:
+        site, issue = path.parent.parent.name, path.parent.name
+        if (site, issue) in HAND_WRITTEN:
+            continue
+        assert path.read_bytes() == (WRITTEN / issue / path.name).read_bytes(), path
+        compared += 1
+    assert compared == 14  # harbor's eight folders (11 files), quarry's two and lighthouse's one
+    assert sorted(r.issue for r in RECIPES if r.sample and r.site == "harbor") == sorted(SAMPLE_ISSUES)
 
 
 def test_sample_site_records_shapes():
@@ -640,7 +674,7 @@ def test_sample_site_records_shapes():
     assert issues["Issue-14"].stuck.value.created_format == "iso_offset"
     assert issues["Issue-15"].plan.status == "absent" and issues["Issue-12"].plan.status == "absent"
     stucks = [r.stuck.value for r in issues.values() if r.stuck.status == "present"]
-    assert len(stucks) == 2
+    assert len(stucks) == 3
     for marker in stucks:
         assert marker.created.date() < config.as_of
     for records in issues.values():
@@ -655,7 +689,7 @@ def test_sample_stuck_folders_name_open_leaves():
     data = hp.sample_site(HARBOR.name)
     open_issues = {leaf.issue for leaf in data.leaves if leaf.open and leaf.issue}
     stuck = {p.parent.name for p in HARBOR.glob("*/STUCK")}
-    assert stuck == {"Issue-13", "Issue-14"}
+    assert stuck == {"Issue-13", "Issue-14", "Issue-16"}
     assert stuck <= open_issues
 
 

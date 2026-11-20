@@ -117,7 +117,7 @@ def recipe_files(recipe):
 
 
 def test_written_fixtures_match_recipes():
-    assert len(fx.RECIPES) == 13
+    assert len(fx.RECIPES) == 17
     folders = sorted(p.name for p in WRITTEN.iterdir())
     assert folders == sorted(r.issue for r in fx.RECIPES)
     for recipe in fx.RECIPES:
@@ -219,7 +219,7 @@ def test_fixtures_regenerate_byte_for_byte():
     checkout = hd.require_devagent()
     diffs = fx.check(checkout, WRITTEN)
     assert list(diffs) == []
-    assert diffs.compared == len(committed_record_files()) == 18
+    assert diffs.compared == len(committed_record_files()) == 23
 
 
 def test_changed_fixture_fails_naming_fixture_script_and_line(tmp_path):
@@ -397,3 +397,65 @@ def test_main_resolves_a_relative_checkout(tmp_path, monkeypatch):
     monkeypatch.setattr(fx, "check", check)
     assert fx.main(["--devagent", "da", "--check"]) == 0
     assert [str(p) for p in seen] == [str((tmp_path / "da").resolve())]
+
+
+# --- the phase table against the pinned templates (#173) ----------------------------------
+
+from gantry import phases  # noqa: E402
+from gantry.devagent_records import read_checklist  # noqa: E402
+from test_phases import TEMPLATE_STEPS  # noqa: E402
+
+DICT_RE = re.compile(r"^(NEW|OLD) = \{(.*?)\}", re.M | re.S)
+KEY_RE = re.compile(r"'([a-z]+)':\s*([0-9]+)")
+
+
+def migrate_schemes(checkout):
+    """{"NEW": {name: number}, "OLD": {...}} from the pinned migrate script."""
+    text = (checkout / "scripts" / "migrate-checklist-numbering.sh").read_bytes().decode("utf-8")
+    found = {name: {key: int(n) for key, n in KEY_RE.findall(body)} for name, body in DICT_RE.findall(text)}
+    assert sorted(found) == ["NEW", "OLD"], sorted(found)
+    return found
+
+
+def test_checklist_templates_match_phase_table():
+    checkout = hd.require_devagent()
+    files = sorted(p.name for p in (checkout / "templates").glob("checklist-*.md")) + ["revision_block.md"]
+    assert len(files) == 6 and sorted(files) == sorted(TEMPLATE_STEPS)
+    for name in files:
+        steps = read_checklist((checkout / "templates" / name).read_bytes().decode("utf-8")).steps
+        assert steps == read_checklist(TEMPLATE_STEPS[name]).steps, name
+        assert all(step.name in phases.STEP_PHASES for step in steps), name
+        order = [phases.STEP_PHASES[step.name] for step in steps]
+        assert order == sorted(order), name
+
+
+def test_step_phases_cover_every_numbering_scheme():
+    schemes = migrate_schemes(hd.require_devagent())
+    names = set(schemes["NEW"]) | set(schemes["OLD"])
+    assert len(names) == 25 and names == set(phases.STEP_PHASES)
+    by_number = sorted(schemes["NEW"], key=schemes["NEW"].get)
+    order = [phases.STEP_PHASES[name] for name in by_number]
+    assert order == sorted(order)
+
+
+BOUNDARY_PHASES = {"pull": 0, "branch": 0, "implement": 1, "quality": 2, "mergetoall": 2, "mergemr": 3,
+                   "updatewbs": 4, "cleanup": 4}
+
+
+def test_boundary_names_keep_phase():
+    checkout = hd.require_devagent()
+    assert {name: phases.STEP_PHASES[name] for name in BOUNDARY_PHASES} == BOUNDARY_PHASES
+    named = set()
+    for path in [*(checkout / "templates").glob("checklist-*.md"), checkout / "templates" / "revision_block.md"]:
+        named |= {step.name for step in read_checklist(path.read_bytes().decode("utf-8")).steps}
+    assert set(BOUNDARY_PHASES) <= named
+
+
+def test_samples_flag_names_the_samples_root(tmp_path, capsys):
+    # #173: --samples takes the samples root; a site folder would scatter copies.
+    (tmp_path / "harbor").mkdir()
+    assert fx.main(["--devagent", str(tmp_path), "--samples", str(tmp_path / "harbor")]) == 2
+    err = capsys.readouterr().err
+    assert "--samples names the samples root, the folder that holds gantry.sample.toml" in err
+    assert str(tmp_path) not in err
+    assert not any((tmp_path / "harbor").iterdir())

@@ -13,8 +13,12 @@ the stdout line's form in this section. -->
 A **fire** is something that needs the operator now. Every full build
 (`gantry build` without `--site`) collects the installation's fires once,
 across every site, into one ordered report with a read status for every
-source it read. A `--site` build collects none. Collecting reads the fires
-list and every site's devagent issue folders once, and it never changes a
+source it read. A `--site` build collects none. The build reads every
+site's devagent issue folders once, before the pages, and the pages' phase
+rows (#173, [worksite-page.md](worksite-page.md#the-phase-row)) and the
+fire collector share that read: a site whose read fails gets unknown rows
+and one more panel line, so the read does change its page and the index's
+count for it. Collecting itself reads the fires list and never changes a
 page, the plan file or the exit status. A source, or one site of a source,
 that fails gets a `not_read` status and the others keep their fires; a
 fault outside the sources gives a report with no fires and one `not_read`
@@ -129,8 +133,9 @@ does a fires step that failed outside the sources (the source `fires`);
 the build names each such status on stderr, as
 `gantry: warning: fires source <name> is not read: <reason>` or
 `gantry: warning: fires not collected: <reason>`. After that failure
-`BuildResult.fires_list` is `None` and `BuildResult.records` is empty when
-it came before they were read.
+`BuildResult.fires_list` is `None` when it came before the list was read;
+`BuildResult.records`, read before the pages (#173), keeps every site's
+records.
 
 | Status | Meaning |
 |---|---|
@@ -179,14 +184,16 @@ it, and so does a report with no status at all. For each source:
 
 ### The stdout line
 
-Collecting reads all three records in every issue folder, so a full build
+The build reads all three records in every issue folder, so a full build
 on an installation with hundreds of issue folders takes seconds longer, and
-much longer from a cold disk cache; mtibbits/gantry#171 follows up.
+much longer from a cold disk cache; mtibbits/gantry#171 follows up. The
+pages need every folder's checklist for their phase rows (#173), so reading
+only the folders that hold a STUCK file would not do.
 
 A full build prints one line last on stdout:
 
 ```
-fires: 7; sources not fully read: 1
+fires: 8; sources not fully read: 1
 ```
 
 `fires:` is the number of fires and `sources not fully read:` the number of
@@ -201,7 +208,7 @@ Its form is `fires: N; sources not fully read: M`. It prints whenever the
 build got as far as collecting, even when nothing could be written; the
 exit status does not change. The first example is the sample installation's
 build: quarry's open P0 leaf, the fires list's four open entries and
-harbor's two STUCK markers, with marsh's unreadable `WBS.md` as the one
+harbor's three STUCK markers, with marsh's unreadable `WBS.md` as the one
 source not fully read.
 
 To find which source is behind a non-zero M, read the report's statuses

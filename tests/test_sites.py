@@ -92,7 +92,7 @@ def test_problem_sites_listed_run_exits_0(tmp_path, capsys):
     # each problem site's P0 and STUCK sources are not read.
     lines = captured.out.splitlines()
     assert len(lines) == len(READABLE) + 6
-    assert lines[-1] == "fires: 7; sources not fully read: 5"
+    assert lines[-1] == "fires: 8; sources not fully read: 5"
 
 
 def test_control_character_names_print_escaped(tmp_path, capsys):
@@ -139,7 +139,7 @@ def test_unmatched_site_table_warns(tmp_path, capsys):
     # then the in-trace sample site's trace line (#20), then the fires line (#32).
     lines = captured.out.splitlines()
     assert len(lines) == len(READABLE) + 6
-    assert lines[-1] == "fires: 7; sources not fully read: 1"
+    assert lines[-1] == "fires: 8; sources not fully read: 1"
 
 
 def test_sample_site_problems():

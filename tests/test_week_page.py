@@ -42,7 +42,10 @@ STRUCTURAL = frozenset({"wrap", "label", "stamp", "not-working", "rule", "mappin
                         "today", "hours", "reserved", "none", "block", "lanes", "left", "leaf", "title", "unest",
                         "state", "tier", "need", "basis", "cont", "site-unplanned", "beyond-list", "reason", "held",
                         "p0-leaf", "gone", "top", "key", "meta", "prio", "ttl", "tl", "facts", "bands",
-                        "band", "lane-site", "sw", "xsite"})
+                        "band", "lane-site", "sw", "xsite",
+                        # The workflow phase row (#173).
+                        "phases", "ph-svg", "ph-row", "ph-cell", "ph-box", "ph-mark", "ph-t", "ph-done", "ph-current",
+                        "ph-stuck", "ph-parked", "ph-blocked", "ph-ahead", "ph-none", "ph-unknown"})
 ALLOWED_CLASSES = (WEEK_CLASSES | STRUCTURAL | set(STATE_CLASSES.values()) | {STATE_FALLBACK} | set(SLACK_CLASSES)
                    | set(MODEL_CLASSES.values()) | {MODEL_FALLBACK})
 
@@ -611,8 +614,14 @@ def test_legend_texts(tmp_path):
     (legend,) = with_attr(t, "id", "legend")
     assert texts(t, "li", within=legend) == [
         "critical: slack 0 on its own site's network", "near-critical: slack 1\u20133 on its own site's network",
-        "P0: in the P0 tier, because its own priority or that of a leaf it blocks, directly or not, is P0"]
+        "P0: in the P0 tier, because its own priority or that of a leaf it blocks, directly or not, is P0",
+        "Workflow phase row, left to right: plan, implement, check, merge, wrap up, from each issue's checklist.md",
+        # Each swatch's own mark (in its aria-hidden svg) leads its item's text.
+        "done", "current", "!stuck", "Pparked", "?blocked outside", "ahead", "not in this workflow", "unknown",
+        "The row shows this build machine's copy of each checklist, which may lag an issue running on another "
+        "machine."]
     assert [t.elements[i]["classes"] for i in find(t, "i", within=legend)] == [["sw", "crit"], ["sw", "near"]]
+    assert len(find(t, "g", ["ph-row"], within=legend)) == 8
     # Between the lines and the day buttons.
     assert one(t, "id", "lines") < legend < one(t, "id", "days")
 
@@ -1343,6 +1352,10 @@ def week_texts():
     found["LINK"] = week.LINK[0]
     # The box's own texts, from the rule both pages share (#170).
     found.update({f"leafbox.{name}": getattr(leafbox, name) for name in ("BAND_THINK", "BAND_CHECK", "NO_MODEL")})
+    # The workflow phase row's texts (#173), from the same rule.
+    found.update({f"leafbox.{name}": getattr(leafbox, name)
+                  for name in ("PHASE_LEGEND", "PHASE_LIMIT", "PHASE_TEXT", "PHASE_TEXT_UNKNOWN")})
+    found.update({f"LOOK_WORDS[{key}]": value for key, value in LOOK_WORDS.items()})
     return found
 
 
@@ -1371,3 +1384,149 @@ def test_week_doc_states_texts():
     missing = [name for name, value in texts_.items() if f"`{' '.join(value.split())}`" not in flat]
     assert missing == []
     assert "[Unplanned leaves](#unplanned-leaves)" in flat
+
+
+# --- the workflow phase row (#173) ----------------------------------------------------------
+
+from gantry.phases import LOOK_WORDS, LOOKS  # noqa: E402
+
+_D, _C, _S, _P, _B, _A, _N, _U = "done", "current", "stuck", "parked", "blocked", "ahead", "none", "unknown"
+_BAD = "phases unknown: checklist.md has a step glyph devagent does not write"
+# Every leaf_boxes placement, by (site, key): its row's five looks and tooltip text, or None.
+EXPECTED_ROWS = {
+    ("a", "Issue-1"): ((_C, _A, _A, _A, _A), "phases: plan current; implement, check, merge, wrap up ahead"),
+    ("a", "Issue-2"): ((_D, _C, _A, _A, _A), "phases: plan done; implement current; check, merge, wrap up ahead"),
+    ("a", "Issue-3"): ((_D, _D, _S, _A, _A), "phases: plan, implement done; check stuck; merge, wrap up ahead"),
+    ("a", "Issue-4"): ((_P, _A, _A, _N, _A),
+                       "phases: plan parked; implement, check ahead; merge not in this workflow; wrap up ahead"),
+    ("a", "Issue-5"): ((_D, _D, _D, _B, _A), "phases: plan, implement, check done; merge blocked outside; wrap up ahead"),
+    ("a", "Issue-6"): ((_U,) * 5, _BAD),
+    ("a", "Issue-7"): ((_D, _D, _C, _N, _A),
+                       "phases: plan, implement done; check current; merge not in this workflow; wrap up ahead"),
+    ("a", "Issue-8"): ((_D,) * 5, "phases: plan, implement, check, merge, wrap up done"),
+    ("a", "Issue-9"): None,
+    ("a", "Issue-10"): None,
+    ("a", "Issue-11"): ((_D, _D, _C, _A, _A), "phases: plan, implement done; check current; merge, wrap up ahead"),
+    ("a", "Issue-12"): None,
+    ("a", "Issue-12345678901234"): None,
+    ("a", "Issue-13"): None,
+    ("a", "Issue-14"): None,
+    ("b", "Issue-1"): None,
+    ("b", "Issue-2"): None,
+    ("b", "Issue-3"): None,
+}
+
+
+def week_row(t, i):
+    """(cell looks, the svg's title) of a week box, or None with no row."""
+    rows = find(t, "p", ["phases"], within=i)
+    if not rows:
+        return None
+    (row,) = rows
+    looks = tuple(c.removeprefix("ph-") for j in find(t, "g", ["ph-cell"], within=row)
+                  for c in t.elements[j]["classes"] if c.startswith("ph-") and c != "ph-cell")
+    (title,) = texts(t, "title", within=row)
+    (svg,) = find(t, "svg", ["ph-svg"], within=row)
+    assert attr(t, svg, "aria-label") == title
+    return looks, title
+
+
+def test_leaf_boxes_phase_premises(tmp_path):
+    result, _ = fixture_build(tmp_path, "leaf_boxes")
+    placed = placed_nodes(result.plan)
+    nodes = {(site, k) for site, m in result.page_models.items() for k in m["network"]["nodes"]}
+    rows = {node: want for node, want in EXPECTED_ROWS.items() if node in placed and want is not None}
+    assert {want[0][i] for want in rows.values() for i in range(5)} == set(LOOKS)
+    assert [node for node in rows if node not in nodes] == [("a", "Issue-11")]  # schedule-only, with a row
+    assert [node for node, want in EXPECTED_ROWS.items() if node in placed and want is None]
+    assert sorted(placed) == sorted(EXPECTED_ROWS)
+
+
+def test_week_rows_literal(tmp_path):
+    result, html = fixture_build(tmp_path, "leaf_boxes")
+    t = tree(html)
+    days = one(t, "id", "days")
+    compared = 0
+    for (site, key), want in EXPECTED_ROWS.items():
+        boxes = [i for i in leaf_lines(t, key, within=days) if attr(t, i, "data-site") == site]
+        assert boxes, (site, key)
+        for i in boxes:
+            assert week_row(t, i) == want, (site, key)
+            compared += 1
+    assert compared >= len(EXPECTED_ROWS) == 18
+
+
+def test_week_row_equals_worksite_row(tmp_path):
+    from test_worksite_page import ancestors
+
+    result, html = fixture_build(tmp_path, "leaf_boxes")
+    t = tree(html)
+    compared = 0
+    for site, key in placed_nodes(result.plan):
+        if site not in result.pages:
+            continue
+        st = site_tree(result.pages[site])
+        nodes = [i for i in find(st, "g", ["node"]) if attr(st, i, "data-item") == key]
+        week_rows = {week_row(t, i) for i in leaf_lines(t, key) if attr(t, i, "data-site") == site}
+        if not nodes:
+            continue
+        (full,) = find(st, "g", ["full-form"], within=nodes[0])
+        cells = find(st, "g", ["ph-cell"], within=full)
+        if not cells:
+            assert week_rows == {None}, (site, key)
+            continue
+        looks = tuple(c.removeprefix("ph-") for j in cells for c in st.elements[j]["classes"]
+                      if c.startswith("ph-") and c != "ph-cell")
+        kids = children(st, full)
+        assert st.elements[kids[0]]["tag"] == "title"
+        tip = text_of(st, kids[0]).split(" · ")[-1]
+        assert week_rows == {(looks, tip)}, (site, key)
+        assert full in ancestors(st, cells[0])
+        compared += 1
+    assert compared >= 7
+
+
+def page_with_phases(phases, why=None):
+    """The week page of one placed leaf whose stand-in page model holds `phases` and `why`."""
+    models = {"alpha": {"leaves": [{"key": "Issue-1", "sclass": "crit", "phases": phases, "phases_why": why}]}}
+    result = make_result([("alpha", "Issue-1", "One", None)], page_models=models)
+    return render_week(make_plan(**placed()), result, STAMP)
+
+
+@pytest.mark.parametrize("phases, why", [
+    ([HOSTILE[3]] * 5, None),
+    (["done"] * 4, None),
+    ("unknown", "x"),
+    (["unknown"] * 5, None),
+    (["unknown"] * 5, 7),
+    (["unknown"] * 5, ""),
+    (["done", "unknown", "ahead", "ahead", "ahead"], "x"),
+    (None, None),
+])
+def test_week_phases_from_a_fixed_set(phases, why):
+    page = page_with_phases(phases, why)
+    assert 'class="phases"' not in page
+    assert_page_safe(page, [])
+
+
+def test_week_phases_hostile_reason_escaped():
+    page = page_with_phases(["unknown"] * 5, HOSTILE[10])
+    assert HOSTILE[10] not in page
+    t = tree(page)
+    (box,) = leaf_lines(t, "Issue-1")
+    assert week_row(t, box) == (("unknown",) * 5, "phases unknown: " + HOSTILE[10])
+    assert_page_safe(page, [])
+
+
+def test_week_phases_known_row_drops_reason():
+    page = page_with_phases(["done", "current", "ahead", "ahead", "ahead"], "ignored")
+    t = tree(page)
+    (box,) = leaf_lines(t, "Issue-1")
+    assert week_row(t, box) == (("done", "current", "ahead", "ahead", "ahead"),
+                                "phases: plan done; implement current; check, merge, wrap up ahead")
+
+
+def test_legend_phase_swatch_spaced():
+    # The swatch's svg sits right before its word (#173), as .sw's margin spaces the fills.
+    css = (TEMPLATES / "week.html").read_text(encoding="utf-8")
+    assert re.search(r"#legend \.ph-svg \{[^}]*margin-right: \.4rem;", css)

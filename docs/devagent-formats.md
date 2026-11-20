@@ -10,13 +10,18 @@ each mirrors, what it does with each malformed case, and how a contract test
 notices when devagent's writers change shape.
 
 **A planning directory is private data.** The records in this repository
-(`samples/harbor/Issue-N/` and `tests/fixtures/devagent_records/`) are
-fictional.
+(`samples/<site>/Issue-N/`, `tests/fixtures/devagent_records/` and the week
+view fixture's issue folders) are fictional, or template step rows (names
+and glyphs only) taken from real checklists, as the phase rule's old-scheme
+test blocks are.
 
-The full build reads each site's records once: the fire collector (#32)
-reads its STUCK markers and checklists
+The full build reads each site's records once, before its pages: the
+pages draw each leaf's workflow phase row from its checklist
+([worksite-page.md](worksite-page.md#the-phase-row), #173), the fire
+collector (#32) reads the STUCK markers and checklists from the same read
 ([daily-screen.md](daily-screen.md#stuck-markers)), and the warm-up list
-(#33) and the time thieves (#29) will use the same result.
+(#33) and the time thieves (#29) will use the same result. A `--site` build
+reads its one site's records for its rows.
 
 ## The pinned release
 
@@ -181,6 +186,8 @@ The `Active revision:` header is not read.
   last heading, where devagent itself stops; `next_step` `None`, `all_done`
   false) and `checklist_bad_glyph` (a step glyph outside the seven,
   reported once).
+- `steps`: every step of the active block, in file order, as `Step`s, a
+  step with a bad glyph included; `()` when the active block has none.
 
 The same function reads a working-copy file and a committed version passed
 in as text, which is what #29 needs.
@@ -282,7 +289,7 @@ is known; for an extracted archive pass `--commit`):
 
 ```
 python3 tools/devagent_record_fixtures.py --devagent <checkout>
-python3 tools/devagent_record_fixtures.py --devagent <checkout> --samples samples/harbor
+python3 tools/devagent_record_fixtures.py --devagent <checkout> --samples samples
 python3 tools/devagent_record_fixtures.py --devagent <checkout> --check
 python3 tools/sample_portfolio.py --fixtures --devagent <checkout>
 python3 tools/sample_portfolio.py --fixtures --check --devagent <checkout>
@@ -294,8 +301,10 @@ A pin move regenerates all of these in one change, because each records the
 pin and a test holds it equal to `tests/devagent.pin`:
 
 - `tests/fixtures/devagent_records/written/`, each folder's record files and
-  its `provenance.json`, and the copies under `samples/harbor/`: the first
-  two commands.
+  its `provenance.json`, and the copies under `samples/<site>/` (each
+  recipe names its site; `--samples` takes the samples root, the folder that
+  holds `gantry.sample.toml`, and refuses any other): the first two
+  commands.
 - `tests/fixtures/portfolio/written.json` and
   `tests/fixtures/portfolio/provenance.json`: devagent's portfolio JSON over
   Gantry's `WBS.md` fixtures; `tests/fixtures/portfolio/samples.json` and

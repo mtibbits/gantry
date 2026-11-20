@@ -708,6 +708,13 @@ ISSUE_FILES = [
     "samples/quarry/Issue-20/checklist.md",
     "samples/quarry/Issue-9/STUCK",
     "samples/quarry/Issue-9/checklist.md",
+    # The phase row samples (#173).
+    "samples/quarry/Issue-3/checklist.md",
+    "samples/quarry/Issue-5/checklist.md",
+    "samples/lighthouse/Issue-9/checklist.md",
+    "samples/lighthouse/Issue-12/checklist.md",
+    "samples/harbor/Issue-16/checklist.md",
+    "samples/harbor/Issue-16/STUCK",
 ]
 
 HAVE_GIT = shutil.which("git") is not None
@@ -963,7 +970,7 @@ def test_attr_check_names_unpinned_stuck(tmp_path):
     got = unpinned(tree, files, hermetic=True)
     assert "samples/harbor/STUCK" in got
     assert sorted(got) == sorted(f for f in files if f.endswith("/STUCK"))
-    assert len(got) == 5  # harbor's two, quarry's two (#32) and the planted one
+    assert len(got) == 6  # harbor's three (#31, #173), quarry's two (#32) and the planted one
 
     attrs.write_bytes(before.encode("utf-8"))
     assert unpinned(tree, files, hermetic=True) == []

@@ -101,7 +101,7 @@ SAMPLE_CONFIG = "samples/gantry.sample.toml"
 
 SAMPLE_TRACE_LINE = ("trace lighthouse: unreadable 0, malformed 0, duplicate 0, misplaced 0, cycle 0, "
                      "undefined 1, unserved 1, untraced 3")  # a full build counts quarry's leaf (#21)
-SAMPLE_FIRES_LINE = "fires: 7; sources not fully read: 1"  # the demo's fires (#32)
+SAMPLE_FIRES_LINE = "fires: 8; sources not fully read: 1"  # the demo's fires (#32; harbor Issue-16's STUCK, #173)
 
 
 def check_written(stdout_bytes, out_dir):
@@ -489,7 +489,7 @@ def test_unread_keys_leave_pages_and_trace_inputs_change_them(tmp_path, monkeypa
     # Only the fires line differs: the fires list's four fires are gone and it is not read.
     assert plain_out.splitlines()[:-1] == nope_out.splitlines()[:-1]
     assert (plain_out.splitlines()[-1], nope_out.splitlines()[-1]) == (
-        SAMPLE_FIRES_LINE, "fires: 3; sources not fully read: 2")
+        SAMPLE_FIRES_LINE, "fires: 4; sources not fully read: 2")
 
     def trace(written, site):
         return assert_page_safe(written[f"sites/{site}.html"].decode("utf-8"), [])["trace"]

@@ -897,3 +897,24 @@ def test_xsite_focus_ring_wins():
     assert css.index(".node.xsite .outline") < css.index(".node:focus-visible .outline")
     assert {"stroke", "stroke-width"} <= css_rule(css, ".node:focus-visible .outline")
     assert not re.search(r"\.node\.xsite[.:]", css)
+
+
+def test_rerender_keeps_rows(tmp_path, monkeypatch):
+    # alpha waits on beta; beta fails once, so alpha's page is re-rendered (#173).
+    calls = force_render(monkeypatch, lambda site, n: site == "beta")
+    config = tree_config(tmp_path, {
+        "alpha": "- [ ] Wait {issue: Issue-1, depends_on: [beta:Issue-1]}\n",
+        "beta": "- [ ] Pour {issue: Issue-1}\n",
+    })
+    (tmp_path / "0" / "Issue-1").mkdir()
+    (tmp_path / "0" / "Issue-1" / "checklist.md").write_bytes(
+        b"## Revision 1\n\n- [x]  0. pull\n- [x]  2. draft\n- [ ]  9. implement\n- [ ] 24. cleanup\n")
+    result = build_all(config)
+    assert calls == {"alpha": 2, "beta": 1}
+    (leaf,) = result.page_models["alpha"]["leaves"]
+    assert (leaf["phases"], leaf["phases_why"]) == (["done", "current", "none", "none", "ahead"], None)
+    assert not [line for line in result.page_models["alpha"]["panel"] if line.startswith("Phase rows")]
+    # The re-rendered page draws the row (B2).
+    page = result.pages["alpha"]
+    assert page.count('<g class="ph-cell ph-') == 5 + 8  # the row and the legend swatches
+    assert "phases: plan done; implement current; check, merge not in this workflow; wrap up ahead" in page

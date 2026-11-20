@@ -25,18 +25,20 @@ public tools (in prose, in the `samples/devagent/` folder name and in
   estimates file, giving each open harbor leaf with an `issue:` an effort
   bucket, an hour range and model tiers. Its `#N` cells name `Issue-N` on harbor; GitHub
   auto-links them to this repo's issues, which is harmless for a fixture.
-- `harbor/Issue-N/`: devagent issue folders for seven harbor leaves (#31),
-  read by `gantry/devagent_records.py`. Each `checklist.md` and `STUCK` is
+- `harbor/Issue-N/`: devagent issue folders for eight harbor leaves (#31,
+  #173), read by `gantry/devagent_records.py`. Each `checklist.md` and `STUCK` is
   a byte copy of the same-numbered fixture that devagent's own scripts
   wrote (`tests/fixtures/devagent_records/written/`, made with
-  `tools/devagent_record_fixtures.py --samples samples/harbor`), with fixed
+  `tools/devagent_record_fixtures.py --samples samples`), with fixed
   `Created:` values dated 2026-01-12, before `as_of`; the three
   `imPlan.md` files are hand-written. `Issue-6` is at an in-progress step
   with a check-box plan, one task ticked; `Issue-7` has a plan of `Task N`
   headings and `Issue-8` a numbered one; `Issue-12` is parked; `Issue-13`
   has a STUCK marker in `stuck.sh`'s form and `Issue-14` one in
   `checklist-stuck.sh`'s, both on open leaves; `Issue-15` has a checklist
-  and no plan yet. The leaves of `Issue-7`, `8`, `12`, `13` and `14` stay
+  and no plan yet; `Issue-16` (#173) is stuck at step 15 `review`, with the
+  STUCK marker `stuck.sh` writes there, so the build counts one more stuck
+  fire. The leaves of `Issue-7`, `8`, `12`, `13` and `14` stay
   `[ ]` in `WBS.md` although their checklists show progress, deliberately:
   devagent sets `~` only when its WBS update runs, and changing them would
   change harbor's history role and its one in-progress leaf.
@@ -47,6 +49,16 @@ public tools (in prose, in the `samples/devagent/` folder name and in
   "Calibrate the weighbridge") has one in `checklist-stuck.sh`'s form and a
   parked checklist. The build counts the first under `stuck_no_open_leaf`
   and the second under `stuck_parked`, so neither is a fire.
+- Phase row samples (#173), each on a leaf the worksite network draws, so
+  a `--site` build draws its row too: `quarry/Issue-5` (implementing, `~`
+  at step 9) and `quarry/Issue-3` (checking, next step 13), each a
+  devagent-written checklist like harbor's, and `lighthouse/Issue-9`
+  (waiting at `mergemr`, `?` at step 20), devagent-written too.
+  `lighthouse/Issue-12/checklist.md` is hand-written with a glyph devagent
+  never writes (`- [o]  2. draft`), so its row shows unknown. With harbor's
+  folders they show a row mid-plan, implementing, checking, waiting,
+  stuck, parked and unknown; quarry `Issue-8`, a drawn leaf with no folder,
+  shows none. No `WBS.md` glyph changes.
 - `portfolio.md`: the sample installation's portfolio file (#22), named by
   the sample config's `portfolio_file`. Its business requirements are
   `life:BR-1` to `BR-3`; its settings give the four readable sites four
@@ -86,10 +98,10 @@ the demo shows record text rendered as text:
 
 | Site | Constant(s) | Role | Shapes it carries |
 |---|---|---|---|
-| harbor | `BUSY` | well estimated, with model tiers; the busy site | two epics, each with an `issue:` id; a `depends_on` naming a leaf under the other epic; P1 to P4 each present, and leaves with no priority; at least 8 open, 5 finished (`x`), one in-progress (`~`) and one skipped (`-`) `issue:` leaf; one open leaf with no `issue:` and a time `est:`, for the demo week plan; a cross-site entry naming quarry's open `Issue-3` (#62); `est: ?w` on open leaves that have estimates rows; the estimates file, with a row for every open `issue:` leaf, one epic row and one finished row; seven devagent issue folders (`Issue-N/`): an in-progress checklist, check-box, heading and numbered plans, a parked checklist, a STUCK marker in each `Created:` form on an open leaf, and an issue with no plan (#31) |
+| harbor | `BUSY` | well estimated, with model tiers; the busy site | two epics, each with an `issue:` id; a `depends_on` naming a leaf under the other epic; P1 to P4 each present, and leaves with no priority; at least 8 open, 5 finished (`x`), one in-progress (`~`) and one skipped (`-`) `issue:` leaf; one open leaf with no `issue:` and a time `est:`, for the demo week plan; a cross-site entry naming quarry's open `Issue-3` (#62); `est: ?w` on open leaves that have estimates rows; the estimates file, with a row for every open `issue:` leaf, one epic row and one finished row; eight devagent issue folders (`Issue-N/`): an in-progress checklist, check-box, heading and numbered plans, a parked checklist, a STUCK marker in each `Created:` form on an open leaf, and an issue with no plan (#31), and an issue stuck at step 15 `review` (#173) |
 | orchard | `OWN_UNIT` | `est:` values and a unit of its own | `Nd`, `Nw`, `?w` and the non-time `Npt`; no priority at all; at least three issue-less leaves; a `depends_on` entry that is an outline number (`2.1`) and names no issue; cross-site entries: a row naming an open lighthouse leaf and a site not in the installation, a leaf naming a harbor row, and leaves naming bakery, marsh and an issue lighthouse lacks (#68) |
-| quarry | `UNESTIMATED` | wholly unestimated; the P0 demo | no `est:` and no estimates file; priorities on some leaves only; an open P0 leaf and the open leaf it depends on (#10); a `depends_on` naming a leaf under another epic; a `depends_on` naming an issue that exists on no site; `h: 0`, `h: 4` and a quoted `h: "2"` on open leaves, and `h: high`, which its panel lists as `bad_h` (#36); cross-site entries: an open harbor leaf whose id quarry also holds, a finished harbor leaf, a harbor outline position and its own `quarry:` prefix (#68); a `satisfies:` naming lighthouse's `FR-2`, the sample foreign leaf (#21); two hand-written issue folders with STUCK markers, one that no leaf names and one on an open leaf whose checklist is parked (#32) |
-| lighthouse | `SMALL`, `HOSTILE_SITE` | small; the trace demo (#20) | two epics and one top-level leaf with no epic; the hostile title on an open leaf; a requirements file, which puts it in the trace, with `UC`, `SR`, `FR`, `QA` and `CON` items, a use case with `needs:` and an `FR` that `refines:` an `SR`; a second epic, "Keep the lamp log", whose leaves carry `satisfies:` keys: a full box naming four IDs, one of another namespace (`life:BR-1`); a circle naming an `FR` that refines the `SR` a use case needs; a schedule-only leaf naming the `SR` directly; finished leaves serving directly and through refinement; an undefined ID (`lighthouse:FR-90`); untraced open leaves; and an open leaf serving only `QA-1` that a leaf serving `FR-1` waits on, so `FR-1`, `SR-1` and `UC-3` each have an upstream leaf (#77). `UC-2` stays unserved installation-wide; `FR-2` is served only by quarry's `Issue-3` (#21); `FR-3` states a `Threshold:` and an `Objective:`, gated by `Issue-8` and served at objective only by the schedule-only `Issue-11` (`objective: lighthouse:FR-3`), so selecting it splits the path box (#79) |
+| quarry | `UNESTIMATED` | wholly unestimated; the P0 demo | no `est:` and no estimates file; priorities on some leaves only; an open P0 leaf and the open leaf it depends on (#10); a `depends_on` naming a leaf under another epic; a `depends_on` naming an issue that exists on no site; `h: 0`, `h: 4` and a quoted `h: "2"` on open leaves, and `h: high`, which its panel lists as `bad_h` (#36); cross-site entries: an open harbor leaf whose id quarry also holds, a finished harbor leaf, a harbor outline position and its own `quarry:` prefix (#68); a `satisfies:` naming lighthouse's `FR-2`, the sample foreign leaf (#21); two hand-written issue folders with STUCK markers, one that no leaf names and one on an open leaf whose checklist is parked (#32); two devagent-written checklists, implementing (`Issue-5`) and checking (`Issue-3`), for the phase row (#173) |
+| lighthouse | `SMALL`, `HOSTILE_SITE` | small; the trace demo (#20) | two epics and one top-level leaf with no epic; the hostile title on an open leaf; a requirements file, which puts it in the trace, with `UC`, `SR`, `FR`, `QA` and `CON` items, a use case with `needs:` and an `FR` that `refines:` an `SR`; a second epic, "Keep the lamp log", whose leaves carry `satisfies:` keys: a full box naming four IDs, one of another namespace (`life:BR-1`); a circle naming an `FR` that refines the `SR` a use case needs; a schedule-only leaf naming the `SR` directly; finished leaves serving directly and through refinement; an undefined ID (`lighthouse:FR-90`); untraced open leaves; and an open leaf serving only `QA-1` that a leaf serving `FR-1` waits on, so `FR-1`, `SR-1` and `UC-3` each have an upstream leaf (#77). `UC-2` stays unserved installation-wide; `FR-2` is served only by quarry's `Issue-3` (#21); `FR-3` states a `Threshold:` and an `Objective:`, gated by `Issue-8` and served at objective only by the schedule-only `Issue-11` (`objective: lighthouse:FR-3`), so selecting it splits the path box (#79); a devagent-written checklist waiting at `mergemr` (`Issue-9`) and a hand-written one with a bad glyph (`Issue-12`), for the phase row (#173) |
 | bakery | `NO_WBS` | no `WBS.md` | a folder holding only a short `README.md` |
 | marsh | `UNREADABLE` | cannot be read | ordinary node lines, one of whose titles holds a Latin-1 byte that is not valid UTF-8 |
 

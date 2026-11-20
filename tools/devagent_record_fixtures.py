@@ -11,7 +11,8 @@ writers put in a checklist.md or STUCK file is replaced with a fixed one in
 the writer's own form, and the files are written to --out/<Issue-N>/ (default
 tests/fixtures/devagent_records/written) with a provenance.json beside them.
 --samples DIR also copies each sample recipe's checklist.md and STUCK into
-DIR/<Issue-N>/. --check writes nothing: it regenerates into a temporary folder
+DIR/<site>/<Issue-N>/, DIR being the samples root (the folder that holds
+gantry.sample.toml; any other DIR exits 2). --check writes nothing: it regenerates into a temporary folder
 and compares, masking the timestamps on both sides, and exits 1 on any
 difference, one line each. A failed preflight (no bash, a missing program, a
 python3 older than 3.11, a host trust policy) exits 2; a writer that behaves
@@ -50,6 +51,7 @@ class Recipe(NamedTuple):
     sample: bool
     expected_exit: int = 0
     refused: bool = False  # an expected exit that writes nothing (no STUCK)
+    site: str = PROJECT  # the sample site whose planning folder --samples copies it into
 
     @property
     def leaves_stuck(self):
@@ -61,6 +63,18 @@ INIT = ("checklist-init.sh", "--project", PROJECT, DIR)
 
 def mark(n, glyph, name):
     return ("checklist-mark.sh", DIR, str(n), glyph, name)
+
+
+# The standard template's step names, by the pinned release's numbers.
+STEP_NAMES = ("pull", "research", "draft", "spike", "scope", "improve", "prune", "tighten", "branch", "implement",
+              "quality", "document", "commit", "analyze", "draftmr", "review", "redmr", "preship", "ship",
+              "mergetoall", "mergemr", "updatewbs", "impact", "lessonslearned", "cleanup")
+
+
+def done_through(last):
+    """Marks `x` on steps 2 and 4 to `last`: the steps a standard checklist
+    runs after pull, its pre-skipped 1, 3 and 19 left `-`."""
+    return tuple(mark(n, "x", STEP_NAMES[n]) for n in (2, *range(4, last + 1)) if n != 19)
 
 
 PULLED = (INIT, mark(0, "x", "pull"))
@@ -76,6 +90,15 @@ RECIPES = (
     Recipe("Issue-14", "checklist-stuck.sh",
            PULLED + (("checklist-stuck.sh", DIR, "The tide table for the north quay is missing."),), sample=True),
     Recipe("Issue-15", "checklist-init.sh", (INIT,), sample=True),
+    # The phase row samples (#173): each on a leaf the worksite network draws.
+    Recipe("Issue-5", "checklist-mark.sh", PULLED + done_through(8) + (mark(9, "~", "implement"),), sample=True,
+           site="quarry"),
+    Recipe("Issue-3", "checklist-mark.sh", PULLED + done_through(12), sample=True, site="quarry"),
+    Recipe("Issue-9", "checklist-mark.sh", PULLED + done_through(18) + (mark(20, "?", "mergemr"),), sample=True,
+           site="lighthouse"),
+    Recipe("Issue-16", "stuck.sh",
+           PULLED + done_through(14)
+           + (("stuck.sh", PROJECT, "The warehouse inspector has not signed off the review."),), sample=True),
     # stuck.sh cannot write a marker at step 0: `last_good` is unset under set -u.
     Recipe("Issue-21", "stuck.sh", (INIT, ("stuck.sh", PROJECT, "Nothing has run yet.")), sample=False,
            expected_exit=1, refused=True),
@@ -439,11 +462,15 @@ def write_fixtures(devagent_dir, out, commit):
     return out
 
 
+SAMPLE_CONFIG = "gantry.sample.toml"
+
+
 def copy_samples(out, samples):
+    """Each sample recipe's record files into <samples>/<site>/<Issue-N>/."""
     for recipe in RECIPES:
         if not recipe.sample:
             continue
-        target = Path(samples) / recipe.issue
+        target = Path(samples) / recipe.site / recipe.issue
         target.mkdir(parents=True, exist_ok=True)
         for name in RECORD_FILES:
             source = Path(out) / recipe.issue / name
@@ -462,6 +489,10 @@ def main(argv=None):
     if not args.devagent:
         parser.error("--devagent is required when GANTRY_DEVAGENT_DIR is not set")
     args.devagent = Path(args.devagent).resolve()
+    if args.samples and not (Path(args.samples) / SAMPLE_CONFIG).is_file():
+        print(f"devagent_record_fixtures: --samples names the samples root, the folder that holds {SAMPLE_CONFIG}",
+              file=sys.stderr)
+        return 2
     try:
         if args.check:
             diffs = check(args.devagent, args.out)

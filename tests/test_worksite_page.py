@@ -26,10 +26,10 @@ from gantry.model import Estimate, Leaf, Models, Row, SiteData
 from gantry.estimates_file import find_estimates_file, read_estimates_file
 from gantry.roots import directory_roots
 from gantry.sites import SiteEntry, config_roots, load_sites
-from gantry import render
+from gantry import phases, render
 from gantry.render import CLASS_TOKENS
 from gantry.schedule import limit, plan
-from gantry.views import worksite
+from gantry.views import leafbox, worksite
 from gantry.views.worksite import (
     DATES,
     DATES_ONE,
@@ -57,7 +57,7 @@ INPUTS = ROOT / "tests" / "fixtures" / "inputs"
 SAMPLE_ROOTS = directory_roots([SAMPLES])  # the sample sites, read where they are (#59)
 PAGE_ASSETS = ("gantry/templates/worksite.html", "gantry/templates/index.html", "gantry/templates/strategic.html",
                "gantry/static/schedule.js", "gantry/static/worksite.js", "gantry/templates/week.html",
-               "gantry/static/week.js", "gantry/templates/leaf_colours.css")
+               "gantry/static/week.js", "gantry/templates/leaf_colours.css", "gantry/templates/leaf_phases.css")
 
 
 def fixture(name):
@@ -238,6 +238,9 @@ STRUCTURAL = {
     "lit", "ln", "mk-end", "mode-wave", "mono", "mt-h", "mt-m", "mt-row", "mt-rule", "mt-sw",
     "mt-v", "net", "nid", "nmeta", "node", "note", "ntitle", "outline", "panel", "plate", "prose",
     "seg", "sw", "tracing", "work", "wrap", "zero",
+    # The workflow phase row (#173).
+    "ph-svg", "ph-row", "ph-cell", "ph-box", "ph-mark", "ph-t", "ph-done", "ph-current", "ph-stuck", "ph-parked",
+    "ph-blocked", "ph-ahead", "ph-none", "ph-unknown",
     # The re-ported prototype figures (#10).
     "limits", "lim-label", "lim-val", "lim-note", "lim-axis", "bar-crit", "bar-open", "span", "summary",
     "mk-crit", "pmark",
@@ -623,7 +626,7 @@ def test_page_assets_are_package_data():
     assets = sorted(p.relative_to(ROOT / "gantry").as_posix()
                     for folder in ("templates", "static") for p in (ROOT / "gantry" / folder).iterdir())
     assert assets == ["static/schedule.js", "static/week.js", "static/worksite.js", "templates/index.html",
-                      "templates/leaf_colours.css", "templates/strategic.html", "templates/week.html",
+                      "templates/leaf_colours.css", "templates/leaf_phases.css", "templates/strategic.html", "templates/week.html",
                       "templates/worksite.html"]
     for asset in assets:
         assert any(fnmatch.fnmatch(asset, g) for g in globs), asset
@@ -1346,7 +1349,12 @@ PAGE_TEXTS = [getattr(worksite, name) for name in (
     "SUMMARY_NO_CHAIN_XSITE", "LIMITS_CAPTION_NO_CHAIN_XSITE", "NO_CHAIN_XSITE", "HOURS_NOTE_NONE",
     "HOURS_NOTE_NONE_XSITE",
     # An estimates file's edges (#108).
-    "ESTIMATES_BAD_DATE", "UNESTIMATED_MORE")] + list(worksite.STATE_MARKS.values()) + list(worksite.FBOX_LINE.values())
+    "ESTIMATES_BAD_DATE", "UNESTIMATED_MORE",
+    # The workflow phase row (#173).
+    "RECORDS_LINE")] + list(worksite.STATE_MARKS.values()) + list(worksite.FBOX_LINE.values()) + [
+    *(getattr(leafbox, name) for name in ("PHASE_LEGEND", "PHASE_LIMIT", "PHASE_TEXT", "PHASE_TEXT_UNKNOWN")),
+    *(getattr(phases, name) for name in ("WHY_NOT_READ", "WHY_SKIPPED", "WHY_NAME")),
+    *phases.WHY_PROBLEM.values(), *phases.LOOK_WORDS.values(), *phases.PHASE_NAMES]
 
 
 def test_doc_states_page_texts():

@@ -1,6 +1,7 @@
 /* The leaf box's cue colours (#170): the worksite page and the week view insert this one sheet. */
 :root {
   --crit: #c4321f; --crit-ink: #ffffff; --near: #f8ddd7; --near-ink: #6e1e12; --held: #8a5a00; --xsite: #0b7a6e;
+  --done: #1e7b34; /* the phase row's check and dot (#173), not the xsite teal */
   /* model band: a neutral ramp, heavier model = heavier tone */
   --m-haiku: #f1f3f6; --m-haiku-ink: #3a4452;
   --m-sonnet: #e6e9ee; --m-sonnet-ink: #3a4452;
@@ -11,6 +12,7 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --crit: #ff6a55; --crit-ink: #1b0904; --near: #47231d; --near-ink: #ffcfc6; --held: #e0b050; --xsite: #4fd1c0;
+    --done: #5fd27a;
     --m-haiku: #1c222b; --m-haiku-ink: #b9c2ce;
     --m-sonnet: #252d38; --m-sonnet-ink: #b9c2ce;
     --m-opus: #66727f; --m-opus-ink: #0b0f14;

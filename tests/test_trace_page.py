@@ -18,6 +18,7 @@ from gantry.cli import main
 from gantry.config import load_config
 from gantry.model import FINISHED_GLYPHS, STATE_GLYPHS, Estimate, Leaf, SiteData
 from gantry.render import CLASS_TOKENS
+from gantry.phases import NO_RECORDS
 from gantry.sites import config_roots, load_sites
 from gantry.trace import (CATEGORIES, COUNT_FINISHED, COUNT_HELD, COUNT_OPEN, COUNTS_LINE, MESSAGES,
                           REQUIREMENTS_LABEL, build_site_trace, counts_line, load_catalog, page_trace)
@@ -317,7 +318,7 @@ def test_full_build_prints_trace_line(tmp_path, monkeypatch):
     assert code == 0, err
     lines = stdout.splitlines()
     # The trace line, then the fires line last (#32).
-    assert lines[-2:] == [SAMPLE_LINE_FULL, "fires: 7; sources not fully read: 1"]
+    assert lines[-2:] == [SAMPLE_LINE_FULL, "fires: 8; sources not fully read: 1"]
     assert [line for line in lines if line.startswith("trace ")] == [SAMPLE_LINE_FULL]
     assert os.path.samefile(lines[-4], out / "index.html")
     assert os.path.samefile(lines[-3], out / "week-plan.json")
@@ -367,7 +368,7 @@ def test_trace_line_bytes(tmp_path):
     result = run_module("build", "--config", str(copy / "gantry.sample.toml"))
     assert result.returncode == 0, result.stderr
     assert b"\r" not in result.stdout
-    assert result.stdout.decode("utf-8").splitlines()[-2:] == [SAMPLE_LINE_FULL, "fires: 7; sources not fully read: 1"]
+    assert result.stdout.decode("utf-8").splitlines()[-2:] == [SAMPLE_LINE_FULL, "fires: 8; sources not fully read: 1"]
 
 
 # --- Task 5: chips and the two panels ----------------------------------------------
@@ -509,7 +510,8 @@ def render_traced(config_path, site, trace=True):
     sites = load_sites(config, roots)[0]
     inputs = build.read_sites(config, sites, roots=roots)[0][site]
     if trace:
-        return build.render_site(site, inputs, config, "", catalog=load_catalog(roots, config, sites))
+        return build.render_site(site, inputs, config, "", catalog=load_catalog(roots, config, sites),
+                                 records=NO_RECORDS)
     m = page_model(site, inputs.data, default_unit_hours=config.default_unit_hours, inputs=inputs)
     return worksite.render_model(m, stamp=""), m
 
