@@ -179,9 +179,18 @@ def _panel(model, panel) -> str:
 # --- the time thieves (#29) ------------------------------------------------------------
 
 
+def threshold_number(value) -> str:
+    """A threshold as configured: an integer in full, a float as Python writes it ("10.25", "1e+308"),
+    a whole float bare. Never rounded, so the text names the number the flag compares; never raises."""
+    if isinstance(value, int):
+        return str(value)
+    text = repr(value)
+    return text[:-2] if text.endswith(".0") else text
+
+
 def threshold_text(thief) -> str:
-    """The thief's threshold, its number as the page writes numbers."""
-    return thieves.THRESHOLD_TEXTS[thief.kind].format(n=_num1(thief.threshold))
+    """The thief's threshold, as configured."""
+    return thieves.THRESHOLD_TEXTS[thief.kind].format(n=threshold_number(thief.threshold))
 
 
 def shows_flag(thief) -> bool:

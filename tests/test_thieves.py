@@ -229,16 +229,19 @@ FAKE_REPO = wbs_history.Repo(PurePath("/nowhere"), "", SITE, PurePath("/gantry")
 
 
 def test_wip_bad_issue_ids_make_no_read(monkeypatch):
-    calls = spy_reads(monkeypatch, frozenset({"Issue-1/checklist.md", "a/checklist.md"}),
-                      {"Issue-1/checklist.md": PARKED})
+    # Every bad id's path is listed too, so only the id rule can stop its read.
+    listed = {"Issue-1/checklist.md", "a/checklist.md", "../x/checklist.md", "a/b/checklist.md",
+              "a\\b/checklist.md", "Issue 7/checklist.md", ".hidden/checklist.md"}
+    calls = spy_reads(monkeypatch, frozenset(listed), {path: PARKED for path in listed})
     data = leaves(("~", "Issue-1"), ("~", "Issue-2"), ("~", "Issue-3"), ("~", "Issue-4"), ("~", "Issue-5"),
-                  ("~", "Issue-6"))
-    bad = {"Issue-3": "../x", "Issue-4": "a/b", "Issue-5": "a\\b", "Issue-6": None}
+                  ("~", "Issue-6"), ("~", "Issue-7"), ("~", "Issue-8"))
+    bad = {"Issue-3": "../x", "Issue-4": "a/b", "Issue-5": "a\\b", "Issue-6": None, "Issue-7": "Issue 7",
+           "Issue-8": ".hidden"}
     data = dataclasses.replace(data, leaves=tuple(dataclasses.replace(leaf, issue=bad.get(leaf.issue, leaf.issue))
                                                   for leaf in data.leaves))
     wip = derive(data, hist=history(FAKE_REPO)).wip
     assert len(calls["paths"]) == 1 and calls["text"] == ["Issue-1/checklist.md"]
-    assert wip.value == 5 and "1 parked, not counted" in texts(wip)
+    assert wip.value == 7 and "1 parked, not counted" in texts(wip)
 
 
 def test_wip_mid_read_no_data_discards(monkeypatch):
@@ -381,6 +384,10 @@ def test_unknown_deps_cross_site():
     assert "resolved cross-site links: 2, not flagged" in texts(deps)
     assert (deps.value, deps.flagged) == (base.unknown_deps.value, base.unknown_deps.flagged) == (7, True)
     assert thieves.CROSS_SITE_NONE in texts(base.unknown_deps)
+    # "No cross-site entries" is installation-wide: another site's entry makes this one's count 0, not no data.
+    other = derive(data, hist=history(), foreign={"beta": (outcome(2, "open"),)}).unknown_deps
+    assert "resolved cross-site links: 0, not flagged" in texts(other)
+    assert thieves.CROSS_SITE_NONE not in texts(other)
 
 
 # --- unplanned work (AC3) ----------------------------------------------------------------------

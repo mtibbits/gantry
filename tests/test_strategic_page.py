@@ -646,6 +646,20 @@ def test_threshold_texts():
     assert threshold_text(thief("priorities", 10)) == "flagged above 10 points"
     assert threshold_text(thief("wip", 3)) == "flagged above 3"
     assert threshold_text(thief("neglect", 4)) == "flagged at 4 weeks or more"
+    # As configured, never rounded: the text names the number the flag compares.
+    assert threshold_text(thief("priorities", 10.25)) == "flagged above 10.25 points"
+    assert threshold_text(thief("priorities", 0.04)) == "flagged above 0.04 points"
+    assert threshold_text(thief("priorities", 10.0)) == "flagged above 10 points"
+
+
+def test_huge_thresholds_render():
+    """Values the portfolio check accepts never stop the page from being written."""
+    from gantry import thieves
+    from gantry.views.strategic import _thief
+
+    for value, shown in ((10**400, str(10**400)), (1e308, "1e+308")):
+        for kind in thieves.KINDS:
+            assert shown in _thief(kind, thieves.Thief(kind, 0, "0", value, False, "s")), (kind, value)
 
 
 def test_no_thieves_no_row(tmp_path):

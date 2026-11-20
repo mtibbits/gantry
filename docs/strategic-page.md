@@ -242,8 +242,10 @@ key that is not set, or not read, takes its default. Every thief but
 neglected work is flagged when its value is **above** its threshold;
 neglected work is flagged at or beyond its window. A thief with no value
 says `no data: <reason>` and is never flagged; one whose derivation raised
-reads that way for all five lines (the build warns, naming the site), and
-never fails the page. A history read that raises reads
+reads that way for all five lines, and never fails the page; the build
+warns `gantry: warning: site <name>: thieves not derived: <Type>` on
+standard error, and its exit code is unchanged. A threshold is written as
+configured, never rounded. A history read that raises reads
 `history read failed: <Type>` on the history's lines.
 
 ### Shared records and this build machine's view
