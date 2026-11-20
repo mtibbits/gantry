@@ -695,3 +695,16 @@ def test_strategic_doc_covers_the_thieves_points():
         "[wbs-history.md](wbs-history.md)",
     ):
         assert phrase in text, phrase
+
+
+def test_docs_state_what_29_shows():
+    """No doc says a page has yet to show fires, or that `wbs update` writes `P` for a parked checklist (#29)."""
+    thieves_section = " ".join(section(markdown_text(STRATEGIC_DOC), "## Time thieves").split())
+    assert "`history read failed: <Type>`" in thieves_section
+    assert "until `wbs update` writes `P`" not in thieves_section
+    assert "it never writes `P` for a parked checklist" in thieves_section
+    assert "shallow history does not affect" in thieves_section
+    config = markdown_text(ROOT / "docs" / "config.md")
+    (row,) = [line for line in config.splitlines() if line.startswith("| `fires_list` |")]
+    assert "no page shows them yet" not in row and "strategic page" in row
+    assert "no page shows the fires list yet" not in markdown_text(ROOT / "docs" / "fires-list.md")

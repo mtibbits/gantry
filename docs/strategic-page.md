@@ -219,9 +219,10 @@ Each built panel's entry has `thieves` (None on a not-built panel, and when
 the thieves were not derived): per thief its `value` (a date as
 `YYYY-MM-DD`), `text`, `threshold`, `flagged`, `source`, `no_data` (the
 reason, or None), `by_kind`, `parts` (each `text` and `machine`), `label`
-and `counts` (WIP's `parked` and `started`, each None when not checked),
-and `uncommitted` (whether the site's working-tree `WBS.md` differs from its
-commit; None when not checked). The top level has `fires_no_site` (`count`,
+and `counts` (WIP's `parked` and `started`, each None when not checked).
+Each panel's entry also has `uncommitted` (whether the site's working-tree
+`WBS.md` differs from its commit; None when not checked or not built). The
+top level has `fires_no_site` (`count`,
 None when not known, and `text`).
 A thief figure carries `data-source` and its visible source like every
 figure, its text being a value or its `no data: <reason>`.
@@ -241,7 +242,8 @@ neglected work is flagged when its value is **above** its threshold;
 neglected work is flagged at or beyond its window. A thief with no value
 says `no data: <reason>` and is never flagged; one whose derivation raised
 reads that way for all five lines (the build warns, naming the site), and
-never fails the page.
+never fails the page. A history read that raises reads
+`history read failed: <Type>` on the history's lines.
 
 ### Shared records and this build machine's view
 
@@ -263,9 +265,10 @@ information beside the value.
 The value counts the open leaves in progress: every leaf whose glyph is
 `~`, `!` or `?`, plus every pending leaf (glyph ` `) whose committed
 checklist shows progress, less every one of those whose committed checklist
-is parked. A `~` alone overcounts: devagent leaves the glyph in place when
-an issue is parked, until `wbs update` writes `P`, so the committed
-checklist is what says it was set aside. And a pending leaf whose committed
+is parked. A `~` alone overcounts: `wbs update` sets `~` for an open issue
+whose checklist shows progress, a parked one included (it never writes `P`
+for a parked checklist), so the committed checklist is what says it was set
+aside. And a pending leaf whose committed
 checklist shows progress counts, because the work has started though the
 glyph has not caught up. Parts say how many were parked and not counted and
 how many started with a pending glyph.
@@ -280,9 +283,11 @@ committed checklists with one `git ls-tree` per site, the **`ls-tree`
 prefilter**, and reads a checklist's text only when it is listed, so an
 issue with no committed checklist costs no git call.
 
-When the committed checklists cannot be read (the site's history read
-failed, the listing failed, or any one checklist read failed) nothing is
-counted from any of them: the parked and started parts say
+The committed checklists are read at `HEAD` only, so shallow history does
+not affect them, nor does a window with no commit. When they cannot be read
+(the site has no repository, `git` is not found or failed for its history,
+the listing failed, or any one checklist read failed) nothing is counted
+from any of them: the parked and started parts say
 `no data: <reason>`, the value counts the `~`, `!` and `?` leaves, and the
 machine part is labelled `not checked against a commit (<reason>)`. The
 machine part names, from this machine's checklists, leaves parked here
@@ -313,8 +318,12 @@ sources' statuses: `read` and `absent` give a plain count;
 for every site, make it `incomplete: <sources> not read`, with the count
 before it when one was found, and never a bare 0, which would say nothing
 was there; `not_configured` (no fires list set) adds nothing to the count
-and the source says the fires list is not configured. Fires that name no
-site are counted once above the groups, not on any panel.
+and the source says the fires list is not configured. The STUCK part gives
+the count from STUCK markers whenever the site's STUCK markers were read,
+with problems or not, and says
+`as seen by this build machine: STUCK markers not read` when they were not.
+Fires that name no site are counted once above the groups, not on any
+panel.
 
 ### Conflicting priorities (`share_gap_points`, default 10)
 

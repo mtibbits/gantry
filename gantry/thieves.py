@@ -175,6 +175,10 @@ def _valid_issue(issue) -> bool:
     return issue is not None and ID_TOKEN_RE.fullmatch(issue) is not None
 
 
+def _git_failed(reason) -> bool:
+    return reason == wbs_history.GIT_NOT_FOUND or reason.startswith(wbs_history.GIT_FAILED.split("{")[0])
+
+
 class _Unchecked(Exception):
     """A committed read gave no data: the whole site is unchecked (D6)."""
 
@@ -185,8 +189,14 @@ class _Unchecked(Exception):
 
 def _committed_states(history, issues):
     """{issue: ChecklistState or None (absent at HEAD)} for `issues`, read
-    through the ls-tree prefilter; raises _Unchecked on any no-data answer."""
-    if history.no_data is not None:
+    through the ls-tree prefilter; raises _Unchecked on any no-data answer.
+    It reads HEAD only, so a history answer that is no data for the walk
+    (shallow history, no commit in the window) still reads through its
+    repository; one with no repository, or where git itself failed, makes no
+    git call (one failure per site, not two)."""
+    if isinstance(history.repo, wbs_history.NoData):
+        raise _Unchecked(history.repo.reason)
+    if history.no_data is not None and _git_failed(history.no_data.reason):
         raise _Unchecked(history.no_data.reason)
     listed = wbs_history.committed_paths(history.repo, CHECKLIST_FILE)
     if isinstance(listed, wbs_history.NoData):
@@ -370,7 +380,8 @@ def unplanned_thief(name, fires, threshold) -> Thief:
     if any(s.source == "fires_list" and s.status == "not_configured" for s in statuses):
         source += FIRES_LIST_NOT_CONFIGURED
     stuck = [s for s in statuses if s.source == "stuck"]
-    if stuck and all(s.status not in UNREAD_STATUSES for s in stuck):
+    # read_with_problems still found its markers, and they count: show how many (the value says incomplete).
+    if stuck and all(s.status != "not_read" for s in stuck):
         part = Part(STUCK_PART.format(n=sum(f.this_machine for f in mine)), machine=True)
     else:
         part = Part(STUCK_NOT_READ, machine=True)

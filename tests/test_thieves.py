@@ -588,3 +588,30 @@ def test_attach_repoints_headline():
     assert attached.fires_no_site is no_site
     unbuilt = model_of(panel("alpha", built=False))
     assert thieves.attach(unbuilt, {}, no_site).panels["alpha"].thieves is None
+
+
+# --- final review fixes ----------------------------------------------------------------------------
+
+
+def test_wip_shallow_or_no_commit_history_still_reads_head(tmp_path, git_ready):
+    """The committed check reads HEAD only: shallow history (or no commit in the window) never turns it off."""
+    repo = planning_repo(tmp_path, {"Issue-1": PARKED, "Issue-2": PROGRESS})
+    for reason in (wbs_history.SHALLOW, wbs_history.NO_COMMITS.format(as_of="2026-01-19")):
+        wip = derive(leaves(("~", "Issue-1"), (" ", "Issue-2")), hist=history(repo, no_data=NoData(reason))).wip
+        assert wip.value == 1, reason
+        assert dict(wip.counts) == {"parked": 1, "started": 1}, reason
+        assert texts(wip)[:2] == ["1 parked, not counted", "1 started, glyph pending"], reason
+
+
+def test_unplanned_stuck_part_per_status():
+    from gantry import fires as fires_module
+
+    shown = {"read": True, "read_with_problems": True, "absent": True, "not_read": False, "not_configured": True}
+    assert tuple(shown) == fires_module.STATUSES
+    for status, counted in shown.items():
+        got = derive(leaves(), hist=history(), fires=report([fire("stuck")], stuck=status)).unplanned
+        expected = MACHINE + ("1 from STUCK markers" if counted else "STUCK markers not read")
+        assert machine_parts(got) == [expected], status
+    no_status = FireReport((fire("stuck"),), tuple(s for s in report().sources if s.source != "stuck"))
+    got = derive(leaves(), hist=history(), fires=no_status).unplanned
+    assert machine_parts(got) == [MACHINE + "STUCK markers not read"]
