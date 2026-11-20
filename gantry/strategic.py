@@ -149,10 +149,10 @@ def _panel(result, summary, backlog, shares, built_sum, portfolio) -> Panel:
                  open_leaves=summary.open_leaves, held_out=summary.open_leaves - len(scheduled(inputs.data)),
                  backlog=site, estimates=inputs.estimates.name if inputs.estimates is not None else None,
                  intended=intended, comparable=comparable, gap=gap, serves=serves,
-                 gap_reason=_gap_reason(intended, site.share, built_sum) if gap is None else None)
+                 gap_reason=_gap_reason(intended, site.share) if gap is None else None)
 
 
-def _gap_reason(intended, share, built_sum) -> str:
+def _gap_reason(intended, share) -> str:
     """Why a built site has no gap, the first that applies (D1)."""
     if intended is None:
         return NO_GAP_NO_SHARE

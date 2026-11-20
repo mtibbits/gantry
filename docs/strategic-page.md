@@ -216,7 +216,7 @@ block (`gantry-data`): the stamp, the as-of date, whether a portfolio file
 is configured, the applying allocation as given, the projects, the groups,
 one entry per panel with its unrounded figures, the totals and the report.
 Each built panel's entry has `thieves` (None on a not-built panel, and when
-the thieves were not derived): per thief its `value` (a date as
+the build attached none): per thief its `value` (a date as
 `YYYY-MM-DD`), `text`, `threshold`, `flagged`, `source`, `no_data` (the
 reason, or None), `by_kind`, `parts` (each `text` and `machine`), `label`
 and `counts` (WIP's `parked` and `started`, each None when not checked).
@@ -232,7 +232,8 @@ figure, its text being a value or its `no data: <reason>`.
 Each built site's panel ends with a `Time thieves` row (#29): five lines,
 each a figure (`thief-*`) with its source, its threshold, whether it is
 flagged and its parts. A thieves row is never shown with zeros it did not
-count: a panel whose thieves were not derived has no row. A not-built site
+count: a panel the build attached no thieves to has no row (a site whose
+derivation raised still has its row, of five "no data" lines). A not-built site
 has no panel row, so fires on a site that is not built are on no panel.
 
 Thresholds come from the portfolio file's `[thresholds]`

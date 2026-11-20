@@ -673,16 +673,16 @@ def committed_paths(repo, name):
     if isinstance(repo, NoData):
         return repo
     spec = f":(top,literal){repo.prefix}" if repo.prefix else "."
-    ran = _checked(repo, _git(repo, ["ls-tree", "-r", "--name-only", "-z", "HEAD", "--", spec]))
-    if isinstance(ran, NoData):
-        # One more call, on the failure path only: an unborn HEAD lists nothing.
-        return frozenset() if isinstance(_resolve(repo, "HEAD^{commit}"), Absent) else ran
-    lead = _repo_path(repo, "")
+    ran = _git(repo, ["ls-tree", "-r", "--name-only", "-z", "HEAD", "--", spec])
+    if isinstance(ran, NoData):  # git could not run (or timed out): no second call
+        return ran
+    if ran.returncode != 0:
+        # One more call when ls-tree exited non-zero: an unborn HEAD lists nothing.
+        return frozenset() if isinstance(_resolve(repo, "HEAD^{commit}"), Absent) else _checked(repo, ran)
+    lead = len(_repo_path(repo, ""))  # the pathspec confines the listing to the history directory
     found = set()
     for path in _out(ran).split("\0"):
-        if not path.startswith(lead):
-            continue
-        parts = path[len(lead):].split("/")
+        parts = path[lead:].split("/")
         if len(parts) == 2 and parts[0] and parts[1] == name:
             found.add("/".join(parts))
     return frozenset(found)

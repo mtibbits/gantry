@@ -75,9 +75,6 @@ class SettingKey:
 
 _INT_0 = "an integer, 0 or more"
 _INT_1 = "an integer above 0"
-# The neglected-work window's ceiling (#29): ten years. The history walk stops at the window, so the
-# ceiling bounds a build's history reads; at 520 weeks the operator installation read every commit.
-NEGLECT_WEEKS_MAX = 520
 SETTINGS_KEYS = (
     SettingKey("portfolio_version", "the integer 1", REQUIRED, "#22"),
     SettingKey("allocation", "an array of tables ([[allocation]])", (), "#23, Epic #5"),
@@ -104,7 +101,7 @@ SETTINGS_KEYS = (
     SettingKey("thresholds.unknown_deps_max", _INT_0, 0, "#29"),
     SettingKey("thresholds.unplanned_max", _INT_0, 0, "#29"),
     SettingKey("thresholds.share_gap_points", "a finite number above 0", 10, "#29, #25"),
-    SettingKey("thresholds.neglect_weeks", f"an integer from 1 to {NEGLECT_WEEKS_MAX}", 4, "#29"),
+    SettingKey("thresholds.neglect_weeks", _INT_1, 4, "#29"),
     SettingKey("thresholds.effort_window_weeks", _INT_1, 4, "#25"),
 )
 DEFAULTS = {k.path: k.default for k in SETTINGS_KEYS if k.default not in (REQUIRED, None, ())}
@@ -164,7 +161,7 @@ _CHECKS = {
     "thresholds.unknown_deps_max": _int_0,
     "thresholds.unplanned_max": _int_0,
     "thresholds.share_gap_points": _positive,
-    "thresholds.neglect_weeks": lambda v: _int_1(v) and v <= NEGLECT_WEEKS_MAX,
+    "thresholds.neglect_weeks": _int_1,
     "thresholds.effort_window_weeks": _int_1,
 }
 

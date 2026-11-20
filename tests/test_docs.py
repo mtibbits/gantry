@@ -662,6 +662,17 @@ def test_no_provisional_for_35_left():
         assert "No Gantry command calls it today" in " ".join(body.split()), function
 
 
+def test_no_stale_29_claim_left():
+    """#29 binds #28's history reader and shows it: nothing still says it will (#29's sweep)."""
+    stale = ("provisional until #29", "until #29 binds", "history yet", "time thieves (#29) will",
+             "#29 (derive the five time thieves) reads")
+    paths = [ROOT / "README.md", *sorted((ROOT / "docs").glob("*.md")), *sorted((ROOT / "gantry").rglob("*.py"))]
+    for path in paths:
+        text = " ".join(markdown_text(path).split()).lower()
+        for phrase in stale:
+            assert phrase not in text, (path.name, phrase)
+
+
 def test_refresh_doc_install_step_uses_the_release_tag_and_survives_a_reboot():
     scheduling = section(markdown_text(REFRESH_DOC), "## Scheduling")
     tag = re.search(r"`(gantry--v<version>)`", markdown_text(ROOT / "README.md")).group(1)

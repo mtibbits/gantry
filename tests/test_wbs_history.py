@@ -818,6 +818,7 @@ def test_committed_paths_lists_checklists(tmp_path, git_ready):
     assert wbs_history.committed_paths(repo, CHECKLIST) == expected
 
 
+@pytest.mark.skipif(os.name == "nt", reason="a folder name cannot start with a colon on Windows")
 def test_committed_paths_prefix_is_literal(tmp_path, git_ready):
     """A history directory whose path starts with `:` is not read as pathspec magic."""
     top, planning = repo_below(tmp_path, ":plan")
@@ -837,6 +838,23 @@ def test_committed_paths_unborn_head_lists_nothing(tmp_path, git_ready):
     repo = repo_for(tmp_path, top)
     assert wbs_history.committed_text(repo, "Issue-1/checklist.md") == wbs_history.Absent()
     assert wbs_history.committed_paths(repo, CHECKLIST) == frozenset()
+
+
+def test_committed_paths_git_that_cannot_run_makes_one_call(tmp_path, monkeypatch, git_ready):
+    """A timed-out ls-tree is the answer: no second call (one timeout per site, not two)."""
+    top = make_repo(tmp_path / "planning")
+    commit(top, "Issue-1/checklist.md", "x\n", "2026-01-05")
+    repo = repo_for(tmp_path, top)
+    calls = []
+
+    def timed_out(args, **kwargs):
+        calls.append(args)
+        return wbs_history.NoData(wbs_history.GIT_FAILED.format(message="timed out"), git=True)
+
+    monkeypatch.setattr(wbs_history, "run_git", timed_out)
+    got = wbs_history.committed_paths(repo, CHECKLIST)
+    assert (got, got.git) == (wbs_history.NoData("git failed: timed out"), True)
+    assert [c[0] for c in calls] == ["ls-tree"]
 
 
 def test_committed_paths_one_git_call(tmp_path, monkeypatch, git_ready):

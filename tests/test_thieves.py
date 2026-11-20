@@ -17,7 +17,7 @@ from gantry.devagent_records import (ABSENT, NOT_READ, PRESENT, READ, UNREADABLE
                                      read_checklist)
 from gantry.fires import Fire, FireReport, SourceStatus
 from gantry.roots import directory_roots
-from gantry.strategic import Panel, StrategicModel
+from gantry.strategic import NO_GAP_NO_SHARE, Panel, StrategicModel
 from gantry.wbs_history import GIT_FAILED, HistoryResult, NoData
 from helpers_history import commit, make_repo
 
@@ -35,6 +35,8 @@ MACHINE = "as seen by this build machine: "
 
 
 def panel(name=SITE, gap=None, gap_reason=None, built=True):
+    if gap is None and gap_reason is None:
+        gap_reason = NO_GAP_NO_SHARE  # the panel has no intended share, as strategic._gap_reason says
     return Panel(site=name, built=built, href=None, reason=None, open_leaves=0, held_out=0, backlog=None,
                  estimates=None, intended=None, comparable=None, gap=gap, serves=(), gap_reason=gap_reason)
 
@@ -171,11 +173,12 @@ def test_wip_parked_here_only_is_labelled(tmp_path, git_ready):
 
 def test_wip_started_here_only_is_labelled(tmp_path, git_ready):
     repo = planning_repo(tmp_path, {"Issue-9": UNSTARTED})
-    wip = derive(leaves((" ", "Issue-1"), ("x", "Issue-2")), hist=history(repo),
-                 records=local({"Issue-1": PROGRESS, "Issue-2": PROGRESS})).wip
+    wip = derive(leaves((" ", "Issue-1"), ("x", "Issue-2"), (" ", "Issue-3")), hist=history(repo),
+                 records=local({"Issue-1": PROGRESS, "Issue-2": PROGRESS, "Issue-3": PARKED})).wip
     assert wip.value == 0
+    # Issue-3 is parked here: shows progress, but is not "started here".
     assert machine_parts(wip) == [MACHINE + "1 started here only, glyph pending, not counted: Issue-1"]
-    assert not any("Issue-2" in t for t in texts(wip))
+    assert not any("Issue-2" in t or "Issue-3" in t for t in texts(wip))
 
 
 def test_wip_nothing_here_has_no_machine_part(tmp_path, git_ready):

@@ -574,6 +574,20 @@ def constructed_page(tmp_path, monkeypatch):
     return render_strategic(result, model), model
 
 
+def test_shows_flag_only_with_something_to_judge():
+    """No flag text without a value, unless the thief is flagged without one (no state change in N weeks)."""
+    from gantry import thieves
+    from gantry.views.strategic import _thief, shows_flag
+
+    incomplete = thieves.Thief("unplanned", None, "incomplete: P0 leaves not read", 0, False, "s")
+    quiet = thieves.Thief("neglect", None, thieves.NEGLECT_NONE.format(n=4), 4, True, "s")
+    counted = thieves.Thief("wip", 0, "0", 3, False, "s")
+    no_data = thieves.no_data_thief("neglect", "git not found", 4, "s")
+    assert [shows_flag(t) for t in (incomplete, quiet, counted, no_data)] == [False, True, True, False]
+    assert thieves.NOT_FLAGGED not in _thief("unplanned", incomplete)
+    assert _thief("neglect", quiet).endswith(f"{thieves.FLAGGED}</p>")
+
+
 def test_thieves_row_on_constructed_page(tmp_path, monkeypatch):
     from gantry import thieves
     from gantry.views.strategic import FIGURE_KINDS

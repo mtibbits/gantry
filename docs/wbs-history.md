@@ -133,7 +133,11 @@ in `/` form, for example `Issue-7/checklist.md` for the name `checklist.md`), fr
 It is the **`ls-tree` prefilter**: a caller reads a checklist with
 `committed_text` only when its path is listed, so an issue with no committed
 checklist costs no git call. A `NoData` given passes through with no git
-call; a failed `ls-tree` is `NoData` (`git failed: ...`).
+call. When `ls-tree` exits non-zero, one more call resolves `HEAD`: an unborn
+`HEAD` (a repository with no commit yet) lists nothing, as `committed_text`
+reads it `Absent`; otherwise the answer is `NoData` (`git failed: ...`). When
+git cannot run at all (not found, timed out), that `NoData` is the answer,
+with no second call.
 
 ## The uncommitted check
 

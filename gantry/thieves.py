@@ -403,7 +403,7 @@ def points(gap) -> int:
 def priorities_thief(panel, threshold) -> Thief:
     gap = panel.gap
     if gap is None:
-        return no_data_thief("priorities", panel.gap_reason or "no gap", threshold, SOURCE_PRIORITIES)
+        return no_data_thief("priorities", panel.gap_reason, threshold, SOURCE_PRIORITIES)
     flagged = gap > threshold and not math.isclose(gap, threshold, rel_tol=1e-9, abs_tol=1e-9)
     return Thief("priorities", gap, GAP_TEXT.format(points=points(gap)), threshold, flagged, SOURCE_PRIORITIES)
 
