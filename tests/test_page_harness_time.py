@@ -557,6 +557,9 @@ def test_reload_limit(node, tmp_path, leg):
         if leg == "hundred":
             page.advance(100)
             assert page.reloads() == 100
+            # The limit is per step: the next step may carry out 100 more.
+            page.advance(100)
+            assert page.reloads() == 200
         else:
             with pytest.raises(PageScriptError, match=RELOAD_LIMIT):
                 page.advance(200)
@@ -848,12 +851,20 @@ def test_open_url_admits_ipv6(node):
             pass
 
 
-@pytest.mark.parametrize("leg", ["missing", "closed_port", "reload_missing"])
+@pytest.mark.parametrize("leg", ["missing", "redirect", "closed_port", "reload_missing"])
 def test_open_url_bad_answer(node, served, leg):
     if leg == "missing":
         with pytest.raises(HarnessError, match=r"cannot fetch .*/missing\.html: status 404"):
             with harness.open_url(served.url("missing.html"), clock=T0):
                 pass
+        return
+    if leg == "redirect":
+        # http.server answers a folder without its slash with a 301 and a Location.
+        (served.folder / "sub").mkdir()
+        with pytest.raises(HarnessError, match=r"cannot fetch .*/sub: status 301"):
+            with harness.open_url(served.url("sub"), clock=T0):
+                pass
+        assert served.log == [("GET", "/sub")]
         return
     if leg == "closed_port":
         with pytest.raises(HarnessError, match="cannot fetch http://127.0.0.1:[0-9]+/page.html: "):
@@ -867,6 +878,18 @@ def test_open_url_bad_answer(node, served, leg):
             page.advance(1)
         with pytest.raises(HarnessError, match="no page is open"):
             page.query("p")
+
+
+def test_driver_rechecks_loopback(node, served):
+    # Past harness.py's rule, straight to the driver: it refuses the host itself.
+    make_page(served.folder)
+    page = harness.Page()
+    try:
+        with pytest.raises(HarnessError, match="not a loopback http URL"):
+            page._request({"op": "open", "url": f"http://localhost:{served.port}/page.html", "clock": MS0})
+    finally:
+        page.stop()
+    assert served.log == []
 
 
 @pytest.mark.parametrize("leg", ["env", "agent"])
@@ -960,8 +983,8 @@ def test_explicit_locale_text_is_stable(node, tmp_path, monkeypatch):
 STATIC = {"test_open_url_refuses", "test_open_url_refuses_non_string", "test_doc_covers_time_controls",
           "test_time_tests_never_skip", "test_time_gate_end_to_end"}
 # Floors, not exact counts: raise them when adding tests to this module.
-GATED_FLOOR = 41
-NODE_CASES = 91
+GATED_FLOOR = 42
+NODE_CASES = 93
 STATIC_CASES = 14
 
 

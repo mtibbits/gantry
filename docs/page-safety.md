@@ -426,8 +426,10 @@ lock, in a change of its own. A bump regenerates the lock and runs the
 commit check on it again; a hit inside an integrity hash takes an
 exemption line, re-keyed at each bump. The driver wraps `navigate` in
 `jsdom/lib/jsdom/living/window/navigation.js` before the first
-`require("jsdom")`; that works only while jsdom ships no `exports` map and
-`Location-impl.js` destructures `navigate` at load, so a bump re-checks both.
+`require("jsdom")`, because `Location-impl.js` destructures `navigate` at
+load. A bump re-checks that the path still resolves (jsdom ships no
+`exports` map), that `Location` and followed links still call that
+`navigate`, and that it still takes `(window, newURL, flags)`.
 
 ## Gate
 
@@ -507,6 +509,9 @@ harness reports the `img` and its handler it built.
 - A 3xx status is answered as is, not followed. The answered response has
   three fields only: `status`, `ok` and `statusText`.
 - More than 100 reloads carried out in one step fail it.
+- On a clock page, navigating to the fragment the URL already has, such as
+  following `<a href="#r1">` a second time, fails the step; a browser
+  treats it as a fragment navigation.
 - A reload starts a new window: `performance.now()` is 0 again, and nothing
   the old window held survives but what the harness keeps.
 - On a page opened from a file, `localStorage` and `sessionStorage` throw,
