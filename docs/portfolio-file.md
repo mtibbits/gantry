@@ -153,7 +153,7 @@ Default and its Read by. Change both together. -->
 | `thresholds.unknown_deps_max` | integer, 0 or more | `0` | #29 |
 | `thresholds.unplanned_max` | integer, 0 or more | `0` | #29 |
 | `thresholds.share_gap_points` | a finite number above 0: percentage points | `10` | #29, #25 |
-| `thresholds.neglect_weeks` | integer above 0 | `4` | #29 |
+| `thresholds.neglect_weeks` | integer from 1 to 520: the neglected-work window in weeks; 520 (ten years) bounds the build's history read | `4` | #29 |
 | `thresholds.effort_window_weeks` | integer above 0 | `4` | #25 |
 
 Every key is optional except `portfolio_version` and the required keys of an

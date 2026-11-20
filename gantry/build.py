@@ -24,7 +24,7 @@ import stat
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
 
-from gantry import strategic
+from gantry import strategic, thieves, wbs_history
 from gantry.attention import check_h
 from gantry.config import Config, error_reason
 from gantry.crosssite import resolve_foreign
@@ -124,6 +124,9 @@ class BuildResult:
     # {site: its page_model}, every site rendered in this build; write_all keeps it
     # whole, so a page that fails to write keeps its slack on the week view (#170).
     page_models: dict[str, dict] = field(default_factory=dict)
+    # Set by write_all (#29): {built site: exception type name} for each site whose time thieves
+    # could not be derived; its panel shows five no-data thieves and the build warns.
+    thieves_failed: dict[str, str] = field(default_factory=dict)
 
 
 def site_list(config, roots=None):
@@ -497,6 +500,7 @@ def write_all(result):
         written.append(out / views_strategic.STRATEGIC_FILE)
     result = replace(result, strategic_error=strategic_error)
     view_links += slots.pop("view_links", [])
+    result = replace(result, thieves_failed=slots.pop("thieves_failed", {}))
     try:
         write_page(roots, out, "index", render_index(result, view_links=view_links, **slots))
     except (OSError, OutsideRoots) as e:
@@ -517,8 +521,15 @@ def _write_strategic(result, roots, out):
     """
     try:
         model = strategic.strategic_model(result)
+        limits = thieves.thresholds(result.portfolio)
+        history = site_history(result, limits["neglect"])
+        by_site = thieves.derive_thieves(result, model, result.portfolio, result.fires, result.records, history,
+                                         model.as_of)
+        model = thieves.attach(model, by_site, thieves.fires_without_site(result.fires))
         text = views_strategic.render_strategic(result, model)
         slots = views_strategic.index_slots(model)
+        slots["thieves_failed"] = {name: got.wip.no_data.removeprefix(thieves.THIEVES_FAILED.format(type=""))
+                                   for name, got in by_site.items() if thieves.failed(got)}
     except Exception as e:
         return {}, render_reason(e, roots, (STRATEGIC_RENDER_ERROR, STRATEGIC_RENDER_ERROR_BARE))
     try:
@@ -526,6 +537,22 @@ def _write_strategic(result, roots, out):
     except (OSError, OutsideRoots) as e:
         return {}, STRATEGIC_WRITE_ERROR.format(why=why_not_written(e, roots))
     return slots, None
+
+
+def site_history(result, weeks) -> dict:
+    """{built site: HistoryResult}, read once per built site in config order
+    with one HistoryCache (#29). A read that raises is a no-data result."""
+    entries = {entry.name: entry for entry in result.sites}
+    cache = wbs_history.HistoryCache()
+    out = {}
+    for name in strategic.built_sites(result):
+        try:
+            out[name] = wbs_history.last_state_change(result.roots, entries[name], result.config,
+                                                      result.config.as_of, weeks, cache)
+        except Exception as e:
+            no_data = wbs_history.NoData(source_failed(e, "history read"))
+            out[name] = wbs_history.HistoryResult(None, False, 0, None, no_data.text, no_data, no_data)
+    return out
 
 
 def strict_json_loads(data: bytes):

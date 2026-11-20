@@ -571,7 +571,7 @@ def test_bad_value_type():
         "thresholds.unknown_deps_max": (39, "an integer, 0 or more, not a boolean; the default 0 is used"),
         "thresholds.unplanned_max": (40, "an integer, 0 or more, not a boolean; the default 0 is used"),
         "thresholds.share_gap_points": (41, "a finite number above 0, not a boolean; the default 10 is used"),
-        "thresholds.neglect_weeks": (42, "an integer above 0, not a boolean; the default 4 is used"),
+        "thresholds.neglect_weeks": (42, "an integer from 1 to 520, not a boolean; the default 4 is used"),
         "thresholds.effort_window_weeks": (43, "an integer above 0, not a boolean; the default 4 is used"),
     }
     assert bad_values(p) == {k: (line, "must be " + text) for k, (line, text) in expected.items()}
@@ -601,7 +601,7 @@ def test_bad_value_range(tmp_path):
         "thresholds.unknown_deps_max": (29, "an integer, 0 or more, not -1; the default 0 is used"),
         "thresholds.unplanned_max": (30, "an integer, 0 or more, not -2; the default 0 is used"),
         "thresholds.share_gap_points": (31, "a finite number above 0, not 0; the default 10 is used"),
-        "thresholds.neglect_weeks": (32, "an integer above 0, not 0; the default 4 is used"),
+        "thresholds.neglect_weeks": (32, "an integer from 1 to 520, not 0; the default 4 is used"),
         "thresholds.effort_window_weeks": (33, "an integer above 0, not 0; the default 4 is used"),
     }
     assert bad_values(p) == {k: (line, "must be " + text) for k, (line, text) in expected.items()}
@@ -1220,5 +1220,18 @@ def test_config_doc_portfolio_row():
     assert "portfolio-file.md" in row and "gantry portfolio" in row
     assert "its capacity settings and allocations, for the week plan" in row and "#23 adds the rest" not in row
     assert "its allocations, `serves` lists and checks, for the strategic page (#23)" in row
+    assert "its `[thresholds]`, for the strategic page's time thieves (#29; `neglect_weeks` is at most 520)" in row
     assert "#23 or " + "#61" not in doc and "only its business " + "requirements" not in doc
     assert "gantry portfolio --config <file>" in doc
+
+
+def test_neglect_weeks_ceiling(tmp_path):
+    """#29 reads a site's history back over neglect_weeks; 520 (ten years) bounds that read."""
+    ceiling = pf.NEGLECT_WEEKS_MAX
+    assert ceiling == 520
+    p = write(tmp_path, fixture_with("bad_value_range.md", "neglect_weeks = 0", f"neglect_weeks = {ceiling}"))
+    assert "thresholds.neglect_weeks" not in bad_values(p) and p.thresholds.neglect_weeks == ceiling
+    p = write(tmp_path, fixture_with("bad_value_range.md", "neglect_weeks = 0", f"neglect_weeks = {ceiling + 1}"))
+    assert bad_values(p)["thresholds.neglect_weeks"] == (
+        32, f"must be an integer from 1 to {ceiling}, not {ceiling + 1}; the default 4 is used")
+    assert p.thresholds.neglect_weeks == 4

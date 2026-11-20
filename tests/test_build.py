@@ -1534,3 +1534,121 @@ def test_site_build_reads_one_sites_records(tmp_path, monkeypatch):
     assert code == 0, stderr
     assert (lists, named) == ([], ["quarry"])
     assert not [line for line in stdout.splitlines() if line.startswith("fires:")]
+
+
+# --- the time thieves' history reads and wiring (#29) ------------------------------------------
+
+
+def spy_attach(monkeypatch):
+    """Record each model thieves.attach returns: the one the strategic page is rendered from."""
+    from gantry import thieves
+
+    models = []
+    real = thieves.attach
+
+    def spy(*args, **kwargs):
+        models.append(real(*args, **kwargs))
+        return models[-1]
+
+    monkeypatch.setattr(thieves, "attach", spy)
+    return models
+
+
+def test_strategic_reads_history_once_per_built_site(tmp_path, monkeypatch):
+    from gantry import wbs_history
+
+    copy = copy_samples(tmp_path)
+    portfolio = copy / "portfolio.md"
+    text = portfolio.read_bytes().decode("utf-8")
+    portfolio.write_bytes(text.replace("portfolio_version = 1\n", "portfolio_version = 1\n\n[thresholds]\n"
+                                       "neglect_weeks = 2\n", 1).encode("utf-8"))
+    calls = []
+    real = wbs_history.last_state_change
+
+    def spy(roots, site, config, as_of, weeks, cache):
+        calls.append((site.name, as_of, weeks, cache))
+        return real(roots, site, config, as_of, weeks, cache)
+
+    monkeypatch.setattr(wbs_history, "last_state_change", spy)
+    real_write = build.write_page
+
+    def refuse(roots, folder, name, text):
+        if name == OWN_UNIT:
+            raise OSError(13, "refused")
+        return real_write(roots, folder, name, text)
+
+    monkeypatch.setattr(build, "write_page", refuse)
+    config = load_config(copy / "gantry.sample.toml")
+    result = build_all(config, samples=copy)
+    built = [s.name for s in result.summaries if s.status == "built"]
+    assert OWN_UNIT in built and len(built) == 4
+    result, _, error = build.write_all(result)
+    assert error is None and result.strategic_error is None
+    assert [c[0] for c in calls] == [name for name in built if name != OWN_UNIT]
+    assert all(c[1] == config.as_of and c[2] == 2 for c in calls)
+    assert len({id(c[3]) for c in calls}) == 1  # one cache for the build
+
+
+def test_build_without_git(tmp_path, monkeypatch):
+    empty = tmp_path / "empty-path"
+    empty.mkdir()
+    config_path = write_site_tree(tmp_path / "tree", {"a": b"# A\n\n- [~] Doing {issue: Issue-1}\n",
+                                                      "b": b"# B\n\n- [ ] Todo {issue: Issue-2}\n"})
+    models = spy_attach(monkeypatch)
+    monkeypatch.setenv("PATH", str(empty))
+    result, _, error = build.write_all(build_all(load_config(config_path)))
+    assert error is None and result.strategic_error is None
+    (model,) = models
+    for name in ("a", "b"):
+        got = model.panels[name].thieves
+        assert got.neglect.text == "no data: git not found"
+        assert "parked, not counted: no data: git not found" in [p.text for p in got.wip.parts]
+
+
+@pytest.mark.parametrize("no_data", ["shallow history", "git failed: bad object"])
+def test_build_with_shallow_or_failed_history(tmp_path, monkeypatch, no_data):
+    from gantry import wbs_history
+
+    def answer(roots, site, config, as_of, weeks, cache):
+        return wbs_history._no_data_result(wbs_history.NoData(no_data), wbs_history.NoData(no_data))
+
+    monkeypatch.setattr(wbs_history, "last_state_change", answer)
+    models = spy_attach(monkeypatch)
+    config_path = write_site_tree(tmp_path / "tree", {"a": b"# A\n\n- [~] Doing {issue: Issue-1}\n"})
+    result, _, error = build.write_all(build_all(load_config(config_path)))
+    assert error is None and result.strategic_error is None
+    assert models[0].panels["a"].thieves.neglect.text == f"no data: {no_data}"
+
+
+def test_history_read_that_raises_is_no_data(tmp_path, monkeypatch):
+    from gantry import wbs_history
+
+    def boom(*args):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(wbs_history, "last_state_change", boom)
+    models = spy_attach(monkeypatch)
+    config_path = write_site_tree(tmp_path / "tree", {"a": b"# A\n\n- [~] Doing {issue: Issue-1}\n"})
+    result, _, error = build.write_all(build_all(load_config(config_path)))
+    assert error is None and result.strategic_error is None
+    assert models[0].panels["a"].thieves.neglect.text == "no data: history read failed: RuntimeError"
+
+
+def test_build_prints_failed_thieves(tmp_path, monkeypatch):
+    from gantry import thieves
+
+    config_path = write_site_tree(tmp_path / "tree", {"a": b"# A\n\n- [~] Doing {issue: Issue-1}\n",
+                                                      "b": b"# B\n\n- [ ] Todo {issue: Issue-2}\n"})
+    code, _, before = run_main("--config", str(config_path))
+    real = thieves.wip_thief
+
+    def wip(data, history, records, threshold):
+        if data.leaves[0].issue == "Issue-2":
+            raise RuntimeError("boom")
+        return real(data, history, records, threshold)
+
+    monkeypatch.setattr(thieves, "wip_thief", wip)
+    again, _, after = run_main("--config", str(config_path))
+    assert again == code
+    added = [line for line in after.splitlines() if line not in before.splitlines()]
+    assert added == ["gantry: warning: site b: thieves not derived: RuntimeError"]
