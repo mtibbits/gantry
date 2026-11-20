@@ -8,9 +8,10 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from page_safety import HOSTILE
 from page_script import harness
-from page_script.harness import HarnessError, PageScriptError, open_page
-from test_page_checkers import write_page
+from page_script.harness import HarnessError, PageScriptError, Planted, open_page
+from test_page_checkers import KNOWN_BAD, RENDER_SCRIPT, embed, hostile_page, write_page
 
 # 2026-11-05T07:45:00Z, and the same instant in milliseconds since the epoch.
 T0 = datetime(2026, 11, 5, 7, 45, tzinfo=timezone.utc)
@@ -425,3 +426,238 @@ def test_other_requests_refused(node, tmp_path, call, pattern, method, url_ok, c
         assert (last.method, last.cache, last.api) == (method, cache, api)
         assert url_ok(last.url, own), last.url
         page.drive("noop", "now")
+
+
+# --- reload and navigation ----------------------------------------------------------
+
+
+def reload_on(answer):
+    """A 60 s interval sending the own HEAD and running answer with its response r."""
+    return "setInterval(function () { " + OWN_HEAD + ".then(function (r) { " + answer + " }, function () {}); }, 60000);"
+
+
+RELOAD_ONLY_2XX = [
+    ("200", "location.reload();", 200, 1),
+    ("404", "location.reload();", 404, 0),
+    ("503", "location.reload();", 503, 0),
+    ("none", "location.reload();", None, 0),
+    ("go0", "history.go(0);", 200, 1),
+]
+
+
+@pytest.mark.parametrize("call,status,expected", [c[1:] for c in RELOAD_ONLY_2XX], ids=[c[0] for c in RELOAD_ONLY_2XX])
+def test_reload_only_on_2xx(node, tmp_path, call, status, expected):
+    with open_page(make_page(tmp_path, script=reload_on("if (r.ok) " + call)), clock=T0) as page:
+        page.set_status(status)
+        page.advance(60)
+        assert page.reloads() == expected
+        assert len(page.requests()) == 1
+        if expected:
+            # The same file again: its timer runs on, and the status is kept.
+            page.advance(60)
+            assert page.reloads() == 2
+            assert len(page.requests()) == 2
+
+
+def test_reload_negative_control(node, tmp_path):
+    with open_page(make_page(tmp_path, script=reload_on("location.reload();")), clock=T0) as page:
+        page.set_status(503)
+        page.advance(60)
+        assert page.reloads() == 1
+
+
+ITEMS = '<ul data-control="list" data-control-items><li data-item="a"><span data-req="r1" tabindex="0">r1</span></li></ul>'
+READS = {"v": None, "now": "Date.now()", "hidden": "document.hidden", "perf": "performance.now()"}
+
+
+def version_reads(version):
+    return "".join(write("#" + k, f'"{version}"' if v is None else v) for k, v in READS.items())
+
+
+READS_BODY = "".join(f'<p id="{k}"></p>' for k in READS) + '<div id="planted"></div><p id="log"></p>'
+
+
+def test_reload_loads_again(node, tmp_path):
+    v1 = "\n".join([
+        version_reads("v1"),
+        'document.getElementById("planted").textContent = ' + embed(HOSTILE[0]) + ";",
+        "setInterval(function () { " + OWN_HEAD + ".then(function () {}, function () {}); }, 60000);",
+        on_click("reload", "location.reload(); location.reload();"),
+    ])
+    v2 = "\n".join([
+        version_reads("v2"),
+        'document.getElementById("planted").innerHTML = ' + embed(HOSTILE[0]) + ";",
+        LOG,
+        on_click("press", 'log("drive");'),
+        'document.querySelector("[data-control-items]").addEventListener("focusout", function () { log("leave"); });',
+        'document.querySelector("[data-req]").addEventListener("click", function () { log("chip"); });',
+        'document.addEventListener("keydown", function () { log("key"); });',
+    ])
+    path = make_page(tmp_path, READS_BODY + buttons("reload"), v1)
+    with open_page(path, clock=T0) as page:
+        page.advance(60)
+        assert page.planted_nodes([HOSTILE[0]]).created == []
+        page.remember("v", "#v")
+        page.set_visible(False)
+        page.advance(30)
+        make_page(tmp_path, READS_BODY + buttons("press") + ITEMS, v2)
+        page.drive("reload", "now")
+        assert page.reloads() == 2
+        assert text(page, "#v") == "v2"
+        assert text(page, "#now") == str(MS0 + 90000)
+        assert text(page, "#hidden") == "true"
+        assert text(page, "#perf") == "0"
+        assert page.same("v") is False
+        assert len(page.requests()) == 1
+        assert page.planted_nodes([HOSTILE[0]]).created != []
+        page.set_visible(True)
+        page.advance(600)
+        assert len(page.requests()) == 1
+        page.drive("press", "now")
+        page.leave("list", "a")
+        page.chip("a", "r1")
+        page.key("Enter")
+        assert text(page, "#log") == "drive,leave,chip,key"
+
+
+def test_reload_during_advance(node, tmp_path):
+    path = make_page(tmp_path, script="setTimeout(function () { location.reload(); }, 60000);")
+    with open_page(path, clock=T0) as page:
+        make_page(tmp_path, '<p id="now"></p>', "setTimeout(function () { " + write("#now", "Date.now()") + " }, 10000);")
+        page.advance(75)
+        assert page.reloads() == 1
+        assert text(page, "#now") == str(MS0 + 70000)
+
+
+RELOAD_LIMIT = "reload limit: more than 100 reloads in one step"
+EVERY_SECOND = "setInterval(function () { location.reload(); }, 1000);"
+
+
+@pytest.mark.parametrize("leg", ["hundred", "over", "at_load"])
+def test_reload_limit(node, tmp_path, leg):
+    if leg == "at_load":
+        with pytest.raises(PageScriptError, match=RELOAD_LIMIT):
+            with open_page(make_page(tmp_path, script="location.reload();"), clock=T0):
+                pass
+        return
+    with open_page(make_page(tmp_path, '<p id="v">v</p>', EVERY_SECOND), clock=T0) as page:
+        if leg == "hundred":
+            page.advance(100)
+            assert page.reloads() == 100
+        else:
+            with pytest.raises(PageScriptError, match=RELOAD_LIMIT):
+                page.advance(200)
+            # The 101st call is counted, not carried out.
+            assert page.reloads() == 101
+        assert text(page, "#v") == "v"
+
+
+def test_reload_dropped_after_error(node, tmp_path):
+    script = on_click("boom", 'location.reload(); throw new Error("gantry-after-reload");') + on_click("noop", "")
+    body = buttons("boom", "noop")
+    path = make_page(tmp_path, '<p id="v">v1</p>' + body, script)
+    with open_page(path, clock=T0) as page:
+        with pytest.raises(PageScriptError, match="page script error: Error: gantry-after-reload"):
+            page.drive("boom", "now")
+        assert page.reloads() == 1
+        make_page(tmp_path, '<p id="v">v2</p>' + body, script)
+        assert text(page, "#v") == "v1"
+        page.drive("noop", "now")
+        assert page.reloads() == 1
+        assert text(page, "#v") == "v1"
+
+
+# (id, a step run first, the navigation)
+NAVIGATIONS = [
+    ("href_other", "", 'location.href = "other.html";'),
+    ("href_self", "", "location.href = location.href;"),
+    ("assign_self", "", "location.assign(location.href);"),
+    ("replace_self", "", "location.replace(location.href);"),
+    ("drop_fragment", 'location.hash = "#a";', "location.href = location.pathname;"),
+    ("same_fragment", 'location.hash = "#a";', "location.href = location.href;"),
+]
+
+
+@pytest.mark.parametrize("first,navigation", [c[1:] for c in NAVIGATIONS], ids=[c[0] for c in NAVIGATIONS])
+def test_navigation_refused(node, tmp_path, first, navigation):
+    script = on_click("first", first) + on_click("go", navigation)
+    with open_page(make_page(tmp_path, buttons("first", "go"), script), clock=T0) as page:
+        page.drive("first", "now")
+        with pytest.raises(PageScriptError, match="follows no navigation"):
+            page.drive("go", "now")
+        assert page.reloads() == 0
+
+
+def test_navigation_refused_at_load(node, tmp_path):
+    with pytest.raises(PageScriptError, match="follows no navigation"):
+        with open_page(make_page(tmp_path, script="location.replace(location.href);"), clock=T0):
+            pass
+
+
+def test_fragment_change_allowed(node, tmp_path):
+    script = "\n".join([
+        on_click("hash", 'location.hash = "#a";'),
+        on_click("clear", 'location.hash = "";'),
+        on_click("read", write("#at", "location.href")),
+        on_click("head", 'fetch(location.href, {method: "HEAD"});'),
+    ])
+    with open_page(make_page(tmp_path, '<p id="at"></p>' + buttons("hash", "clear", "read", "head"), script),
+                   clock=T0) as page:
+        own = text(page, "#href")
+        page.drive("hash", "now")
+        page.drive("read", "now")
+        assert text(page, "#at") == own + "#a"
+        assert page.reloads() == 0
+        page.set_status(200)
+        page.drive("head", "now")
+        assert page.requests()[-1] == harness.Request("HEAD", own, "default", "fetch")
+        page.drive("clear", "now")
+        page.drive("read", "now")
+        assert text(page, "#at") == own + "#"
+        assert page.reloads() == 0
+
+
+def _listen(target, event):
+    return lambda body: f'{target}.addEventListener("{event}", function () {{ {body} }});'
+
+
+# op -> (markup, listener taking a body, the step)
+TRIGGERS = {
+    "drive": (buttons("go"), lambda body: on_click("go", body), lambda page: page.drive("go", "now")),
+    "leave": (ITEMS, _listen('document.querySelector("[data-control-items]")', "focusout"),
+              lambda page: page.leave("list", "a")),
+    "chip": (ITEMS, _listen('document.querySelector("[data-req]")', "click"), lambda page: page.chip("a", "r1")),
+    "key": ("", _listen("document", "keydown"), lambda page: page.key("Enter")),
+    "set_visible": ("", _listen("document", "visibilitychange"), lambda page: page.set_visible(False)),
+    "advance": ("", lambda body: "setTimeout(function () { " + body + " }, 1000);", lambda page: page.advance(1)),
+}
+
+
+@pytest.mark.parametrize("op", list(TRIGGERS))
+def test_every_step_ends_in_finish(node, tmp_path, op):
+    markup, listen, step = TRIGGERS[op]
+    with open_page(make_page(tmp_path, '<p id="v">v1</p>' + markup, listen("location.reload();")), clock=T0) as page:
+        make_page(tmp_path, '<p id="v">v2</p>')
+        step(page)
+        assert page.reloads() == 1
+        assert text(page, "#v") == "v2"
+    refusing = make_page(tmp_path, markup, listen('try { fetch("other.html"); } catch (e) {}'), name="refusing.html")
+    with open_page(refusing, clock=T0) as page:
+        with pytest.raises(PageScriptError, match="loads no subresource"):
+            step(page)
+
+
+def test_planted_reads_current_page(node, tmp_path):
+    script = "setTimeout(function () {\n" + RENDER_SCRIPT + "\n}, 1000);"
+    with open_page(write_page(tmp_path, hostile_page(values=[], script=script)), clock=T0) as page:
+        assert page.planted_nodes(HOSTILE).unrendered == list(HOSTILE)
+        page.advance(1)
+        assert page.planted_nodes(HOSTILE) == Planted([], [], [])
+
+
+def test_raw_sink_with_clock(node):
+    img = HOSTILE[2]
+    with open_page(KNOWN_BAD / "raw_sink.html", clock=T0) as page:
+        found = page.planted_nodes([img])
+    assert {"node": "element", "tag": "img", "value": img} in found.created
+    assert {"node": "attribute", "tag": "img", "attr": "onerror", "value": img} in found.created

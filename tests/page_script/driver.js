@@ -4,8 +4,43 @@
 // is the other side, and docs/page-safety.md describes the protocol.
 
 const fs = require("fs");
+const { createRequire } = require("module");
 const readline = require("readline");
 const { pathToFileURL } = require("url");
+
+// Each open page's record, by its window: jsdom's own calls name a window,
+// and an inline script runs inside the JSDOM constructor, before it returns.
+const records = new WeakMap();
+
+// Reload and navigation on a clock page (#63). Location's members are
+// unforgeable and jsdom has no public navigation hook, so the driver wraps
+// jsdom's internal navigate. The wrapper must be in place before the first
+// require("jsdom"): Location-impl.js and HTMLHyperlinkElementUtils-impl.js
+// destructure navigate at load, and only jsdom's lack of an exports map lets
+// this path resolve. Re-check both on a jsdom bump.
+const navigation = require("jsdom/lib/jsdom/living/window/navigation.js");
+const { serializeURL } = createRequire(require.resolve("jsdom"))("whatwg-url");
+const jsdomNavigate = navigation.navigate;
+navigation.navigate = function (window, newURL, flags) {
+  const page = records.get(window);
+  // Without a clock, or for a window no longer the page's, jsdom's own path.
+  if (page === undefined || page.time === null || page.window !== window) return jsdomNavigate.apply(this, arguments);
+  if (flags.reloadTriggered) {
+    // location.reload() or history.go(0): counted now, carried out by finish.
+    page.reloads++;
+    page.pendingReload = true;
+    return undefined;
+  }
+  if (newURL.scheme === "javascript") return jsdomNavigate.apply(this, arguments);
+  // A change of fragment alone, to a fragment that is there and differs.
+  const current = window._document._URL;
+  if (newURL.fragment !== null && newURL.fragment !== current.fragment &&
+      serializeURL(newURL, true) === serializeURL(current, true)) {
+    return jsdomNavigate.apply(this, arguments);
+  }
+  page.errors.push({ type: "refused", message: "the page-script harness follows no navigation: " + serializeURL(newURL) });
+  return undefined;
+};
 const { JSDOM, VirtualConsole } = require("jsdom");
 
 // A "page" reply: the page failed, not the harness.
@@ -162,13 +197,10 @@ async function advance(page, ms) {
   moveTo(time, end);
 }
 
-// Each open page's record, by its window: jsdom's own calls name a window,
-// and an inline script runs inside the JSDOM constructor, before it returns.
-const records = new WeakMap();
-
 function beforeParse(page, window) {
   records.set(window, page);
   page.window = window;
+  page.document = window.document;
   // Network and timers both throw. With no timer, the setImmediate after
   // each step is a true settle point.
   for (const [names, refusal] of [[NETWORK, "loads no subresource"], [TIMERS, "runs no timer"]]) {
@@ -229,11 +261,47 @@ function drain(errors) {
   }
 }
 
+const RELOAD_LIMIT = 100;
+
 // Every step that runs page code ends here: settle, then fail on the first
-// error the step left.
+// error the step left; else carry out a pending reload and settle again.
 async function finish(page) {
-  await settle();
-  drain(page.errors);
+  for (;;) {
+    await settle();
+    try {
+      drain(page.errors);
+    } catch (e) {
+      // A step ending in an error drops its pending reload; the count stands.
+      page.pendingReload = false;
+      throw e;
+    }
+    if (!page.pendingReload) return;
+    page.pendingReload = false;
+    if (page.carried === RELOAD_LIMIT) throw new PageError("reload limit: more than 100 reloads in one step");
+    page.carried++;
+    await reload(page);
+  }
+}
+
+async function readSource(source) {
+  return fs.readFileSync(source.path, "utf8");
+}
+
+// Load the page again from where it was opened, into the same record: the
+// clock, visibility, status, request log and counts are kept; the old
+// window and its timers are dropped. A failed read closes the page.
+async function reload(page) {
+  let text;
+  try {
+    text = await readSource(page.source);
+  } catch (e) {
+    page.window.close();
+    page.closed = true;
+    throw e;
+  }
+  page.window.close();
+  page.time.queue = [];
+  await build(page, text);
 }
 
 // Build a document from source text into the page record. The record exists
@@ -260,7 +328,6 @@ async function build(page, text) {
   if (page.document.readyState !== "complete") {
     await new Promise((resolve) => page.window.addEventListener("load", resolve, { once: true }));
   }
-  await finish(page);
 }
 
 // source is {path}; clock is the controlled clock's start in ms, or null.
@@ -281,9 +348,16 @@ async function load(source, clock) {
     ownURL: null,
     status: null,
     requests: [],
+    // reloads: location.reload() calls; carried: reloads carried out in this
+    // request; closed: a reload failed and the page is gone.
+    reloads: 0,
+    pendingReload: false,
+    carried: 0,
+    closed: false,
   };
   try {
-    await build(page, fs.readFileSync(source.path, "utf8"));
+    await build(page, await readSource(source));
+    await finish(page);
   } catch (e) {
     if (page.window !== null) page.window.close();
     throw e;
@@ -681,6 +755,8 @@ async function handle(request, state) {
       return null;
     case "requests":
       return needClock(state, "requests").requests;
+    case "reloads":
+      return needClock(state, "reloads").reloads;
     case "set_clock":
       needClock(state, "set_clock").time.wall = request.ms;
       return null;
@@ -702,11 +778,13 @@ async function main() {
   for await (const line of lines) {
     let reply;
     activeErrors = state.page === null ? null : state.page.errors;
+    if (state.page !== null) state.page.carried = 0;
     try {
       reply = { ok: true, result: await handle(JSON.parse(line), state) };
     } catch (e) {
       reply = { ok: false, kind: e instanceof PageError ? "page" : "harness", error: String(e && e.message) };
     }
+    if (state.page !== null && state.page.closed) state.page = null;
     process.stdout.write(JSON.stringify(reply) + "\n");
     if (state.closing) break;
   }
