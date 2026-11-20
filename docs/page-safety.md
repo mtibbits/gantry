@@ -456,8 +456,9 @@ jsdom <found> is installed, but package.json pins <pinned>: run npm ci --prefix 
 
 `CI` counts as set when it is not empty. GitHub sets it, and the test
 workflow installs Node.js 24 and runs `npm ci --prefix tests/page_script` on
-every leg, so a CI run can never pass on skipped Node tests. A test runs the
-page-checker module with an empty `PATH` to show both behaviours end to end.
+every leg, so a CI run can never pass on skipped Node tests. Tests run the
+page-checker module and `tests/test_page_harness_time.py` with an empty
+`PATH` to show both behaviours end to end.
 
 ## How a view's tests use the harness
 

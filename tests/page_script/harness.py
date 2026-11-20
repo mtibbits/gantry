@@ -242,7 +242,7 @@ def _instant_ms(name, value):
 
 
 class Page(_Driver):
-    """A page loaded into jsdom by open_page."""
+    """A page loaded into jsdom by open_page or open_url."""
 
     # Whether the page was opened with a controlled clock.
     _clock = False
@@ -337,7 +337,7 @@ class Page(_Driver):
         return [Request(r["method"], r["url"], r["cache"], r["api"]) for r in self._request({"op": "requests"})]
 
     def reloads(self):
-        """How many times the page called location.reload()."""
+        """How many times the page called location.reload() or history.go(0)."""
         self._need_clock("reloads")
         return self._request({"op": "reloads"})
 

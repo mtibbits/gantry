@@ -11,6 +11,7 @@ import os
 import socket
 import subprocess
 import threading
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -108,6 +109,28 @@ def test_controls_need_clock(node, tmp_path, name, use):
     with open_page(make_page(tmp_path, body='<p id="v">v1</p>')) as page:
         with pytest.raises(HarnessError, match=name + ": the page was opened without a clock"):
             use(page)
+        assert text(page, "#v") == "v1"
+
+
+BAD_ARGS_NO_CLOCK = [
+    ("advance", lambda page: page.advance("x")),
+    ("set_status", lambda page: page.set_status(700)),
+    ("set_clock", lambda page: page.set_clock(datetime(2026, 11, 5, 7, 45))),
+]
+
+
+@pytest.mark.parametrize("name,use", BAD_ARGS_NO_CLOCK, ids=[c[0] for c in BAD_ARGS_NO_CLOCK])
+def test_clock_checked_before_arguments(node, tmp_path, monkeypatch, name, use):
+    with open_page(make_page(tmp_path)) as page:
+        pattern = name + ": the page was opened without a clock"
+        assert_unsent(monkeypatch, page, lambda: use(page), HarnessError, pattern)
+
+
+def test_driver_needs_clock(node, tmp_path):
+    # Past harness.py's check, straight to the driver: it refuses a clock op itself.
+    with open_page(make_page(tmp_path, body='<p id="v">v1</p>')) as page:
+        with pytest.raises(HarnessError, match="advance: the page was opened without a clock"):
+            page._request({"op": "advance", "ms": 0})
         assert text(page, "#v") == "v1"
 
 
@@ -230,6 +253,20 @@ BAD_SPANS = [
 def test_advance_rejects_bad_spans(node, tmp_path, monkeypatch, seconds, error, pattern):
     with open_page(make_page(tmp_path), clock=T0) as page:
         assert_unsent(monkeypatch, page, lambda: page.advance(seconds), error, pattern)
+
+
+def test_timeout_truncated_and_cleared(node, tmp_path):
+    script = "\n".join([
+        "setTimeout(function () { " + write("#at", "Date.now()") + " }, 1500.7);",
+        "var t = setTimeout(function () { " + write("#cleared", '"ran"') + " }, 1000);",
+        "clearTimeout(t);",
+    ])
+    with open_page(make_page(tmp_path, '<p id="at"></p><p id="cleared"></p>', script), clock=T0) as page:
+        # A delay is whole ms, as a browser's: 1500.7 runs at 1500.
+        page.advance(1.5)
+        assert text(page, "#at") == str(MS0 + 1500)
+        page.advance(10)
+        assert text(page, "#cleared") == ""
 
 
 def test_timer_error_stops_advance(node, tmp_path):
@@ -591,6 +628,8 @@ NAVIGATIONS = [
     ("replace_self", "", "location.replace(location.href);"),
     ("drop_fragment", 'location.hash = "#a";', "location.href = location.pathname;"),
     ("same_fragment", 'location.hash = "#a";', "location.href = location.href;"),
+    ("link_other", "", 'var a = document.createElement("a"); a.href = "other.html"; document.body.appendChild(a); a.click();'),
+    ("link_self", "", 'var a = document.createElement("a"); a.href = location.href; document.body.appendChild(a); a.click();'),
 ]
 
 
@@ -690,9 +729,10 @@ class Site:
         # path -> function of the GET count so far (1 for the first) giving the body.
         self.dynamic = {}
         self.port = None
+        self.host = "127.0.0.1"
 
     def url(self, name):
-        return f"http://127.0.0.1:{self.port}/{name}"
+        return f"http://{self.host}:{self.port}/{name}"
 
 
 def _handler(site):
@@ -723,13 +763,18 @@ def _handler(site):
     return Handler
 
 
-@pytest.fixture
-def served(tmp_path):
-    """A Site on 127.0.0.1, an OS-chosen port, serving tmp_path / "site"."""
-    site = Site(tmp_path / "site")
+class _Server6(http.server.ThreadingHTTPServer):
+    address_family = socket.AF_INET6
+
+
+@contextmanager
+def serving(folder, host="127.0.0.1"):
+    """A Site serving folder on host ("127.0.0.1" or "::1") at an OS-chosen port."""
+    site = Site(folder)
     site.folder.mkdir()
-    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _handler(site))
+    server = (_Server6 if host == "::1" else http.server.ThreadingHTTPServer)((host, 0), _handler(site))
     site.port = server.server_address[1]
+    site.host = "[::1]" if host == "::1" else host
     # shutdown() waits out a poll interval: poll often.
     thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
     thread.start()
@@ -741,11 +786,29 @@ def served(tmp_path):
         thread.join()
 
 
-def closed_port():
-    """A loopback port nothing listens on: bound by the OS, then closed."""
+@pytest.fixture
+def served(tmp_path):
+    """A Site on 127.0.0.1, an OS-chosen port, serving tmp_path / "site"."""
+    with serving(tmp_path / "site") as site:
+        yield site
+
+
+@pytest.fixture
+def held_port():
+    """A port on 127.0.0.1 bound for the test and never listened on: a connection is refused."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+        yield s.getsockname()[1]
+
+
+def ipv6_loopback():
+    """Whether this machine can bind ::1."""
+    try:
+        with socket.socket(socket.AF_INET6, socket.SOCK_STREAM) as s:
+            s.bind(("::1", 0))
+    except OSError:
+        return False
+    return True
 
 
 def test_open_url_loads(node, served):
@@ -844,15 +907,24 @@ def test_open_url_refuses_non_string(monkeypatch):
             pass
 
 
-def test_open_url_admits_ipv6(node):
-    # Refused by the connection, not by the rule: no IPv6 listener is needed.
-    with pytest.raises(HarnessError, match=r"cannot fetch http://\[::1\]:[0-9]+/page\.html: "):
-        with harness.open_url(f"http://[::1]:{closed_port()}/page.html", clock=T0):
-            pass
+def test_open_url_admits_ipv6(node, tmp_path):
+    if not ipv6_loopback():
+        # Nothing can listen on ::1 here: the connection fails with a code, where the rule would give its text.
+        with pytest.raises(HarnessError, match=r"cannot fetch http://\[::1\]:1/page\.html: E[A-Z]+$"):
+            with harness.open_url("http://[::1]:1/page.html", clock=T0):
+                pass
+        return
+    with serving(tmp_path / "site", "::1") as site:
+        make_page(site.folder, '<p id="v">v6</p>')
+        url = site.url("page.html")
+        with harness.open_url(url, clock=T0) as page:
+            assert text(page, "#v") == "v6"
+            assert text(page, "#href") == url
+        assert site.log == [("GET", "/page.html")]
 
 
 @pytest.mark.parametrize("leg", ["missing", "redirect", "closed_port", "reload_missing"])
-def test_open_url_bad_answer(node, served, leg):
+def test_open_url_bad_answer(node, served, held_port, leg):
     if leg == "missing":
         with pytest.raises(HarnessError, match=r"cannot fetch .*/missing\.html: status 404"):
             with harness.open_url(served.url("missing.html"), clock=T0):
@@ -867,8 +939,8 @@ def test_open_url_bad_answer(node, served, leg):
         assert served.log == [("GET", "/sub")]
         return
     if leg == "closed_port":
-        with pytest.raises(HarnessError, match="cannot fetch http://127.0.0.1:[0-9]+/page.html: "):
-            with harness.open_url(f"http://127.0.0.1:{closed_port()}/page.html", clock=T0):
+        with pytest.raises(HarnessError, match=r"cannot fetch http://127\.0\.0\.1:[0-9]+/page\.html: E[A-Z]+$"):
+            with harness.open_url(f"http://127.0.0.1:{held_port}/page.html", clock=T0):
                 pass
         return
     path = make_page(served.folder, script="setTimeout(function () { location.reload(); }, 1000);")
@@ -893,9 +965,9 @@ def test_driver_rechecks_loopback(node, served):
 
 
 @pytest.mark.parametrize("leg", ["env", "agent"])
-def test_open_url_no_proxy(node, served, monkeypatch, leg):
+def test_open_url_no_proxy(node, served, held_port, monkeypatch, leg):
     make_page(served.folder, '<p id="v">v1</p>')
-    proxy = f"http://127.0.0.1:{closed_port()}"
+    proxy = f"http://127.0.0.1:{held_port}"
     for name in ("NO_PROXY", "no_proxy"):
         monkeypatch.delenv(name, raising=False)
     for name in ("HTTP_PROXY", "http_proxy", "ALL_PROXY"):
@@ -983,8 +1055,8 @@ def test_explicit_locale_text_is_stable(node, tmp_path, monkeypatch):
 STATIC = {"test_open_url_refuses", "test_open_url_refuses_non_string", "test_doc_covers_time_controls",
           "test_time_tests_never_skip", "test_time_gate_end_to_end"}
 # Floors, not exact counts: raise them when adding tests to this module.
-GATED_FLOOR = 42
-NODE_CASES = 93
+GATED_FLOOR = 45
+NODE_CASES = 100
 STATIC_CASES = 14
 
 
