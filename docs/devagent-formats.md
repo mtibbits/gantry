@@ -181,6 +181,8 @@ The `Active revision:` header is not read.
   last heading, where devagent itself stops; `next_step` `None`, `all_done`
   false) and `checklist_bad_glyph` (a step glyph outside the seven,
   reported once).
+- `steps`: every step of the active block, in file order, as `Step`s, a
+  step with a bad glyph included; `()` when the active block has none.
 
 The same function reads a working-copy file and a committed version passed
 in as text, which is what #29 needs.

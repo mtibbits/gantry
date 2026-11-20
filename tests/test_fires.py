@@ -355,7 +355,9 @@ UNREAD_STUCK = dr.Record(dr.UNREADABLE, None, "STUCK is not valid UTF-8 at byte 
 
 def checklist(parked=False):
     step = dr.Step(3, "scope", "P") if parked else None
-    return present(dr.ChecklistState(None, step, None, False, True, 1, ()))
+    # next_step None with all_done False: an active block with no steps (the
+    # parked row, if any, sits in an earlier block), so steps is ().
+    return present(dr.ChecklistState(None, step, None, False, True, 1, (), ()))
 
 
 UNPARKED, PARKED = checklist(False), checklist(True)

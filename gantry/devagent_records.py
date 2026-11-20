@@ -170,6 +170,7 @@ class ChecklistState:
     shows_progress: bool
     revision: int | None
     problems: tuple[str, ...]
+    steps: tuple[Step, ...]  # the active block's steps, in file order
 
     @property
     def parked(self) -> bool:
@@ -224,6 +225,7 @@ def read_checklist(text: str) -> ChecklistState:
         shows_progress=any(step.glyph in PROGRESS_GLYPHS for step in everything),
         revision=revision,
         problems=tuple(problems),
+        steps=tuple(active),
     )
 
 

@@ -204,6 +204,30 @@ def test_bad_glyph_reported():
     assert got.problems == ("checklist_bad_glyph",)
 
 
+def test_checklist_steps_are_the_active_block():
+    text = (
+        "# x\n\n## Revision 1\n\n- [x]  0. pull\n- [ ]  2. draft\n\n"
+        "## Revision 2\n\n- [x]  2. draft\n- [-]  3. spike\n- [~]  4. scope\n- [ ]  5. improve\n"
+    )
+    assert dr.read_checklist(text).steps == (
+        dr.Step(2, "draft", "x"),
+        dr.Step(3, "spike", "-"),
+        dr.Step(4, "scope", "~"),
+        dr.Step(5, "improve", " "),
+    )
+
+
+def test_checklist_steps_empty_cases():
+    assert dr.read_checklist("# a checklist\n\nno steps here\n").steps == ()
+    assert dr.read_checklist("- [x]  0. pull\n- [ ]  2. draft\n\n## Revision 2\n").steps == ()
+
+
+def test_checklist_steps_keep_bad_glyph():
+    got = dr.read_checklist("## Revision 1\n- [x]  0. pull\n- [o]  2. draft\n- [ ]  4. scope\n")
+    assert got.steps == (dr.Step(0, "pull", "x"), dr.Step(2, "draft", "o"), dr.Step(4, "scope", " "))
+    assert got.problems == ("checklist_bad_glyph",)
+
+
 def test_checklist_overlong_numbers():
     text = written("Issue-15", "checklist.md")
     long_step = text.replace("- [ ]  0. pull", "- [ ]  " + "1" * 5000 + ". pull")
