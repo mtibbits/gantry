@@ -259,3 +259,76 @@ def test_clock_page_still_refuses(node, tmp_path, script, pattern):
     with pytest.raises(PageScriptError, match=pattern):
         with open_page(make_page(tmp_path, script=script), clock=T0):
             pass
+
+
+# --- visibility ---------------------------------------------------------------------
+
+
+LOG = 'function log(x) { var el = document.getElementById("log"); el.textContent += (el.textContent ? "," : "") + x; }'
+
+
+@pytest.mark.parametrize("clock", [None, T0], ids=["no_clock", "clock"])
+def test_set_visible_fires_event(node, tmp_path, clock):
+    body = '<p id="load"></p><p id="log"></p>'
+    pair = 'document.hidden + ":" + document.visibilityState'
+    script = "\n".join([
+        LOG,
+        write("#load", pair),
+        'document.addEventListener("visibilitychange", function () { log(' + pair + "); });",
+    ])
+    with open_page(make_page(tmp_path, body, script), clock=clock) as page:
+        assert text(page, "#load") == "false:visible"
+        page.set_visible(False)
+        page.set_visible(True)
+        assert text(page, "#log") == "true:hidden,false:visible"
+        page.set_visible(True)
+        assert text(page, "#log") == "true:hidden,false:visible"
+
+
+@pytest.mark.parametrize("visible", [1, "yes", None], ids=["int", "str", "none"])
+def test_set_visible_rejects_non_bool(node, tmp_path, monkeypatch, visible):
+    with open_page(make_page(tmp_path)) as page:
+        sent = []
+        monkeypatch.setattr(page, "_request", sent.append)
+        with pytest.raises(TypeError, match=r"set_visible\(.*\): visible must be True or False"):
+            page.set_visible(visible)
+    assert sent == []
+
+
+def test_hidden_holds_timers(node, tmp_path):
+    body = '<p id="count">0</p><p id="at"></p>'
+    script = "var count = 0;\nsetInterval(function () { count++; " + write("#count", "count") + write("#at", "Date.now()") + " }, 60000);"
+    with open_page(make_page(tmp_path, body, script), clock=T0) as page:
+        page.set_visible(False)
+        page.advance(120)
+        assert text(page, "#count") == "0"
+        page.set_visible(True)
+        assert text(page, "#count") == "0"
+        page.advance(0)
+        assert text(page, "#count") == "1"
+        assert text(page, "#at") == str(MS0 + 120000)
+        page.advance(59)
+        assert text(page, "#count") == "1"
+        page.advance(1)
+        assert text(page, "#count") == "2"
+
+
+STALE_CHECK = "\n".join([
+    "var loaded = Date.now();",
+    'function check() { document.getElementById("state").textContent = Date.now() - loaded > 300000 ? "stale" : "fresh"; }',
+    "check();",
+    "setInterval(check, 60000);",
+])
+
+
+@pytest.mark.parametrize("listener,shown", [(False, "fresh"), (True, "stale")], ids=["interval_only", "listener"])
+def test_visibility_negative_control(node, tmp_path, listener, shown):
+    script = STALE_CHECK + ('\ndocument.addEventListener("visibilitychange", check);' if listener else "")
+    with open_page(make_page(tmp_path, '<p id="state"></p>', script), clock=T0) as page:
+        assert text(page, "#state") == "fresh"
+        page.set_visible(False)
+        page.advance(600)
+        page.set_visible(True)
+        assert text(page, "#state") == shown
+        page.advance(0)
+        assert text(page, "#state") == "stale"

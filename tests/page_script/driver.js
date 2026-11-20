@@ -85,12 +85,12 @@ function nextDue(time, end) {
 
 // Run each timer due within the span, one at a time, each with the clocks at
 // max(due, now) and a settle after it; the clocks end at the span's end, or
-// at the run that failed.
+// at the run that failed. A hidden page's timers are held: none runs.
 async function advance(page, ms) {
   const time = page.time;
   const end = time.span + ms;
   let runs = 0;
-  for (;;) {
+  while (page.visible) {
     const timer = nextDue(time, end);
     if (timer === null) break;
     if (runs === TIMER_LIMIT) throw new PageError("timer limit: more than 10000 timer runs in one advance");
@@ -129,6 +129,11 @@ function beforeParse(page, window) {
       };
     }
   }
+  // Own accessors on the document win over pretendToBeVisual (spike U2).
+  Object.defineProperty(window.document, "hidden", { get: () => !page.visible, configurable: true });
+  Object.defineProperty(window.document, "visibilityState", {
+    get: () => (page.visible ? "visible" : "hidden"), configurable: true,
+  });
   if (page.time !== null) installClock(page, window);
 }
 
@@ -476,6 +481,15 @@ async function key(page, name) {
   await finish(page);
 }
 
+// A change of visibility fires visibilitychange on the document; the same
+// value fires nothing.
+async function setVisible(page, visible) {
+  if (page.visible === visible) return;
+  page.visible = visible;
+  page.document.dispatchEvent(new page.window.Event("visibilitychange", { bubbles: true }));
+  await finish(page);
+}
+
 // --- call --------------------------------------------------------------------------
 
 class Unencodable extends Error {
@@ -599,6 +613,9 @@ async function handle(request, state) {
       return null;
     case "advance":
       await advance(needClock(state, "advance"), request.ms);
+      return null;
+    case "set_visible":
+      await setVisible(needPage(state), request.visible);
       return null;
     case "set_clock":
       needClock(state, "set_clock").time.wall = request.ms;

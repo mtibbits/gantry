@@ -287,6 +287,12 @@ class Page(_Driver):
         _strings((name,), f"same({name!r}): the name must be a string")
         return self._request({"op": "same", "name": name})
 
+    def set_visible(self, visible):
+        """Show or hide the page; a change fires visibilitychange on the document."""
+        if not isinstance(visible, bool):
+            raise TypeError(f"set_visible({visible!r}): visible must be True or False")
+        self._request({"op": "set_visible", "visible": visible})
+
     def advance(self, seconds):
         """Move the clock forward and run every timer that falls due in the span."""
         self._need_clock("advance")
