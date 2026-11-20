@@ -110,11 +110,13 @@ class BuildResult:
     # Set by write_all when strategic.html could not be made or written (#23): the clause after
     # "gantry: error: ", naming no path. The index is then written without its headline, shares or link.
     strategic_error: str | None = None
-    # The full build's fires (#32), each read once per run; a --site build fills none, and
-    # neither does a full build whose fires step failed before reading them (fires names it).
+    # The full build's fires (#32), each read once per run; a --site build makes no
+    # BuildResult, and a full build whose fires step failed before reading the list fills none
+    # (fires names it).
     # The fires list as the run read it: #34 reads its report from fires_list.report.
     fires_list: FiresList | None = None
-    # {site: its devagent issue records}, every site with a planning directory, in config order.
+    # {site: its devagent issue records}, every site with a planning directory, in config order,
+    # read once before the pages (#173); the pages' phase rows and the fires share it.
     records: dict[str, SiteRecords] = field(default_factory=dict)
     fires: FireReport | None = None
     # {site: its page_model}, every site rendered in this build; write_all keeps it
@@ -209,17 +211,19 @@ def site_traces(inputs, catalog, roots):
     return traces, failed
 
 
-def render_site(name, inputs, config, stamp, *, catalog, trace=None, built=frozenset()):
+def render_site(name, inputs, config, stamp, *, catalog, records, trace=None, built=frozenset()):
     """(html, page model) of one read site. `trace` is its installation
     trace in a full build (#21); without one (a --site build) its trace is
     built here from the run's `catalog` (#20), and a fault in it raises, which
     the caller's `try` makes this site's render error. `built` is the set of
-    sites with a page in this build, which the page may link to."""
+    sites with a page in this build, which the page may link to. `records`
+    is the site's SiteRecords, read before any page (#173), or
+    phases.NO_RECORDS for a page with no phase rows."""
     if trace is None:
         trace = build_site_trace(name, inputs.data.leaves, catalog, rows=inputs.data.rows)
     trace = page_trace(trace, catalog, inputs.data, built=built)
     m = worksite.page_model(name, inputs.data, default_unit_hours=config.default_unit_hours, inputs=inputs,
-                            trace=trace, built=built, br_namespace=catalog.br_namespace)
+                            trace=trace, built=built, br_namespace=catalog.br_namespace, records=records)
     return worksite.render_model(m, stamp=stamp), m
 
 
@@ -236,13 +240,17 @@ def read_sites(config, sites, *, roots):
     return inputs, reasons
 
 
-def render_sites(config, inputs, stamp, *, roots, catalog, traces=None, built=frozenset()):
+def render_sites(config, inputs, stamp, *, roots, catalog, records, traces=None, built=frozenset()):
     """({name: html}, {name: page model}, {name: reason}) over the read sites, each in its own try.
-    `traces` is the full build's {name: installation trace} (#21)."""
+    `traces` is the full build's {name: installation trace} (#21); `records`
+    its {name: SiteRecords} (#173). A site missing from `records` draws
+    unknown rows: a site with no planning_dir never renders, so that is a
+    fault, and it fails closed with the page kept."""
     pages, models, reasons = {}, {}, {}
     for name, site_inputs in inputs.items():
         try:
             pages[name], models[name] = render_site(name, site_inputs, config, stamp, catalog=catalog,
+                                                    records=records.get(name, RECORDS_MISSING),
                                                     trace=(traces or {}).get(name), built=built)
         except Exception as e:
             reasons[name] = render_reason(e, roots)
@@ -290,7 +298,7 @@ def _trace_sites(trace) -> set[str]:
 
 
 def rerender_failed(config, raw, sites, reasons, resolved, foreign, pages, models, failed, stamp, *, roots,
-                    catalog, traces=None):
+                    catalog, records, traces=None):
     """Re-resolve and re-render after render failures, until no new page fails (#68).
 
     `resolved` and `foreign` are resolve_foreign's result for the last
@@ -316,8 +324,8 @@ def rerender_failed(config, raw, sites, reasons, resolved, foreign, pages, model
         waiting = {name: resolved[name] for name in pages
                    if any(o.target_site in new for o in foreign[name])
                    or (traces is not None and not _trace_sites(traces[name]).isdisjoint(new))}
-        again, remodels, new = render_sites(config, waiting, stamp, roots=roots, catalog=catalog, traces=traces,
-                                            built=built)
+        again, remodels, new = render_sites(config, waiting, stamp, roots=roots, catalog=catalog, records=records,
+                                            traces=traces, built=built)
         pages.update(again)
         models.update(remodels)
     return resolved, foreign
@@ -344,19 +352,22 @@ def build_all(config, *, now=None, samples=None) -> BuildResult:
         now = datetime.now(timezone.utc)
     stamp = stamp_text(config, now=now, samples=samples, roots=roots)
     raw, reasons = read_sites(config, sites, roots=roots)
+    # Every site's devagent records, once, before any page (#173): the pages'
+    # phase rows and the fire collector share this read.
+    records = read_records(roots, sites)
     resolved, foreign = resolve_foreign(sites, raw, reasons)
     traces, trace_failed = site_traces(resolved, catalog, roots)
     traces = build_installation_trace(sites, resolved, traces, {**reasons, **trace_failed}, catalog)
     built = frozenset(name for name in raw if name not in reasons and name not in trace_failed)
     pages, models, failed = render_sites(config, {name: resolved[name] for name in traces}, stamp, roots=roots,
-                                         catalog=catalog, traces=traces, built=built)
+                                         catalog=catalog, records=records, traces=traces, built=built)
     resolved, foreign = rerender_failed(config, raw, sites, reasons, resolved, foreign, pages, models,
                                         {**trace_failed, **failed}, stamp, roots=roots, catalog=catalog,
-                                        traces=traces)
+                                        records=records, traces=traces)
     summaries = tuple(_summary(s.name, resolved[s.name], models[s.name], config.as_of) if s.name in pages
                       else not_built(s.name, reasons[s.name]) for s in sites)
     result = BuildResult(config, tuple(sites), tuple(warnings), resolved, pages, summaries, stamp, roots, foreign,
-                         portfolio=catalog.portfolio, page_models=models)
+                         portfolio=catalog.portfolio, page_models=models, records=records)
     result = replace(result, portfolio_entries=_portfolio_entries(result))
     # The plan is made from the rendered sites: a worksite page does not get it.
     result = replace(result, plan=plan_week(result, result.portfolio, config))
@@ -365,36 +376,44 @@ def build_all(config, *, now=None, samples=None) -> BuildResult:
 
 def read_records(roots, sites) -> dict:
     """{site: SiteRecords} for every site with a planning directory, in
-    config order, each read in its own `try`."""
+    config order, each read in its own `try`. A not-read reason names no
+    root by its path (public_text): it reaches the pages."""
     found = {}
     for site in sites:
         if site.planning_dir is None:
             continue
         try:
-            found[site.name] = read_site_records(roots, site.planning_dir, site=site.name)
+            got = read_site_records(roots, site.planning_dir, site=site.name)
         except Exception as e:
-            found[site.name] = SiteRecords(NOT_READ, source_failed(e, "records read"), {}, {})
+            got = SiteRecords(NOT_READ, source_failed(e, "records read"), {}, {})
+        if got.status == NOT_READ and got.reason is not None:
+            got = replace(got, reason=public_text(got.reason, roots))
+        found[site.name] = got
     return found
+
+
+# The records render_sites gives a site missing from its records map (#173).
+RECORDS_MISSING = SiteRecords(NOT_READ, "records not read for this site", {}, {})
 
 
 FIRES_STEP = "fires"  # the source name of the one status a failed fires step leaves
 
 
 def collect_build_fires(result, config, sites, now):
-    """`result` with its fires list, records and fires (#32), read once. A
-    fault the sources do not isolate degrades to a report with one not_read
-    status, and to fires_list None and records {} when it came before they
-    were read: it never stops the index or the pages."""
-    fires_list, records = None, {}
+    """`result` with its fires list and fires (#32). The fires use the
+    records build_all read before the pages (result.records, #173) and read
+    none themselves. A fault the sources do not isolate degrades to a report
+    with one not_read status, and to fires_list None when it came before the
+    list was read: it never stops the index or the pages."""
+    fires_list = None
     try:
         reference = fire_reference(config, now)
         fires_list = read_fires_list(result.roots, config.fires_list, [s.name for s in sites],
                                      naive_reference(reference))
-        records = read_records(result.roots, sites)
-        fires = collect_fires(result, config, fires_list, records, reference)
+        fires = collect_fires(result, config, fires_list, result.records, reference)
     except Exception as e:
         fires = FireReport((), (SourceStatus(FIRES_STEP, None, "not_read", source_failed(e, "fires step")),))
-    return replace(result, fires_list=fires_list, records=records, fires=fires)
+    return replace(result, fires_list=fires_list, fires=fires)
 
 
 def _portfolio_entries(result) -> tuple[PortfolioEntry, ...]:

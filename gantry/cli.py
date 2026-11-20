@@ -7,7 +7,7 @@
 (<output_dir>/strategic.html, #23) and the index, plans the week and writes
 the plan to <output_dir>/week-plan.json (#61); with
 `--site` it builds that one page, no week view, no strategic page, no index and no plan, reading that site's
-WBS.md and inputs, every requirements file and the portfolio file. Both
+WBS.md, inputs and devagent records (#173), every requirements file and the portfolio file. Both
 print each written file's path, then a `trace <site>:` line for each written
 page whose site is in the trace or whose trace report has an entry (#20);
 the full build then prints one `fires:` line, the count of fires and of
@@ -59,8 +59,10 @@ from pathlib import PurePath
 from gantry.build import (
     FIRES_STEP,
     MARKER_FILE,
+    RECORDS_MISSING,
     build_all,
     clashes,
+    read_records,
     read_site,
     render_reason,
     render_site,
@@ -170,8 +172,12 @@ def _build_site(config, roots, sites, name, flag=False):
         return fail(f"cannot build: {problem}")
     # The trace reads every requirements file and the portfolio file (#20).
     catalog = load_catalog(roots, config, sites)
+    # This site's devagent records (#173), by the full build's own read, so the
+    # phase rows match.
+    records = read_records(roots, [site]).get(site.name, RECORDS_MISSING)
     try:
-        text, m = render_site(site.name, inputs, config, stamp_text(config, roots=roots), catalog=catalog)
+        text, m = render_site(site.name, inputs, config, stamp_text(config, roots=roots), catalog=catalog,
+                              records=records)
     except Exception as e:
         # One line, naming no configured root by its path.
         return fail(render_reason(e, roots))

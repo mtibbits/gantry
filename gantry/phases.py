@@ -42,6 +42,17 @@ WHY_PROBLEM = {
 }
 
 
+class _NoRecords:
+    """The one switch for "draw no phase row": a direct render (tests, tools)
+    passes it, or leaves page_model's default. Never a SiteRecords."""
+
+    def __repr__(self):
+        return "NO_RECORDS"
+
+
+NO_RECORDS = _NoRecords()
+
+
 class PhaseRow(NamedTuple):
     looks: tuple[str, ...]  # five members of LOOKS, one per phase
     why: str | None  # set if and only if every look is unknown

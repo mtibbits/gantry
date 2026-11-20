@@ -18,6 +18,7 @@ from gantry.cli import main
 from gantry.config import load_config
 from gantry.model import FINISHED_GLYPHS, STATE_GLYPHS, Estimate, Leaf, SiteData
 from gantry.render import CLASS_TOKENS
+from gantry.phases import NO_RECORDS
 from gantry.sites import config_roots, load_sites
 from gantry.trace import (CATEGORIES, COUNT_FINISHED, COUNT_HELD, COUNT_OPEN, COUNTS_LINE, MESSAGES,
                           REQUIREMENTS_LABEL, build_site_trace, counts_line, load_catalog, page_trace)
@@ -509,7 +510,8 @@ def render_traced(config_path, site, trace=True):
     sites = load_sites(config, roots)[0]
     inputs = build.read_sites(config, sites, roots=roots)[0][site]
     if trace:
-        return build.render_site(site, inputs, config, "", catalog=load_catalog(roots, config, sites))
+        return build.render_site(site, inputs, config, "", catalog=load_catalog(roots, config, sites),
+                                 records=NO_RECORDS)
     m = page_model(site, inputs.data, default_unit_hours=config.default_unit_hours, inputs=inputs)
     return worksite.render_model(m, stamp=""), m
 

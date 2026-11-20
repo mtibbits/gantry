@@ -986,13 +986,7 @@ def test_demo_build_prints_fires_line(tmp_path, monkeypatch):
     assert written(first[1]) == written(second[1])
 
 
-def test_site_build_collects_no_fires(tmp_path, monkeypatch):
-    lists = spy_on(monkeypatch, build, "read_fires_list")
-    records = spy_on(monkeypatch, build, "read_site_records")
-    code, _, stdout, stderr = demo_build(tmp_path, monkeypatch, "--site", "quarry")
-    assert code == 0, stderr
-    assert (lists, records) == ([], [])
-    assert not [line for line in stdout.splitlines() if line.startswith("fires:")]
+def test_bare_build_result_has_no_fires():
     bare = build.BuildResult(None, (), (), {}, {}, (), "", None)
     assert (bare.fires_list, bare.fires, bare.records) == (None, None, {})
 
@@ -1050,8 +1044,9 @@ def test_collector_failure_is_isolated(tmp_path, monkeypatch):
         return real(roots, planning_dir, site=site)
 
     monkeypatch.setattr(build, "read_site_records", refuse)
-    code, _, stdout, stderr = demo_build(tmp_path, monkeypatch)
+    code, out, stdout, stderr = demo_build(tmp_path, monkeypatch)
     assert code == 0, stderr
+    assert (out / "sites" / f"{BUSY}.html").is_file()
     assert stdout.splitlines()[-1] == "fires: 5; sources not fully read: 2"  # DEMO_FIRES_LINE less BUSY's STUCK fires
     result = sample_build(tmp_path / "again")
     (status,) = [s for s in result.fires.sources if s.source == "stuck" and s.site == BUSY]
@@ -1090,7 +1085,9 @@ def test_fires_step_fault_before_any_read(tmp_path, monkeypatch):
     assert stdout.splitlines()[-1] == "fires: 0; sources not fully read: 1"
     assert "gantry: warning: fires not collected: fires step failed: RuntimeError" in stderr.splitlines()
     result = sample_build(tmp_path / "again")
-    assert (result.fires_list, result.records) == (None, {})
+    # The records are read before the pages (#173), so a fires-step fault keeps them.
+    assert result.fires_list is None
+    assert set(result.records) == {site.name for site in result.sites if site.planning_dir is not None}
     assert [s.reason for s in result.fires.sources] == ["fires step failed: RuntimeError"]
 
 
@@ -1370,3 +1367,147 @@ def test_marker_exit_table():
 def test_strict_json_loads_raises_only_value_error(data):
     with pytest.raises(ValueError):
         build.strict_json_loads(data)
+
+
+# --- one records read, before the pages (#173) ----------------------------------------------
+
+from gantry import devagent_records as dr  # noqa: E402
+from gantry import phases  # noqa: E402
+
+UNKNOWN5 = ["unknown"] * 5
+
+
+def test_full_build_reads_records_before_pages(tmp_path, monkeypatch):
+    log = []
+    spy_on(monkeypatch, build, "read_site_records", before=lambda *a, site=None, **k: log.append(("read", site)))
+    models = spy_on(monkeypatch, worksite, "page_model",
+                    before=lambda site, *a, records=None, **k: log.append(("model", site, records)))
+    collected = spy_on(monkeypatch, build, "collect_fires")
+    result = sample_build(tmp_path)
+    first_model = next(i for i, entry in enumerate(log) if entry[0] == "model")
+    reads = [i for i, entry in enumerate(log) if entry[0] == "read"]
+    assert len(reads) == 6 and max(reads) < first_model
+    assert len(models) >= len(result.pages) >= 1
+    for entry in log[first_model:]:
+        assert entry[0] == "model" and entry[2] is result.records[entry[1]], entry[1]
+    assert collected[0][0][3] is result.records
+
+
+def harbor_failure(monkeypatch, leg):
+    real = build.read_site_records
+    reason = "planning directory cannot be listed: Permission denied"
+
+    def patched(roots, planning_dir, *, site=None):
+        if site == BUSY:
+            if leg == "raises":
+                raise RuntimeError("no records")
+            return dr.SiteRecords(dr.NOT_READ, reason, {}, {})
+        return real(roots, planning_dir, site=site)
+
+    monkeypatch.setattr(build, "read_site_records", patched)
+    return "records read failed: RuntimeError" if leg == "raises" else reason
+
+
+@pytest.mark.parametrize("leg", ["raises", "fails"])
+def test_records_read_failure_keeps_every_page(tmp_path, monkeypatch, leg):
+    plain = sample_build(tmp_path / "plain")
+    reason = harbor_failure(monkeypatch, leg)
+    code, out, _, stderr = demo_build(tmp_path / "demo", monkeypatch)
+    assert code == 0, stderr
+    assert sorted(p.name for p in (out / "sites").iterdir()) == sorted(f"{name}.html" for name in plain.pages)
+    result = sample_build(tmp_path / "patched")
+    m = result.page_models[BUSY]
+    with_issue = [leaf for leaf in m["leaves"] if leaf["issue"] is not None]
+    assert len(with_issue) >= 5
+    for leaf in with_issue:
+        assert leaf["phases"] == UNKNOWN5, leaf["key"]
+        assert leaf["phases_why"] == f"devagent records not read: {reason}"
+    for leaf in m["leaves"]:
+        if leaf["issue"] is None:
+            assert leaf["phases"] is None and leaf["phases_why"] is None
+    assert m["panel"][-1] == worksite.RECORDS_LINE.format(reason=reason)
+    counts = {s.name: s.report_count for s in result.summaries}
+    before = {s.name: s.report_count for s in plain.summaries}
+    assert counts == {**before, BUSY: before[BUSY] + 1}
+    assert worksite.RECORDS_LINE.format(reason=reason) not in plain.page_models[BUSY]["panel"]
+
+
+def test_page_model_records_switch():
+    data = page_tree_site()
+    plain = worksite.page_model("alpha", data, default_unit_hours=6)
+    assert all(leaf["phases"] is None and leaf["phases_why"] is None for leaf in plain["leaves"])
+    assert plain == worksite.page_model("alpha", data, default_unit_hours=6, records=phases.NO_RECORDS)
+    for bad in (None, {}, "records"):
+        with pytest.raises(TypeError):
+            worksite.page_model("alpha", data, default_unit_hours=6, records=bad)
+    unread = worksite.page_model("alpha", data, default_unit_hours=6,
+                                 records=dr.SiteRecords(dr.NOT_READ, "planning directory does not exist", {}, {}))
+    assert unread["panel"][-1] == ("Phase rows show unknown: this site's devagent records were not read "
+                                   "(planning directory does not exist)")
+    assert len(unread["panel"]) == len(plain["panel"]) + 1
+    read = worksite.page_model("alpha", data, default_unit_hours=6, records=dr.SiteRecords(dr.READ, None, {}, {}))
+    assert read["panel"] == plain["panel"]
+    assert all(leaf["phases"] is None for leaf in read["leaves"])
+
+
+def page_tree_site():
+    import helpers_portfolio as hp
+
+    return hp.site(hp.node("A", issue="Issue-1"), hp.node("B"))
+
+
+def test_render_sites_missing_key_fails_closed(tmp_path):
+    from gantry.sites import config_roots, load_sites
+    from gantry.trace import load_catalog
+
+    copy = copy_samples(tmp_path)
+    config = load_config(copy / "gantry.sample.toml")
+    roots = config_roots(config)
+    sites = load_sites(config, roots)[0]
+    inputs = build.read_sites(config, sites, roots=roots)[0]
+    _, models, failed = build.render_sites(config, {BUSY: inputs[BUSY]}, "", roots=roots,
+                                           catalog=load_catalog(roots, config, sites), records={})
+    assert failed == {}
+    leaves = [leaf for leaf in models[BUSY]["leaves"] if leaf["issue"] is not None]
+    assert leaves and all(leaf["phases"] == UNKNOWN5 for leaf in leaves)
+    assert {leaf["phases_why"] for leaf in leaves} == {"devagent records not read: records not read for this site"}
+
+
+def test_records_reasons_name_no_path(tmp_path, monkeypatch):
+    # Every NOT_READ constructor in read_site_records, then a reason that holds the path.
+    from gantry.sites import config_roots, load_sites
+
+    copy = copy_samples(tmp_path)
+    config = load_config(copy / "gantry.sample.toml")
+    roots = config_roots(config)
+    sites = [s for s in load_sites(config, roots)[0] if s.planning_dir is not None]
+    site = next(s for s in sites if s.name == BUSY)
+    paths = [str(r.given) for r in roots.roots] + [str(r.path) for r in roots.roots] + [str(site.planning_dir)]
+    real = build.read_site_records
+    planted = {"value": None}
+
+    def patched(roots, planning_dir, *, site=None):
+        return planted["value"] if site == BUSY and planted["value"] is not None else real(roots, planning_dir,
+                                                                                          site=site)
+
+    monkeypatch.setattr(build, "read_site_records", patched)
+    cases = [dr.SiteRecords(dr.NOT_READ, dr.PLANNING_MISSING, {}, {}),
+             dr.SiteRecords(dr.NOT_READ, dr.PLANNING_NOT_DIR, {}, {}),
+             dr.SiteRecords(dr.NOT_READ, dr.PLANNING_CANNOT_LIST.format(error=f"refused: {site.planning_dir}"), {},
+                            {})]
+    for case in cases:
+        planted["value"] = case
+        got = build.read_records(roots, sites)[BUSY]
+        assert got.status == dr.NOT_READ
+        assert not any(path in got.reason for path in paths), got.reason
+    assert "refused: " in got.reason
+
+
+def test_site_build_reads_one_sites_records(tmp_path, monkeypatch):
+    lists = spy_on(monkeypatch, build, "read_fires_list")
+    named = []
+    spy_on(monkeypatch, build, "read_site_records", before=lambda *a, site=None, **k: named.append(site))
+    code, _, stdout, stderr = demo_build(tmp_path, monkeypatch, "--site", "quarry")
+    assert code == 0, stderr
+    assert (lists, named) == ([], ["quarry"])
+    assert not [line for line in stdout.splitlines() if line.startswith("fires:")]

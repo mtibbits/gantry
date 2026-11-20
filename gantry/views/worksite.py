@@ -11,7 +11,8 @@ import math
 import re
 from typing import NamedTuple
 
-from gantry import network, priority, render, schedule
+from gantry import network, phases, priority, render, schedule
+from gantry.devagent_records import READ, SiteRecords
 from gantry.deps import open_sources, refs
 from gantry.inputs import NO_TIERS, UNEST_WHAT, has_tiers, scheduled, site_totals
 from gantry.links import id_href, leaf_anchor
@@ -58,6 +59,8 @@ LIMITS_CAPTION_NO_CHAIN = ("At {hpd} agent-hours a day, all open work is {c} to 
 NO_CHAIN = "none: no open leaf waits on another"
 NO_LEAVES = "This site has no leaves."
 NO_OPEN = "This site has no open leaves."
+# The panel line of a site whose devagent records were not read (#173).
+RECORDS_LINE = "Phase rows show unknown: this site's devagent records were not read ({reason})"
 ALL_HELD = "Every open leaf waits on a dependency cycle, so nothing can be scheduled; the panel lists them."
 NOTHING_MISSING = "Nothing is missing or unreadable."
 NO_ISSUE_LINE = "{n} leaves have no issue: id and are named by outline position"
@@ -461,7 +464,7 @@ def _tier_counts(tiers):
 
 
 def page_model(site, data, *, default_unit_hours, inputs=None, trace=None, built=frozenset(),
-               br_namespace=None) -> dict:
+               br_namespace=None, records=phases.NO_RECORDS) -> dict:
     """The page's data for one site's parsed WBS.md.
 
     `inputs` is apply_inputs's result for the site; without it every leaf is
@@ -470,7 +473,14 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None, built
     render, draws no trace. `built` is the set of sites with a page in this
     build and `br_namespace` the installation's: with them a requirements
     row whose ID is another built site's links to its page (#21, links.id_href).
+    `records` is the site's SiteRecords (#173): each leaf with an issue folder
+    and checklist gets its workflow phase row, and a site whose records were
+    not read gets RECORDS_LINE in its panel. phases.NO_RECORDS, the default
+    for direct renders, gives every leaf no row; anything else raises
+    TypeError.
     """
+    if records is not phases.NO_RECORDS and not isinstance(records, SiteRecords):
+        raise TypeError(f"page_model records must be SiteRecords or NO_RECORDS, not {type(records).__name__}")
     if inputs is not None:
         data = inputs.data
     source = inputs.estimates if inputs is not None else None
@@ -511,6 +521,7 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None, built
         soon = (priority.rank(leaf.priority) <= 1 or leaf.state == "in_progress"
                 or starts[k] < HORIZON_DAYS * HOURS_PER_DAY)
         wave_full = (linked and (net.slack[k] == 0 or soon)) or (k in foreign_only and soon)
+        row = None if records is phases.NO_RECORDS else phases.leaf_row(records, leaf.issue)
         leaves.append({
             "key": k, "anchor": leaf_anchor(k), "issue": leaf.issue, "outline": leaf.outline, "title": leaf.title,
             "lane": lane_of[leaf.epic], "state": leaf.state, "sc": state_class(leaf.state),
@@ -528,6 +539,8 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None, built
             "foreign": _foreign(site, leaf, row_at),
             "other_site": FLAG if leaf.waits_on_other_site else None, "fboxes": _fboxes(leaf),
             "preds": net.preds.get(k, []), "succs": net.succs.get(k, []),
+            "phases": list(row.looks) if row is not None else None,
+            "phases_why": row.why if row is not None else None,
         })
 
     lanes = []
@@ -643,7 +656,8 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None, built
             "near": [[s, near[s]] for s in sorted(near)],
             "heaviest": {"keys": list(chain), "hours": chain_total, "same": bool(path) and chain_total == sum(hours[k][0] for k in path)},
         },
-        "panel": _panel(data),
+        "panel": _panel(data) + ([RECORDS_LINE.format(reason=records.reason)]
+                                 if records is not phases.NO_RECORDS and records.status != READ else []),
         "summary": summary_text(items, planned, path, LANES_DEFAULT, totals.unestimated_count,
                                 unest_path, no_chain),
         "unestimated": {"site": totals.unestimated_count, "heaviest": sum(k in unest for k in chain),
