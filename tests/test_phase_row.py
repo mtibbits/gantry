@@ -401,14 +401,14 @@ def test_sample_week_rows(tmp_path):
 
 
 def page_rows(page):
-    """{node key: (cell looks, full-form tooltip's phase text)} of a worksite page."""
+    """{node key: (cell looks, full-form tooltip's phase text), or None with no row}
+    for every node of a worksite page, so a row drawn by one build only differs."""
     t = tree(page)
     rows = {}
     for key, node in nodes(t).items():
         full = full_form(t, node)
         found = find(t, "g", ["ph-row"], within=full)
-        if found:
-            rows[key] = (tuple(cells(t, found[0])), own_title(t, full).split(" · ")[-1])
+        rows[key] = (tuple(cells(t, found[0])), own_title(t, full).split(" · ")[-1]) if found else None
     return rows
 
 
@@ -423,6 +423,6 @@ def test_site_build_rows_equal_full_build(tmp_path, monkeypatch):
         alone = page_rows((one / "sites" / f"{site}.html").read_bytes().decode("utf-8"))
         both = set(full) & set(alone)
         assert both and {k: full[k] for k in both} == {k: alone[k] for k in both}, site
-        compared[site] = both
-    assert all(compared.values())
+        compared[site] = {k for k in both if full[k] is not None}
+    assert all(compared.values())  # every site compares at least one row
     assert "Issue-12" in compared["lighthouse"]  # the unknown row

@@ -679,8 +679,9 @@ or `phases unknown: {why}`. `{why}` is one of
 `issue folder {reason}` (a skipped folder, such as `is a link`), or the
 record's own reason (such as `checklist.md is not valid UTF-8 at byte 3`).
 The compact (dot) form keeps the node's tooltip. The page's embedded data
-carries each leaf's five look names (`phases`), never the reason or any
-checklist text.
+carries each leaf's five look names (`phases`), never a leaf's reason or any
+checklist text; a site whose records were not read has its panel line
+(below), reason included, in the embedded panel as in the page.
 
 The legend, which is not `aria-hidden`, says
 `Workflow phase row, left to right: plan, implement, check, merge, wrap up, from each issue's checklist.md`,
@@ -1316,7 +1317,8 @@ tests use that document's checkers and harness. This page applies them so:
   escapes, so no value can end the block. Records are arrays, never objects
   keyed by a record value, so a key such as `__proto__` stays data. A
   leaf's phase row is embedded as its five look names only; its unknown
-  reason is left out (it is in the box's tooltip).
+  reason is left out (it is in the box's tooltip). The panel, embedded
+  whole, may hold the not-read records line with its path-free reason.
 - **Fixed classes.** A class name is never built from a record value: the
   model-tier and state classes come from fixed sets with a fallback
   (`m-other`, `st-other`), and slack gives `crit`, `near` or `free`. The

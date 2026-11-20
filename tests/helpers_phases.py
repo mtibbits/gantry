@@ -1,7 +1,7 @@
 """The workflow phase row fixture page (#173).
 
-A plain module, not a test module. fixture_page() renders a 15-leaf chain
-through page_model and render_model, its model edited so that five boxes
+A plain module, not a test module. fixture_page() renders 15 leaves, three chains
+of five, through page_model and render_model, its model edited so that five boxes
 take each fill (crit, near, free) and each fill shows every look. The rows
 are hand-written literals, each one a row the phase rule can give.
 write_fixture_page(path) writes it for the screenshots.

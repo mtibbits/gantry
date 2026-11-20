@@ -1,7 +1,9 @@
 """The full build: read every site, then render every read site (#11).
 
-build_all reads each site in devagent's config order, traces each site it
-read and widens the traces to the installation (#21), then renders each
+build_all reads each site in devagent's config order, reads every site's
+devagent records once (#173: the pages' phase rows and the fires share
+them), traces each site it read and widens the traces to the installation
+(#21), then renders each
 traced site, each step per site in its own `try`, and returns one
 BuildResult that every view reads, with the week plan (#61) made from the
 built sites, the portfolio file the trace's catalog read and its report
@@ -332,9 +334,11 @@ def rerender_failed(config, raw, sites, reasons, resolved, foreign, pages, model
 
 
 def build_all(config, *, now=None, samples=None) -> BuildResult:
-    """Read every site, resolve foreign entries across them, trace every
-    read site and widen the traces to the installation (#21), render every
-    traced site, then plan the week; write nothing.
+    """Read every site and every site's devagent records (once, before any
+    page; #173), resolve foreign entries across them, trace every read site
+    and widen the traces to the installation (#21), render every traced
+    site, then plan the week and collect the fires from the same records;
+    write nothing.
 
     A trace fault stops only its site, which counts as not read. After a
     trace or render failure, the pages that wait on or link to the failed
