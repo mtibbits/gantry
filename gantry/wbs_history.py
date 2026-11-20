@@ -5,6 +5,7 @@ planning repository, through one repository rule and one isolated git helper.
   window, read from the first-parent history of the site's `WBS.md`, plus
   whether the working-tree `WBS.md` matches its committed version;
 - `committed_text`: a committed file's text at `HEAD`;
+- `committed_paths`: the per-issue checklists committed at `HEAD`, in one call;
 - `history_repository`: the one rule for which repository answers.
 
 When git cannot answer, the result is a `NoData` with a reason; nothing here
@@ -252,6 +253,7 @@ _ALLOWED = {
     "rev-list": ("--first-parent", "--format="),
     "hash-object": ("--path=",),
     "cat-file": (),
+    "ls-tree": ("-r", "--name-only", "-z"),
 }
 
 
@@ -652,3 +654,24 @@ def committed_text(repo, rel_path: str):
         return blob_id
     data = _blob(repo, blob_id)
     return data if isinstance(data, NoData) else decode_version(data)
+
+
+def committed_paths(repo):
+    """The `<folder>/checklist.md` paths (relative to the history directory,
+    `/` form, exactly one folder deep) committed at the repository's HEAD, as a
+    frozenset, from ONE `git ls-tree`; NoData when git fails. A NoData given
+    is returned unchanged, with no git call. Never raises."""
+    if isinstance(repo, NoData):
+        return repo
+    ran = _checked(repo, _git(repo, ["ls-tree", "-r", "--name-only", "-z", "HEAD", "--", repo.prefix or "."]))
+    if isinstance(ran, NoData):
+        return ran
+    lead = f"{repo.prefix}/" if repo.prefix else ""
+    found = set()
+    for path in _out(ran).split("\0"):
+        if not path.startswith(lead):
+            continue
+        parts = path[len(lead):].split("/")
+        if len(parts) == 2 and parts[0] and parts[1] == "checklist.md":
+            found.add("/".join(parts))
+    return frozenset(found)

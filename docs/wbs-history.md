@@ -7,6 +7,8 @@ repository's git history (#28):
   of weeks, and whether the site's working-tree `WBS.md` matches its
   committed version;
 - `committed_text`: a committed file's text at `HEAD`;
+- `committed_paths`: which per-issue checklists are committed at `HEAD`, in
+  one git call;
 - `history_repository`: which repository answers, the one rule every read
   goes through.
 
@@ -122,6 +124,17 @@ the site's history directory, in `/` form (for example
 `last_state_change` returns the `Repo | NoData` it used as
 `HistoryResult.repo`, so a caller passes it straight on.
 
+## Committed checklists
+
+`committed_paths(repo)` lists the `<folder>/checklist.md` files committed at
+`HEAD` exactly one folder below the history directory (paths relative to it,
+in `/` form, for example `Issue-7/checklist.md`), from ONE
+`git ls-tree -r --name-only -z HEAD -- <history directory>` in the top level.
+It is the **`ls-tree` prefilter**: a caller reads a checklist with
+`committed_text` only when its path is listed, so an issue with no committed
+checklist costs no git call. A `NoData` given passes through with no git
+call; a failed `ls-tree` is `NoData` (`git failed: ...`).
+
 ## The uncommitted check
 
 `HistoryResult.uncommitted` says whether the site's working-tree `WBS.md` (in
@@ -156,7 +169,8 @@ Every git call goes through one helper, `run_git`:
 
 - an argument list, never a shell, with no input;
 - plumbing only, each with an allow-list of options: `rev-parse`,
-  `rev-list`, `cat-file blob` and `hash-object` (never `-w`,
+  `rev-list`, `cat-file blob`, `ls-tree` (only `-r`, `--name-only` and
+  `-z`) and `hash-object` (never `-w`,
   `--no-filters`, `--batch`, `--textconv` or `--filters`), so no pager or
   `textconv` applies; anything else is refused with an error;
 - every inherited `GIT_*` environment variable removed, so a hook's
@@ -165,8 +179,8 @@ Every git call goes through one helper, `run_git`:
   `LC_ALL=C` so git's messages are not translated;
 - run in the history directory to find the repository, then in its top
   level, with every path relative to that top level: `rev-list` takes it
-  as the pathspec `:(top,literal)<path>`, `rev-parse` as `<commit>:<path>`
-  and `hash-object` as `--path=<path>`;
+  as the pathspec `:(top,literal)<path>`, `rev-parse` as `<commit>:<path>`,
+  `ls-tree` as its literal path prefix and `hash-object` as `--path=<path>`;
 - a time limit per call.
 
 The user's global git config is kept, so a `safe.directory` entry the
