@@ -4,6 +4,11 @@ Every test page is written to the test's own temporary folder. A page opened
 without a clock behaves as #53 left it; these tests pin that too.
 """
 
+import http.client
+import http.server
+import socket
+import subprocess
+import threading
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -18,9 +23,9 @@ T0 = datetime(2026, 11, 5, 7, 45, tzinfo=timezone.utc)
 MS0 = 1793864700000
 
 
-def make_page(tmp_path, body="", script="", name="page.html"):
+def page_text(body="", script=""):
     """A page that writes its location.href into #href, then runs script."""
-    text = "\n".join([
+    return "\n".join([
         "<!doctype html>",
         '<html lang="en">',
         "<head>",
@@ -37,7 +42,11 @@ def make_page(tmp_path, body="", script="", name="page.html"):
         "</body>",
         "</html>",
     ]) + "\n"
-    return write_page(tmp_path, text, name=name)
+
+
+def make_page(tmp_path, body="", script="", name="page.html"):
+    """page_text written to tmp_path / name."""
+    return write_page(tmp_path, page_text(body, script), name=name)
 
 
 def buttons(*names):
@@ -661,3 +670,231 @@ def test_raw_sink_with_clock(node):
         found = page.planted_nodes([img])
     assert {"node": "element", "tag": "img", "value": img} in found.created
     assert {"node": "attribute", "tag": "img", "attr": "onerror", "value": img} in found.created
+
+
+# --- served pages -------------------------------------------------------------------
+
+
+class Site:
+    """A loopback http.server over a folder, logging each (command, path) it is sent."""
+
+    def __init__(self, folder):
+        self.folder = folder
+        self.log = []
+        # path -> function of the GET count so far (1 for the first) giving the body.
+        self.dynamic = {}
+        self.port = None
+
+    def url(self, name):
+        return f"http://127.0.0.1:{self.port}/{name}"
+
+
+def _handler(site):
+    class Handler(http.server.SimpleHTTPRequestHandler):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, directory=str(site.folder), **kwargs)
+
+        def log_message(self, format, *args):
+            pass
+
+        def do_GET(self):
+            site.log.append(("GET", self.path))
+            respond = site.dynamic.get(self.path)
+            if respond is None:
+                return super().do_GET()
+            body = respond(site.log.count(("GET", self.path))).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return None
+
+        def do_HEAD(self):
+            site.log.append(("HEAD", self.path))
+            return super().do_HEAD()
+
+    return Handler
+
+
+@pytest.fixture
+def served(tmp_path):
+    """A Site on 127.0.0.1, an OS-chosen port, serving tmp_path / "site"."""
+    site = Site(tmp_path / "site")
+    site.folder.mkdir()
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _handler(site))
+    site.port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield site
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+
+def closed_port():
+    """A loopback port nothing listens on: bound by the OS, then closed."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def test_open_url_loads(node, served):
+    for name, data in (("s.js", b'document.title = "loaded";'), ("s.css", b"body { color: red }"), ("i.png", b"png")):
+        (served.folder / name).write_bytes(data)
+    body = '<script src="s.js"></script><link rel="stylesheet" href="s.css"><img src="i.png"><p id="out"></p>'
+    make_page(served.folder, body, OUT + "\nsetInterval(function () { " + OWN_HEAD + ".then(" + ANSWER + "); }, 60000);")
+    url = served.url("page.html")
+    with harness.open_url(url, clock=T0) as page:
+        assert text(page, "#href") == url
+        assert text(page, "title") == "t"
+        page.set_status(200)
+        page.advance(60)
+        assert text(page, "#out") == "200:true::ok+status+statusText"
+        assert page.requests() == [harness.Request("HEAD", url, "no-store", "fetch")]
+    assert served.log == [("GET", "/page.html")]
+    # The log could have shown a HEAD: the test's own reaches it.
+    connection = http.client.HTTPConnection("127.0.0.1", served.port, timeout=10)
+    try:
+        connection.request("HEAD", "/page.html")
+        connection.getresponse().read()
+    finally:
+        connection.close()
+    assert served.log == [("GET", "/page.html"), ("HEAD", "/page.html")]
+
+
+def test_own_url_fixed_at_open(node, served):
+    # An http page may push another path; a file: page may not (jsdom, History-impl.js).
+    script = "\n".join([OUT] + [
+        on_click(name, 'out(""); try { ' + call + ".then(" + ANSWER + '); } catch (e) { out("caught"); }')
+        for name, call in MATCHING if name in ("own", "rel")
+    ] + [on_click("push", 'history.pushState(null, "", "pushed.html");')])
+    make_page(served.folder, '<p id="out"></p>' + buttons("own", "rel", "push"), script)
+    with harness.open_url(served.url("page.html"), clock=T0) as page:
+        page.set_status(200)
+        page.drive("push", "now")
+        with pytest.raises(PageScriptError, match="loads no subresource: fetch HEAD .*pushed.html"):
+            page.drive("own", "now")
+        page.drive("rel", "now")
+        assert text(page, "#out") == "200:true::ok+status+statusText"
+        assert page.requests()[-1] == harness.Request("HEAD", served.url("page.html"), "default", "fetch")
+
+
+def test_served_reload(node, served):
+    make_page(served.folder, '<p id="v">v1</p>', reload_on("if (r.ok) location.reload();"))
+    with harness.open_url(served.url("page.html"), clock=T0) as page:
+        make_page(served.folder, '<p id="v">v2</p>')
+        page.set_status(200)
+        page.advance(60)
+        assert page.reloads() == 1
+        assert text(page, "#v") == "v2"
+    assert served.log == [("GET", "/page.html")] * 2
+
+
+def test_served_reload_at_load(node, served):
+    served.dynamic["/page.html"] = lambda n: page_text(f'<p id="v">v{n}</p>', "location.reload();" if n <= 3 else "")
+    with harness.open_url(served.url("page.html"), clock=T0) as page:
+        assert page.reloads() == 3
+        assert text(page, "#v") == "v4"
+    assert served.log == [("GET", "/page.html")] * 4
+
+
+# Each a URL open_url refuses; port is the served port.
+REFUSED_URLS = [
+    ("non_loopback", lambda tmp_path, port: f"http://10.0.0.1:{port}/page.html"),
+    ("localhost", lambda tmp_path, port: f"http://localhost:{port}/page.html"),
+    ("https", lambda tmp_path, port: f"https://127.0.0.1:{port}/page.html"),
+    ("file", lambda tmp_path, port: (tmp_path / "page.html").as_uri()),
+    ("subdomain_label", lambda tmp_path, port: f"http://127.0.0.1.example.com:{port}/page.html"),
+    ("userinfo_before", lambda tmp_path, port: f"http://user@127.0.0.1:{port}/page.html"),
+    ("userinfo_is_address", lambda tmp_path, port: f"http://127.0.0.1@example.com:{port}/page.html"),
+    ("upper_scheme", lambda tmp_path, port: f"HTTP://127.0.0.1:{port}/page.html"),
+    ("decimal", lambda tmp_path, port: f"http://2130706433:{port}/page.html"),
+    ("short", lambda tmp_path, port: f"http://127.1:{port}/page.html"),
+    ("port_over_65535", lambda tmp_path, port: "http://127.0.0.1:99999/page.html"),
+]
+
+
+def _no_page():
+    raise AssertionError("a Page was built for a refused URL")
+
+
+@pytest.mark.parametrize("build", [c[1] for c in REFUSED_URLS], ids=[c[0] for c in REFUSED_URLS])
+def test_open_url_refuses(tmp_path, monkeypatch, served, build):
+    monkeypatch.setattr(harness, "Page", _no_page)
+    with pytest.raises(HarnessError, match=r"open_url\(.*\): only an http:// URL on 127\.0\.0\.1 or \[::1\] is opened"):
+        with harness.open_url(build(tmp_path, served.port), clock=T0):
+            pass
+    assert served.log == []
+
+
+def test_open_url_refuses_non_string(monkeypatch):
+    monkeypatch.setattr(harness, "Page", _no_page)
+    with pytest.raises(TypeError, match=r"open_url\(b'.*'\): the URL must be a string"):
+        with harness.open_url(b"http://127.0.0.1/page.html"):
+            pass
+
+
+def test_open_url_admits_ipv6(node):
+    # Refused by the connection, not by the rule: no IPv6 listener is needed.
+    with pytest.raises(HarnessError, match=r"cannot fetch http://\[::1\]:[0-9]+/page\.html: "):
+        with harness.open_url(f"http://[::1]:{closed_port()}/page.html", clock=T0):
+            pass
+
+
+@pytest.mark.parametrize("leg", ["missing", "closed_port", "reload_missing"])
+def test_open_url_bad_answer(node, served, leg):
+    if leg == "missing":
+        with pytest.raises(HarnessError, match=r"cannot fetch .*/missing\.html: status 404"):
+            with harness.open_url(served.url("missing.html"), clock=T0):
+                pass
+        return
+    if leg == "closed_port":
+        with pytest.raises(HarnessError, match="cannot fetch http://127.0.0.1:[0-9]+/page.html: "):
+            with harness.open_url(f"http://127.0.0.1:{closed_port()}/page.html", clock=T0):
+                pass
+        return
+    path = make_page(served.folder, script="setTimeout(function () { location.reload(); }, 1000);")
+    with harness.open_url(served.url("page.html"), clock=T0) as page:
+        path.unlink()
+        with pytest.raises(HarnessError, match="cannot fetch .*/page.html: status 404"):
+            page.advance(1)
+        with pytest.raises(HarnessError, match="no page is open"):
+            page.query("p")
+
+
+@pytest.mark.parametrize("leg", ["env", "agent"])
+def test_open_url_no_proxy(node, served, monkeypatch, leg):
+    make_page(served.folder, '<p id="v">v1</p>')
+    proxy = f"http://127.0.0.1:{closed_port()}"
+    for name in ("NO_PROXY", "no_proxy"):
+        monkeypatch.delenv(name, raising=False)
+    for name in ("HTTP_PROXY", "http_proxy", "ALL_PROXY"):
+        monkeypatch.setenv(name, proxy)
+    monkeypatch.setenv("NODE_USE_ENV_PROXY", "1")
+    if leg == "env":
+        envs = []
+        real_popen = subprocess.Popen
+
+        def recording(*args, **kwargs):
+            envs.append(kwargs.get("env"))
+            return real_popen(*args, **kwargs)
+
+        monkeypatch.setattr(harness.subprocess, "Popen", recording)
+    else:
+        # The env defence off: the driver's own Agent must still go direct.
+        monkeypatch.setattr(harness, "DROPPED_ENV", ("NODE_OPTIONS", "NODE_PATH"))
+    with harness.open_url(served.url("page.html"), clock=T0) as page:
+        assert text(page, "#v") == "v1"
+    if leg == "env":
+        assert envs and all("NODE_USE_ENV_PROXY" not in env for env in envs)
+    assert served.log == [("GET", "/page.html")]
+
+
+def test_open_url_without_clock(node, served):
+    make_page(served.folder, script="setTimeout(function () {}, 0);")
+    with pytest.raises(PageScriptError, match="runs no timer: setTimeout"):
+        with harness.open_url(served.url("page.html")):
+            pass

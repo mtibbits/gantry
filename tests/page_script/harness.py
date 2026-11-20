@@ -11,6 +11,7 @@ import json
 import math
 import os
 import queue
+import re
 import shutil
 import subprocess
 import tempfile
@@ -19,6 +20,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import NamedTuple
+from urllib.parse import urlsplit
 
 import page_safety
 
@@ -35,8 +37,12 @@ REPLY_TIMEOUT = 60
 # REPLY_TIMEOUT times the page, not the load.
 START_TIMEOUT = 120
 CLOSE_WAIT = 5
-# The driver's environment never takes these from ours.
-DROPPED_ENV = ("NODE_OPTIONS", "NODE_PATH")
+# The driver's environment never takes these from ours; NODE_USE_ENV_PROXY
+# would route Node's global agent through a proxy (#63).
+DROPPED_ENV = ("NODE_OPTIONS", "NODE_PATH", "NODE_USE_ENV_PROXY")
+# The URLs open_url opens, matched on the string as written: http on the
+# loopback address, never localhost (#63).
+LOOPBACK_URL = re.compile(r"http://(?:127\.0\.0\.1|\[::1\])(?::[0-9]{1,5})?(?:/[!-~]*)?")
 EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
@@ -348,6 +354,42 @@ def open_page(path, clock=None):
     page._clock = clock is not None
     try:
         page._request({"op": "open", "path": str(Path(path).resolve()), "clock": ms})
+        yield page
+    finally:
+        page.stop()
+
+
+def _loopback(url):
+    """Whether open_url opens url: LOOPBACK_URL, and a port of at most 65535."""
+    if LOOPBACK_URL.fullmatch(url) is None:
+        return False
+    try:
+        urlsplit(url).port
+    except ValueError:
+        return False
+    return True
+
+
+@contextmanager
+def open_url(url, clock=None):
+    """Fetch the page at a loopback http:// URL with GET, load it into jsdom, and yield a Page.
+
+    Only http:// on 127.0.0.1 or [::1] (never localhost) with a port of at
+    most 65535 is opened, through no proxy; a non-2xx answer or no answer
+    raises HarnessError, on open and on reload. The URL is the page's own
+    URL, and clock is as for open_page. open_url runs whatever answers on
+    the loopback port, with this process's rights, so it is only for pages
+    a test serves itself.
+    """
+    if not isinstance(url, str):
+        raise TypeError(f"open_url({url!r}): the URL must be a string")
+    if not _loopback(url):
+        raise HarnessError(f"open_url({url!r}): only an http:// URL on 127.0.0.1 or [::1] is opened")
+    ms = None if clock is None else _instant_ms("open_url", clock)
+    page = Page()
+    page._clock = clock is not None
+    try:
+        page._request({"op": "open", "url": url, "clock": ms})
         yield page
     finally:
         page.stop()

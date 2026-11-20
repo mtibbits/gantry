@@ -4,6 +4,7 @@
 // is the other side, and docs/page-safety.md describes the protocol.
 
 const fs = require("fs");
+const http = require("http");
 const { createRequire } = require("module");
 const readline = require("readline");
 const { pathToFileURL } = require("url");
@@ -283,7 +284,58 @@ async function finish(page) {
   }
 }
 
+const FETCH_LIMIT_MS = 10000;
+
+// GET a served page: the host checked again, its own Agent (so no proxy the
+// environment names), a 3xx not followed, one limit over the whole fetch.
+function httpGet(url) {
+  let parsed = null;
+  try {
+    parsed = new URL(url);
+  } catch (e) {
+    parsed = null;
+  }
+  if (parsed === null || parsed.protocol !== "http:" || (parsed.hostname !== "127.0.0.1" && parsed.hostname !== "[::1]")) {
+    return Promise.reject(new Error("cannot fetch " + url + ": not a loopback http URL"));
+  }
+  return new Promise((resolve, reject) => {
+    const agent = new http.Agent({ keepAlive: false });
+    let done = false;
+    let request = null;
+    const end = () => {
+      done = true;
+      clearTimeout(timer);
+      agent.destroy();
+    };
+    const fail = (reason) => {
+      if (done) return;
+      end();
+      if (request !== null) request.destroy();
+      reject(new Error("cannot fetch " + url + ": " + reason));
+    };
+    const timer = setTimeout(() => fail("no answer within 10 s"), FETCH_LIMIT_MS);
+    request = http.get(parsed, { agent }, (response) => {
+      if (response.statusCode < 200 || response.statusCode > 299) {
+        response.resume();
+        fail("status " + response.statusCode);
+        return;
+      }
+      const chunks = [];
+      response.on("data", (chunk) => chunks.push(chunk));
+      response.on("error", (e) => fail(e.code || e.message));
+      response.on("end", () => {
+        if (done) return;
+        end();
+        resolve(Buffer.concat(chunks).toString("utf8"));
+      });
+    });
+    request.on("error", (e) => fail(e.code || e.message));
+  });
+}
+
+// source is {path} or {url}: the file read again, or the URL fetched again.
 async function readSource(source) {
+  if (source.url !== undefined) return httpGet(source.url);
   return fs.readFileSync(source.path, "utf8");
 }
 
@@ -330,13 +382,13 @@ async function build(page, text) {
   }
 }
 
-// source is {path}; clock is the controlled clock's start in ms, or null.
+// source is {path} or {url}; clock is the controlled clock's start in ms, or null.
 async function load(source, clock) {
   // remembered: name -> {selector, nodes}, the references remember keeps for
   // same. Nothing is written to a DOM node.
   const page = {
     source,
-    url: pathToFileURL(source.path).href,
+    url: source.url !== undefined ? source.url : pathToFileURL(source.path).href,
     dom: null,
     window: null,
     document: null,
@@ -722,7 +774,10 @@ async function handle(request, state) {
   switch (request.op) {
     case "open":
       if (state.page !== null) throw new Error("a page is already open");
-      state.page = await load({ path: request.path }, request.clock === undefined ? null : request.clock);
+      state.page = await load(
+        request.url !== undefined ? { url: request.url } : { path: request.path },
+        request.clock === undefined ? null : request.clock,
+      );
       return null;
     case "query":
       return query(needPage(state), request.selector);
