@@ -12,7 +12,7 @@ from gantry.config import load_config
 from gantry.portfolio_file import format_entry
 from gantry.views.strategic import pct
 from helpers_config import append_bytes, replace_bytes, sample_projects, toml_key, write_site_tree
-from helpers_strategic import page_data, placement_line, placement_problems
+from helpers_strategic import page_data, placement_line, placement_problems, thieves_line
 from page_safety import HOSTILE, assert_no_external_resources, assert_page_safe
 from sample_roles import BUSY, NO_WBS, OWN_UNIT, SMALL, UNESTIMATED, UNREADABLE
 from test_index_page import data_strings
@@ -493,7 +493,8 @@ def test_strategic_doc_states_texts():
     assert len(thieves.TEXTS) >= 50
     assert [text for text in texts if not stated(text)] == []
     assert [kind for kind in view.FIGURE_KINDS if f"`{kind}`" not in doc] == []
-    for name in ("`data-figure`", "`data-source`", "`data-unestimated`", "`strategic.html`", ONE_LINER):
+    for name in ("`data-figure`", "`data-source`", "`data-unestimated`", "`strategic.html`", ONE_LINER,
+                 THIEVES_ONE_LINER):
         assert name in doc, name
     assert SERVING in " ".join(doc.split())
 
@@ -557,7 +558,7 @@ def constructed_page(tmp_path, monkeypatch):
     result = build_all(load_config(copy / "gantry.sample.toml"), samples=copy)
     model = strategic_model(result)
     repo = wbs_history.Repo(PurePath("/nowhere"), "", BUSY, PurePath("/gantry"))
-    monkeypatch.setattr(wbs_history, "committed_paths", lambda r: frozenset({"Issue-7/checklist.md"}))
+    monkeypatch.setattr(wbs_history, "committed_paths", lambda r, name: frozenset({f"Issue-7/{name}"}))
     monkeypatch.setattr(wbs_history, "committed_text", lambda r, rel: "- [x] 1. pull\n- [ ] 2. draft\n")
     history = {BUSY: wbs_history.HistoryResult(date(2026, 1, 8), False, 1, True, None, repo, None)}
     absent = Record(ABSENT, None, None)
@@ -707,3 +708,47 @@ def test_strategic_hostile_thieves(tmp_path, monkeypatch):
     (busy,) = [p for p in data["panels"] if p["site"] == BUSY]
     assert busy["thieves"]["unplanned"]["value"] == 1
     assert "gantrypwn(3)" not in text
+
+
+THIEVES_ONE_LINER = ("import sys; sys.path.insert(0, 'tests'); from helpers_strategic import thieves_line; "
+                     "print(thieves_line(sys.argv[1]))")
+DEMO_THIEVES_LINE = ("4 built sites; neglect from history: 3; neglect no data: 1; flagged: wip 0, unknown-deps 2, "
+                     "unplanned 2, priorities 2, neglect 1; parked not counted: 0; started with a pending glyph: 0; "
+                     "parked/started no data: 1; uncommitted WBS.md: 0")
+
+
+def test_thieves_line_counts_only(tmp_path, built_sample_history):
+    from test_demo_reads import copy_with_history
+
+    copy = copy_with_history(tmp_path)
+    page(copy)
+    line = thieves_line(copy / "out" / "strategic.html")
+    assert line == DEMO_THIEVES_LINE
+    assert [name for name in sample_projects() if name in line] == []
+    import re
+
+    assert "Issue-" not in line
+    assert re.fullmatch(r"\d+ built sites; neglect from history: \d+; neglect no data: \d+; flagged: wip \d+, "
+                        r"unknown-deps \d+, unplanned \d+, priorities \d+, neglect \d+; parked not counted: \d+; "
+                        r"started with a pending glyph: \d+; parked/started no data: \d+; uncommitted WBS.md: \d+",
+                        line), line
+
+
+def test_thieves_line_subprocess(tmp_path, built_sample_history):
+    from test_demo_reads import copy_with_history
+
+    copy = copy_with_history(tmp_path)
+    page(copy)
+    path = copy / "out" / "strategic.html"
+    ran = subprocess.run([sys.executable, "-c", THIEVES_ONE_LINER, str(path)], cwd=ROOT, capture_output=True,
+                         check=True)
+    assert ran.stdout.decode("utf-8").splitlines() == [DEMO_THIEVES_LINE]
+
+
+def test_thieves_line_counts_unchecked_and_uncommitted(tmp_path, monkeypatch):
+    text, _ = constructed_page(tmp_path, monkeypatch)
+    path = tmp_path / "constructed.html"
+    path.write_bytes(text.encode("utf-8"))
+    line = thieves_line(path)
+    assert "uncommitted WBS.md: 1" in line and "started with a pending glyph: 1" in line
+    assert "parked/started no data: 3" in line and "neglect from history: 1; neglect no data: 3" in line

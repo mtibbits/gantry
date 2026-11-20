@@ -18,7 +18,7 @@ from datetime import date
 from gantry import wbs_history
 from gantry.config import ID_TOKEN_RE
 from gantry.deps import open_sources
-from gantry.devagent_records import PRESENT, READ, UNREADABLE, read_checklist
+from gantry.devagent_records import CHECKLIST_FILE, PRESENT, READ, UNREADABLE, read_checklist
 from gantry.fires import RECORDS_NOT_READ
 from gantry.portfolio_file import DEFAULTS
 from gantry.strategic import replace_panels
@@ -133,6 +133,7 @@ class Thieves:
     unplanned: Thief
     priorities: Thief
     neglect: Thief
+    uncommitted: bool | None = None  # the site's working-tree WBS.md against HEAD; None: not checked
 
 
 def thresholds(portfolio) -> dict[str, int | float]:
@@ -187,14 +188,14 @@ def _committed_states(history, issues):
     through the ls-tree prefilter; raises _Unchecked on any no-data answer."""
     if history.no_data is not None:
         raise _Unchecked(history.no_data.reason)
-    listed = wbs_history.committed_paths(history.repo)
+    listed = wbs_history.committed_paths(history.repo, CHECKLIST_FILE)
     if isinstance(listed, wbs_history.NoData):
         raise _Unchecked(listed.reason)
     out = {}
     for issue in issues:
         if issue in out:
             continue
-        path = f"{issue}/checklist.md"
+        path = f"{issue}/{CHECKLIST_FILE}"
         if path not in listed:
             out[issue] = None
             continue
@@ -424,6 +425,7 @@ def derive_site(name, result, panel, limits, fires, records, history, as_of) -> 
         unplanned=unplanned_thief(name, fires, limits["unplanned"]),
         priorities=priorities_thief(panel, limits["priorities"]),
         neglect=neglect_thief(history, limits["neglect"], as_of),
+        uncommitted=history.uncommitted,
     )
 
 

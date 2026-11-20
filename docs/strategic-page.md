@@ -197,7 +197,9 @@ source follows each figure. The kinds:
 A figure element exists only where a value is shown, except that the
 headline, every index share and every group heading's `group-sum` are
 always figures, including `no intended shares set`, the no-gap headline,
-`no open work` and `nothing to sum`.
+`no open work` and `nothing to sum`, and that every `thief-*` figure and
+`fires-no-site` is a figure whether its text is a value or its
+`no data: <reason>`.
 `no intended share set`, the page's `no open work` and
 `no page, so no open work counted` are plain text. A not-built panel with a
 share has an `intended` figure and no `gap`.
@@ -217,8 +219,10 @@ Each built panel's entry has `thieves` (None on a not-built panel, and when
 the thieves were not derived): per thief its `value` (a date as
 `YYYY-MM-DD`), `text`, `threshold`, `flagged`, `source`, `no_data` (the
 reason, or None), `by_kind`, `parts` (each `text` and `machine`), `label`
-and `counts` (WIP's `parked` and `started`, each None when not checked). The
-top level has `fires_no_site` (`count`, None when not known, and `text`).
+and `counts` (WIP's `parked` and `started`, each None when not checked),
+and `uncommitted` (whether the site's working-tree `WBS.md` differs from its
+commit; None when not checked). The top level has `fires_no_site` (`count`,
+None when not known, and `text`).
 A thief figure carries `data-source` and its visible source like every
 figure, its text being a value or its `no data: <reason>`.
 
@@ -227,7 +231,109 @@ figure, its text being a value or its `no data: <reason>`.
 Each built site's panel ends with a `Time thieves` row (#29): five lines,
 each a figure (`thief-*`) with its source, its threshold, whether it is
 flagged and its parts. A thieves row is never shown with zeros it did not
-count: a panel whose thieves were not derived has no row.
+count: a panel whose thieves were not derived has no row. A not-built site
+has no panel row, so fires on a site that is not built are on no panel.
+
+Thresholds come from the portfolio file's `[thresholds]`
+([portfolio-file.md](portfolio-file.md)), each the same for every site; a
+key that is not set, or not read, takes its default. Every thief but
+neglected work is flagged when its value is **above** its threshold;
+neglected work is flagged at or beyond its window. A thief with no value
+says `no data: <reason>` and is never flagged; one whose derivation raised
+reads that way for all five lines (the build warns, naming the site), and
+never fails the page.
+
+### Shared records and this build machine's view
+
+The values come from records every build machine shares: each site's
+`WBS.md` and its planning repository's committed history
+([wbs-history.md](wbs-history.md)). What only this build machine holds,
+its working-tree checklists and its STUCK markers, is shown as a part
+labelled `as seen by this build machine`. STUCK markers and an
+uncommitted `WBS.md` are the only labelled parts that count toward a flag:
+a STUCK marker is a fire wherever it is read, so the unplanned-work count
+includes it and says how many came from STUCK markers; and the glyphs the
+WIP and unknown-dependencies counts read are the working-tree `WBS.md`'s,
+so when that file has uncommitted changes, or could not be checked against
+its commit, both lines carry the label. Every other labelled part is
+information beside the value.
+
+### Too much WIP (`wip_max`, default 3)
+
+The value counts the open leaves in progress: every leaf whose glyph is
+`~`, `!` or `?`, plus every pending leaf (glyph ` `) whose committed
+checklist shows progress, less every one of those whose committed checklist
+is parked. A `~` alone overcounts: devagent leaves the glyph in place when
+an issue is parked, until `wbs update` writes `P`, so the committed
+checklist is what says it was set aside. And a pending leaf whose committed
+checklist shows progress counts, because the work has started though the
+glyph has not caught up. Parts say how many were parked and not counted and
+how many started with a pending glyph.
+
+The parked rule is read per leaf, from
+`<history directory>/<issue>/checklist.md` at the planning repository's
+`HEAD`: a leaf whose checklist is absent at `HEAD` is not parked and shows
+no progress, and only that leaf is affected. A leaf is read only when its
+issue id matches `[A-Za-z0-9][A-Za-z0-9_.-]*`; any other id (or none) is
+never turned into a path, and counts by its glyph alone. The build lists the
+committed checklists with one `git ls-tree` per site, the **`ls-tree`
+prefilter**, and reads a checklist's text only when it is listed, so an
+issue with no committed checklist costs no git call.
+
+When the committed checklists cannot be read (the site's history read
+failed, the listing failed, or any one checklist read failed) nothing is
+counted from any of them: the parked and started parts say
+`no data: <reason>`, the value counts the `~`, `!` and `?` leaves, and the
+machine part is labelled `not checked against a commit (<reason>)`. The
+machine part names, from this machine's checklists, leaves parked here
+(still counted), pending leaves started here (not counted), and checklists
+here that could not be read, each list in `WBS.md` order with an issue named
+once; `nothing parked or started here` is said only when every one was read
+or absent. Lanes in flight are no data: devagent keeps lane records per
+machine (mtibbits/devagent#748).
+
+### Unknown dependencies (`unknown_deps_max`, default 0)
+
+The value counts the report's `unresolved_ref`, `malformed_ref`,
+`foreign_site_absent` and `foreign_unresolved` entries on open leaves: an
+entry counts when it sits on an open leaf's line or on an unfinished row
+above an open leaf (the rows whose entries the leaf takes), each entry once,
+two identical entries twice. An entry on a done leaf or a finished row is
+not counted. A part names each kind's count. Resolved cross-site links on
+open leaves are shown and never flagged; with no cross-site entry anywhere
+the part says so as no data (mtibbits/devagent#887).
+
+### Unplanned work (`unplanned_max`, default 0)
+
+The value counts the fires the fire collector found on the site
+([daily-screen.md](daily-screen.md)): fires-list entries naming it, its open
+P0 leaves and its STUCK markers. The count fails closed on the fire
+sources' statuses: `read` and `absent` give a plain count;
+`not_read` and `read_with_problems`, for the site's source or a source read
+for every site, make it `incomplete: <sources> not read`, with the count
+before it when one was found, and never a bare 0, which would say nothing
+was there; `not_configured` (no fires list set) adds nothing to the count
+and the source says the fires list is not configured. Fires that name no
+site are counted once above the groups, not on any panel.
+
+### Conflicting priorities (`share_gap_points`, default 10)
+
+The value is the panel's gap, read from the panel and never recomputed: the
+backlog share against the intended share, on the backlog basis. The points
+shown are the gap figure's, rounded half up; the flag is on the unrounded
+gap, so a 10.4-point gap shows `10 points` and is flagged above 10 (a gap a
+float hair from the threshold is not above it). With no gap the line says
+why.
+
+### Neglected work (`neglect_weeks`, default 4)
+
+The value is the last date a leaf's glyph changed in `WBS.md`'s committed
+history, read over a window of N weeks: 7 × N days ending on the as-of
+date. A change on as-of − 7N + 1 is inside the window and unflagged; a
+change a day earlier, or none in the window, is flagged. History that
+begins inside the window says so and is judged by its first date.
+Uncommitted changes to `WBS.md` are not in the history, and the line says
+so. Each no-data reason is one of [wbs-history.md](wbs-history.md)'s.
 
 ### The texts
 
@@ -320,6 +426,19 @@ python3 -c "import sys; sys.path.insert(0, 'tests'); from helpers_strategic impo
 Run it from the repository's top folder (on Windows, `python` in place of
 `python3`). A good result reads `N configured projects, N placed`, with N
 your devagent config's project count.
+
+The time thieves have a counts-only line too, read from the page's
+embedded data (no site name, issue, reason or text):
+
+```
+python3 -c "import sys; sys.path.insert(0, 'tests'); from helpers_strategic import thieves_line; print(thieves_line(sys.argv[1]))" <output_dir>/strategic.html
+```
+
+It reads `N built sites; neglect from history: H; neglect no data: z;
+flagged: ...; parked not counted: p; started with a pending glyph: s;
+parked/started no data: q; uncommitted WBS.md: u`. Every built site whose
+planning repository has `WBS.md` history reads in H; z counts those that
+read no data.
 
 ## Serving
 

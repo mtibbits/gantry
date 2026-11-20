@@ -11,7 +11,7 @@ planning repository, through one repository rule and one isolated git helper.
 When git cannot answer, the result is a `NoData` with a reason; nothing here
 raises for a site. It is a line scanner, not a WBS parser, and never builds
 on the stopgap parser (#12 deletes it). docs/wbs-history.md states the rules.
-The signatures are provisional until #29 binds them.
+The time thieves (#29, gantry.thieves) bind the signatures.
 """
 
 import os
@@ -585,7 +585,7 @@ def _no_data_result(no_data, repo, read=0) -> HistoryResult:
 def last_state_change(roots, site, config, as_of, weeks, cache) -> HistoryResult:
     """The latest date a leaf line's glyph changed in the `weeks` ending at
     `as_of` (or in the last commit read, just before the window), for a site
-    (a sites.SiteEntry); never raises. Provisional until #29 binds it."""
+    (a sites.SiteEntry); never raises. The time thieves (#29) read it."""
     path, key = history_dir(site, config)
     if path is None:
         return _no_data_result(NoData(NO_PLANNING_DIR), NoData(NO_PLANNING_DIR))
@@ -643,8 +643,8 @@ def committed_text(repo, rel_path: str):
     """The text of `rel_path` (relative to the history directory, `/` form) at
     the repository's HEAD, decoded with replacement; Absent when it is not in
     that commit or can name no file there; NoData only when git fails. A
-    NoData given is returned unchanged, with no git call. Provisional until
-    #29 binds it."""
+    NoData given is returned unchanged, with no git call. The time thieves
+    (#29) read committed checklists through it."""
     if isinstance(repo, NoData):
         return repo
     if _names_no_file(rel_path):
@@ -656,11 +656,12 @@ def committed_text(repo, rel_path: str):
     return data if isinstance(data, NoData) else decode_version(data)
 
 
-def committed_paths(repo):
-    """The `<folder>/checklist.md` paths (relative to the history directory,
-    `/` form, exactly one folder deep) committed at the repository's HEAD, as a
+def committed_paths(repo, name):
+    """The `<folder>/<name>` paths (relative to the history directory, `/`
+    form, exactly one folder deep) committed at the repository's HEAD, as a
     frozenset, from ONE `git ls-tree`; NoData when git fails. A NoData given
-    is returned unchanged, with no git call. Never raises."""
+    is returned unchanged, with no git call. Never raises. The time thieves
+    pass devagent's checklist file name (gantry.devagent_records names it)."""
     if isinstance(repo, NoData):
         return repo
     ran = _checked(repo, _git(repo, ["ls-tree", "-r", "--name-only", "-z", "HEAD", "--", repo.prefix or "."]))
@@ -672,6 +673,6 @@ def committed_paths(repo):
         if not path.startswith(lead):
             continue
         parts = path[len(lead):].split("/")
-        if len(parts) == 2 and parts[0] and parts[1] == "checklist.md":
+        if len(parts) == 2 and parts[0] and parts[1] == name:
             found.add("/".join(parts))
     return frozenset(found)

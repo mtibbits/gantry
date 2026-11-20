@@ -208,7 +208,8 @@ def spy_reads(monkeypatch, listed, answers):
     """Patch committed_paths to return `listed` and committed_text to answer from `answers`; the calls."""
     calls = {"paths": [], "text": []}
 
-    def paths(repo):
+    def paths(repo, name):
+        assert name == "checklist.md"
         calls["paths"].append(repo)
         return listed
 

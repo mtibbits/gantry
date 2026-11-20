@@ -39,7 +39,7 @@ error (exit 2) naming the flag.
 
 <!-- Editor note: tests/test_portfolio_file.py reads the portfolio_file row
 below; the issues that read the rest of the settings (the milestone and the
-binding resource, #24; the thresholds, #29) reword it and that test together.
+binding resource, #24) reword it and that test together.
 tests/test_config.py::test_config_doc_fires_rows reads the fires_list and
 fires_check_days rows; reword them and that test together. -->
 
@@ -63,7 +63,7 @@ Keys of a `[site.<name>]` table:
 |---|---|---|---|---|---|
 | `requirements` | path | no | none | the site's requirements file ([format](requirements-format.md)); the site is in the trace only when this is set | #15 |
 | `estimates` | path, or `false` | no | discovery | the site's estimates file, read whatever its name and never replaced by discovery; `false` turns discovery off; absent, the planning directory's latest `estimates-YYYY-MM-DD*.md` is read ([the rules](worksite-page.md#the-estimates-file)) | #10 |
-| `history` | path | no | the planning directory | the directory whose `WBS.md` git history is read ([the rules](wbs-history.md)); it must lie in a git work tree, whose top level may lie above it; no page shows the history yet (#29) | #28 |
+| `history` | path | no | the planning directory | the directory whose `WBS.md` git history is read ([the rules](wbs-history.md)); it must lie in a git work tree, whose top level may lie above it; the strategic page's time thieves read it ([the thieves](strategic-page.md#time-thieves), #29) | #28 |
 
 Keys of the `[refresh]` table:
 

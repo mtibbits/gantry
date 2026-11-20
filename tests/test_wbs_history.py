@@ -787,6 +787,8 @@ def test_committed_text_corrupt_blob_is_git_failed(tmp_path, git_ready):
 
 # --- committed_paths: the ls-tree prefilter (#29) ---------------------------------------
 
+CHECKLIST = "checklist.md"
+
 
 def test_ls_tree_allowed_options_only():
     wbs_history._check_args(["ls-tree", "-r", "--name-only", "-z", "HEAD", "--", "x"])
@@ -807,12 +809,12 @@ def test_committed_paths_lists_checklists(tmp_path, git_ready):
     commit(top, "planner/Issue-8/checklist.md", "sibling decoy\n", "2026-01-04")
     _checklist_tree(top, "plan/")
     expected = frozenset({"Issue-1/checklist.md", "Issue-2/checklist.md"})
-    assert wbs_history.committed_paths(repo_for(tmp_path, planning)) == expected
+    assert wbs_history.committed_paths(repo_for(tmp_path, planning), CHECKLIST) == expected
     flat = make_repo(tmp_path / "flat" / "planning")
     _checklist_tree(flat, "")
     repo = find(directory_roots([tmp_path / "flat"]), flat, fixture_checkout(tmp_path / "flat"))
     assert repo.prefix == ""
-    assert wbs_history.committed_paths(repo) == expected
+    assert wbs_history.committed_paths(repo, CHECKLIST) == expected
 
 
 def test_committed_paths_one_git_call(tmp_path, monkeypatch, git_ready):
@@ -820,7 +822,7 @@ def test_committed_paths_one_git_call(tmp_path, monkeypatch, git_ready):
     _checklist_tree(top, "plan/")
     repo = repo_for(tmp_path, planning)
     calls = spy_git(monkeypatch)
-    assert len(wbs_history.committed_paths(repo)) == 2
+    assert len(wbs_history.committed_paths(repo, CHECKLIST)) == 2
     assert [c[0][0] for c in calls] == ["ls-tree"]
 
 
@@ -829,14 +831,14 @@ def test_committed_paths_no_data_passthrough(monkeypatch):
         raise AssertionError("no git call")
 
     monkeypatch.setattr(wbs_history, "run_git", no_git)
-    assert wbs_history.committed_paths(wbs_history.NoData("x")) == wbs_history.NoData("x")
+    assert wbs_history.committed_paths(wbs_history.NoData("x"), CHECKLIST) == wbs_history.NoData("x")
 
 
 def test_committed_paths_git_failure_is_no_data(tmp_path, git_ready):
     top = make_repo(tmp_path / "planning")
     commit(top, "Issue-1/checklist.md", "x\n", "2026-01-05")
     corrupt(top, git(top, "rev-parse", "HEAD^{tree}").strip())
-    got = wbs_history.committed_paths(repo_for(tmp_path, top))
+    got = wbs_history.committed_paths(repo_for(tmp_path, top), CHECKLIST)
     assert isinstance(got, wbs_history.NoData) and got.text.startswith("no data: git failed: "), got
 
 

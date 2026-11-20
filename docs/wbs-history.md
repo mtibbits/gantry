@@ -12,8 +12,8 @@ repository's git history (#28):
 - `history_repository`: which repository answers, the one rule every read
   goes through.
 
-No page shows these answers yet: #29 (Derive the five time thieves) reads
-them. Until #29 binds them, the signatures below are provisional. When git
+The strategic page's time thieves (#29) read these answers, which binds the
+signatures below ([strategic-page.md](strategic-page.md#time-thieves)). When git
 cannot answer, the result is **no data** with a reason, never an error that
 stops the build.
 
@@ -126,9 +126,9 @@ the site's history directory, in `/` form (for example
 
 ## Committed checklists
 
-`committed_paths(repo)` lists the `<folder>/checklist.md` files committed at
+`committed_paths(repo, name)` lists the `<folder>/<name>` files committed at
 `HEAD` exactly one folder below the history directory (paths relative to it,
-in `/` form, for example `Issue-7/checklist.md`), from ONE
+in `/` form, for example `Issue-7/checklist.md` for the name `checklist.md`), from ONE
 `git ls-tree -r --name-only -z HEAD -- <history directory>` in the top level.
 It is the **`ls-tree` prefilter**: a caller reads a checklist with
 `committed_text` only when its path is listed, so an issue with no committed

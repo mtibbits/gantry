@@ -312,7 +312,8 @@ def _data(result, model) -> dict:
                 "unestimated_count": b.unestimated_count if b else None, "non_time": b.non_time if b else None,
                 "non_time_split": b.non_time_split if b else None, "estimates": p.estimates,
                 "intended": p.intended, "backlog_share": b.share if b else None, "comparable": p.comparable,
-                "gap": p.gap, "serves": list(p.serves), "thieves": _thieves_data(p.thieves)}
+                "gap": p.gap, "serves": list(p.serves), "thieves": _thieves_data(p.thieves),
+                "uncommitted": p.thieves.uncommitted if p.thieves is not None else None}
 
     allocation = model.allocation
     return {

@@ -668,3 +668,30 @@ def test_refresh_doc_install_step_uses_the_release_tag_and_survives_a_reboot():
     assert f"checkout {tag}" in scheduling
     assert "loginctl enable-linger" in scheduling and "/RU" in scheduling
 
+
+
+STRATEGIC_DOC = ROOT / "docs" / "strategic-page.md"
+
+
+def test_strategic_doc_covers_the_thieves_points():
+    """#29's explanatory limbs, one pinned phrase each, in the page doc's thieves section."""
+    text = " ".join(section(markdown_text(STRATEGIC_DOC), "## Time thieves").split())
+    for phrase in (
+        "the only labelled parts that count toward a flag",  # STUCK and an uncommitted WBS.md
+        "STUCK markers",
+        "uncommitted `WBS.md`",
+        "read per leaf",  # the parked rule
+        "absent at `HEAD` is not parked",
+        "`<history directory>/<issue>/checklist.md`",
+        "`~` alone overcounts",
+        "a pending leaf whose committed checklist shows progress counts",
+        "`[A-Za-z0-9][A-Za-z0-9_.-]*`",  # the issue-id rule
+        "not checked against a commit",
+        "7 × N days ending on the as-of date",
+        "as-of − 7N + 1",
+        "`read_with_problems`", "`not_read`", "`not_configured`", "`absent`",
+        "`ls-tree` prefilter",
+        "fires on a site that is not built",
+        "[wbs-history.md](wbs-history.md)",
+    ):
+        assert phrase in text, phrase

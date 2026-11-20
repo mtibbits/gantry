@@ -9,8 +9,9 @@ what it read; collect_fires isolates a source that fails, merges an open P0
 leaf with its STUCK fire, orders the fires and builds the report, so
 "nothing on fire" (FireReport.confirmed_none) is never said by accident.
 
-Callers: the daily screen (#34) shows the report; the time thieves (#29) and
-the warm-up list (#33) read the same build's records. FireSource,
+Callers: the daily screen (#34) shows the report; the time thieves (#29)
+count its fires per site and its site-less fires; the warm-up list (#33)
+reads the same build's records. FireSource,
 FireContext and SourceResult are provisional until a second source outside
 this module binds to them. Record and fires-list text is kept verbatim:
 escaping happens once, where a page renders it.
