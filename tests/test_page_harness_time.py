@@ -4,18 +4,22 @@ Every test page is written to the test's own temporary folder. A page opened
 without a clock behaves as #53 left it; these tests pin that too.
 """
 
+import ast
 import http.client
 import http.server
 import socket
 import subprocess
 import threading
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 
+from helpers_gate import gate_run
 from page_safety import HOSTILE
 from page_script import harness
-from page_script.harness import HarnessError, PageScriptError, Planted, open_page
+from page_script.gate import CI_SUFFIX
+from page_script.harness import NODE_MISSING, HarnessError, PageScriptError, Planted, open_page
 from test_page_checkers import KNOWN_BAD, RENDER_SCRIPT, embed, hostile_page, write_page
 
 # 2026-11-05T07:45:00Z, and the same instant in milliseconds since the epoch.
@@ -898,3 +902,41 @@ def test_open_url_without_clock(node, served):
     with pytest.raises(PageScriptError, match="runs no timer: setTimeout"):
         with harness.open_url(served.url("page.html")):
             pass
+
+
+# --- the gate: these tests run, never skip ------------------------------------------
+
+# The test functions that take no node; every other one does.
+STATIC = {"test_open_url_refuses", "test_open_url_refuses_non_string", "test_time_tests_never_skip",
+          "test_time_gate_end_to_end"}
+# Floors, not exact counts: raise them when adding tests to this module.
+GATED_FLOOR = 39
+NODE_CASES = 86
+STATIC_CASES = 13
+
+
+def test_time_tests_never_skip():
+    tree = ast.parse(Path(__file__).read_bytes().decode("utf-8"))
+    used = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
+    used |= {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
+    assert used & {"skip", "skipif", "xfail", "importorskip"} == set()
+    tests = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name.startswith("test_")]
+    gated = [t.name for t in tests if "node" in [a.arg for a in t.args.args]]
+    assert {t.name for t in tests} - set(gated) == STATIC
+    assert len(gated) >= GATED_FLOOR
+
+
+@pytest.mark.parametrize("ci", [None, "true"], ids=["unset", "true"])
+def test_time_gate_end_to_end(tmp_path, ci):
+    code, cases = gate_run(tmp_path, ci, module="tests/test_page_harness_time.py")
+    passed = [kind for kind, _ in cases].count("passed")
+    others = [(kind, message) for kind, message in cases if kind != "passed"]
+    if ci:
+        # A setup-time pytest.fail is an <error> wrapping the reason.
+        assert all(kind in ("failure", "error") and NODE_MISSING + CI_SUFFIX in message for kind, message in others), others
+        assert code == 1
+    else:
+        assert all(kind == "skipped" and message == NODE_MISSING for kind, message in others), others
+        assert code == 0
+    assert len(others) >= NODE_CASES
+    assert passed >= STATIC_CASES
