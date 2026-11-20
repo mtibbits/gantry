@@ -725,10 +725,7 @@ def _script(name):
     return Markup(text)
 
 
-def _n(x):
-    """An SVG number: one decimal, none when whole."""
-    text = f"{x:.1f}"
-    return text[:-2] if text.endswith(".0") else text
+_n = leafbox.num  # an SVG number: one decimal, none when whole
 
 
 def _h(hours):
