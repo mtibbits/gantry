@@ -1520,3 +1520,9 @@ def test_week_phases_known_row_drops_reason():
     (box,) = leaf_lines(t, "Issue-1")
     assert week_row(t, box) == (("done", "current", "ahead", "ahead", "ahead"),
                                 "phases: plan done; implement current; check, merge, wrap up ahead")
+
+
+def test_legend_phase_swatch_spaced():
+    # The swatch's svg sits right before its word (#173), as .sw's margin spaces the fills.
+    css = (TEMPLATES / "week.html").read_text(encoding="utf-8")
+    assert re.search(r"#legend \.ph-svg \{[^}]*margin-right: \.4rem;", css)

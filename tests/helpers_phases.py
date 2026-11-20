@@ -26,7 +26,8 @@ FILLS = ("crit", "near", "free")
 
 
 def fixture_model():
-    nodes = [hp.node(f"Leaf {i}", issue=f"Issue-{i}", **({"depends_on": [f"Issue-{i - 1}"]} if i > 1 else {}))
+    # Three chains of five, one per fill, so the network is five columns wide.
+    nodes = [hp.node(f"Leaf {i}", issue=f"Issue-{i}", **({"depends_on": [f"Issue-{i - 1}"]} if i % 5 != 1 else {}))
              for i in range(1, 16)]
     m = copy.deepcopy(worksite.page_model("fixture", hp.site(*nodes, name="fixture"), default_unit_hours=6))
     assert len(m["leaves"]) == 15
