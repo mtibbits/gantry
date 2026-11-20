@@ -180,14 +180,28 @@ The harness loads a page into [jsdom](https://github.com/jsdom/jsdom), runs
 its own scripts, and lets a test drive it and look at what it built. It is
 `tests/page_script/harness.py`, which starts a Node.js child running
 `tests/page_script/driver.js` and talks to it in JSON lines. A test opens a
-page with `open_page`, works it with `drive`, reads it with `query`, and
-checks what its script built with `planted_nodes`.
+page with `open_page` (or a served one with `open_url`), works it with
+`drive`, reads it with `query`, and checks what its script built with
+`planted_nodes`.
 
-- `open_page(path)` is a context manager: it loads the page, waits for its
-  load event and one settle step, and yields a page. The page's scripts run;
-  nothing else it names is loaded. jsdom is no sandbox: a page's script runs
-  with the test process's rights, so the harness is only for pages Gantry's
-  own templates built, never for a page from outside the repository.
+- `open_page(path, clock=None)` is a context manager: it loads the page,
+  waits for its load event and one settle step, and yields a page. The
+  page's scripts run; nothing else it names is loaded. With `clock=`, a
+  timezone-aware `datetime`, the page runs on a controlled clock (see
+  [Clock, visibility and reload](#clock-visibility-and-reload)); a naive one,
+  or anything else, is a `TypeError`. jsdom is no sandbox: a page's script
+  runs with the test process's rights, so the harness is only for pages
+  Gantry's own templates built, never for a page from outside the
+  repository.
+- `open_url(url, clock=None)` opens a served page the same way, from an
+  `http://` URL whose host is written as `127.0.0.1` or `[::1]`: never
+  `localhost`, and with a port of at most 65535. Any other URL is a
+  `HarnessError` before any request is made. The driver fetches the URL with
+  one `GET`, through no proxy, within 10 seconds; a status outside 2xx (a 3xx
+  is not followed) or no answer is a `HarnessError`, on open and on reload
+  alike. The URL is the page's own URL. `open_url` runs whatever answers on
+  the loopback port, with the test process's rights, so it is only for pages
+  a test serves itself.
 - `page.drive(control, value)` sets a control the way a user would (see
   [Control convention](#control-convention)), then settles.
 - `page.leave(control, value)` moves focus off an item of a
@@ -242,24 +256,127 @@ checks what its script built with `planted_nodes`.
 
 Two errors keep the page's failures apart from the harness's own:
 
-- `PageScriptError`: a script error at load or in a listener (a thrown
-  value of any kind, or a promise the page leaves rejected), a use of
-  something jsdom does not implement, a refused network call or timer, a
-  missing or disabled control or value, a `remember` selector that matches
-  nothing, or a `run_function` name that is not defined, is not a function,
-  throws or returns what JSON cannot carry;
+- `PageScriptError`: a script error at load, in a listener or in a timer's
+  callback (a thrown value of any kind, or a promise the page leaves
+  rejected), a use of something jsdom does not implement, a refused network
+  call or timer, the timer limit or the reload limit, a request refused on a
+  clock page (raised at the end of the step even when the page caught it), a
+  refused navigation, a missing or disabled control or value, a `remember`
+  selector that matches nothing, or a `run_function` name that is not
+  defined, is not a function, throws or returns what JSON cannot carry;
 - `HarnessError`: Node or jsdom is not ready, `package.json` pins no jsdom,
   the driver could not start, exited or sent no reply within `REPLY_TIMEOUT`
-  seconds, the reply broke the protocol, a selector is invalid, or a `same`
-  name nothing was remembered under. A new driver first gets `START_TIMEOUT`
-  seconds to load jsdom, so a short `REPLY_TIMEOUT` times the page, not the
-  load.
+  seconds, the reply broke the protocol, a selector is invalid, a `same`
+  name nothing was remembered under, a time control on a page opened
+  without a clock, a URL `open_url` refuses, or a served page that answers
+  outside 2xx or not at all (on a reload this also closes the page). A new
+  driver first gets `START_TIMEOUT` seconds to load jsdom, so a short
+  `REPLY_TIMEOUT` times the page, not the load.
 
 The harness loads no subresource: a `script src`, a stylesheet or a frame
 the page names is never fetched, and `fetch`, `XMLHttpRequest`, `WebSocket`
-and `EventSource` throw. jsdom does not enforce the CSP, so
+and `EventSource` throw. The one exception is a clock page's own `HEAD`,
+answered from `set_status`. jsdom does not enforce the CSP, so
 `assert_no_external_resources` stays the guard against a page that would
 load one in a browser.
+
+### Clock, visibility and reload
+
+**Off unless asked.** A page opened without `clock=` behaves as above: every
+timer and every request throws, `document.hidden` is `false`, and
+`location.reload()` is a `PageScriptError`. On such a page `advance`,
+`set_clock`, `set_status`, `requests` and `reloads` are a `HarnessError`;
+`set_visible` works on any page.
+
+**The controlled clock.** With `clock=`, before the page's script runs,
+`Date.now()`, `new Date()` and `Date()` read the controlled clock, and
+`performance.now()` starts at 0. `setTimeout`, `setInterval`,
+`clearTimeout` and `clearInterval` work on it. A timer never runs on its
+own, so each step still ends at an exact settle point. `requestAnimationFrame`
+still throws, and so does a timer whose handler is not a function.
+
+- `page.advance(seconds)` moves the clock forward, in whole milliseconds,
+  and runs every timer due in that span: earliest first, ties in the order
+  they were set, each with the clock at its due time (or now, if that is
+  later), with a settle after each. A timer set during the span that falls
+  due within it runs too; an interval runs next one period after its last
+  run. The clock ends at the span's end. A timer's error is a
+  `PageScriptError` that stops the advance with the clock at that run, and
+  more than 10,000 timer runs in one `advance` is a `PageScriptError`
+  ("timer limit"), so a zero-delay loop fails rather than hangs. `seconds`
+  is a finite number, not negative.
+- `page.set_clock(instant)` sets the clock `Date` reads, forward or back, as
+  a device's clock can change. It runs no timer and moves neither
+  `performance.now()` nor any timer's due time.
+
+**One time zone.** The driver always runs with `TZ=UTC`, with or without a
+clock, so `new Date().toString()` reads `GMT+0000` on every machine. That
+fixes the zone, not the text: the locale is still the machine's (see
+[Limits](#limits)).
+
+**Visibility.** `page.set_visible(visible)`, `True` or `False`, sets
+`document.hidden` and `document.visibilityState` (`"visible"` or
+`"hidden"`). When the value changes it fires `visibilitychange` on
+`document` and settles; the same value fires nothing. While the page is
+hidden, `advance` moves the clock and runs no timer: every timer that falls
+due is held. `set_visible(True)` runs none of them, so a read right after it
+sees only what the page's `visibilitychange` listener did. Held timers run
+at the next `advance` (`advance(0)` included), before any other, in due
+order, with the clock at the time they run. A held interval runs once,
+however many periods it missed, and next one period after that.
+
+**The page's own `HEAD`.** On a clock page, a `fetch` of the page's own URL
+with method `HEAD`, in any case, is answered by the harness and sent
+nowhere. The own URL is the URL the page was opened from, without its
+fragment: fixed at open, kept across reloads, and unchanged by
+`history.pushState`. A request's URL is resolved against `location.href`
+and its fragment dropped before the comparison; a query makes it another
+URL.
+
+- `page.set_status(code)`, an integer from 200 to 599, makes the request
+  resolve to a response with `status` (the code), `ok` (true for 2xx) and
+  `statusText` (`""`), and nothing else. A 3xx is answered, not followed.
+  Any other code is a `ValueError`.
+- `page.set_status(None)`, the default, makes it reject with the page's own
+  `TypeError`, as a request with no answer does in a browser.
+
+The answer settles within the step that made the request. Every other
+request (another method, another URL, `XMLHttpRequest`, `WebSocket`,
+`EventSource`) is refused: the call throws into the page, and the step ends
+in a `PageScriptError` naming it even when the page catches the error.
+`page.requests()` lists every request the page made, refused ones included,
+in order and across reloads. Each is a `Request` with four fields:
+`method`, `url`, `cache` and `api` (`fetch`, `XMLHttpRequest`, `WebSocket`
+or `EventSource`), with `None` for what the call never stated, such as the
+method of a `new XMLHttpRequest()`.
+
+**Reload.** On a clock page, `location.reload()` and `history.go(0)` both
+count as a reload, carried out at the end of the step: the harness loads the
+page again from where it was opened (the file read again, or the URL
+fetched again), at the current time, with the clock, visibility, status and
+request log kept and the old page's timers dropped. `page.reloads()` gives
+the count; two calls in one step count 2 and load once. A reload during
+`advance` lets the new page's timers run in the rest of the span. `query`,
+`planted_nodes` and every other call act on the current page; a name
+`remember` kept before a reload reads false in `same` after it.
+
+- A step that fails drops its pending reload; the count stands. A browser
+  would reload anyway.
+- Work the reloading step queued, for example a `postMessage`, runs on the
+  old page, within that step, before the reload.
+- Every other navigation to a document is a `PageScriptError` at the end of
+  the step: setting `location.href`, `location.assign`, `location.replace`
+  or a followed link, including to the page's own URL, which jsdom would
+  otherwise drop without a word. Only a change of fragment alone passes,
+  such as setting `location.hash`: the URL equal apart from its fragment,
+  and the new fragment present and different. Dropping the fragment, or
+  navigating to the same one, is refused.
+
+Without a clock, `location.reload()` stays a `PageScriptError`.
+
+**Served pages.** A page opened by `open_url` with `clock=` is a clock page
+whose reload fetches its URL again. Its own `HEAD` is still answered by
+`set_status`, never by the server, and it still loads no subresource.
 
 ## Control convention
 
@@ -307,7 +424,10 @@ npm ci --prefix tests/page_script
 of life, the major moves to the next LTS line, with the jsdom pin and the
 lock, in a change of its own. A bump regenerates the lock and runs the
 commit check on it again; a hit inside an integrity hash takes an
-exemption line, re-keyed at each bump.
+exemption line, re-keyed at each bump. The driver wraps `navigate` in
+`jsdom/lib/jsdom/living/window/navigation.js` before the first
+`require("jsdom")`; that works only while jsdom ships no `exports` map and
+`Location-impl.js` destructures `navigate` at load, so a bump re-checks both.
 
 ## Gate
 
@@ -348,6 +468,19 @@ page-checker module with an empty `PATH` to show both behaviours end to end.
    are all empty.
 6. `run_function(path, ...)` for a pure function the page's script exposes.
 
+For a page that checks itself on a timer:
+
+1. Open it with `clock=`, or with `open_url(url, clock=...)` when a reload
+   must fetch it again.
+2. `page.set_status(...)` for the answer its own `HEAD` gets.
+3. `page.advance(...)` and `page.set_visible(...)` to move time and to hide
+   and show it.
+4. `page.query(...)`, `page.requests()` and `page.reloads()` to assert on
+   what it did.
+5. Keep a negative control: a page that gets it wrong, such as one with no
+   `visibilitychange` listener or one that reloads on any answer, fails the
+   same test.
+
 The committed page `tests/page_script/known_bad/raw_sink.html` writes a
 `HOSTILE` value through `innerHTML`: both static checkers pass it, and the
 harness reports the `img` and its handler it built.
@@ -357,9 +490,25 @@ harness reports the `img` and its handler it built.
 - A script sink such as `innerHTML` is invisible to a static read: a page
   whose own script writes markup passes. The
   [page-script harness](#page-script-harness) covers it.
-- The harness runs no timer: `setTimeout`, `setInterval` and
-  `requestAnimationFrame` throw, so a page that needs one fails closed with
-  a `PageScriptError`. Promises still settle before each reply.
+- The harness runs no timer unless the page is opened with a clock:
+  without one, `setTimeout`, `setInterval` and `requestAnimationFrame`
+  throw, so a page that needs one fails closed with a `PageScriptError`;
+  with one, `requestAnimationFrame` still throws. Promises still settle
+  before each reply.
+- A clock replaces `Date`, `performance.now()` and the timers only. Other
+  reads still see the real clock, among them (not an exhaustive list) `Intl`
+  formatting with no date, `Event.timeStamp`, `performance.timeOrigin` and
+  `document.lastModified`.
+- Text formatted with no locale argument, such as `toLocaleTimeString()`,
+  follows the machine's locale, so it differs between machines even under
+  `TZ=UTC`. A page or test that needs stable text passes a locale.
+- A hidden page's timers are all held, not throttled to a browser's
+  schedule.
+- A 3xx status is answered as is, not followed. The answered response has
+  three fields only: `status`, `ok` and `statusText`.
+- More than 100 reloads carried out in one step fail it.
+- A reload starts a new window: `performance.now()` is 0 again, and nothing
+  the old window held survives but what the harness keeps.
 - On a page opened from a file, `localStorage` and `sessionStorage` throw,
   so a page that touches them is a `PageScriptError`. `ResizeObserver`,
   `IntersectionObserver` and a canvas `getContext` are missing or not

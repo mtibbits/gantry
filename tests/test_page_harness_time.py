@@ -7,6 +7,7 @@ without a clock behaves as #53 left it; these tests pin that too.
 import ast
 import http.client
 import http.server
+import os
 import socket
 import subprocess
 import threading
@@ -15,12 +16,14 @@ from pathlib import Path
 
 import pytest
 
+from helpers_docs import markdown_text
 from helpers_gate import gate_run
 from page_safety import HOSTILE
 from page_script import harness
 from page_script.gate import CI_SUFFIX
 from page_script.harness import NODE_MISSING, HarnessError, PageScriptError, Planted, open_page
 from test_page_checkers import KNOWN_BAD, RENDER_SCRIPT, embed, hostile_page, write_page
+from test_samples import ROOT
 
 # 2026-11-05T07:45:00Z, and the same instant in milliseconds since the epoch.
 T0 = datetime(2026, 11, 5, 7, 45, tzinfo=timezone.utc)
@@ -904,15 +907,65 @@ def test_open_url_without_clock(node, served):
             pass
 
 
+# --- the doc ------------------------------------------------------------------------
+
+
+DOC_SPANS = [
+    "clock=", "advance", "set_clock", "TZ=UTC", "set_visible", "visibilitychange", "set_status", "requests",
+    "api", "reloads", "location.reload()", "location.assign", "location.replace", "location.href",
+    "location.hash", "open_url", "127.0.0.1", "[::1]", "localhost", "HEAD",
+]
+
+
+def test_doc_covers_time_controls():
+    doc = markdown_text(ROOT / "docs" / "page-safety.md")
+    assert [s for s in DOC_SPANS if f"`{s}`" not in doc] == []
+    limits = doc.split("\n## Limits\n", 1)[1].split("\n## ", 1)[0]
+    assert [s for s in ("Intl", "Event.timeStamp", "performance.timeOrigin") if f"`{s}`" not in limits] == []
+    assert "The harness runs no timer:" not in limits
+
+
+# 2020-01-01T00:00:00Z in ms: a real clock read is past it, a clock in 2001 is not.
+MS_2020 = 1577836800000
+REAL_CLOCK_READS = [
+    ("intl", 'new Intl.DateTimeFormat("en", {year: "numeric", timeZone: "UTC"}).format()', lambda v: v != "2001"),
+    ("event_timestamp", 'new Event("x").timeStamp', lambda v: float(v) > MS_2020),
+    ("time_origin", "performance.timeOrigin", lambda v: float(v) > MS_2020),
+    ("last_modified", "Date.parse(document.lastModified)", lambda v: float(v) > MS_2020),
+]
+
+
+@pytest.mark.parametrize("expression,real", [c[1:] for c in REAL_CLOCK_READS], ids=[c[0] for c in REAL_CLOCK_READS])
+def test_real_clock_reads_hold(node, tmp_path, expression, real):
+    with open_page(make_page(tmp_path, '<p id="out"></p>', write("#out", expression)),
+                   clock=datetime(2001, 1, 1, tzinfo=timezone.utc)) as page:
+        value = text(page, "#out")
+    assert real(value), value
+
+
+def test_explicit_locale_text_is_stable(node, tmp_path, monkeypatch):
+    path = make_page(tmp_path, '<p id="gb"></p><p id="any"></p>',
+                     write("#gb", 'new Date().toLocaleTimeString("en-GB")') + write("#any", "new Date().toLocaleTimeString()"))
+    seen = []
+    for locale in ("en_US.UTF-8", "de_DE.UTF-8"):
+        monkeypatch.setenv("LC_ALL", locale)
+        with open_page(path, clock=T0) as page:
+            seen.append((text(page, "#gb"), text(page, "#any")))
+    assert [gb for gb, _ in seen] == ["07:45:00", "07:45:00"]
+    if os.name == "posix":
+        # Text formatted with no locale follows the machine's (the doc's Limits); unmeasured on Windows.
+        assert seen[0][1] != seen[1][1], seen
+
+
 # --- the gate: these tests run, never skip ------------------------------------------
 
 # The test functions that take no node; every other one does.
-STATIC = {"test_open_url_refuses", "test_open_url_refuses_non_string", "test_time_tests_never_skip",
-          "test_time_gate_end_to_end"}
+STATIC = {"test_open_url_refuses", "test_open_url_refuses_non_string", "test_doc_covers_time_controls",
+          "test_time_tests_never_skip", "test_time_gate_end_to_end"}
 # Floors, not exact counts: raise them when adding tests to this module.
-GATED_FLOOR = 39
-NODE_CASES = 86
-STATIC_CASES = 13
+GATED_FLOOR = 41
+NODE_CASES = 91
+STATIC_CASES = 14
 
 
 def test_time_tests_never_skip():

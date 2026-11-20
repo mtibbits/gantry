@@ -2,8 +2,9 @@
 
 A plain module, not a test module, imported as page_script.harness. It imports
 only the standard library and page_safety, and drives a Node child running
-driver.js, which loads a page into jsdom. See docs/page-safety.md for the
-protocol, the gate and the limits.
+driver.js, which loads a page into jsdom: from a file, or from a loopback URL
+(open_url), with or without a controlled clock (#63). See docs/page-safety.md
+for the protocol, the gate and the limits.
 """
 
 import atexit

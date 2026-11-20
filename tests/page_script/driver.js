@@ -1,7 +1,10 @@
 "use strict";
 // The Node side of the page-script harness (#53). It reads one JSON request
 // per line on stdin and writes one JSON reply per line on stdout; harness.py
-// is the other side, and docs/page-safety.md describes the protocol.
+// is the other side, and docs/page-safety.md describes the protocol. It wraps
+// navigate in jsdom/lib/jsdom/living/window/navigation.js before the first
+// require("jsdom"), which works only while jsdom ships no exports map and
+// Location-impl.js destructures navigate at load: re-check both on a bump.
 
 const fs = require("fs");
 const http = require("http");
