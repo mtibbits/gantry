@@ -12,6 +12,61 @@ into its section here.
 
 New entries are files in changelog.d/; README's "Versioning & releases" says how.
 
+## [0.1.3] — 2026-11-19
+
+### Added
+
+- `gantry build` writes the strategic page, `<output_dir>/strategic.html`:
+  one panel per configured project, grouped under the business requirements
+  each built site serves, then "Serves no listed requirement", "No intended
+  share set" and "Not built". Each panel sets the site's open work and its
+  intended share against its backlog share (its share of all built sites'
+  open hours, not effort), with the gap between them; every figure names its
+  source and carries `data-figure` and `data-source`
+  (docs/strategic-page.md).
+- The index shows the largest share gap as its headline, each built site's
+  backlog share on its line, and a link to the strategic page.
+- `gantry refresh --config <file>`, the refresh job an OS scheduler runs
+  every `interval_minutes`: under a lock in the new `[refresh] dir`, it runs
+  the `[refresh] update` commands (no shell, a time limit, the process tree
+  stopped on timeout), records the update in `update.json`, builds a new
+  generation in a child process and swaps it in whole through `current`
+  (docs/refresh-and-serve.md).
+- `gantry build --output-dir <dir>` writes one build into another folder;
+  a full build with it writes a `build.json` completion marker, holding its
+  exit code, as its last file.
+- A reader for devagent's portfolio JSON (`gantry/portfolio_json.py`), held
+  equal to Gantry's own `WBS.md` reader on every sample site by committed
+  snapshots; `gantry build` does not use it yet. Two tools make the
+  sample document and the snapshots from the pinned devagent release
+  (docs/worksite-page.md#reading-devagents-portfolio-json).
+
+### Changed
+
+- A full build now runs the portfolio file's checks once over its one read
+  of the file, the milestone leaf included, and lists the entries on the
+  strategic page; `gantry portfolio`'s note says so.
+- A full build writes and prints `strategic.html` before the index. When it
+  cannot be made or rendered, the build prints
+  `gantry: error: cannot render strategic.html: <type>: <message>`; when it
+  cannot be written, `gantry: error: cannot write strategic.html: <reason>`.
+  Either way it writes the index without the page's headline, shares or
+  link, and exits 1.
+- The privacy promise in README, BRule-3 and SECURITY.md now reads "Gantry
+  itself opens no network connection": `gantry refresh` runs the update
+  commands the installation config lists, which connect only where the
+  operator points them.
+- The week view draws each placement as the worksite page's leaf box: the
+  key, the leaf's own priority and the placement's hours, the title cut and
+  wrapped as on the worksite page, the facts, and the model band, filled by
+  slack and outlined by state and `xsite` with the worksite's colours. One
+  rule in `gantry/views/leafbox.py` cuts and classes the box on both pages,
+  and both pages insert one cue colour sheet,
+  `gantry/templates/leaf_colours.css`
+  (docs/week-plan.md#the-week-view-page).
+- The week view's lanes row groups its leaves under one heading per site,
+  and a legend explains the red fills and the `P0` mark.
+
 ## [0.1.2] — 2026-11-18
 
 ### Changed

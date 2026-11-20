@@ -763,6 +763,7 @@ def test_readmes_cover_the_portfolio_tests():
 
 
 def test_changelog_entry_points_at_the_section():
-    entry = markdown_text(ROOT / "changelog.d" / "83.added.md")
+    # Read CHANGELOG.md: a release compiles changelog.d/83.added.md into it and deletes the file.
+    entry = markdown_text(ROOT / "CHANGELOG.md")
     assert "gantry/portfolio_json.py" in entry and "`gantry build` does not use it yet" in " ".join(entry.split())
     assert "docs/worksite-page.md#reading-devagents-portfolio-json" in entry
