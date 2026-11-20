@@ -733,10 +733,14 @@
           "nodes": [
             "n17"
           ],
-          "stuck": null,
-          "checklist": "absent",
-          "next_step": null,
-          "next_step_number": null
+          "stuck": {
+            "step": "15 review",
+            "reason": "The warehouse inspector has not signed off the review.",
+            "since": "2026-01-12 09:30"
+          },
+          "checklist": "open",
+          "next_step": "review",
+          "next_step_number": 15
         }
       ],
       "rollup": {
@@ -1717,9 +1721,9 @@
             "n32"
           ],
           "stuck": null,
-          "checklist": "absent",
-          "next_step": null,
-          "next_step_number": null
+          "checklist": "open",
+          "next_step": "analyze",
+          "next_step_number": 13
         },
         {
           "issue": "Issue-8",
@@ -1761,9 +1765,9 @@
             "n37"
           ],
           "stuck": null,
-          "checklist": "absent",
-          "next_step": null,
-          "next_step_number": null
+          "checklist": "open",
+          "next_step": "implement",
+          "next_step_number": 9
         },
         {
           "issue": "Issue-7",
@@ -2418,9 +2422,9 @@
             "n49"
           ],
           "stuck": null,
-          "checklist": "absent",
-          "next_step": null,
-          "next_step_number": null
+          "checklist": "open",
+          "next_step": "mergemr",
+          "next_step_number": 20
         },
         {
           "issue": "Issue-10",
@@ -2448,9 +2452,9 @@
             "n52"
           ],
           "stuck": null,
-          "checklist": "absent",
-          "next_step": null,
-          "next_step_number": null
+          "checklist": "open",
+          "next_step": "draft",
+          "next_step_number": 2
         }
       ],
       "rollup": {

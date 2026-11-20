@@ -117,7 +117,7 @@ def recipe_files(recipe):
 
 
 def test_written_fixtures_match_recipes():
-    assert len(fx.RECIPES) == 13
+    assert len(fx.RECIPES) == 17
     folders = sorted(p.name for p in WRITTEN.iterdir())
     assert folders == sorted(r.issue for r in fx.RECIPES)
     for recipe in fx.RECIPES:
@@ -219,7 +219,7 @@ def test_fixtures_regenerate_byte_for_byte():
     checkout = hd.require_devagent()
     diffs = fx.check(checkout, WRITTEN)
     assert list(diffs) == []
-    assert diffs.compared == len(committed_record_files()) == 18
+    assert diffs.compared == len(committed_record_files()) == 23
 
 
 def test_changed_fixture_fails_naming_fixture_script_and_line(tmp_path):
@@ -449,3 +449,13 @@ def test_boundary_names_keep_phase():
     for path in [*(checkout / "templates").glob("checklist-*.md"), checkout / "templates" / "revision_block.md"]:
         named |= {step.name for step in read_checklist(path.read_bytes().decode("utf-8")).steps}
     assert set(BOUNDARY_PHASES) <= named
+
+
+def test_samples_flag_names_the_samples_root(tmp_path, capsys):
+    # #173: --samples takes the samples root; a site folder would scatter copies.
+    (tmp_path / "harbor").mkdir()
+    assert fx.main(["--devagent", str(tmp_path), "--samples", str(tmp_path / "harbor")]) == 2
+    err = capsys.readouterr().err
+    assert "--samples names the samples root, the folder that holds gantry.sample.toml" in err
+    assert str(tmp_path) not in err
+    assert not any((tmp_path / "harbor").iterdir())

@@ -626,7 +626,9 @@ def test_single_reader_scan_planted(tmp_path):
 
 SAMPLE_CONFIG = ROOT / "samples" / "gantry.sample.toml"
 HARBOR = ROOT / "samples" / "harbor"
-SAMPLE_ISSUES = ("Issue-12", "Issue-13", "Issue-14", "Issue-15", "Issue-6", "Issue-7", "Issue-8")
+SAMPLE_ISSUES = ("Issue-12", "Issue-13", "Issue-14", "Issue-15", "Issue-16", "Issue-6", "Issue-7", "Issue-8")
+# Sample issue folders written by hand, not by a recipe: (site, folder).
+HAND_WRITTEN = {("quarry", "Issue-9"), ("quarry", "Issue-20"), ("lighthouse", "Issue-12")}
 
 
 def sample_site(name):
@@ -640,13 +642,21 @@ def sample_site(name):
 
 
 def test_sample_records_are_fixture_copies():
-    copies = sorted(p for p in HARBOR.rglob("*") if p.is_file() and p.name in ("STUCK", "checklist.md"))
-    assert len(copies) == 9
-    for path in copies:
-        assert path.read_bytes() == (WRITTEN / path.parent.name / path.name).read_bytes(), path
     from devagent_record_fixtures import RECIPES
 
-    assert sorted(r.issue for r in RECIPES if r.sample) == sorted(SAMPLE_ISSUES)
+    copies = sorted(p for p in (ROOT / "samples").glob("*/Issue-*/*")
+                    if p.is_file() and p.name in ("STUCK", "checklist.md"))
+    recipes = {(r.site, r.issue) for r in RECIPES if r.sample}
+    assert {(p.parent.parent.name, p.parent.name) for p in copies} == recipes | HAND_WRITTEN
+    compared = 0
+    for path in copies:
+        site, issue = path.parent.parent.name, path.parent.name
+        if (site, issue) in HAND_WRITTEN:
+            continue
+        assert path.read_bytes() == (WRITTEN / issue / path.name).read_bytes(), path
+        compared += 1
+    assert compared == 14  # harbor's eight folders (11 files), quarry's two and lighthouse's one
+    assert sorted(r.issue for r in RECIPES if r.sample and r.site == "harbor") == sorted(SAMPLE_ISSUES)
 
 
 def test_sample_site_records_shapes():
@@ -664,7 +674,7 @@ def test_sample_site_records_shapes():
     assert issues["Issue-14"].stuck.value.created_format == "iso_offset"
     assert issues["Issue-15"].plan.status == "absent" and issues["Issue-12"].plan.status == "absent"
     stucks = [r.stuck.value for r in issues.values() if r.stuck.status == "present"]
-    assert len(stucks) == 2
+    assert len(stucks) == 3
     for marker in stucks:
         assert marker.created.date() < config.as_of
     for records in issues.values():
@@ -679,7 +689,7 @@ def test_sample_stuck_folders_name_open_leaves():
     data = hp.sample_site(HARBOR.name)
     open_issues = {leaf.issue for leaf in data.leaves if leaf.open and leaf.issue}
     stuck = {p.parent.name for p in HARBOR.glob("*/STUCK")}
-    assert stuck == {"Issue-13", "Issue-14"}
+    assert stuck == {"Issue-13", "Issue-14", "Issue-16"}
     assert stuck <= open_issues
 
 

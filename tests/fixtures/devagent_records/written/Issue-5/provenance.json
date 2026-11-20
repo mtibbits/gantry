@@ -1,0 +1,71 @@
+{
+  "pin": "devagent--v3.0.0",
+  "devagent_commit": "3ac02b852fd7c9be71d9ac4aa51f2646cfd270b5",
+  "devagent_version": "3.0.0",
+  "writer": "checklist-mark.sh",
+  "expected_exit": 0,
+  "steps": [
+    [
+      "checklist-init.sh",
+      "--project",
+      "harbor",
+      "<dir>"
+    ],
+    [
+      "checklist-mark.sh",
+      "<dir>",
+      "0",
+      "x",
+      "pull"
+    ],
+    [
+      "checklist-mark.sh",
+      "<dir>",
+      "2",
+      "x",
+      "draft"
+    ],
+    [
+      "checklist-mark.sh",
+      "<dir>",
+      "4",
+      "x",
+      "scope"
+    ],
+    [
+      "checklist-mark.sh",
+      "<dir>",
+      "5",
+      "x",
+      "improve"
+    ],
+    [
+      "checklist-mark.sh",
+      "<dir>",
+      "6",
+      "x",
+      "prune"
+    ],
+    [
+      "checklist-mark.sh",
+      "<dir>",
+      "7",
+      "x",
+      "tighten"
+    ],
+    [
+      "checklist-mark.sh",
+      "<dir>",
+      "8",
+      "x",
+      "branch"
+    ],
+    [
+      "checklist-mark.sh",
+      "<dir>",
+      "9",
+      "~",
+      "implement"
+    ]
+  ]
+}

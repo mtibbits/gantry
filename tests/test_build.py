@@ -932,7 +932,7 @@ def test_demo_plan_holds_a_cross_site_leaf(tmp_path):
 
 # --- the fires of a full build (#32) ------------------------------------------------------
 
-DEMO_FIRES_LINE = "fires: 7; sources not fully read: 1"
+DEMO_FIRES_LINE = "fires: 8; sources not fully read: 1"
 
 
 def fires_install(tmp_path, name="samples", fires_list=None):
@@ -964,9 +964,11 @@ def test_demo_build_collects_fires(tmp_path, monkeypatch):
     for name, data in ((n, i.data) for n, i in result.inputs.items()):
         assert not [e for e in data.report if e.kind in fires_list.REPORT_KINDS], name
     assert [(f.kinds, f.site, f.issue) for f in report.fires if f.kinds != ("fires_list",)] == [
-        (("p0_leaf",), "quarry", "Issue-8"), (("stuck",), "harbor", "Issue-13"), (("stuck",), "harbor", "Issue-14")]
+        (("p0_leaf",), "quarry", "Issue-8"), (("stuck",), "harbor", "Issue-13"), (("stuck",), "harbor", "Issue-14"),
+        (("stuck",), "harbor", "Issue-16")]
     stuck = [f for f in report.fires if f.kinds == ("stuck",)]
-    assert stuck[0].since == stuck[1].since
+    # Every devagent-written STUCK carries the fixtures' one fixed Created: time.
+    assert len(stuck) == 3 and stuck[0].since == stuck[1].since == stuck[2].since
     assert {f.why[0] for f in report.fires if f.kinds == ("fires_list",)} == {
         "the east crane failed its morning check", "return the surveyor's call about the boundary",
         "the weighbridge has read low since last week", "a delivery arrived with no paperwork"}
@@ -975,7 +977,7 @@ def test_demo_build_collects_fires(tmp_path, monkeypatch):
     p0 = {s.site: s.status for s in report.sources if s.source == "p0_leaf"}
     assert (p0[NO_WBS], p0[UNREADABLE]) == ("absent", "not_read")
     assert report.confirmed_none is False
-    assert (len(report.fires), report.not_fully_read) == (7, 1)
+    assert (len(report.fires), report.not_fully_read) == (8, 1)
 
 
 def test_demo_build_prints_fires_line(tmp_path, monkeypatch):
@@ -1021,7 +1023,7 @@ def test_fires_never_change_exit_status(tmp_path, monkeypatch):
     assert code == code2 == 0
     assert written(out) == written(out2)
     assert stdout.splitlines()[-1] == DEMO_FIRES_LINE
-    assert stdout2.splitlines()[-1] == "fires: 3; sources not fully read: 2"
+    assert stdout2.splitlines()[-1] == "fires: 4; sources not fully read: 2"
     result = build_all(load_config(missing / "gantry.sample.toml"), samples=missing)
     assert result.fires_list.status == "not_read"
     assert build_all(load_config(plain / "gantry.sample.toml"), samples=plain).fires_list.status == "read"
@@ -1030,7 +1032,7 @@ def test_fires_never_change_exit_status(tmp_path, monkeypatch):
     config.write_bytes(config.read_bytes().replace(b'fires_list = "fires.md"\n', b""))
     code3, out3, stdout3, _ = demo_build(tmp_path, monkeypatch, copy=unset)
     assert code3 == 0 and written(out3) == written(out)
-    assert stdout3.splitlines()[-1] == "fires: 3; sources not fully read: 2"
+    assert stdout3.splitlines()[-1] == "fires: 4; sources not fully read: 2"
     result = build_all(load_config(config), samples=unset)
     assert (result.fires_list.status, result.fires_list.reason) == ("not_configured", "fires_list is not set")
 

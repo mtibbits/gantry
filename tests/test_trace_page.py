@@ -318,7 +318,7 @@ def test_full_build_prints_trace_line(tmp_path, monkeypatch):
     assert code == 0, err
     lines = stdout.splitlines()
     # The trace line, then the fires line last (#32).
-    assert lines[-2:] == [SAMPLE_LINE_FULL, "fires: 7; sources not fully read: 1"]
+    assert lines[-2:] == [SAMPLE_LINE_FULL, "fires: 8; sources not fully read: 1"]
     assert [line for line in lines if line.startswith("trace ")] == [SAMPLE_LINE_FULL]
     assert os.path.samefile(lines[-4], out / "index.html")
     assert os.path.samefile(lines[-3], out / "week-plan.json")
@@ -368,7 +368,7 @@ def test_trace_line_bytes(tmp_path):
     result = run_module("build", "--config", str(copy / "gantry.sample.toml"))
     assert result.returncode == 0, result.stderr
     assert b"\r" not in result.stdout
-    assert result.stdout.decode("utf-8").splitlines()[-2:] == [SAMPLE_LINE_FULL, "fires: 7; sources not fully read: 1"]
+    assert result.stdout.decode("utf-8").splitlines()[-2:] == [SAMPLE_LINE_FULL, "fires: 8; sources not fully read: 1"]
 
 
 # --- Task 5: chips and the two panels ----------------------------------------------

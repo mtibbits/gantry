@@ -10,8 +10,10 @@ each mirrors, what it does with each malformed case, and how a contract test
 notices when devagent's writers change shape.
 
 **A planning directory is private data.** The records in this repository
-(`samples/harbor/Issue-N/` and `tests/fixtures/devagent_records/`) are
-fictional.
+(`samples/<site>/Issue-N/`, `tests/fixtures/devagent_records/` and the week
+view fixture's issue folders) are fictional, or template step rows (names
+and glyphs only) taken from real checklists, as the phase rule's old-scheme
+test blocks are.
 
 The full build reads each site's records once: the fire collector (#32)
 reads its STUCK markers and checklists
@@ -284,7 +286,7 @@ is known; for an extracted archive pass `--commit`):
 
 ```
 python3 tools/devagent_record_fixtures.py --devagent <checkout>
-python3 tools/devagent_record_fixtures.py --devagent <checkout> --samples samples/harbor
+python3 tools/devagent_record_fixtures.py --devagent <checkout> --samples samples
 python3 tools/devagent_record_fixtures.py --devagent <checkout> --check
 python3 tools/sample_portfolio.py --fixtures --devagent <checkout>
 python3 tools/sample_portfolio.py --fixtures --check --devagent <checkout>
@@ -296,8 +298,10 @@ A pin move regenerates all of these in one change, because each records the
 pin and a test holds it equal to `tests/devagent.pin`:
 
 - `tests/fixtures/devagent_records/written/`, each folder's record files and
-  its `provenance.json`, and the copies under `samples/harbor/`: the first
-  two commands.
+  its `provenance.json`, and the copies under `samples/<site>/` (each
+  recipe names its site; `--samples` takes the samples root, the folder that
+  holds `gantry.sample.toml`, and refuses any other): the first two
+  commands.
 - `tests/fixtures/portfolio/written.json` and
   `tests/fixtures/portfolio/provenance.json`: devagent's portfolio JSON over
   Gantry's `WBS.md` fixtures; `tests/fixtures/portfolio/samples.json` and

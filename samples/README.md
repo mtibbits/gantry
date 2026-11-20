@@ -25,18 +25,20 @@ public tools (in prose, in the `samples/devagent/` folder name and in
   estimates file, giving each open harbor leaf with an `issue:` an effort
   bucket, an hour range and model tiers. Its `#N` cells name `Issue-N` on harbor; GitHub
   auto-links them to this repo's issues, which is harmless for a fixture.
-- `harbor/Issue-N/`: devagent issue folders for seven harbor leaves (#31),
-  read by `gantry/devagent_records.py`. Each `checklist.md` and `STUCK` is
+- `harbor/Issue-N/`: devagent issue folders for eight harbor leaves (#31,
+  #173), read by `gantry/devagent_records.py`. Each `checklist.md` and `STUCK` is
   a byte copy of the same-numbered fixture that devagent's own scripts
   wrote (`tests/fixtures/devagent_records/written/`, made with
-  `tools/devagent_record_fixtures.py --samples samples/harbor`), with fixed
+  `tools/devagent_record_fixtures.py --samples samples`), with fixed
   `Created:` values dated 2026-01-12, before `as_of`; the three
   `imPlan.md` files are hand-written. `Issue-6` is at an in-progress step
   with a check-box plan, one task ticked; `Issue-7` has a plan of `Task N`
   headings and `Issue-8` a numbered one; `Issue-12` is parked; `Issue-13`
   has a STUCK marker in `stuck.sh`'s form and `Issue-14` one in
   `checklist-stuck.sh`'s, both on open leaves; `Issue-15` has a checklist
-  and no plan yet. The leaves of `Issue-7`, `8`, `12`, `13` and `14` stay
+  and no plan yet; `Issue-16` (#173) is stuck at step 15 `review`, with the
+  STUCK marker `stuck.sh` writes there, so the build counts one more stuck
+  fire. The leaves of `Issue-7`, `8`, `12`, `13` and `14` stay
   `[ ]` in `WBS.md` although their checklists show progress, deliberately:
   devagent sets `~` only when its WBS update runs, and changing them would
   change harbor's history role and its one in-progress leaf.
@@ -47,6 +49,16 @@ public tools (in prose, in the `samples/devagent/` folder name and in
   "Calibrate the weighbridge") has one in `checklist-stuck.sh`'s form and a
   parked checklist. The build counts the first under `stuck_no_open_leaf`
   and the second under `stuck_parked`, so neither is a fire.
+- Phase row samples (#173), each on a leaf the worksite network draws, so
+  a `--site` build draws its row too: `quarry/Issue-5` (implementing, `~`
+  at step 9) and `quarry/Issue-3` (checking, next step 13), each a
+  devagent-written checklist like harbor's, and `lighthouse/Issue-9`
+  (waiting at `mergemr`, `?` at step 20), devagent-written too.
+  `lighthouse/Issue-12/checklist.md` is hand-written with a glyph devagent
+  never writes (`- [o]  2. draft`), so its row shows unknown. With harbor's
+  folders they show a row mid-plan, implementing, checking, waiting,
+  stuck, parked and unknown; quarry `Issue-8`, a drawn leaf with no folder,
+  shows none. No `WBS.md` glyph changes.
 - `portfolio.md`: the sample installation's portfolio file (#22), named by
   the sample config's `portfolio_file`. Its business requirements are
   `life:BR-1` to `BR-3`; its settings give the four readable sites four

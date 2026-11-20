@@ -313,3 +313,116 @@ def test_fixture_page_every_look_every_fill():
     assert seen == {(fill, look) for fill in ("crit", "near", "free") for look in looks}
     assert_page_safe(page, [])
     assert_no_external_resources(page)
+
+
+# --- the samples (Task 8) ------------------------------------------------------------------
+
+from helpers_config import demo_build, sample_build  # noqa: E402
+from test_samples import ROOT  # noqa: E402
+
+D, C, S, P, B, A, U = "done", "current", "stuck", "parked", "blocked", "ahead", "unknown"
+# Every drawn sample leaf that has a row (network node or foreign-only leaf): its looks.
+SAMPLE_ROWS = {
+    ("harbor", "Issue-6"): [C, A, A, A, A],
+    ("harbor", "Issue-7"): [C, A, A, A, A],
+    ("harbor", "Issue-12"): [P, A, A, A, A],
+    ("harbor", "Issue-15"): [C, A, A, A, A],
+    ("harbor", "Issue-16"): [D, D, S, A, A],
+    ("quarry", "Issue-3"): [D, D, C, A, A],
+    ("quarry", "Issue-5"): [D, C, A, A, A],
+    ("quarry", "Issue-9"): [P, A, A, A, A],
+    ("lighthouse", "Issue-9"): [D, D, D, B, A],
+    ("lighthouse", "Issue-12"): [U] * 5,
+}
+# Each of those leaves' WBS.md state, unchanged by #173.
+SAMPLE_STATES = {
+    ("harbor", "Issue-6"): "in_progress", ("harbor", "Issue-7"): "pending", ("harbor", "Issue-12"): "pending",
+    ("harbor", "Issue-15"): "pending", ("harbor", "Issue-16"): "pending", ("quarry", "Issue-3"): "pending",
+    ("quarry", "Issue-5"): "in_progress", ("quarry", "Issue-9"): "pending", ("lighthouse", "Issue-9"): "pending",
+    ("lighthouse", "Issue-12"): "pending",
+}
+# Drawn leaves with no row: quarry Issue-8 has no folder; quarry Issue-7 is the
+# foreign-only control for harbor Issue-7, which has one.
+SAMPLE_NO_ROW = {("quarry", "Issue-8"), ("quarry", "Issue-7")}
+
+
+def drawn(m):
+    return set(m["network"]["nodes"]) | set(m["network"]["foreign_only"])
+
+
+def test_sample_rows(tmp_path):
+    result = sample_build(tmp_path)
+    found, states, no_row = {}, {}, set()
+    for site, m in result.page_models.items():
+        for leaf in m["leaves"]:
+            if leaf["key"] not in drawn(m):
+                continue
+            if leaf["phases"] is not None:
+                found[(site, leaf["key"])] = leaf["phases"]
+                states[(site, leaf["key"])] = leaf["state"]
+            else:
+                no_row.add((site, leaf["key"]))
+    assert found == SAMPLE_ROWS
+    assert states == SAMPLE_STATES
+    assert SAMPLE_NO_ROW <= no_row
+    (leaf,) = [leaf for leaf in result.page_models["lighthouse"]["leaves"] if leaf["key"] == "Issue-12"]
+    assert leaf["phases_why"] == "checklist.md has a step glyph devagent does not write"
+    assert (ROOT / "samples" / "harbor" / "Issue-16" / "STUCK").is_file()
+    # The written page draws the unknown row with its reason.
+    page = result.pages["lighthouse"]
+    assert "phases unknown: checklist.md has a step glyph devagent does not write" in page
+
+
+def test_sample_week_rows(tmp_path):
+    """Every sample week placement's row, as a literal (S2): harbor Issue-13 is
+    schedule-only; harbor Issue-8 and Issue-14, schedule-only too, are not placed."""
+    from gantry.views.week import render_week
+    from test_week_page import leaf_lines, placed_nodes, week_row
+
+    result = sample_build(tmp_path)
+    fresh = ((C, A, A, A, A), "phases: plan current; implement, check, merge, wrap up ahead")
+    want = {
+        ("orchard", "Issue-4"): None,
+        ("harbor", "1.5"): None,
+        ("harbor", "Issue-13"): ((S, A, A, A, A), "phases: plan stuck; implement, check, merge, wrap up ahead"),
+        ("quarry", "Issue-3"): ((D, D, C, A, A), "phases: plan, implement done; check current; merge, wrap up ahead"),
+        ("harbor", "Issue-6"): fresh,
+        ("quarry", "Issue-5"): ((D, C, A, A, A), "phases: plan done; implement current; check, merge, wrap up ahead"),
+        ("harbor", "Issue-12"): ((P, A, A, A, A), "phases: plan parked; implement, check, merge, wrap up ahead"),
+        ("harbor", "Issue-7"): fresh,
+    }
+    assert sorted(placed_nodes(result.plan)) == sorted(want)
+    assert "Issue-13" not in result.page_models["harbor"]["network"]["nodes"]
+    t = tree(render_week(result.plan, result, result.stamp))
+    for (site, key), row in want.items():
+        boxes = [i for i in leaf_lines(t, key) if t.elements[i]["attrs"].get("data-site") == site]
+        assert boxes, key
+        assert {week_row(t, i) for i in boxes} == {row}, (site, key)
+
+
+def page_rows(page):
+    """{node key: (cell looks, full-form tooltip's phase text)} of a worksite page."""
+    t = tree(page)
+    rows = {}
+    for key, node in nodes(t).items():
+        full = full_form(t, node)
+        found = find(t, "g", ["ph-row"], within=full)
+        if found:
+            rows[key] = (tuple(cells(t, found[0])), own_title(t, full).split(" · ")[-1])
+    return rows
+
+
+def test_site_build_rows_equal_full_build(tmp_path, monkeypatch):
+    code, out, _, err = demo_build(tmp_path / "full", monkeypatch)
+    assert code == 0, err
+    compared = {}
+    for site in ("harbor", "quarry", "lighthouse"):
+        full = page_rows((out / "sites" / f"{site}.html").read_bytes().decode("utf-8"))
+        code, one, _, err = demo_build(tmp_path / site, monkeypatch, "--site", site)
+        assert code == 0, err
+        alone = page_rows((one / "sites" / f"{site}.html").read_bytes().decode("utf-8"))
+        both = set(full) & set(alone)
+        assert both and {k: full[k] for k in both} == {k: alone[k] for k in both}, site
+        compared[site] = both
+    assert all(compared.values())
+    assert "Issue-12" in compared["lighthouse"]  # the unknown row
