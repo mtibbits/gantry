@@ -10,10 +10,12 @@ write_fixture_page(path) writes it for the screenshots.
 import copy
 
 import helpers_portfolio as hp
+from gantry import devagent_records as dr
+from gantry import phases
 from gantry.views import worksite
 
 D, C, S, P, B, A, N, U = "done", "current", "stuck", "parked", "blocked", "ahead", "none", "unknown"
-UNKNOWN_WHY = "checklist.md has a step glyph devagent does not write"
+UNKNOWN_WHY = phases.WHY_PROBLEM[dr.CHECKLIST_BAD_GLYPH]
 # Reachable rows; together they hold every look.
 ROWS = (
     ((D, C, A, N, A), None),

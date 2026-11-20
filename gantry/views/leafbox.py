@@ -32,13 +32,14 @@ COLOURS = "templates/leaf_colours.css"
 PHASES_SHEET = "templates/leaf_phases.css"
 PH_CELL = 10
 PH_GAP = 3
-PH_WIDTH = 5 * PH_CELL + 4 * PH_GAP  # 62
-PHASE_LEGEND = "Workflow phase row, left to right: plan, implement, check, merge, wrap up, from each issue's checklist.md"
+PH_WIDTH = len(PHASE_NAMES) * PH_CELL + (len(PHASE_NAMES) - 1) * PH_GAP  # 62
+PHASE_LEGEND = f"Workflow phase row, left to right: {', '.join(PHASE_NAMES)}, from each issue's checklist.md"
 PHASE_LIMIT = ("The row shows this build machine's copy of each checklist, which may lag an issue running on "
                "another machine.")
 PHASE_TEXT = "phases: {runs}"
 PHASE_TEXT_UNKNOWN = "phases unknown: {why}"
 GLYPH_MARKS = {"stuck": "!", "parked": "P", "blocked": "?"}
+_LOOK_SET = frozenset(LOOKS)
 UNSAFE_STYLE_RE = re.compile(r"</style", re.IGNORECASE)
 
 
@@ -107,12 +108,6 @@ def colours():
     return _sheet(COLOURS)
 
 
-def num(x):
-    """An SVG number: one decimal, none when whole."""
-    text = f"{x:.1f}"
-    return text[:-2] if text.endswith(".0") else text
-
-
 def _sheet(name):
     text = render.asset(name)
     # It would end the style element that holds it.
@@ -129,29 +124,29 @@ def phases_css():
 def _mark(look, x, y):
     """A cell's mark, the cell's top left at (x, y)."""
     if look == "done":
-        return f'<path class="ph-mark" d="M{num(x + 2.2)},{num(y + 5.2)} L{num(x + 4.3)},{num(y + 7.4)} ' \
-               f'L{num(x + 7.8)},{num(y + 2.8)}"/>'
+        return f'<path class="ph-mark" d="M{render.num(x + 2.2)},{render.num(y + 5.2)} L{render.num(x + 4.3)},{render.num(y + 7.4)} ' \
+               f'L{render.num(x + 7.8)},{render.num(y + 2.8)}"/>'
     if look == "current":
-        return f'<circle class="ph-mark" cx="{num(x + 5)}" cy="{num(y + 5)}" r="2.6"/>'
+        return f'<circle class="ph-mark" cx="{render.num(x + 5)}" cy="{render.num(y + 5)}" r="2.6"/>'
     if look in GLYPH_MARKS:
-        return (f'<text class="ph-t" x="{num(x + 5)}" y="{num(y + 8.3)}" text-anchor="middle">'
+        return (f'<text class="ph-t" x="{render.num(x + 5)}" y="{render.num(y + 8.3)}" text-anchor="middle">'
                 f"{GLYPH_MARKS[look]}</text>")
     if look == "none":
-        return f'<line class="ph-mark" x1="{num(x + 2.5)}" y1="{num(y + 5)}" x2="{num(x + 7.5)}" y2="{num(y + 5)}"/>'
+        return f'<line class="ph-mark" x1="{render.num(x + 2.5)}" y1="{render.num(y + 5)}" x2="{render.num(x + 7.5)}" y2="{render.num(y + 5)}"/>'
     if look == "unknown":
-        return (f'<path class="ph-mark" d="M{num(x + 2)},{num(y + 2)} L{num(x + 8)},{num(y + 8)} '
-                f'M{num(x + 8)},{num(y + 2)} L{num(x + 2)},{num(y + 8)}"/>')
+        return (f'<path class="ph-mark" d="M{render.num(x + 2)},{render.num(y + 2)} L{render.num(x + 8)},{render.num(y + 8)} '
+                f'M{render.num(x + 8)},{render.num(y + 2)} L{render.num(x + 2)},{render.num(y + 8)}"/>')
     return ""  # ahead: the empty box
 
 
 def _cell(look, x, y):
-    return (f'<g class="ph-cell ph-{look}"><rect class="ph-box" x="{num(x)}" y="{num(y)}" width="{PH_CELL}" '
+    return (f'<g class="ph-cell ph-{look}"><rect class="ph-box" x="{render.num(x)}" y="{render.num(y)}" width="{PH_CELL}" '
             f'height="{PH_CELL}" rx="1.5"/>{_mark(look, x, y)}</g>')
 
 
 def _looks(looks):
     """`looks` as a list, if it is five members of LOOKS; else ValueError."""
-    if isinstance(looks, str) or len(looks) != len(PHASE_NAMES) or not set(looks) <= set(LOOKS):
+    if isinstance(looks, str) or len(looks) != len(PHASE_NAMES) or not _LOOK_SET.issuperset(looks):
         raise ValueError("a phase row is five phase looks")
     return list(looks)
 
@@ -178,16 +173,28 @@ def phase_text(row) -> str:
     return PHASE_TEXT.format(runs="; ".join(f"{', '.join(names)} {LOOK_WORDS[look]}" for names, look in runs))
 
 
+def _svg(width, attrs, inner):
+    return (f'<svg class="ph-svg" viewBox="0 0 {width} {PH_CELL}" width="{width}" height="{PH_CELL}" '
+            f'{attrs}>{inner}</svg>')
+
+
 def phase_svg(row) -> str:
     """The row in an `<svg>` of its own, its text as the label and the tooltip."""
     text = render.esc(phase_text(row))
-    return (f'<svg class="ph-svg" viewBox="0 0 {PH_WIDTH} {PH_CELL}" width="{PH_WIDTH}" height="{PH_CELL}" '
-            f'role="img" aria-label="{text}"><title>{text}</title>{"".join(phase_row(row.looks, 0, 0))}</svg>')
+    return _svg(PH_WIDTH, f'role="img" aria-label="{text}"',
+                f'<title>{text}</title>{"".join(phase_row(row.looks, 0, 0))}')
 
 
 def phase_swatch(look) -> str:
     """One cell of `look`, for the legend; the word beside it names it."""
     if look not in LOOKS:
         raise ValueError(f"not a phase look: {look!r}")
-    return (f'<svg class="ph-svg" viewBox="0 0 {PH_CELL} {PH_CELL}" width="{PH_CELL}" height="{PH_CELL}" '
-            f'aria-hidden="true"><g class="ph-row">{_cell(look, 0, 0)}</g></svg>')
+    return _svg(PH_CELL, 'aria-hidden="true"', f'<g class="ph-row">{_cell(look, 0, 0)}</g>')
+
+
+def phase_legend_items() -> list:
+    """The phase row's legend items, as HTML each page wraps in its own tag:
+    what the row is, each look's cell and word, and the build-machine limit."""
+    return [render.esc(PHASE_LEGEND),
+            *(f"{phase_swatch(look)}{render.esc(LOOK_WORDS[look])}" for look in LOOKS),
+            render.esc(PHASE_LIMIT)]

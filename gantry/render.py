@@ -143,6 +143,12 @@ def reason_class(reason) -> str:
     return _lookup(REASON_CLASSES, reason, REASON_FALLBACK)
 
 
+def num(x) -> str:
+    """An SVG number: one decimal, none when whole."""
+    text = f"{x:.1f}"
+    return text[:-2] if text.endswith(".0") else text
+
+
 def hundredths(x) -> str:
     """x rounded once, half up, to two decimals from its shortest decimal form,
     trailing zeros dropped: 2.25, 2, 3.03."""

@@ -27,10 +27,10 @@ STEP_PHASES = {
     "mergemr": 3,
     **dict.fromkeys(("updatewbs", "impact", "lessonslearned", "cleanup"), 4),
 }
-LOOKS = ("done", "current", "stuck", "parked", "blocked", "ahead", "none", "unknown")
 LOOK_WORDS = {"done": "done", "current": "current", "stuck": "stuck", "parked": "parked",
               "blocked": "blocked outside", "ahead": "ahead", "none": "not in this workflow", "unknown": "unknown"}
-GLYPH_LOOKS = {" ": "current", "~": "current", "!": "stuck", "P": "parked", "?": "blocked"}
+LOOKS = tuple(LOOK_WORDS)
+GLYPH_LOOKS = {" ": "current", "~": "current", dr.STUCK_GLYPH: "stuck", dr.PARKED_GLYPH: "parked", "?": "blocked"}
 
 WHY_NOT_READ = "devagent records not read: {reason}"  # SiteRecords.reason
 WHY_SKIPPED = "issue folder {reason}"  # a SiteRecords.skipped value, e.g. "is a link"
@@ -69,7 +69,7 @@ def checklist_row(state: dr.ChecklistState) -> PhaseRow:
     unnamed = next((step for step in state.steps if step.name not in STEP_PHASES), None)
     if unnamed is not None:
         return _unknown(WHY_NAME.format(number=unnamed.number))
-    nxt = next((step for step in state.steps if step.glyph not in dr.DONE_GLYPHS), None)
+    nxt = state.next_step
     at = STEP_PHASES[nxt.name] if nxt is not None else None
     looks = []
     for phase in range(len(PHASE_NAMES)):

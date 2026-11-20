@@ -227,5 +227,5 @@ def test_phases_css_refuses_style_breakout(monkeypatch):
 def test_num_is_worksite_n():
     from gantry.views import worksite
 
-    assert worksite._n is leafbox.num
-    assert [leafbox.num(v) for v in (3.0, 2.25, 8.3, 10)] == ["3", "2.2", "8.3", "10"]
+    assert worksite._n is render.num
+    assert [render.num(v) for v in (3.0, 2.25, 8.3, 10)] == ["3", "2.2", "8.3", "10"]

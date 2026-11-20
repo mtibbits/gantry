@@ -404,9 +404,7 @@ def _body(page):
                       for value, label in DAYS_BUTTONS)
     legend = (f'<ul id="legend"><li><i class="sw crit"></i>{esc(LEGEND_CRIT)}</li>'
               f'<li><i class="sw near"></i>{esc(LEGEND_NEAR)}</li><li>{esc(LEGEND_P0)}</li>'
-              f'<li>{esc(leafbox.PHASE_LEGEND)}</li>'
-              + "".join(f'<li>{leafbox.phase_swatch(look)}{esc(phases.LOOK_WORDS[look])}</li>' for look in phases.LOOKS)
-              + f'<li>{esc(leafbox.PHASE_LIMIT)}</li></ul>')
+              + "".join(f'<li>{item}</li>' for item in leafbox.phase_legend_items()) + '</ul>')
     return f'{lines}{legend}<div>{buttons}</div><div id="days">{days}</div>{_unplanned(page)}{_per_site(page)}'
 
 

@@ -728,7 +728,7 @@ def _script(name):
     return Markup(text)
 
 
-_n = leafbox.num  # an SVG number: one decimal, none when whole
+_n = render.num  # an SVG number: one decimal, none when whole
 
 
 def _h(hours):
@@ -1188,10 +1188,8 @@ def render_page(site, data, *, default_unit_hours, inputs=None, stamp="", trace=
 def _phase_legend():
     """The phase row's legend (#173): what the row is, each look's cell and
     word, and the build-machine limit. Not aria-hidden: the words carry it."""
-    items = [f"<span>{esc(leafbox.PHASE_LEGEND)}</span>"]
-    items += [f"<span>{leafbox.phase_swatch(look)}{esc(phases.LOOK_WORDS[look])}</span>" for look in phases.LOOKS]
-    items.append(f"<span>{esc(leafbox.PHASE_LIMIT)}</span>")
-    return Markup(f'<div class="legend">{"".join(items)}</div>')
+    items = "".join(f"<span>{item}</span>" for item in leafbox.phase_legend_items())
+    return Markup(f'<div class="legend">{items}</div>')
 
 
 def _embedded(m):

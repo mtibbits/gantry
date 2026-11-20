@@ -7,7 +7,5 @@
 .ph-row .ph-mark { fill: none; stroke: var(--muted); stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
 .ph-row .ph-done .ph-mark { stroke: var(--done); stroke-width: 1.6; }
 .ph-row .ph-current .ph-mark { fill: var(--done); stroke: none; }
-.ph-row .ph-none .ph-mark, .ph-row .ph-unknown .ph-mark { stroke: var(--muted); }
 .ph-row text.ph-t { font: 700 8px var(--f-mono, ui-monospace, monospace); stroke: none; fill: var(--muted); }
 .ph-row .ph-stuck text.ph-t, .ph-row .ph-blocked text.ph-t { fill: var(--held); }
-.ph-row .ph-parked text.ph-t { fill: var(--muted); }
