@@ -323,3 +323,267 @@ def test_missing_history_and_records_fail_closed(monkeypatch):
     spy_reads(monkeypatch, frozenset(), {})
     got = derive(leaves(("~", "Issue-1")), hist=history(FAKE_REPO), records=not_read)
     assert machine_parts(got.wip)[0] == MACHINE + "checklists here not read: planning directory does not exist"
+
+
+# --- unknown dependencies (AC3) ----------------------------------------------------------------
+
+
+def report_entry(line, kind):
+    from gantry.model import ReportEntry
+
+    return ReportEntry(SITE, line, kind, f"line {line}: {kind}")
+
+
+def deps_site():
+    """Line 1 an open row holding an unresolved entry; line 2 an open leaf under it with an unresolved and a
+    malformed entry; line 3 a done leaf with an unresolved entry; line 4 an open leaf with two identical entries."""
+    return hp.site(
+        hp.node("Epic", hp.node("A", glyph="~", issue="Issue-1", depends_on=["nope", "bad:x:y"]), depends_on="gone"),
+        hp.node("Done", glyph="x", issue="Issue-3", depends_on="nope2"),
+        hp.node("B", issue="Issue-4", depends_on=["twice", "twice"]))
+
+
+def test_unknown_deps_open_leaves_only():
+    data = deps_site()
+    lines = sorted(e.line for e in data.report if e.kind == "unresolved_ref")
+    assert lines == [1, 2, 3, 4, 4], lines
+    deps = derive(data, hist=history()).unknown_deps
+    assert (deps.value, deps.flagged, deps.threshold, deps.no_data) == (5, True, 0, None)
+    assert dict(deps.by_kind) == {"unresolved_ref": 4, "malformed_ref": 1, "foreign_site_absent": 0,
+                                  "foreign_unresolved": 0}
+    assert deps.text == "5" and deps.source == thieves.SOURCE_DEPS
+    assert "4 unresolved_ref, 1 malformed_ref" in texts(deps)
+    assert thieves.CROSS_SITE_NONE in texts(deps)
+    calm = derive(hp.site(hp.node("A", issue="Issue-1")), hist=history()).unknown_deps
+    assert (calm.value, calm.flagged) == (0, False) and texts(calm) == [thieves.CROSS_SITE_NONE]
+
+
+def test_unknown_deps_cross_site():
+    from gantry.model import ForeignOutcome
+
+    data = deps_site()
+    data = dataclasses.replace(data, report=data.report + (report_entry(2, "foreign_site_absent"),
+                                                           report_entry(4, "foreign_unresolved"),
+                                                           report_entry(3, "foreign_unresolved")))
+
+    def outcome(line, status):
+        return ForeignOutcome(SITE, f"k{line}", line, False, "beta:Issue-9", "beta", "Issue-9", status)
+
+    resolved = (outcome(2, "open"), outcome(4, "satisfied"), outcome(3, "open"), outcome(2, "absent"))
+    base = derive(data, hist=history())
+    deps = derive(data, hist=history(), foreign={SITE: resolved}).unknown_deps
+    assert dict(deps.by_kind)["foreign_site_absent"] == 1 and dict(deps.by_kind)["foreign_unresolved"] == 1
+    assert "1 foreign_site_absent, 1 foreign_unresolved" in texts(deps)[0]
+    assert "resolved cross-site links: 2, not flagged" in texts(deps)
+    assert (deps.value, deps.flagged) == (base.unknown_deps.value, base.unknown_deps.flagged) == (7, True)
+    assert thieves.CROSS_SITE_NONE in texts(base.unknown_deps)
+
+
+# --- unplanned work (AC3) ----------------------------------------------------------------------
+
+
+def fire(*kinds, site=SITE):
+    return Fire(kinds=kinds, why=tuple("why" for _ in kinds), site=site)
+
+
+def report(fires=(), **statuses):
+    """A FireReport: every source read for SITE, except `statuses` ({source: status}; fires_list is site-less)."""
+    out = []
+    for source in ("fires_list", "p0_leaf", "stuck"):
+        status = statuses.get(source, "read")
+        out.append(SourceStatus(source, None if source == "fires_list" else SITE, status,
+                                None if status in ("read", "absent") else "r"))
+    return FireReport(tuple(fires), tuple(out))
+
+
+def test_unplanned_counts_every_fire():
+    fires = report([fire("p0_leaf"), fire("p0_leaf", "stuck"), fire("fires_list", site="beta"),
+                    fire("fires_list", site=None)])
+    unplanned = derive(leaves(), hist=history(), fires=fires).unplanned
+    assert (unplanned.value, unplanned.text, unplanned.flagged, unplanned.threshold) == (2, "2", True, 0)
+    assert machine_parts(unplanned) == ["as seen by this build machine: 1 from STUCK markers"]
+    assert unplanned.source == thieves.SOURCE_UNPLANNED
+
+
+def test_unplanned_incomplete():
+    got = derive(leaves(), hist=history(), fires=report([fire("p0_leaf"), fire("p0_leaf")], fires_list="not_read"))
+    assert (got.unplanned.text, got.unplanned.value, got.unplanned.flagged) == (
+        "2, incomplete: fires list not read", 2, True)
+    for status in ("not_read", "read_with_problems"):
+        got = derive(leaves(), hist=history(), fires=report(p0_leaf=status)).unplanned
+        assert (got.text, got.value, got.flagged) == ("incomplete: P0 leaves not read", None, False), status
+    got = derive(leaves(), hist=history(), fires=report(p0_leaf="absent")).unplanned
+    assert (got.text, got.value) == ("0", 0)
+    got = derive(leaves(), hist=history(), fires=report(fires_list="not_read", stuck="not_read")).unplanned
+    assert got.text == "incomplete: fires list, STUCK markers not read"
+    other = FireReport((), (SourceStatus("p0_leaf", "beta", "not_read", "r"),) + report().sources)
+    assert derive(leaves(), hist=history(), fires=other).unplanned.text == "0"
+    got = thieves.derive_thieves(result_of({SITE: leaves()}), model_of(panel()), None, None, {SITE: local({})},
+                                 {SITE: history()}, AS_OF)[SITE].unplanned
+    assert (got.text, got.value) == ("incomplete: fires step not read", None)
+
+
+RULED = {"read": ("0", False), "read_with_problems": ("incomplete: fires list not read", False),
+         "absent": ("0", False), "not_read": ("incomplete: fires list not read", False),
+         "not_configured": ("0", True)}
+
+
+def test_unplanned_rules_every_status():
+    from gantry import fires as fires_module
+
+    assert tuple(RULED) == fires_module.STATUSES
+    for status, (text, unconfigured) in RULED.items():
+        got = derive(leaves(), hist=history(), fires=report(fires_list=status)).unplanned
+        assert got.text == text, status
+        assert got.source.endswith("; fires list not configured") is unconfigured, status
+
+
+def test_unplanned_stuck_source_not_read():
+    got = derive(leaves(), hist=history(), fires=report([fire("p0_leaf")], stuck="not_read")).unplanned
+    assert machine_parts(got) == ["as seen by this build machine: STUCK markers not read"]
+    assert not any("from STUCK markers" in t for t in texts(got))
+    got = derive(leaves(), hist=history(), fires=report()).unplanned
+    assert machine_parts(got) == ["as seen by this build machine: 0 from STUCK markers"]
+
+
+def test_fires_without_site():
+    fires = report([fire("fires_list", site=None), fire("fires_list", site=None), fire("p0_leaf")])
+    assert thieves.fires_without_site(fires) == thieves.NoSiteFires(2, "2", thieves.SOURCE_FIRES_NO_SITE)
+    assert derive(leaves(), hist=history(), fires=fires).unplanned.value == 1
+    got = thieves.fires_without_site(report(fires_list="not_configured"))
+    assert (got.count, got.text) == (None, "no data: no fires list configured")
+    got = thieves.fires_without_site(report([fire("fires_list", site=None)], fires_list="read_with_problems"))
+    assert (got.count, got.text) == (1, "1, incomplete: fires list not read")
+    got = thieves.fires_without_site(report(fires_list="not_read"))
+    assert (got.count, got.text) == (None, "incomplete: fires list not read")
+    got = thieves.fires_without_site(None)
+    assert (got.count, got.text) == (None, "incomplete: fires step not read")
+
+
+# --- conflicting priorities (AC3) --------------------------------------------------------------
+
+
+def test_priorities_take_the_panel_gap():
+    from gantry.strategic import NO_GAP_NO_OPEN_WORK, NO_GAP_NO_SHARE, NO_GAP_SHARES_ZERO
+
+    data = leaves()
+    got = derive(data, hist=history(), gap=33.0).priorities
+    assert (got.value, got.text, got.flagged, got.threshold) == (33.0, "33 points, backlog basis", True, 10)
+    assert got.source == thieves.SOURCE_PRIORITIES
+    assert derive(data, hist=history(), gap=12.4).priorities.text == "12 points, backlog basis"
+    assert derive(data, hist=history(), gap=12.4).priorities.flagged
+    for gap in (10.0, 10.0 + 1e-12, 9.6):
+        assert derive(data, hist=history(), gap=gap).priorities.flagged is False, gap
+    assert derive(data, hist=history(), gap=10.01).priorities.flagged is True
+    got = derive(data, hist=history(), gap=10.4).priorities
+    assert (got.text, got.flagged) == ("10 points, backlog basis", True)
+    assert derive(data, hist=history(), gap=12.5).priorities.text == "13 points, backlog basis"
+    for reason in (NO_GAP_NO_SHARE, NO_GAP_NO_OPEN_WORK, NO_GAP_SHARES_ZERO):
+        got = derive(data, hist=history(), gap_reason=reason).priorities
+        assert (got.text, got.flagged, got.no_data, got.value) == (f"no data: {reason}", False, reason, None)
+
+
+# --- neglected work (AC4) ----------------------------------------------------------------------
+
+
+def neglect(day, *, start=False, weeks=None):
+    portfolio = None
+    if weeks is not None:
+        portfolio = SimpleNamespace(thresholds=SimpleNamespace(neglect_weeks=weeks))
+    return derive(leaves(), hist=history(day=day, start=start), portfolio=portfolio).neglect
+
+
+def test_neglect_window_boundary():
+    from datetime import timedelta
+
+    day = AS_OF - timedelta(days=27)
+    got = neglect(day)
+    assert (got.text, got.flagged, got.value, got.threshold) == (f"last state change {day.isoformat()}", False, day, 4)
+    assert neglect(AS_OF - timedelta(days=28)).flagged is True
+    assert neglect(AS_OF - timedelta(days=13), weeks=2).flagged is False
+    assert neglect(AS_OF - timedelta(days=14), weeks=2).flagged is True
+    assert neglect(AS_OF).flagged is False
+
+
+def test_neglect_no_change():
+    got = neglect(None)
+    assert (got.text, got.flagged, got.no_data) == ("no state change in 4 weeks", True, None)
+
+
+def test_neglect_history_start():
+    from datetime import timedelta
+
+    day = AS_OF - timedelta(days=10)
+    got = neglect(day, start=True)
+    assert (got.text, got.flagged) == (f"no state change since history began {day.isoformat()}", False)
+
+
+def test_neglect_no_data_each_reason():
+    for template in wbs_history.REASONS:
+        reason = template.format(as_of="2026-01-19", message="m", reason="r")
+        got = derive(leaves(), hist=history(no_data=NoData(reason))).neglect
+        assert (got.text, got.flagged, got.no_data, got.value) == (f"no data: {reason}", False, reason, None)
+        assert got.source == thieves.SOURCE_NEGLECT
+
+
+# --- thresholds, an empty site, isolation, attach ----------------------------------------------
+
+
+def test_thresholds_from_portfolio_file():
+    from gantry.portfolio_file import DEFAULTS, read_portfolio_file
+
+    fixtures = ROOT / "tests" / "fixtures" / "thieves"
+    portfolio = read_portfolio_file(directory_roots([fixtures]), fixtures / "thresholds.md", br_namespace="life")
+    assert thieves.thresholds(portfolio) == {"wip": 0, "unknown_deps": 5, "unplanned": 3, "priorities": 50,
+                                             "neglect": 1}
+    assert thieves.thresholds(None) == {kind: DEFAULTS[f"thresholds.{key}"]
+                                        for kind, key in thieves.THRESHOLD_KEYS.items()}
+    from datetime import timedelta
+
+    data = hp.site(hp.node("A", glyph="~", issue="Issue-1", depends_on="nope"))
+    hist = history(day=AS_OF - timedelta(days=10))
+    fires = report([fire("p0_leaf")])
+    default = derive(data, hist=hist, fires=fires, gap=20.0)
+    custom = derive(data, hist=hist, fires=fires, gap=20.0, portfolio=portfolio)
+    for kind in thieves.KINDS:
+        assert getattr(default, kind).flagged is not getattr(custom, kind).flagged, kind
+
+
+def test_empty_site():
+    got = derive(hp.site(), hist=history())
+    assert [(got.wip.value, got.wip.flagged), (got.unknown_deps.value, got.unknown_deps.flagged),
+            (got.unplanned.value, got.unplanned.flagged)] == [(0, False), (0, False), (0, False)]
+
+
+def test_failing_site_is_isolated(monkeypatch):
+    real = thieves.wip_thief
+
+    def wip(data, history, records, threshold):
+        if not data.leaves:
+            raise RuntimeError("boom")
+        return real(data, history, records, threshold)
+
+    monkeypatch.setattr(thieves, "wip_thief", wip)
+    result = result_of({"alpha": leaves(("~", "Issue-1")), "beta": hp.site()})
+    got = thieves.derive_thieves(result, model_of(panel("alpha"), panel("beta")), None, all_read("alpha", "beta"),
+                                 {}, {}, AS_OF)
+    for kind in thieves.KINDS:
+        thief = getattr(got["beta"], kind)
+        assert (thief.text, thief.flagged) == ("no data: thieves not derived: RuntimeError", False), kind
+        assert thief.source
+    assert got["alpha"].wip.value == 1
+
+
+def test_attach_repoints_headline():
+    alpha, beta = panel("alpha", gap=20.0), panel("beta", gap=5.0)
+    model = model_of(alpha, beta, headline=alpha)
+    result = result_of({"alpha": leaves(), "beta": leaves()})
+    by_site = thieves.derive_thieves(result, model, None, all_read("alpha", "beta"), {}, {}, AS_OF)
+    no_site = thieves.fires_without_site(all_read())
+    attached = thieves.attach(model, by_site, no_site)
+    assert attached.headline is attached.panels["alpha"]
+    assert attached.headline.thieves is by_site["alpha"]
+    assert attached.panels["beta"].thieves is by_site["beta"]
+    assert attached.fires_no_site is no_site
+    unbuilt = model_of(panel("alpha", built=False))
+    assert thieves.attach(unbuilt, {}, no_site).panels["alpha"].thieves is None

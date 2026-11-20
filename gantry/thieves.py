@@ -17,9 +17,11 @@ from datetime import date
 
 from gantry import wbs_history
 from gantry.config import ID_TOKEN_RE
+from gantry.deps import open_sources
 from gantry.devagent_records import PRESENT, READ, UNREADABLE, read_checklist
 from gantry.fires import RECORDS_NOT_READ
 from gantry.portfolio_file import DEFAULTS
+from gantry.strategic import replace_panels
 
 KINDS = ("wip", "unknown_deps", "unplanned", "priorities", "neglect")
 FIGURES = {"wip": "thief-wip", "unknown_deps": "thief-unknown-deps", "unplanned": "thief-unplanned",
@@ -55,6 +57,26 @@ HERE_NONE = "nothing parked or started here"
 HERE_NOT_READ = "checklists here not read: {reason}"
 LANES = "lanes in flight: no data: lane records are per-machine (mtibbits/devagent#748)"
 SOURCE_WIP = "WBS.md glyphs and committed checklists; this machine's checklists for the labelled part"
+# unknown dependencies
+DEP_KINDS = ("unresolved_ref", "malformed_ref", "foreign_site_absent", "foreign_unresolved")
+BY_KIND = "{n} {kind}"                            # joined ", ", zero kinds left out
+CROSS_SITE_NONE = "cross-site: no data: no cross-site entries recorded (mtibbits/devagent#887)"
+CROSS_SITE_RESOLVED = "resolved cross-site links: {n}, not flagged"
+SOURCE_DEPS = "WBS.md depends_on entries on open leaves"
+# unplanned work
+STUCK_PART = "as seen by this build machine: {n} from STUCK markers"
+STUCK_NOT_READ = "as seen by this build machine: STUCK markers not read"
+INCOMPLETE = "incomplete: {sources} not read"     # sources joined ", "
+INCOMPLETE_COUNT = "{n}, incomplete: {sources} not read"
+SOURCE_NAMES = {"fires_list": "fires list", "p0_leaf": "P0 leaves", "stuck": "STUCK markers", "fires": "fires step"}
+SOURCE_UNPLANNED = "the fire collector: fires list, open P0 leaves and STUCK markers"
+FIRES_LIST_NOT_CONFIGURED = "; fires list not configured"  # appended to SOURCE_UNPLANNED
+FIRES_NO_SITE = "Fires with no site: {text}"      # {text}: the count, INCOMPLETE or NO_FIRES_LIST
+NO_FIRES_LIST = "no data: no fires list configured"
+SOURCE_FIRES_NO_SITE = "the fires list"
+# conflicting priorities
+GAP_TEXT = "{points} points, backlog basis"
+SOURCE_PRIORITIES = "the panel's gap: backlog share against intended share, backlog basis"
 # neglected work
 NEGLECT_DATE = "last state change {date}"
 NEGLECT_NONE = "no state change in {n} weeks"
@@ -62,7 +84,17 @@ NEGLECT_SINCE = "no state change since history began {date}"
 NEGLECT_UNCOMMITTED = "uncommitted changes to `WBS.md` not counted"
 SOURCE_NEGLECT = "WBS.md history in the planning repository"
 
+TEXTS = (ROW_TITLE, NO_DATA, MACHINE, UNCOMMITTED, NOT_CHECKED, FLAGGED, NOT_FLAGGED, THRESHOLD_ABOVE,
+         THRESHOLD_POINTS, THRESHOLD_WEEKS, THIEVES_FAILED, HISTORY_NOT_READ, WIP_PARKED, WIP_STARTED,
+         WIP_PARKED_NO_DATA, WIP_STARTED_NO_DATA, HERE_PARKED, HERE_STARTED, HERE_PARKED_UNCHECKED,
+         HERE_STARTED_UNCHECKED, HERE_UNREADABLE, HERE_NONE, HERE_NOT_READ, LANES, SOURCE_WIP, BY_KIND,
+         CROSS_SITE_NONE, CROSS_SITE_RESOLVED, SOURCE_DEPS, STUCK_PART, STUCK_NOT_READ, INCOMPLETE,
+         INCOMPLETE_COUNT, *SOURCE_NAMES.values(), SOURCE_UNPLANNED, FIRES_LIST_NOT_CONFIGURED, FIRES_NO_SITE,
+         NO_FIRES_LIST, SOURCE_FIRES_NO_SITE, GAP_TEXT, SOURCE_PRIORITIES, NEGLECT_DATE, NEGLECT_NONE,
+         NEGLECT_SINCE, NEGLECT_UNCOMMITTED, SOURCE_NEGLECT, *TITLES.values())
+
 STARTED_GLYPHS = frozenset("~!?")
+UNREAD_STATUSES = frozenset({"not_read", "read_with_problems"})  # a source that could not be read in full (D5)
 PENDING = " "
 
 
@@ -85,6 +117,13 @@ class Thief:
     parts: tuple[Part, ...] = ()
     label: str | None = None  # the whole figure's machine label
     counts: tuple[tuple[str, int | None], ...] = ()  # WIP: ("parked", n), ("started", n); None = no data
+
+
+@dataclass(frozen=True)
+class NoSiteFires:
+    count: int | None  # None: not known
+    text: str
+    source: str
 
 
 @dataclass(frozen=True)
@@ -271,12 +310,98 @@ def neglect_thief(history, weeks, as_of) -> Thief:
     return Thief("neglect", day, template.format(date=day.isoformat()), weeks, flagged, SOURCE_NEGLECT, parts=parts)
 
 
-# --- not derived yet (Task 3) ------------------------------------------------------------------
+# --- unknown dependencies --------------------------------------------------------------------
 
 
-def _pending_thief(kind, threshold, history) -> Thief:
-    return Thief(kind, None, NO_DATA.format(reason="not derived"), threshold, False, "", no_data="not derived",
-                 label=wbs_label(history) if kind == "unknown_deps" else None)
+def _open_lines(data) -> set:
+    """The lines of the nodes whose entries an open leaf takes (D4)."""
+    row_at = {row.outline: row for row in data.rows}
+    return {node.line for leaf in data.leaves if leaf.open for node in open_sources(leaf, row_at)}
+
+
+def deps_thief(name, data, foreign, history, threshold) -> Thief:
+    lines = _open_lines(data)
+    counts = dict.fromkeys(DEP_KINDS, 0)
+    for entry in data.report:
+        if entry.kind in counts and entry.line in lines:
+            counts[entry.kind] += 1
+    value = sum(counts.values())
+    parts = []
+    if value:
+        parts.append(Part(", ".join(BY_KIND.format(n=n, kind=kind) for kind, n in counts.items() if n)))
+    if not any(foreign.values()):
+        parts.append(Part(CROSS_SITE_NONE))
+    else:
+        resolved = sum(o.status in ("open", "satisfied") and o.source_line in lines for o in foreign.get(name, ()))
+        parts.append(Part(CROSS_SITE_RESOLVED.format(n=resolved)))
+    return Thief("unknown_deps", value, str(value), threshold, value > threshold, SOURCE_DEPS,
+                 by_kind=tuple(counts.items()), parts=tuple(parts), label=wbs_label(history))
+
+
+# --- unplanned work ----------------------------------------------------------------------------
+
+
+def _unread(statuses) -> list[str]:
+    """The names of the sources not read in full, first-seen order, once each."""
+    names = [SOURCE_NAMES.get(s.source, s.source) for s in statuses if s.status in UNREAD_STATUSES]
+    return list(dict.fromkeys(names))
+
+
+def _counted_text(n, unread):
+    """(value, text) of a count over sources some of which may be unread."""
+    if not unread:
+        return n, str(n)
+    sources = ", ".join(unread)
+    if n:
+        return n, INCOMPLETE_COUNT.format(n=n, sources=sources)
+    return None, INCOMPLETE.format(sources=sources)
+
+
+def unplanned_thief(name, fires, threshold) -> Thief:
+    if fires is None:
+        value, text = _counted_text(0, [SOURCE_NAMES["fires"]])
+        return Thief("unplanned", value, text, threshold, False, SOURCE_UNPLANNED,
+                     parts=(Part(STUCK_NOT_READ, machine=True),))
+    mine = [f for f in fires.fires if f.site == name]
+    statuses = [s for s in fires.sources if s.site in (name, None)]
+    value, text = _counted_text(len(mine), _unread(statuses))
+    source = SOURCE_UNPLANNED
+    if any(s.source == "fires_list" and s.status == "not_configured" for s in statuses):
+        source += FIRES_LIST_NOT_CONFIGURED
+    stuck = [s for s in statuses if s.source == "stuck"]
+    if stuck and all(s.status not in UNREAD_STATUSES for s in stuck):
+        part = Part(STUCK_PART.format(n=sum(f.this_machine for f in mine)), machine=True)
+    else:
+        part = Part(STUCK_NOT_READ, machine=True)
+    flagged = value is not None and value > threshold
+    return Thief("unplanned", value, text, threshold, flagged, source, parts=(part,))
+
+
+def fires_without_site(fires) -> NoSiteFires:
+    """The fires that name no site, counted once for the page."""
+    if fires is None:
+        return NoSiteFires(None, INCOMPLETE.format(sources=SOURCE_NAMES["fires"]), SOURCE_FIRES_NO_SITE)
+    statuses = [s for s in fires.sources if s.site is None]
+    if any(s.source == "fires_list" and s.status == "not_configured" for s in statuses):
+        return NoSiteFires(None, NO_FIRES_LIST, SOURCE_FIRES_NO_SITE)
+    count, text = _counted_text(sum(f.site is None for f in fires.fires), _unread(statuses))
+    return NoSiteFires(count, text, SOURCE_FIRES_NO_SITE)
+
+
+# --- conflicting priorities --------------------------------------------------------------------
+
+
+def points(gap) -> int:
+    """The gap in whole points, half up: the view's rounding (D9)."""
+    return math.floor(gap + 0.5)
+
+
+def priorities_thief(panel, threshold) -> Thief:
+    gap = panel.gap
+    if gap is None:
+        return no_data_thief("priorities", panel.gap_reason or "no gap", threshold, SOURCE_PRIORITIES)
+    flagged = gap > threshold and not math.isclose(gap, threshold, rel_tol=1e-9, abs_tol=1e-9)
+    return Thief("priorities", gap, GAP_TEXT.format(points=points(gap)), threshold, flagged, SOURCE_PRIORITIES)
 
 
 # --- every site --------------------------------------------------------------------------------
@@ -287,25 +412,49 @@ def _missing_history() -> wbs_history.HistoryResult:
     return wbs_history.HistoryResult(None, False, 0, None, no_data.text, no_data, no_data)
 
 
-def derive_site(name, result, panel, portfolio, fires, records, history, as_of) -> Thieves:
-    limits = thresholds(portfolio)
+SOURCES = {"wip": SOURCE_WIP, "unknown_deps": SOURCE_DEPS, "unplanned": SOURCE_UNPLANNED,
+           "priorities": SOURCE_PRIORITIES, "neglect": SOURCE_NEGLECT}
+
+
+def derive_site(name, result, panel, limits, fires, records, history, as_of) -> Thieves:
     data = result.inputs[name].data
     return Thieves(
         wip=wip_thief(data, history, records, limits["wip"]),
-        unknown_deps=_pending_thief("unknown_deps", limits["unknown_deps"], history),
-        unplanned=_pending_thief("unplanned", limits["unplanned"], history),
-        priorities=_pending_thief("priorities", limits["priorities"], history),
+        unknown_deps=deps_thief(name, data, result.foreign, history, limits["unknown_deps"]),
+        unplanned=unplanned_thief(name, fires, limits["unplanned"]),
+        priorities=priorities_thief(panel, limits["priorities"]),
         neglect=neglect_thief(history, limits["neglect"], as_of),
     )
+
+
+def failed_site(e: Exception, limits) -> Thieves:
+    """Five no-data thieves for a site whose derivation raised (D8)."""
+    reason = THIEVES_FAILED.format(type=type(e).__name__)
+    return Thieves(*(no_data_thief(kind, reason, limits[kind], SOURCES[kind]) for kind in KINDS))
+
+
+def failed(thieves) -> bool:
+    """Whether a site's thieves are the failed-derivation ones."""
+    return thieves.wip.no_data is not None and thieves.wip.no_data.startswith(THIEVES_FAILED.split("{")[0])
 
 
 def derive_thieves(result, model, portfolio, fires, records, history, as_of) -> dict[str, "Thieves"]:
     """{built site: Thieves}, in the model's panel order. A site missing from
     `history` or `records` reads as not read (fail closed)."""
+    limits = thresholds(portfolio)
     out = {}
     for name, panel in model.panels.items():
         if not panel.built:
             continue
-        site_history = history.get(name) or _missing_history()
-        out[name] = derive_site(name, result, panel, portfolio, fires, records.get(name), site_history, as_of)
+        try:
+            site_history = history.get(name) or _missing_history()
+            out[name] = derive_site(name, result, panel, limits, fires, records.get(name), site_history, as_of)
+        except Exception as e:  # one site's fault never fails the page (D8)
+            out[name] = failed_site(e, limits)
     return out
+
+
+def attach(model, by_site, no_site):
+    """The model with each built panel's Thieves and the site-less fires attached."""
+    return replace_panels(model, {name: replace(p, thieves=by_site.get(name)) for name, p in model.panels.items()},
+                          fires_no_site=no_site)

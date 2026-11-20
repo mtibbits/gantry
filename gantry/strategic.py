@@ -14,7 +14,7 @@ docs/strategic-page.md states the rules.
 """
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 
 from gantry.est_rules import classify_est
@@ -98,6 +98,13 @@ class StrategicModel:
     def backlog(self) -> dict:
         """{built site: SiteBacklog}, config order."""
         return {name: p.backlog for name, p in self.panels.items() if p.built}
+
+
+def replace_panels(model, panels, **changes) -> StrategicModel:
+    """The model with `panels` in place of its own, the headline re-pointed to
+    its new panel object."""
+    headline = panels[model.headline.site] if model.headline is not None else None
+    return replace(model, panels=panels, headline=headline, **changes)
 
 
 def _split(data) -> dict:
