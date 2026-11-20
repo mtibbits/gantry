@@ -1037,6 +1037,13 @@ with no exponent ("0.000001").
 `near-critical: slack 1–3 on its own site's network`, each beside a swatch
 of that box fill, then
 `P0: in the P0 tier, because its own priority or that of a leaf it blocks, directly or not, is P0`.
+It then explains the workflow phase row (#173), as the worksite page's
+legend does: `Workflow phase row, left to right: plan, implement, check, merge, wrap up, from each issue's checklist.md`,
+one cell of each look beside its word (`done`, `current`, `stuck`,
+`parked`, `blocked outside`, `ahead`, `not in this workflow`, `unknown`),
+and `The row shows this build machine's copy of each checklist, which may lag an issue running on another machine.`
+These are workflow phases, devagent's five spans of an issue's steps, not
+the eight phases each planned day runs in ([Priority tiers](#priority-tiers)).
 
 **The days.** All 10 days are on the page; with the page script, the
 first 5 show and the `5 days` and `10 days` buttons show or hide the rest.
@@ -1062,6 +1069,16 @@ pages share (`gantry/views/leafbox.py`):
   linked to the leaf on its worksite page when that page was written, and
   unlinked when it was not. A leaf with no title shows its key there,
   linked the same way, where the worksite box shows no title line.
+- **The workflow phase row**, when the leaf's worksite page model has one,
+  sits between the title and the facts: the same five cells as the
+  worksite box ([docs/worksite-page.md](worksite-page.md#the-phase-row)),
+  in an `<svg>` of their own whose label and tooltip are the row as text,
+  `phases: {runs}` or `phases unknown: {why}`. The row is read from
+  `phases` and `phases_why` in that site's page model, and kept only when
+  it is five fixed look names, either all `unknown` with a text reason or
+  none `unknown`; anything else draws no row, as does a leaf with no
+  checklist. A schedule-only leaf has its row too. The page's embedded
+  data is unchanged.
 - **The facts** follow, as before: `unestimated` or `unestimated (3 pr)`
   for an unestimated leaf with a non-time `est:`, its state when it is not
   pending (`in progress`, `stuck`, or the state as written), `P0` on a P0

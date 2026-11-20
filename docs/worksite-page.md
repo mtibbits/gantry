@@ -593,6 +593,8 @@ Below the critical path, the hours note reads `No open leaf waits on another.`
 when the network draws nothing. The week view draws each placement as this
 same box ([docs/week-plan.md](week-plan.md#the-week-view-page)), and the
 cue colours both pages use live in `gantry/templates/leaf_colours.css`.
+A box whose leaf has a devagent checklist also draws its
+[phase row](#the-phase-row) under the title.
 
 In a full build the network also draws boxes on another site
 ([Foreign entries](#foreign-entries)). A box takes no slot and is not a node:
@@ -619,6 +621,76 @@ shaded by a class from a fixed set (`m-haiku`, `m-sonnet`, `m-opus`,
 table of how many of its open leaves use each tier, linked or not. When no
 leaf records a tier, there is no band and no table, and one line says
 `no per-leaf model tiers recorded`.
+
+### The phase row
+
+A box whose leaf has an `issue:` value and a `checklist.md` in that issue
+folder (#173) draws a row of five small boxes under its title, one per
+workflow phase: `plan`, `implement`, `check`, `merge` and `wrap up`. The row
+is worked out from the checklist's active block alone (the steps after its
+last `## Revision N` heading; [devagent-formats.md](devagent-formats.md)),
+so it is the checklist's view: the box outline keeps showing the `WBS.md`
+state, and the two may disagree. A leaf with no `issue:` value, no issue
+folder, or no checklist in it, draws no row. Every box is 78 high and rows
+are 92 apart, row or not.
+
+Steps join phases by **name**, never by number, because devagent #558
+renumbered its steps and checklists on disk use three numbering schemes with
+the same 25 names (`gantry/phases.py` `STEP_PHASES`):
+
+| Phase | Steps |
+|---|---|
+| plan | `pull`, `research`, `draft`, `spike`, `scope`, `improve`, `prune`, `tighten`, `branch` |
+| implement | `implement` |
+| check | `quality`, `document`, `commit`, `analyze`, `draftmr`, `review`, `redmr`, `preship`, `ship`, `mergetoall` |
+| merge | `mergemr` |
+| wrap up | `updatewbs`, `impact`, `lessonslearned`, `cleanup` |
+
+The next step is the active block's first step that is not `x` or `-`. Each
+phase takes the first look that applies:
+
+1. `not in this workflow`: no step of the phase is in the active block, or
+   every one there is `-` (a dash);
+2. `done`: the phase comes before the next step's phase, or there is no next
+   step (a green check);
+3. the next step's phase takes that step's glyph: space or `~` is `current`
+   (a steady green dot), `!` is `stuck`, `P` is `parked` and `?` is
+   `blocked outside` (each its glyph);
+4. `ahead`: after the next step's phase (an empty box).
+
+The whole row is `unknown` (a crossed box in every cell), never a check or a
+dot, when the checklist has a problem anywhere in the file, a step in the
+active block has a name not in the table, the checklist could not be read,
+the issue folder was skipped, or the site's records were not read. The green
+is the `--done` token in `leaf_colours.css`, distinct from the `xsite` teal;
+every rule in `gantry/templates/leaf_phases.css` sits under `.ph-row` and
+outranks the node's text and fill rules. Nothing blinks: a build cannot
+know that a step is running now.
+
+The box's full form gets its own tooltip, the node's text and then the
+row: `phases: {runs}`, where adjacent phases with one look share it, for
+example `phases: plan done; implement current; check, merge, wrap up ahead`,
+or `phases unknown: {why}`. `{why}` is one of
+`checklist.md has no step line`,
+`checklist.md has no step after its last revision heading`,
+`checklist.md has a step glyph devagent does not write`,
+`step {number} has a name this Gantry does not know`,
+`devagent records not read: {reason}` (the site's records),
+`issue folder {reason}` (a skipped folder, such as `is a link`), or the
+record's own reason (such as `checklist.md is not valid UTF-8 at byte 3`).
+The compact (dot) form keeps the node's tooltip. The page's embedded data
+carries each leaf's five look names (`phases`), never the reason or any
+checklist text.
+
+The legend, which is not `aria-hidden`, says
+`Workflow phase row, left to right: plan, implement, check, merge, wrap up, from each issue's checklist.md`,
+shows one cell of each look beside its word (`done`, `current`, `stuck`,
+`parked`, `blocked outside`, `ahead`, `not in this workflow`, `unknown`),
+and states the build-machine limit:
+`The row shows this build machine's copy of each checklist, which may lag an issue running on another machine.`
+Checklist changes usually reach the planning repository only at devagent's
+cleanup, on the machine that made them
+([devagent-formats.md](devagent-formats.md)).
 
 ### The schedule
 
@@ -741,6 +813,12 @@ two changes:
   class's total.
   It is left out of the network and the schedule, and the rest of the page
   renders.
+
+A site whose devagent records were not read at all (the read failed or
+raised) ends its panel with one more line,
+`Phase rows show unknown: this site's devagent records were not read ({reason})`,
+so the index's count for that site rises by one (#173); a single
+unreadable checklist is named only in its box's tooltip.
 
 With nothing to list, the panel says `Nothing is missing or unreadable.`
 A site whose `WBS.md` has no nodes shows `This site has no leaves.`, one
@@ -1236,12 +1314,17 @@ tests use that document's checkers and harness. This page applies them so:
   `<script type="application/json" id="gantry-data">` block, written by
   `embed_json`: ASCII JSON with no `NaN`, and `<`, `>` and `&` as `\u`
   escapes, so no value can end the block. Records are arrays, never objects
-  keyed by a record value, so a key such as `__proto__` stays data.
+  keyed by a record value, so a key such as `__proto__` stays data. A
+  leaf's phase row is embedded as its five look names only; its unknown
+  reason is left out (it is in the box's tooltip).
 - **Fixed classes.** A class name is never built from a record value: the
   model-tier and state classes come from fixed sets with a fallback
   (`m-other`, `st-other`), and slack gives `crit`, `near` or `free`. The
   page's script takes a class from the data only when its own fixed set
-  holds it, and a test holds that set equal to `CLASS_TOKENS`.
+  holds it, and a test holds that set equal to `CLASS_TOKENS`. The phase
+  row's classes (`ph-row`, `ph-cell`, `ph-{look}` and the rest) come from
+  the eight fixed looks, and the row adds no tag or attribute the page
+  rules did not already allow (#173).
 - **The page's script.** It writes details with `textContent`; where it
   writes markup (the schedule), every record value goes through its own
   `esc`, which escapes the same five characters. Lookups by key are `Map`s.
@@ -1318,7 +1401,10 @@ summary and the warnings, as shown.
 ## Every site and the index
 
 `gantry build --config FILE` builds every site devagent's config names, in
-its config order. It first reads every site, then resolves the foreign
+its config order. It first reads every site and each site's devagent
+records, once, before any page (#173: the pages' phase rows and the fire
+collector share that read; a site whose read fails or raises still gets its
+page, with unknown rows), then resolves the foreign
 entries across them ([Foreign entries](#foreign-entries)), then renders each
 site it read, each in its own `try`; after a render failure it re-resolves
 and re-renders the pages that wait on or link to the failed site, and writes `<output_dir>/sites/<name>.html` for
@@ -1421,9 +1507,10 @@ path. Seven more lines can follow on stderr:
 `gantry build --config FILE --site NAME` writes only that site's page to
 `<output_dir>/sites/<NAME>.html`, and no index and no plan, and prints the page's
 absolute path, then that site's `trace <site>:` line when the full build
-would print one. It reads only that site's `WBS.md` and inputs (the site
-list still checks each planning directory), every requirements file and
-the portfolio file, which the trace needs. It creates `<output_dir>/sites/`
+would print one. It reads only that site's `WBS.md`, inputs and devagent
+records (the site list still checks each planning directory), every
+requirements file and the portfolio file, which the trace needs. Its
+phase rows equal the full build's on every box both builds draw (#173). It creates `<output_dir>/sites/`
 when it is missing and writes the page the same way. Each of these exits 1
 with the reason and writes no page (an existing page is kept as it was):
 

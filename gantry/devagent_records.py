@@ -5,9 +5,11 @@ plans. The three text readers (read_stuck, read_checklist, read_plan) take
 text and never raise on any str; read_checklist also reads a committed
 version passed in as text. The two file-level readers (read_issue_records,
 read_site_records) read through gantry.roots and follow no link. Callers:
-the full build reads each site once (gantry.build.read_records) and keeps
-the SiteRecords on its result; the fire collector (#32) reads them, and the
-warm-up list (#33) and the time thieves (#29) will read the same ones. Record
+the full build reads each site once, before its pages (gantry.build.read_records),
+and keeps the SiteRecords on its result; the pages' workflow phase rows
+(gantry.phases, #173) and the fire collector (#32) read them, a --site build
+reads its one site's for its rows, and the warm-up list (#33) and the time
+thieves (#29) will read the same ones. Record
 text comes back verbatim: escaping happens once, where a page renders it.
 """
 

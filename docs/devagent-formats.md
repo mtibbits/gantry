@@ -15,10 +15,13 @@ view fixture's issue folders) are fictional, or template step rows (names
 and glyphs only) taken from real checklists, as the phase rule's old-scheme
 test blocks are.
 
-The full build reads each site's records once: the fire collector (#32)
-reads its STUCK markers and checklists
+The full build reads each site's records once, before its pages: the
+pages draw each leaf's workflow phase row from its checklist
+([worksite-page.md](worksite-page.md#the-phase-row), #173), the fire
+collector (#32) reads the STUCK markers and checklists from the same read
 ([daily-screen.md](daily-screen.md#stuck-markers)), and the warm-up list
-(#33) and the time thieves (#29) will use the same result.
+(#33) and the time thieves (#29) will use the same result. A `--site` build
+reads its one site's records for its rows.
 
 ## The pinned release
 

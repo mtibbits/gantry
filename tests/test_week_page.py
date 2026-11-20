@@ -1352,6 +1352,10 @@ def week_texts():
     found["LINK"] = week.LINK[0]
     # The box's own texts, from the rule both pages share (#170).
     found.update({f"leafbox.{name}": getattr(leafbox, name) for name in ("BAND_THINK", "BAND_CHECK", "NO_MODEL")})
+    # The workflow phase row's texts (#173), from the same rule.
+    found.update({f"leafbox.{name}": getattr(leafbox, name)
+                  for name in ("PHASE_LEGEND", "PHASE_LIMIT", "PHASE_TEXT", "PHASE_TEXT_UNKNOWN")})
+    found.update({f"LOOK_WORDS[{key}]": value for key, value in LOOK_WORDS.items()})
     return found
 
 
@@ -1384,7 +1388,7 @@ def test_week_doc_states_texts():
 
 # --- the workflow phase row (#173) ----------------------------------------------------------
 
-from gantry.phases import LOOKS  # noqa: E402
+from gantry.phases import LOOK_WORDS, LOOKS  # noqa: E402
 
 _D, _C, _S, _P, _B, _A, _N, _U = "done", "current", "stuck", "parked", "blocked", "ahead", "none", "unknown"
 _BAD = "phases unknown: checklist.md has a step glyph devagent does not write"

@@ -26,10 +26,10 @@ from gantry.model import Estimate, Leaf, Models, Row, SiteData
 from gantry.estimates_file import find_estimates_file, read_estimates_file
 from gantry.roots import directory_roots
 from gantry.sites import SiteEntry, config_roots, load_sites
-from gantry import render
+from gantry import phases, render
 from gantry.render import CLASS_TOKENS
 from gantry.schedule import limit, plan
-from gantry.views import worksite
+from gantry.views import leafbox, worksite
 from gantry.views.worksite import (
     DATES,
     DATES_ONE,
@@ -1349,7 +1349,12 @@ PAGE_TEXTS = [getattr(worksite, name) for name in (
     "SUMMARY_NO_CHAIN_XSITE", "LIMITS_CAPTION_NO_CHAIN_XSITE", "NO_CHAIN_XSITE", "HOURS_NOTE_NONE",
     "HOURS_NOTE_NONE_XSITE",
     # An estimates file's edges (#108).
-    "ESTIMATES_BAD_DATE", "UNESTIMATED_MORE")] + list(worksite.STATE_MARKS.values()) + list(worksite.FBOX_LINE.values())
+    "ESTIMATES_BAD_DATE", "UNESTIMATED_MORE",
+    # The workflow phase row (#173).
+    "RECORDS_LINE")] + list(worksite.STATE_MARKS.values()) + list(worksite.FBOX_LINE.values()) + [
+    *(getattr(leafbox, name) for name in ("PHASE_LEGEND", "PHASE_LIMIT", "PHASE_TEXT", "PHASE_TEXT_UNKNOWN")),
+    *(getattr(phases, name) for name in ("WHY_NOT_READ", "WHY_SKIPPED", "WHY_NAME")),
+    *phases.WHY_PROBLEM.values(), *phases.LOOK_WORDS.values(), *phases.PHASE_NAMES]
 
 
 def test_doc_states_page_texts():
