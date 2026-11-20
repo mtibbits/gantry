@@ -33,7 +33,7 @@ PHASES_SHEET = "templates/leaf_phases.css"
 PH_CELL = 10
 PH_GAP = 3
 PH_WIDTH = 5 * PH_CELL + 4 * PH_GAP  # 62
-PHASE_LEGEND = "Phase row, left to right: plan, implement, check, merge, wrap up, from each issue's checklist.md"
+PHASE_LEGEND = "Workflow phase row, left to right: plan, implement, check, merge, wrap up, from each issue's checklist.md"
 PHASE_LIMIT = ("The row shows this build machine's copy of each checklist, which may lag an issue running on "
                "another machine.")
 PHASE_TEXT = "phases: {runs}"

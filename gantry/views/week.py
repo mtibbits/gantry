@@ -3,9 +3,10 @@
 render_week reads the plan's file form (planner.WeekPlan) and the BuildResult
 every view reads: each leaf's title, raw est: value, own priority, model
 tiers and waits_on_other_site from result.inputs, each site page model's
-slack class from result.page_models, which sites have pages, and the
-not-built reasons. A placement is drawn as the worksite network's leaf box,
-by the one rule in gantry/views/leafbox.py (#170). It computes no planning
+slack class and workflow phase row (`phases`, `phases_why`, #173) from
+result.page_models, which sites have pages, and the not-built reasons. A
+placement is drawn as the worksite network's leaf box, by the one rule in
+gantry/views/leafbox.py (#170), with the same phase row. It computes no planning
 value and never changes the plan. All 10 days are rendered here; the page
 script only shows or hides days and lists. docs/week-plan.md describes the page.
 """
@@ -14,7 +15,7 @@ from dataclasses import asdict
 from datetime import date
 from fractions import Fraction
 
-from gantry import planner, render
+from gantry import phases, planner, render
 from gantry.links import leaf_href
 from gantry.render import Markup, embed_json, esc, fill, hours_text, hundredths, unestimated_text
 from gantry.sites import shown
@@ -109,6 +110,18 @@ def _named(fmt, text, **kw):
     return fmt.format(weekday=WEEKDAY_NAMES[date.fromisoformat(text).weekday()], date=text, **kw)
 
 
+def _kept_row(looks, why):
+    """A page model's phase row as a PhaseRow, or None: five members of LOOKS,
+    either all unknown with a non-empty str reason, or none unknown."""
+    if not isinstance(looks, list) or len(looks) != len(phases.PHASE_NAMES):
+        return None
+    if not all(isinstance(look, str) and look in phases.LOOKS for look in looks):
+        return None
+    if all(look == "unknown" for look in looks):
+        return phases.PhaseRow(tuple(looks), why) if isinstance(why, str) and why else None
+    return phases.PhaseRow(tuple(looks), None) if "unknown" not in looks else None
+
+
 class _Page:
     def __init__(self, plan, result):
         self.plan = plan
@@ -122,6 +135,10 @@ class _Page:
         # kept only when it is one of render's slack classes.
         self.sclass = {(site, leaf["key"]): leaf["sclass"] if leaf["sclass"] in render.SLACK_CLASSES else None
                        for site, m in result.page_models.items() for leaf in m["leaves"]}
+        # {(site, key): its workflow phase row (#173)}, from the same page models, kept only
+        # when it is a row the phase rule can give (_kept_row); anything else draws no row.
+        self.phases = {(site, leaf["key"]): row for site, m in result.page_models.items() for leaf in m["leaves"]
+                       if (row := _kept_row(leaf.get("phases"), leaf.get("phases_why"))) is not None}
         # (site, key) -> [site, key, title, est, priority, thinking, checking], in the order the page names them
         self.named = {}
 
@@ -196,12 +213,14 @@ def _box(page, entry, cont):
     parts.append(_span("basis", record["basis"]))
     if cont:
         parts.append(_span("cont", cont))
+    row = page.phases.get((site, key))
+    row_html = f'<p class="phases">{leafbox.phase_svg(row)}</p>' if row is not None else ""
     bands = ""
     if b.band:
         bands = f'<p class="bands">{"".join(_span(f"band {cls}", text) for text, cls in b.band)}</p>'
     classes = " ".join(["leaf", *cues, render.tier_class(tier), render.tag_class(tag)])
     return (f'<li class="{classes}" data-leaf="{esc(key)}" data-site="{esc(site)}" data-tag="{esc(tag)}" '
-            f'data-state="{esc(state)}" data-tier="{esc(tier)}">{top}{ttl}<p class="facts">{"".join(parts)}</p>'
+            f'data-state="{esc(state)}" data-tier="{esc(tier)}">{top}{ttl}{row_html}<p class="facts">{"".join(parts)}</p>'
             f'{bands}</li>')
 
 
@@ -384,7 +403,10 @@ def _body(page):
                       f'aria-pressed="{"true" if value == "5" else "false"}">{esc(label)}</button>'
                       for value, label in DAYS_BUTTONS)
     legend = (f'<ul id="legend"><li><i class="sw crit"></i>{esc(LEGEND_CRIT)}</li>'
-              f'<li><i class="sw near"></i>{esc(LEGEND_NEAR)}</li><li>{esc(LEGEND_P0)}</li></ul>')
+              f'<li><i class="sw near"></i>{esc(LEGEND_NEAR)}</li><li>{esc(LEGEND_P0)}</li>'
+              f'<li>{esc(leafbox.PHASE_LEGEND)}</li>'
+              + "".join(f'<li>{leafbox.phase_swatch(look)}{esc(phases.LOOK_WORDS[look])}</li>' for look in phases.LOOKS)
+              + f'<li>{esc(leafbox.PHASE_LIMIT)}</li></ul>')
     return f'{lines}{legend}<div>{buttons}</div><div id="days">{days}</div>{_unplanned(page)}{_per_site(page)}'
 
 
@@ -394,5 +416,6 @@ def render_week(plan, result, stamp) -> str:
     body = _body(page)
     data = {"stamp": stamp, "plan": asdict(plan), "leaves": list(page.named.values()),
             "not_built": [[s.name, s.reason] for s in _not_built(result)]}
-    return fill(render.asset("templates/week.html"), LEAF_COLOURS=leafbox.colours(), TITLE=TITLE,
+    return fill(render.asset("templates/week.html"), LEAF_COLOURS=leafbox.colours(), PHASE_CSS=leafbox.phases_css(),
+                TITLE=TITLE,
                 STAMP=render.stamp_html(stamp), BODY=Markup(body), DATA=embed_json(data), PAGE_JS=_script("static/week.js"))

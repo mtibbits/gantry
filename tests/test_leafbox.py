@@ -202,7 +202,7 @@ def test_phase_swatch():
 
 
 def test_phase_constants():
-    assert leafbox.PHASE_LEGEND == ("Phase row, left to right: plan, implement, check, merge, wrap up, "
+    assert leafbox.PHASE_LEGEND == ("Workflow phase row, left to right: plan, implement, check, merge, wrap up, "
                                     "from each issue's checklist.md")
     assert leafbox.PHASE_LIMIT == ("The row shows this build machine's copy of each checklist, which may lag an "
                                    "issue running on another machine.")
