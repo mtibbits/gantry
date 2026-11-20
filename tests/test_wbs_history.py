@@ -9,6 +9,7 @@ import ast
 import os
 import random
 import re
+import subprocess
 import time
 from datetime import date
 from pathlib import Path, PurePath
@@ -817,6 +818,27 @@ def test_committed_paths_lists_checklists(tmp_path, git_ready):
     assert wbs_history.committed_paths(repo, CHECKLIST) == expected
 
 
+def test_committed_paths_prefix_is_literal(tmp_path, git_ready):
+    """A history directory whose path starts with `:` is not read as pathspec magic."""
+    top, planning = repo_below(tmp_path, ":plan")
+    commit(top, "plan/Issue-9/checklist.md", "decoy\n", "2026-01-04")
+    for rel in ("Issue-1/checklist.md", "Issue-2/checklist.md", "Issue-3/notes.md", "a/b/checklist.md"):
+        write(planning, rel, "- [x] 1. pull\n")
+    git(top, "add", "-A")  # the helper's `git add -- <path>` would read `:plan` as pathspec magic too
+    git(top, "commit", "-q", "-m", "colon", when="2026-01-05")
+    repo = repo_for(tmp_path, planning)
+    assert repo.prefix == ":plan"
+    assert wbs_history.committed_paths(repo, CHECKLIST) == frozenset({"Issue-1/checklist.md", "Issue-2/checklist.md"})
+
+
+def test_committed_paths_unborn_head_lists_nothing(tmp_path, git_ready):
+    """As committed_text reads Absent there, not NoData."""
+    top = make_repo(tmp_path / "planning")
+    repo = repo_for(tmp_path, top)
+    assert wbs_history.committed_text(repo, "Issue-1/checklist.md") == wbs_history.Absent()
+    assert wbs_history.committed_paths(repo, CHECKLIST) == frozenset()
+
+
 def test_committed_paths_one_git_call(tmp_path, monkeypatch, git_ready):
     top, planning = repo_below(tmp_path, "plan")
     _checklist_tree(top, "plan/")
@@ -926,7 +948,29 @@ def test_unreadable_commit_date_is_git_failed(tmp_path, git_ready):
     git(repo, "update-ref", "refs/heads/main", bad)
     got = answer(tmp_path, repo)
     assert got.no_data.text == f"no data: git failed: commit {bad[:12]} has no readable date"
+    assert got.no_data.git is True
     assert got.date is None and got.uncommitted is None
+
+
+@pytest.mark.parametrize("raised, reason", [
+    (subprocess.TimeoutExpired(["git"], 1), "git failed: timed out"),
+    (PermissionError(13, "Permission denied"), "git failed: Permission denied"),
+])
+def test_run_git_failures_carry_the_git_flag(tmp_path, monkeypatch, git_ready, raised, reason):
+    def run(*a, **k):
+        raise raised
+
+    monkeypatch.setattr(wbs_history.subprocess, "run", run)
+    got = wbs_history.run_git(["rev-parse", "--verify", "HEAD"], cwd=tmp_path, ceiling=tmp_path)
+    assert (got, got.git) == (wbs_history.NoData(reason), True)
+
+
+def test_git_not_found_carries_the_git_flag(tmp_path, monkeypatch):
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    monkeypatch.setenv("PATH", str(empty))
+    got = wbs_history.run_git(["rev-parse", "--verify", "HEAD"], cwd=tmp_path, ceiling=tmp_path)
+    assert (got, got.git) == (wbs_history.NoData(wbs_history.GIT_NOT_FOUND), True)
 
 
 def test_nul_in_a_git_argument_is_git_failed(tmp_path, git_ready):

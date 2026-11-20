@@ -289,6 +289,11 @@ def git_env(ceiling, environ=None) -> dict:
     return env
 
 
+def _git_failed(message) -> NoData:
+    """git itself failed: the reason, and the flag a caller tests instead of the text."""
+    return NoData(GIT_FAILED.format(message=message), git=True)
+
+
 def run_git(args, *, cwd, ceiling):
     """The module's only child process: a CompletedProcess (bytes), or NoData
     when git is not on the path or cannot be started."""
@@ -300,12 +305,12 @@ def run_git(args, *, cwd, ceiling):
         return subprocess.run(["git", *args], cwd=str(cwd), env=env, stdin=subprocess.DEVNULL,
                               capture_output=True, timeout=GIT_TIMEOUT)
     except subprocess.TimeoutExpired:
-        return NoData(GIT_FAILED.format(message="timed out"), git=True)
+        return _git_failed("timed out")
     except OSError as e:
-        return NoData(GIT_FAILED.format(message=e.strerror or type(e).__name__), git=True)
+        return _git_failed(e.strerror or type(e).__name__)
     except ValueError as e:
         # An argument git cannot be given, such as one holding a NUL.
-        return NoData(GIT_FAILED.format(message=str(e)), git=True)
+        return _git_failed(str(e))
 
 
 # An absolute path in git's message: quoted (kept quoted), or bare, which
@@ -338,7 +343,7 @@ def _first_line(data: bytes) -> str:
 def _failed(ran, known, site) -> NoData:
     line = _first_line(ran.stderr)
     message = clean(line, known, site) if line else f"exit {ran.returncode}"
-    return NoData(GIT_FAILED.format(message=message), git=True)
+    return _git_failed(message)
 
 
 def _out(ran) -> str:
@@ -512,7 +517,7 @@ def _read_chain(repo, head: str, path: str):
             day = date.fromisoformat(when.strip()[:10])
         except ValueError:
             # git prints no date for a commit whose committer date it cannot parse.
-            return NoData(GIT_FAILED.format(message=f"commit {parts[0][:12]} has no readable date"), git=True)
+            return _git_failed(f"commit {parts[0][:12]} has no readable date")
         chain.append((parts[0], parts[1] if len(parts) > 1 else None, day))
     return chain
 
@@ -661,14 +666,17 @@ def committed_text(repo, rel_path: str):
 def committed_paths(repo, name):
     """The `<folder>/<name>` paths (relative to the history directory, `/`
     form, exactly one folder deep) committed at the repository's HEAD, as a
-    frozenset, from ONE `git ls-tree`; NoData when git fails. A NoData given
+    frozenset, from ONE `git ls-tree`; empty when HEAD is unborn, as
+    committed_text reads Absent there; NoData when git fails. A NoData given
     is returned unchanged, with no git call. Never raises. The time thieves
     pass devagent's checklist file name (gantry.devagent_records names it)."""
     if isinstance(repo, NoData):
         return repo
-    ran = _checked(repo, _git(repo, ["ls-tree", "-r", "--name-only", "-z", "HEAD", "--", repo.prefix or "."]))
+    spec = f":(top,literal){repo.prefix}" if repo.prefix else "."
+    ran = _checked(repo, _git(repo, ["ls-tree", "-r", "--name-only", "-z", "HEAD", "--", spec]))
     if isinstance(ran, NoData):
-        return ran
+        # One more call, on the failure path only: an unborn HEAD lists nothing.
+        return frozenset() if isinstance(_resolve(repo, "HEAD^{commit}"), Absent) else ran
     lead = _repo_path(repo, "")
     found = set()
     for path in _out(ran).split("\0"):

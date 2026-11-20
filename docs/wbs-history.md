@@ -180,7 +180,7 @@ Every git call goes through one helper, `run_git`:
 - run in the history directory to find the repository, then in its top
   level, with every path relative to that top level: `rev-list` takes it
   as the pathspec `:(top,literal)<path>`, `rev-parse` as `<commit>:<path>`,
-  `ls-tree` as its literal path prefix and `hash-object` as `--path=<path>`;
+  `ls-tree` as `:(top,literal)<prefix>` (`.` at the top level) and `hash-object` as `--path=<path>`;
 - a time limit per call.
 
 The user's global git config is kept, so a `safe.directory` entry the

@@ -56,6 +56,7 @@ from dataclasses import replace
 from datetime import datetime
 from pathlib import PurePath
 
+from gantry import thieves
 from gantry.build import (
     FIRES_STEP,
     MARKER_FILE,
@@ -279,7 +280,7 @@ def _build_all(config, *, marker=False):
                   file=sys.stderr)
     for name, kind in result.thieves_failed.items():
         # One site's thieves that could not be derived read "no data" on its panel; the exit code is unchanged (#29).
-        print(f"gantry: warning: site {shown(name)}: thieves not derived: {kind}", file=sys.stderr)
+        print(f"gantry: warning: site {shown(name)}: {thieves.THIEVES_FAILED.format(type=kind)}", file=sys.stderr)
     if result.week_error is not None:
         print(f"gantry: error: {_flagged(result.week_error, marker)}", file=sys.stderr)
     if plan_error is not None:

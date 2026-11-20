@@ -600,6 +600,16 @@ def test_wip_shallow_or_no_commit_history_still_reads_head(tmp_path, git_ready):
         assert texts(wip)[:2] == ["1 parked, not counted", "1 started, glyph pending"], reason
 
 
+def test_wip_unborn_head_reads_numbers(tmp_path, git_ready):
+    """A planning repository with no commit yet has no committed checklist: counts, not no data."""
+    top = make_repo(tmp_path / "planning")
+    gantry = PurePath(os.path.realpath(make_repo(tmp_path / "gantry-checkout")))
+    repo = wbs_history.history_repository(directory_roots([tmp_path]), top, gantry, key="devdoc_dir", site=SITE)
+    no_commits = NoData(wbs_history.NO_COMMITS.format(as_of="2026-01-19"))
+    wip = derive(leaves(("~", "Issue-1"), (" ", "Issue-2")), hist=history(repo, no_data=no_commits)).wip
+    assert (wip.value, dict(wip.counts)) == (1, {"parked": 0, "started": 0})
+
+
 def test_unplanned_stuck_part_per_status():
     from gantry import fires as fires_module
 

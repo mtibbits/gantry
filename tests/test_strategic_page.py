@@ -699,7 +699,8 @@ def test_strategic_hostile_thieves(tmp_path, monkeypatch):
     def collect(result, config, fires_list, records, reference):
         statuses = (SourceStatus("fires_list", None, "read", None),)
         return FireReport((Fire(("fires_list",), (HOSTILE[3] + " gantrypwn(3)",), site=BUSY),
-                           Fire(("fires_list",), ("gantrypwn(3) " + HOSTILE[3],))), statuses)
+                           Fire(("fires_list",), ("gantrypwn(3) " + HOSTILE[3],), site_as_written=HOSTILE[2])),
+                          statuses)
 
     monkeypatch.setattr(wbs_history, "last_state_change", answer)
     monkeypatch.setattr(build, "collect_fires", collect)
