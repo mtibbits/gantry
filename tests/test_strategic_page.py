@@ -12,7 +12,7 @@ from gantry.config import load_config
 from gantry.portfolio_file import format_entry
 from gantry.views.strategic import pct
 from helpers_config import append_bytes, replace_bytes, sample_projects, toml_key, write_site_tree
-from helpers_strategic import page_data, placement_line, placement_problems
+from helpers_strategic import page_data, placement_line, placement_problems, thieves_line
 from page_safety import HOSTILE, assert_no_external_resources, assert_page_safe
 from sample_roles import BUSY, NO_WBS, OWN_UNIT, SMALL, UNESTIMATED, UNREADABLE
 from test_index_page import data_strings
@@ -484,8 +484,17 @@ def test_strategic_doc_states_texts():
 
     doc = (ROOT / "docs" / "strategic-page.md").read_bytes().decode("utf-8")
     assert [text for text in view.STRATEGIC_TEXTS if f"`{text}`" not in doc] == []
+    from gantry import strategic, thieves
+
+    def stated(text):
+        return f"``{text}``" in doc if "`" in text else f"`{text}`" in doc
+
+    texts = thieves.TEXTS + (strategic.NO_GAP_NO_SHARE, strategic.NO_GAP_NO_OPEN_WORK, strategic.NO_GAP_SHARES_ZERO)
+    assert len(thieves.TEXTS) >= 50
+    assert [text for text in texts if not stated(text)] == []
     assert [kind for kind in view.FIGURE_KINDS if f"`{kind}`" not in doc] == []
-    for name in ("`data-figure`", "`data-source`", "`data-unestimated`", "`strategic.html`", ONE_LINER):
+    for name in ("`data-figure`", "`data-source`", "`data-unestimated`", "`strategic.html`", ONE_LINER,
+                 THIEVES_ONE_LINER):
         assert name in doc, name
     assert SERVING in " ".join(doc.split())
 
@@ -511,3 +520,265 @@ def test_render_failed_site_counts_as_not_built(tmp_path, monkeypatch):
     assert shares == {BUSY: "backlog share, not effort: 52%",
                       OWN_UNIT: "backlog share, not effort: 36%, includes 5 unestimated leaves",
                       UNESTIMATED: "backlog share, not effort: 12%, includes 5 unestimated leaves"}
+
+
+# --- the time thieves' row (#29) ----------------------------------------------------------------
+
+
+def thief_ps(t, li):
+    """{kind: p index} of a panel's thief rows, by the figure each holds."""
+    from gantry import thieves
+
+    out = {}
+    for p in find(t, "p", ("thief",), li):
+        (fig,) = [i for i in find(t, "span", within=p) if t.elements[i]["attrs"].get("data-figure", "").startswith("thief-")]
+        kind = {v: k for k, v in thieves.FIGURES.items()}[t.elements[fig]["attrs"]["data-figure"]]
+        out[kind] = p
+    return out
+
+
+def flag_pieces(t, p):
+    from gantry.views.worksite import DOT
+
+    return [piece for piece in text_of(t, p).split(DOT.strip()) if piece.strip() in ("flagged", "not flagged")]
+
+
+def constructed_page(tmp_path, monkeypatch):
+    """The demo's strategic page with the busy site's thieves derived from constructed inputs."""
+    from datetime import date
+    from pathlib import PurePath
+
+    from gantry import thieves, wbs_history
+    from gantry.devagent_records import ABSENT, PRESENT, READ, IssueRecords, Record, SiteRecords, read_checklist
+    from gantry.fires import Fire, FireReport, SourceStatus
+    from gantry.strategic import strategic_model
+    from gantry.views.strategic import render_strategic
+
+    copy = samples(tmp_path)
+    result = build_all(load_config(copy / "gantry.sample.toml"), samples=copy)
+    model = strategic_model(result)
+    repo = wbs_history.Repo(PurePath("/nowhere"), "", BUSY, PurePath("/gantry"))
+    monkeypatch.setattr(wbs_history, "committed_paths", lambda r, name: frozenset({f"Issue-7/{name}"}))
+    monkeypatch.setattr(wbs_history, "committed_text", lambda r, rel: "- [x] 1. pull\n- [ ] 2. draft\n")
+    history = {BUSY: wbs_history.HistoryResult(date(2026, 1, 8), False, 1, True, None, repo, None)}
+    absent = Record(ABSENT, None, None)
+    parked = Record(PRESENT, read_checklist("- [x] 1. pull\n- [P] 2. draft\n"), None)
+    records = {BUSY: SiteRecords(READ, None, {"Issue-6": IssueRecords("Issue-6", absent, parked, absent)}, {})}
+    statuses = [SourceStatus("fires_list", None, "read", None)]
+    statuses += [SourceStatus(s, name, "read", None) for name in model.panels for s in ("p0_leaf", "stuck")]
+    fires = FireReport((Fire(("p0_leaf", "stuck"), ("a", "b"), site=BUSY), Fire(("fires_list",), ("x",)),
+                        Fire(("fires_list",), ("y",))), tuple(statuses))
+    by_site = thieves.derive_thieves(result, model, thieves.thresholds(result.portfolio), fires, records, history,
+                                     model.as_of)
+    model = thieves.attach(model, by_site, thieves.fires_without_site(fires))
+    return render_strategic(result, model), model
+
+
+def test_shows_flag_only_with_something_to_judge():
+    """No flag text without a value, unless the thief is flagged without one (no state change in N weeks)."""
+    from gantry import thieves
+    from gantry.views.strategic import _thief, shows_flag
+
+    incomplete = thieves.Thief("unplanned", None, "incomplete: P0 leaves not read", 0, False, "s")
+    quiet = thieves.Thief("neglect", None, thieves.NEGLECT_NONE.format(n=4), 4, True, "s")
+    counted = thieves.Thief("wip", 0, "0", 3, False, "s")
+    no_data = thieves.no_data_thief("neglect", "git not found", 4, "s")
+    assert [shows_flag(t) for t in (incomplete, quiet, counted, no_data)] == [False, True, True, False]
+    assert thieves.NOT_FLAGGED not in _thief("unplanned", incomplete)
+    assert _thief("neglect", quiet).endswith(f"{thieves.FLAGGED}</p>")
+
+
+def test_thieves_row_on_constructed_page(tmp_path, monkeypatch):
+    from gantry import thieves
+    from gantry.views.strategic import FIGURE_KINDS
+
+    text, model = constructed_page(tmp_path, monkeypatch)
+    assert_page_safe(text, [])
+    t = tree(text)
+    li = panel_of(t, BUSY)
+    rows = thief_ps(t, li)
+    assert list(rows) == list(thieves.KINDS)
+    for kind, fig_kind in thieves.FIGURES.items():
+        assert fig_kind in FIGURE_KINDS
+        (fig,) = figures(t, fig_kind, li)
+        assert t.elements[fig]["attrs"]["data-source"]
+        assert t.elements[fig + 1]["classes"] == ["source"]
+    wip, deps, unplanned = text_of(t, rows["wip"]), text_of(t, rows["unknown_deps"]), text_of(t, rows["unplanned"])
+    assert "as seen by this build machine: 1 parked here only, still counted: Issue-6" in wip
+    assert "0 parked, not counted" in wip and "1 started, glyph pending" in wip and thieves.LANES in wip
+    assert thieves.UNCOMMITTED in wip and thieves.UNCOMMITTED in deps
+    assert "as seen by this build machine: 1 from STUCK markers" in unplanned
+    machine = [text_of(t, i) for i in find(t, "span", ("machine",), rows["wip"])]
+    assert any("parked here only" in m for m in machine) and thieves.UNCOMMITTED in machine
+    (count,) = figures(t, "thief-unplanned", li)
+    assert text_of(t, count) == "1"
+    assert "flagged" in t.elements[rows["unplanned"]]["classes"]
+    assert [p.strip() for p in flag_pieces(t, rows["unplanned"])] == ["flagged"]
+    # A no-data thief has no flag text: lighthouse has no intended share.
+    small = thief_ps(t, panel_of(t, SMALL))
+    assert text_of(t, small["priorities"]).startswith("Conflicting priorities: no data: no intended share set")
+    assert flag_pieces(t, small["priorities"]) == []
+    # D9: the thief's points are the gap figure's.
+    (gap,) = figures(t, "gap", li)
+    (prio,) = figures(t, "thief-priorities", li)
+    assert text_of(t, gap).split()[1] == text_of(t, prio).split()[0]
+    # Fires with no site: one figure, before the groups.
+    (no_site,) = figures(t, "fires-no-site")
+    assert text_of(t, no_site) == "Fires with no site: 2"
+    assert no_site < by_id(t, "groups")
+    data = page_data(text)
+    (busy,) = [p for p in data["panels"] if p["site"] == BUSY]
+    assert busy["thieves"]["wip"]["counts"] == {"parked": 0, "started": 1}
+    assert busy["thieves"]["neglect"]["value"] == "2026-01-08"
+    assert busy["thieves"]["unknown_deps"]["label"] == thieves.UNCOMMITTED
+    assert data["fires_no_site"] == {"count": 2, "text": "2"}
+    assert [p["thieves"] for p in data["panels"] if p["status"] == "not_built"] == [None, None]
+
+
+def test_threshold_texts():
+    from gantry.thieves import Thief
+    from gantry.views.strategic import threshold_text
+
+    def thief(kind, threshold):
+        return Thief(kind, None, "", threshold, False, "s")
+
+    assert threshold_text(thief("priorities", 7.5)) == "flagged above 7.5 points"
+    assert threshold_text(thief("priorities", 10)) == "flagged above 10 points"
+    assert threshold_text(thief("wip", 3)) == "flagged above 3"
+    assert threshold_text(thief("neglect", 4)) == "flagged at 4 weeks or more"
+    # As configured, never rounded: the text names the number the flag compares.
+    assert threshold_text(thief("priorities", 10.25)) == "flagged above 10.25 points"
+    assert threshold_text(thief("priorities", 0.04)) == "flagged above 0.04 points"
+    assert threshold_text(thief("priorities", 10.0)) == "flagged above 10 points"
+
+
+def test_huge_thresholds_render():
+    """Values the portfolio check accepts never stop the page from being written."""
+    from gantry import thieves
+    from gantry.views.strategic import _thief
+
+    for value, shown in ((10**400, str(10**400)), (1e308, "1e+308")):
+        for kind in thieves.KINDS:
+            assert shown in _thief(kind, thieves.Thief(kind, 0, "0", value, False, "s")), (kind, value)
+
+
+def test_no_thieves_no_row(tmp_path):
+    from gantry.strategic import strategic_model
+    from gantry.views.strategic import render_strategic
+
+    copy = samples(tmp_path)
+    result = build_all(load_config(copy / "gantry.sample.toml"), samples=copy)
+    text = render_strategic(result, strategic_model(result))
+    t = tree(text)
+    assert find(t, "div", ("thieves",)) == [] and text_of(t, by_id(t, "fires-no-site")) == ""
+    assert all(p["thieves"] is None for p in page_data(text)["panels"])
+
+
+def test_demo_thieves(tmp_path, built_sample_history):
+    from gantry import thieves
+    from sample_roles import HISTORY_LESS, HISTORY_RECENT, HISTORY_STALE, HISTORY_YOUNG
+    from test_demo_reads import copy_with_history
+
+    text, _ = page(copy_with_history(tmp_path))
+    t = tree(text)
+    data = page_data(text)
+    built = [p for p in data["panels"] if p["status"] == "built"]
+    assert len(built) == 4
+    computed = set()
+    for p in built:
+        li = panel_of(t, p["site"])
+        for kind, fig_kind in thieves.FIGURES.items():
+            (fig,) = figures(t, fig_kind, li)
+            value = text_of(t, fig)
+            assert value and (value[0].isdigit() or value.startswith(("no data: ", "last state", "no state",
+                                                                       "incomplete: "))), (p["site"], value)
+            assert t.elements[fig]["attrs"]["data-source"]
+            if p["thieves"][kind]["no_data"] is None:
+                computed.add(kind)
+    assert computed == set(thieves.KINDS)
+    neglect = {p["site"]: p["thieves"]["neglect"] for p in built}
+    assert (neglect[HISTORY_RECENT]["text"], neglect[HISTORY_RECENT]["flagged"]) == ("last state change 2026-01-08", False)
+    assert (neglect[HISTORY_STALE]["text"], neglect[HISTORY_STALE]["flagged"]) == ("no state change in 4 weeks", True)
+    assert (neglect[HISTORY_YOUNG]["text"], neglect[HISTORY_YOUNG]["flagged"]) == (
+        "no state change since history began 2026-01-05", False)
+    assert neglect[HISTORY_LESS]["text"] == "no data: in no repository"
+    for site in (HISTORY_RECENT, HISTORY_STALE, HISTORY_YOUNG):
+        (p,) = [p for p in built if p["site"] == site]
+        wip = p["thieves"]["wip"]
+        assert wip["label"] is None and p["thieves"]["unknown_deps"]["label"] is None, site
+        assert [part["text"] for part in wip["parts"]][:2] == ["0 parked, not counted", "0 started, glyph pending"]
+    (no_site,) = figures(t, "fires-no-site")
+    assert text_of(t, no_site) == "Fires with no site: 2" and data["fires_no_site"]["count"] == 2
+
+
+def test_strategic_hostile_thieves(tmp_path, monkeypatch):
+    from gantry import build, wbs_history
+    from gantry.fires import Fire, FireReport, SourceStatus
+
+    reasons = {BUSY: HOSTILE[0], OWN_UNIT: wbs_history.GIT_FAILED.format(message=HOSTILE[1])}
+    real = wbs_history.last_state_change
+
+    def answer(roots, site, config, as_of, weeks, cache):
+        if site.name in reasons:
+            no_data = wbs_history.NoData(reasons[site.name])
+            return wbs_history.no_data_result(no_data, no_data)
+        return real(roots, site, config, as_of, weeks, cache)
+
+    def collect(result, config, fires_list, records, reference):
+        statuses = (SourceStatus("fires_list", None, "read", None),)
+        return FireReport((Fire(("fires_list",), (HOSTILE[3] + " gantrypwn(3)",), site=BUSY),
+                           Fire(("fires_list",), ("gantrypwn(3) " + HOSTILE[3],), site_as_written=HOSTILE[2])),
+                          statuses)
+
+    monkeypatch.setattr(wbs_history, "last_state_change", answer)
+    monkeypatch.setattr(build, "collect_fires", collect)
+    text, _ = demo(tmp_path)
+    data = assert_page_safe(text, ["no data: " + HOSTILE[0], "no data: " + reasons[OWN_UNIT], HOSTILE[0]])
+    assert_no_external_resources(text)
+    (busy,) = [p for p in data["panels"] if p["site"] == BUSY]
+    assert busy["thieves"]["unplanned"]["value"] == 1
+    assert "gantrypwn(3)" not in text
+
+
+THIEVES_ONE_LINER = ("import sys; sys.path.insert(0, 'tests'); from helpers_strategic import thieves_line; "
+                     "print(thieves_line(sys.argv[1]))")
+DEMO_THIEVES_LINE = ("4 built sites; neglect from history: 3; neglect no data: 1; flagged: wip 0, unknown-deps 2, "
+                     "unplanned 2, priorities 2, neglect 1; parked not counted: 0; started with a pending glyph: 0; "
+                     "parked/started no data: 1; uncommitted WBS.md: 0")
+
+
+def test_thieves_line_counts_only(tmp_path, built_sample_history):
+    from test_demo_reads import copy_with_history
+
+    copy = copy_with_history(tmp_path)
+    page(copy)
+    line = thieves_line(copy / "out" / "strategic.html")
+    assert line == DEMO_THIEVES_LINE
+    assert [name for name in sample_projects() if name in line] == []
+    import re
+
+    assert "Issue-" not in line
+    assert re.fullmatch(r"\d+ built sites; neglect from history: \d+; neglect no data: \d+; flagged: wip \d+, "
+                        r"unknown-deps \d+, unplanned \d+, priorities \d+, neglect \d+; parked not counted: \d+; "
+                        r"started with a pending glyph: \d+; parked/started no data: \d+; uncommitted WBS.md: \d+",
+                        line), line
+
+
+def test_thieves_line_subprocess(tmp_path, built_sample_history):
+    from test_demo_reads import copy_with_history
+
+    copy = copy_with_history(tmp_path)
+    page(copy)
+    path = copy / "out" / "strategic.html"
+    ran = subprocess.run([sys.executable, "-c", THIEVES_ONE_LINER, str(path)], cwd=ROOT, capture_output=True,
+                         check=True)
+    assert ran.stdout.decode("utf-8").splitlines() == [DEMO_THIEVES_LINE]
+
+
+def test_thieves_line_counts_unchecked_and_uncommitted(tmp_path, monkeypatch):
+    text, _ = constructed_page(tmp_path, monkeypatch)
+    path = tmp_path / "constructed.html"
+    path.write_bytes(text.encode("utf-8"))
+    line = thieves_line(path)
+    assert "uncommitted WBS.md: 1" in line and "started with a pending glyph: 1" in line
+    assert "parked/started no data: 3" in line and "neglect from history: 1; neglect no data: 3" in line

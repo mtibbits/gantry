@@ -485,7 +485,10 @@ def test_unread_keys_leave_pages_and_trace_inputs_change_them(tmp_path, monkeypa
     # A configured fires list that is not read is named on stderr (#32); fires_list stays nope.md below.
     assert nope_err == ("gantry: warning: fires source fires_list is not read: fires_list: the fires list does "
                         "not exist\n" + plain_err)
-    assert written_bytes(out) == plain
+    # The strategic page counts the fires (#29): only it changes, and it says the fires list was not read.
+    nope = written_bytes(out)
+    assert {k for k in plain if nope[k] != plain[k]} == {"strategic.html"}
+    assert b"incomplete: fires list not read" in nope["strategic.html"]
     # Only the fires line differs: the fires list's four fires are gone and it is not read.
     assert plain_out.splitlines()[:-1] == nope_out.splitlines()[:-1]
     assert (plain_out.splitlines()[-1], nope_out.splitlines()[-1]) == (

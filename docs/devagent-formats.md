@@ -20,7 +20,8 @@ pages draw each leaf's workflow phase row from its checklist
 ([worksite-page.md](worksite-page.md#the-phase-row), #173), the fire
 collector (#32) reads the STUCK markers and checklists from the same read
 ([daily-screen.md](daily-screen.md#stuck-markers)), and the warm-up list
-(#33) and the time thieves (#29) will use the same result. A `--site` build
+(#33) will use the same result; the time thieves (#29) read each WIP
+leaf's checklist from it. A `--site` build
 reads its one site's records for its rows.
 
 ## The pinned release
@@ -190,7 +191,8 @@ The `Active revision:` header is not read.
   step with a bad glyph included; `()` when the active block has none.
 
 The same function reads a working-copy file and a committed version passed
-in as text, which is what #29 needs.
+in as text: the time thieves (#29) read each WIP leaf's committed checklist
+through it.
 
 ## Plans
 

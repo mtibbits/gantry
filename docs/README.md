@@ -11,7 +11,7 @@ and how to try the demo.
   what it reports, and what the worksite page and the index show.
 - [strategic-page.md](strategic-page.md): the strategic page, each site's
   intended share against its backlog share under the requirements it serves,
-  and what it adds to the index.
+  each site's five time thieves, and what it adds to the index.
 - [requirements-format.md](requirements-format.md): the requirements file
   format, its layers and IDs, and what its reader reports.
 - [requirements.md](requirements.md): Gantry's own requirements, in that

@@ -662,9 +662,60 @@ def test_no_provisional_for_35_left():
         assert "No Gantry command calls it today" in " ".join(body.split()), function
 
 
+def test_no_stale_29_claim_left():
+    """#29 binds #28's history reader and shows it: nothing still says it will (#29's sweep)."""
+    stale = ("provisional until #29", "until #29 binds", "history yet", "time thieves (#29) will",
+             "#29 (derive the five time thieves) reads")
+    paths = [ROOT / "README.md", *sorted((ROOT / "docs").glob("*.md")), *sorted((ROOT / "gantry").rglob("*.py"))]
+    for path in paths:
+        text = " ".join(markdown_text(path).split()).lower()
+        for phrase in stale:
+            assert phrase not in text, (path.name, phrase)
+
+
 def test_refresh_doc_install_step_uses_the_release_tag_and_survives_a_reboot():
     scheduling = section(markdown_text(REFRESH_DOC), "## Scheduling")
     tag = re.search(r"`(gantry--v<version>)`", markdown_text(ROOT / "README.md")).group(1)
     assert f"checkout {tag}" in scheduling
     assert "loginctl enable-linger" in scheduling and "/RU" in scheduling
 
+
+
+STRATEGIC_DOC = ROOT / "docs" / "strategic-page.md"
+
+
+def test_strategic_doc_covers_the_thieves_points():
+    """#29's explanatory limbs, one pinned phrase each, in the page doc's thieves section."""
+    text = " ".join(section(markdown_text(STRATEGIC_DOC), "## Time thieves").split())
+    for phrase in (
+        "the only labelled parts that count toward a flag",  # STUCK and an uncommitted WBS.md
+        "STUCK markers",
+        "uncommitted `WBS.md`",
+        "read per leaf",  # the parked rule
+        "absent at `HEAD` is not parked",
+        "`<history directory>/<issue>/checklist.md`",
+        "`~` alone overcounts",
+        "a pending leaf whose committed checklist shows progress counts",
+        "`[A-Za-z0-9][A-Za-z0-9_.-]*`",  # the issue-id rule
+        "not checked against a commit",
+        "7 × N days ending on the as-of date",
+        "as-of − 7N + 1",
+        "`read_with_problems`", "`not_read`", "`not_configured`", "`absent`",
+        "`ls-tree` prefilter",
+        "fires on a site that is not built",
+        "[wbs-history.md](wbs-history.md)",
+    ):
+        assert phrase in text, phrase
+
+
+def test_docs_state_what_29_shows():
+    """No doc says a page has yet to show fires, or that `wbs update` writes `P` for a parked checklist (#29)."""
+    thieves_section = " ".join(section(markdown_text(STRATEGIC_DOC), "## Time thieves").split())
+    assert "`history read failed: <Type>`" in thieves_section
+    assert "until `wbs update` writes `P`" not in thieves_section
+    assert "it never writes `P` for a parked checklist" in thieves_section
+    assert "shallow history does not affect" in thieves_section
+    config = markdown_text(ROOT / "docs" / "config.md")
+    (row,) = [line for line in config.splitlines() if line.startswith("| `fires_list` |")]
+    assert "no page shows them yet" not in row and "strategic page" in row
+    assert "no page shows the fires list yet" not in markdown_text(ROOT / "docs" / "fires-list.md")

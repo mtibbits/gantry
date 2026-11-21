@@ -14,7 +14,10 @@ Every number on those pages comes from records already kept.
 - **Strategic page**: across all your projects, each site's open work and
   the share of your attention your priorities give it, set against its share
   of all open work (its backlog share, not effort), grouped under the
-  requirements it serves; the index shows the largest gap. See
+  requirements it serves, with each site's five time thieves (too much
+  work in progress, unknown dependencies, unplanned work, conflicting
+  priorities, neglected work), each flagged against its threshold; the
+  index shows the largest gap. See
   [docs/strategic-page.md](docs/strategic-page.md).
 - **Daily screen**: for your phone, anything on fire first, then today's
   tasks to start warming up on (planned).
@@ -386,9 +389,10 @@ Run these while `main` is still at the tag.
      ```
 
   2. Remove `<clone>/.git`, so the history-less sample site is in no
-     repository and its history would read "no data: in no repository".
-     No page shows history yet (docs/wbs-history.md), so the check is that
-     this fails with "not a git repository":
+     repository and its history reads "no data: in no repository": after
+     step 4, that site's `Neglected work` line on the strategic page says so
+     (docs/wbs-history.md). First check that this fails with
+     "not a git repository":
 
      ```
      git -C "<clone>/samples" rev-parse --show-toplevel

@@ -24,7 +24,7 @@ import stat
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
 
-from gantry import strategic
+from gantry import strategic, thieves, wbs_history
 from gantry.attention import check_h
 from gantry.config import Config, error_reason
 from gantry.crosssite import resolve_foreign
@@ -124,6 +124,9 @@ class BuildResult:
     # {site: its page_model}, every site rendered in this build; write_all keeps it
     # whole, so a page that fails to write keeps its slack on the week view (#170).
     page_models: dict[str, dict] = field(default_factory=dict)
+    # Set by write_all (#29): {built site: exception type name} for each site whose time thieves
+    # could not be derived; its panel shows five no-data thieves and the build warns.
+    thieves_failed: dict[str, str] = field(default_factory=dict)
 
 
 def site_list(config, roots=None):
@@ -492,10 +495,10 @@ def write_all(result):
         if path is not None:
             written.append(path)
             view_links.append(week.LINK)
-    slots, strategic_error = _write_strategic(result, roots, out)
+    slots, thieves_failed, strategic_error = _write_strategic(result, roots, out)
     if strategic_error is None:
         written.append(out / views_strategic.STRATEGIC_FILE)
-    result = replace(result, strategic_error=strategic_error)
+    result = replace(result, strategic_error=strategic_error, thieves_failed=thieves_failed)
     view_links += slots.pop("view_links", [])
     try:
         write_page(roots, out, "index", render_index(result, view_links=view_links, **slots))
@@ -508,8 +511,9 @@ def _write_strategic(result, roots, out):
     """Write strategic.html from one StrategicModel, made after the site
     pages are written so "built" means what the index says (#23).
 
-    Returns (the index's slots, None), or ({}, the error clause) when the
-    model, the render or the write failed: the index then gets no headline,
+    Returns (the index's slots, {site: exception type name} for each site
+    whose thieves were not derived, None), or ({}, {}, the error clause) when
+    the model, the render or the write failed: the index then gets no headline,
     shares or strategic link, so it never links a page that was not written.
     The clause is "cannot render strategic.html: ..." for a model or render
     fault and "cannot write strategic.html: ..." for a write fault, as the
@@ -517,15 +521,36 @@ def _write_strategic(result, roots, out):
     """
     try:
         model = strategic.strategic_model(result)
+        limits = thieves.thresholds(result.portfolio)
+        history = site_history(result, limits["neglect"])
+        by_site = thieves.derive_thieves(result, model, limits, result.fires, result.records, history, model.as_of)
+        model = thieves.attach(model, by_site, thieves.fires_without_site(result.fires))
         text = views_strategic.render_strategic(result, model)
         slots = views_strategic.index_slots(model)
+        failed = {name: got.failed for name, got in by_site.items() if got.failed is not None}
     except Exception as e:
-        return {}, render_reason(e, roots, (STRATEGIC_RENDER_ERROR, STRATEGIC_RENDER_ERROR_BARE))
+        return {}, {}, render_reason(e, roots, (STRATEGIC_RENDER_ERROR, STRATEGIC_RENDER_ERROR_BARE))
     try:
         write_page(roots, out, views_strategic.STRATEGIC_PAGE, text)
     except (OSError, OutsideRoots) as e:
-        return {}, STRATEGIC_WRITE_ERROR.format(why=why_not_written(e, roots))
-    return slots, None
+        return {}, {}, STRATEGIC_WRITE_ERROR.format(why=why_not_written(e, roots))
+    return slots, failed, None
+
+
+def site_history(result, weeks) -> dict:
+    """{built site: HistoryResult}, read once per built site in config order
+    with one HistoryCache (#29). A read that raises is a no-data result."""
+    entries = {entry.name: entry for entry in result.sites}
+    cache = wbs_history.HistoryCache()
+    out = {}
+    for name in strategic.built_sites(result):
+        try:
+            out[name] = wbs_history.last_state_change(result.roots, entries[name], result.config,
+                                                      result.config.as_of, weeks, cache)
+        except Exception as e:
+            no_data = wbs_history.NoData(source_failed(e, "history read"))
+            out[name] = wbs_history.no_data_result(no_data, no_data)
+    return out
 
 
 def strict_json_loads(data: bytes):

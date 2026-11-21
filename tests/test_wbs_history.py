@@ -9,6 +9,7 @@ import ast
 import os
 import random
 import re
+import subprocess
 import time
 from datetime import date
 from pathlib import Path, PurePath
@@ -785,6 +786,104 @@ def test_committed_text_corrupt_blob_is_git_failed(tmp_path, git_ready):
     assert str(tmp_path) not in got.text and str(tmp_path).replace(BS, "/") not in got.text
 
 
+# --- committed_paths: the ls-tree prefilter (#29) ---------------------------------------
+
+CHECKLIST = "checklist.md"
+
+
+def test_ls_tree_allowed_options_only():
+    wbs_history._check_args(["ls-tree", "-r", "--name-only", "-z", "HEAD", "--", "x"])
+    for args in (["ls-tree", "--format=%s", "HEAD"], ["ls-tree", "-l", "HEAD"], ["ls-tree", "--full-tree", "HEAD"]):
+        with pytest.raises(wbs_history.GitRefused):
+            wbs_history._check_args(args)
+
+
+def _checklist_tree(top, under):
+    for rel in ("Issue-1/checklist.md", "Issue-2/checklist.md", "Issue-3/notes.md", "a/b/checklist.md"):
+        commit(top, f"{under}{rel}", "- [x] 1. pull\n", "2026-01-05")
+    write(top, f"{under}Issue-4/checklist.md", "- [x] 1. pull\n")
+
+
+def test_committed_paths_lists_checklists(tmp_path, git_ready):
+    top, planning = repo_below(tmp_path, "plan")
+    commit(top, "Issue-9/checklist.md", "top-level decoy\n", "2026-01-04")
+    commit(top, "planner/Issue-8/checklist.md", "sibling decoy\n", "2026-01-04")
+    _checklist_tree(top, "plan/")
+    expected = frozenset({"Issue-1/checklist.md", "Issue-2/checklist.md"})
+    assert wbs_history.committed_paths(repo_for(tmp_path, planning), CHECKLIST) == expected
+    flat = make_repo(tmp_path / "flat" / "planning")
+    _checklist_tree(flat, "")
+    repo = find(directory_roots([tmp_path / "flat"]), flat, fixture_checkout(tmp_path / "flat"))
+    assert repo.prefix == ""
+    assert wbs_history.committed_paths(repo, CHECKLIST) == expected
+
+
+def test_committed_paths_prefix_is_literal(tmp_path, git_ready):
+    """A history directory whose path starts with `:` is not read as pathspec magic."""
+    if os.name == "nt":  # in the body, not a skipif mark: git_ready must gate first (test_git_gate_end_to_end)
+        pytest.skip("a folder name cannot start with a colon on Windows")
+    top, planning = repo_below(tmp_path, ":plan")
+    commit(top, "plan/Issue-9/checklist.md", "decoy\n", "2026-01-04")
+    for rel in ("Issue-1/checklist.md", "Issue-2/checklist.md", "Issue-3/notes.md", "a/b/checklist.md"):
+        write(planning, rel, "- [x] 1. pull\n")
+    git(top, "add", "-A")  # the helper's `git add -- <path>` would read `:plan` as pathspec magic too
+    git(top, "commit", "-q", "-m", "colon", when="2026-01-05")
+    repo = repo_for(tmp_path, planning)
+    assert repo.prefix == ":plan"
+    assert wbs_history.committed_paths(repo, CHECKLIST) == frozenset({"Issue-1/checklist.md", "Issue-2/checklist.md"})
+
+
+def test_committed_paths_unborn_head_lists_nothing(tmp_path, git_ready):
+    """As committed_text reads Absent there, not NoData."""
+    top = make_repo(tmp_path / "planning")
+    repo = repo_for(tmp_path, top)
+    assert wbs_history.committed_text(repo, "Issue-1/checklist.md") == wbs_history.Absent()
+    assert wbs_history.committed_paths(repo, CHECKLIST) == frozenset()
+
+
+def test_committed_paths_git_that_cannot_run_makes_one_call(tmp_path, monkeypatch, git_ready):
+    """A timed-out ls-tree is the answer: no second call (one timeout per site, not two)."""
+    top = make_repo(tmp_path / "planning")
+    commit(top, "Issue-1/checklist.md", "x\n", "2026-01-05")
+    repo = repo_for(tmp_path, top)
+    calls = []
+
+    def timed_out(args, **kwargs):
+        calls.append(args)
+        return wbs_history.NoData(wbs_history.GIT_FAILED.format(message="timed out"), git=True)
+
+    monkeypatch.setattr(wbs_history, "run_git", timed_out)
+    got = wbs_history.committed_paths(repo, CHECKLIST)
+    assert (got, got.git) == (wbs_history.NoData("git failed: timed out"), True)
+    assert [c[0] for c in calls] == ["ls-tree"]
+
+
+def test_committed_paths_one_git_call(tmp_path, monkeypatch, git_ready):
+    top, planning = repo_below(tmp_path, "plan")
+    _checklist_tree(top, "plan/")
+    repo = repo_for(tmp_path, planning)
+    calls = spy_git(monkeypatch)
+    assert len(wbs_history.committed_paths(repo, CHECKLIST)) == 2
+    assert [c[0][0] for c in calls] == ["ls-tree"]
+
+
+def test_committed_paths_no_data_passthrough(monkeypatch):
+    def no_git(*a, **k):
+        raise AssertionError("no git call")
+
+    monkeypatch.setattr(wbs_history, "run_git", no_git)
+    assert wbs_history.committed_paths(wbs_history.NoData("x"), CHECKLIST) == wbs_history.NoData("x")
+
+
+def test_committed_paths_git_failure_is_no_data(tmp_path, git_ready):
+    top = make_repo(tmp_path / "planning")
+    commit(top, "Issue-1/checklist.md", "x\n", "2026-01-05")
+    corrupt(top, git(top, "rev-parse", "HEAD^{tree}").strip())
+    got = wbs_history.committed_paths(repo_for(tmp_path, top), CHECKLIST)
+    assert isinstance(got, wbs_history.NoData) and got.text.startswith("no data: git failed: "), got
+    assert got.git is True
+
+
 def _uncommitted_site(tmp_path, planning_bytes):
     repo = make_repo(tmp_path / "plans")
     commit(repo, "WBS.md", wbs(), "2025-11-01")
@@ -868,12 +967,35 @@ def test_unreadable_commit_date_is_git_failed(tmp_path, git_ready):
     git(repo, "update-ref", "refs/heads/main", bad)
     got = answer(tmp_path, repo)
     assert got.no_data.text == f"no data: git failed: commit {bad[:12]} has no readable date"
+    assert got.no_data.git is True
     assert got.date is None and got.uncommitted is None
+
+
+@pytest.mark.parametrize("raised, reason", [
+    (subprocess.TimeoutExpired(["git"], 1), "git failed: timed out"),
+    (PermissionError(13, "Permission denied"), "git failed: Permission denied"),
+])
+def test_run_git_failures_carry_the_git_flag(tmp_path, monkeypatch, git_ready, raised, reason):
+    def run(*a, **k):
+        raise raised
+
+    monkeypatch.setattr(wbs_history.subprocess, "run", run)
+    got = wbs_history.run_git(["rev-parse", "--verify", "HEAD"], cwd=tmp_path, ceiling=tmp_path)
+    assert (got, got.git) == (wbs_history.NoData(reason), True)
+
+
+def test_git_not_found_carries_the_git_flag(tmp_path, monkeypatch):
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    monkeypatch.setenv("PATH", str(empty))
+    got = wbs_history.run_git(["rev-parse", "--verify", "HEAD"], cwd=tmp_path, ceiling=tmp_path)
+    assert (got, got.git) == (wbs_history.NoData(wbs_history.GIT_NOT_FOUND), True)
 
 
 def test_nul_in_a_git_argument_is_git_failed(tmp_path, git_ready):
     got = wbs_history.run_git(["rev-parse", "--verify", "a\0b"], cwd=tmp_path, ceiling=tmp_path)
     assert isinstance(got, wbs_history.NoData) and got.text.startswith("no data: git failed: "), got
+    assert got.git is True
 
 
 def test_extreme_windows_never_raise(tmp_path, git_ready):

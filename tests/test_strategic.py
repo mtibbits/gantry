@@ -236,3 +236,28 @@ def test_extremes(tmp_path):
     panel = model.panels["held"]
     assert (panel.open_leaves, panel.held_out, panel.backlog.hours) == (2, 2, 0)
     assert [b.share for b in model.backlog.values()] == [None, None]
+
+
+# --- why a panel has no gap (#29 D1) -----------------------------------------------------
+
+
+def test_gap_reason_names_why_no_gap(tmp_path):
+    from gantry.strategic import NO_GAP_NO_OPEN_WORK, NO_GAP_NO_SHARE, NO_GAP_SHARES_ZERO
+
+    copy = samples(tmp_path / "none")
+    replace_bytes(copy / "gantry.sample.toml", 'portfolio_file = "portfolio.md"\n', "")
+    model = strategic_model(build(copy))
+    built = [p for p in model.panels.values() if p.built]
+    assert len(built) == 4
+    assert all(p.gap is None and p.gap_reason == NO_GAP_NO_SHARE for p in built)
+    assert all(p.gap_reason is None for p in model.panels.values() if not p.built)
+    # Every site done, both with shares: no open work; a site with no share still names its share first.
+    model = strategic_model(planner_install(tmp_path / "done", "a = 50, ghost = 50", {"a": FINISHED, "b": FINISHED}))
+    assert [p.gap_reason for p in model.panels.values()] == [NO_GAP_NO_OPEN_WORK, NO_GAP_NO_SHARE]
+    model = strategic_model(planner_install(tmp_path / "zero", "a = 0, b = 0, ghost = 100",
+                                            {"a": SAME, "b": SAME}))
+    assert [p.gap_reason for p in model.panels.values()] == [NO_GAP_SHARES_ZERO] * 2
+    model = strategic_model(build(samples(tmp_path / "demo")))
+    assert model.panels[BUSY].gap is not None and model.panels[BUSY].gap_reason is None
+    assert model.panels[SMALL].gap is None and model.panels[SMALL].gap_reason == NO_GAP_NO_SHARE
+    assert model.panels[NO_WBS].built is False and model.panels[NO_WBS].gap_reason is None

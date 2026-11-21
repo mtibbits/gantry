@@ -5,12 +5,13 @@ planning repository, through one repository rule and one isolated git helper.
   window, read from the first-parent history of the site's `WBS.md`, plus
   whether the working-tree `WBS.md` matches its committed version;
 - `committed_text`: a committed file's text at `HEAD`;
+- `committed_paths`: the per-issue checklists committed at `HEAD`, in one call;
 - `history_repository`: the one rule for which repository answers.
 
 When git cannot answer, the result is a `NoData` with a reason; nothing here
 raises for a site. It is a line scanner, not a WBS parser, and never builds
 on the stopgap parser (#12 deletes it). docs/wbs-history.md states the rules.
-The signatures are provisional until #29 binds them.
+The time thieves (#29, gantry.thieves) bind the signatures.
 """
 
 import os
@@ -18,7 +19,7 @@ import posixpath
 import re
 import stat
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import PurePath, PureWindowsPath
 
@@ -47,6 +48,7 @@ class NoData:
     """git could not answer, and why."""
 
     reason: str
+    git: bool = field(default=False, compare=False)  # git itself failed or was not found
 
     @property
     def text(self) -> str:
@@ -252,6 +254,7 @@ _ALLOWED = {
     "rev-list": ("--first-parent", "--format="),
     "hash-object": ("--path=",),
     "cat-file": (),
+    "ls-tree": ("-r", "--name-only", "-z"),
 }
 
 
@@ -286,23 +289,28 @@ def git_env(ceiling, environ=None) -> dict:
     return env
 
 
+def _git_failed(message) -> NoData:
+    """git itself failed: the reason, and the flag a caller tests instead of the text."""
+    return NoData(GIT_FAILED.format(message=message), git=True)
+
+
 def run_git(args, *, cwd, ceiling):
     """The module's only child process: a CompletedProcess (bytes), or NoData
     when git is not on the path or cannot be started."""
     _check_args(args)
     env = git_env(ceiling)
     if not program_on_path("git", env):
-        return NoData(GIT_NOT_FOUND)
+        return NoData(GIT_NOT_FOUND, git=True)
     try:
         return subprocess.run(["git", *args], cwd=str(cwd), env=env, stdin=subprocess.DEVNULL,
                               capture_output=True, timeout=GIT_TIMEOUT)
     except subprocess.TimeoutExpired:
-        return NoData(GIT_FAILED.format(message="timed out"))
+        return _git_failed("timed out")
     except OSError as e:
-        return NoData(GIT_FAILED.format(message=e.strerror or type(e).__name__))
+        return _git_failed(e.strerror or type(e).__name__)
     except ValueError as e:
         # An argument git cannot be given, such as one holding a NUL.
-        return NoData(GIT_FAILED.format(message=str(e)))
+        return _git_failed(str(e))
 
 
 # An absolute path in git's message: quoted (kept quoted), or bare, which
@@ -335,7 +343,7 @@ def _first_line(data: bytes) -> str:
 def _failed(ran, known, site) -> NoData:
     line = _first_line(ran.stderr)
     message = clean(line, known, site) if line else f"exit {ran.returncode}"
-    return NoData(GIT_FAILED.format(message=message))
+    return _git_failed(message)
 
 
 def _out(ran) -> str:
@@ -509,7 +517,7 @@ def _read_chain(repo, head: str, path: str):
             day = date.fromisoformat(when.strip()[:10])
         except ValueError:
             # git prints no date for a commit whose committer date it cannot parse.
-            return NoData(GIT_FAILED.format(message=f"commit {parts[0][:12]} has no readable date"))
+            return _git_failed(f"commit {parts[0][:12]} has no readable date")
         chain.append((parts[0], parts[1] if len(parts) > 1 else None, day))
     return chain
 
@@ -576,23 +584,24 @@ def _walk(repo, as_of, weeks, cache):
     return (latest, False), read
 
 
-def _no_data_result(no_data, repo, read=0) -> HistoryResult:
+def no_data_result(no_data, repo, read=0) -> HistoryResult:
+    """A HistoryResult that is `no_data` throughout."""
     return HistoryResult(None, False, read, None, no_data.text, repo, no_data)
 
 
 def last_state_change(roots, site, config, as_of, weeks, cache) -> HistoryResult:
     """The latest date a leaf line's glyph changed in the `weeks` ending at
     `as_of` (or in the last commit read, just before the window), for a site
-    (a sites.SiteEntry); never raises. Provisional until #29 binds it."""
+    (a sites.SiteEntry); never raises. The time thieves (#29) read it."""
     path, key = history_dir(site, config)
     if path is None:
-        return _no_data_result(NoData(NO_PLANNING_DIR), NoData(NO_PLANNING_DIR))
+        return no_data_result(NoData(NO_PLANNING_DIR), NoData(NO_PLANNING_DIR))
     repo = history_repository(roots, path, gantry_root(), key=key, site=site.name)
     if isinstance(repo, NoData):
-        return _no_data_result(repo, repo)
+        return no_data_result(repo, repo)
     walked, read = _walk(repo, as_of, weeks, cache)
     if isinstance(walked, NoData):
-        return _no_data_result(walked, repo, read)
+        return no_data_result(walked, repo, read)
     day, history_start = walked
     uncommitted, reason = _uncommitted(roots, site, repo, cache)
     return HistoryResult(day, history_start, read, uncommitted, reason, repo, None)
@@ -641,8 +650,8 @@ def committed_text(repo, rel_path: str):
     """The text of `rel_path` (relative to the history directory, `/` form) at
     the repository's HEAD, decoded with replacement; Absent when it is not in
     that commit or can name no file there; NoData only when git fails. A
-    NoData given is returned unchanged, with no git call. Provisional until
-    #29 binds it."""
+    NoData given is returned unchanged, with no git call. The time thieves
+    (#29) read committed checklists through it."""
     if isinstance(repo, NoData):
         return repo
     if _names_no_file(rel_path):
@@ -652,3 +661,28 @@ def committed_text(repo, rel_path: str):
         return blob_id
     data = _blob(repo, blob_id)
     return data if isinstance(data, NoData) else decode_version(data)
+
+
+def committed_paths(repo, name):
+    """The `<folder>/<name>` paths (relative to the history directory, `/`
+    form, exactly one folder deep) committed at the repository's HEAD, as a
+    frozenset, from ONE `git ls-tree`; empty when HEAD is unborn, as
+    committed_text reads Absent there; NoData when git fails. A NoData given
+    is returned unchanged, with no git call. Never raises. The time thieves
+    pass devagent's checklist file name (gantry.devagent_records names it)."""
+    if isinstance(repo, NoData):
+        return repo
+    spec = f":(top,literal){repo.prefix}" if repo.prefix else "."
+    ran = _git(repo, ["ls-tree", "-r", "--name-only", "-z", "HEAD", "--", spec])
+    if isinstance(ran, NoData):  # git could not run (or timed out): no second call
+        return ran
+    if ran.returncode != 0:
+        # One more call when ls-tree exited non-zero: an unborn HEAD lists nothing.
+        return frozenset() if isinstance(_resolve(repo, "HEAD^{commit}"), Absent) else _checked(repo, ran)
+    lead = len(_repo_path(repo, ""))  # the pathspec confines the listing to the history directory
+    found = set()
+    for path in _out(ran).split("\0"):
+        parts = path[lead:].split("/")
+        if len(parts) == 2 and parts[0] and parts[1] == name:
+            found.add("/".join(parts))
+    return frozenset(found)

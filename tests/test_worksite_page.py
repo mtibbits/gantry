@@ -518,6 +518,8 @@ POSITIVE = {
 ALLOWED_DEVAGENT = {
     # #38: the week view's allocation-rule line quotes devagent's forecast issue as the issue words it.
     "gantry/views/week.py": "(mtibbits/devagent#745)",
+    # #29: the WIP thief's lanes line cites devagent's per-machine lane records issue as its no-data reason.
+    "gantry/thieves.py": "(mtibbits/devagent#748)",
 }
 
 
@@ -540,14 +542,16 @@ def test_no_prototype_devagent_content():
 
 
 def test_devagent_allowance_is_exact_and_scoped():
-    (path, literal), = ALLOWED_DEVAGENT.items()
-    text = (ROOT / path).read_bytes().decode("utf-8")
-    # Load-bearing: without the allowance the file is a hit.
-    assert devagent_hits(text) == ["epic"]
-    # The same text anywhere else, or a near form, still fails.
-    assert devagent_hits(f"x {literal} y") == ["epic"]
-    assert devagent_hits("x (devagent#745) y", literal) == ["epic"]
-    assert devagent_hits("x #745 y", literal) == ["epic"]
+    assert len(ALLOWED_DEVAGENT) == 2
+    for path, literal in ALLOWED_DEVAGENT.items():
+        number = literal.rsplit("#", 1)[1].rstrip(")")
+        text = (ROOT / path).read_bytes().decode("utf-8")
+        # Load-bearing: without the allowance the file is a hit.
+        assert devagent_hits(text) == ["epic"], path
+        # The same text anywhere else, or a near form, still fails.
+        assert devagent_hits(f"x {literal} y") == ["epic"], path
+        assert devagent_hits(f"x (devagent#{number}) y", literal) == ["epic"], path
+        assert devagent_hits(f"x #{number} y", literal) == ["epic"], path
 
 
 def test_page_assets_hold_no_path_form():

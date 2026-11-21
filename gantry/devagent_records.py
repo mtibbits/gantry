@@ -8,8 +8,9 @@ read_site_records) read through gantry.roots and follow no link. Callers:
 the full build reads each site once, before its pages (gantry.build.read_records),
 and keeps the SiteRecords on its result; the pages' workflow phase rows
 (gantry.phases, #173) and the fire collector (#32) read them, a --site build
-reads its one site's for its rows, and the warm-up list (#33) and the time
-thieves (#29) will read the same ones. Record
+reads its one site's for its rows, the time thieves (#29) read each WIP
+leaf's checklist from them, and the warm-up list (#33) will read the same
+ones. Record
 text comes back verbatim: escaping happens once, where a page renders it.
 """
 

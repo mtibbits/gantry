@@ -311,9 +311,8 @@ def demo_runs(tmp_path_factory, built_sample_history):
 
 
 def demo_kwargs(planted=()):
-    """The classifier's arguments for a demo-shaped run. The git-helper entries
-    are in: when #29 binds the history reader, the tripwire is the only
-    assertion that changes."""
+    """The classifier's arguments for a demo-shaped run, the git-helper entries
+    in: the demo build starts git since #29 bound the history reader."""
     return {"allowed": [SAMPLES, PACKAGE], "planted": list(planted), "by_name": ALL_BY_NAME}
 
 
@@ -404,17 +403,12 @@ def test_real_git_call_record_is_classified(tmp_path, built_sample_history):
     assert [reason for reason, _ in violations(record, **kwargs)] == ["starts a process"] * len(spawns)
 
 
-# --- the demo's git reads (AC 3): in process, as the build makes no git call until #29 ------
-
-TRIPWIRE = """the demo build now starts a process: #29 has bound the history reader into the build.
-Change this assertion to "at least one subprocess.Popen event"; nothing else: rule 2 of
-violations() and the git-helper BY_NAME entries are already proved on a real git call
-by test_real_git_call_record_is_classified."""
+# --- the demo's git reads (AC 3) -----------------------------------------------------------
 
 
 def test_sample_installation_git_reads_stay_in_the_sample_directory(tmp_path, monkeypatch, built_sample_history):
-    """In process, over the sample installation: the demo build itself makes no
-    git call until #29 binds the history reader."""
+    """In process, over the sample installation: every git call the history
+    reader makes stays in the sample directory."""
     from gantry import wbs_history
     from gantry.config import load_config
     from gantry.sites import config_roots, load_sites
@@ -444,13 +438,16 @@ def test_sample_installation_git_reads_stay_in_the_sample_directory(tmp_path, mo
     assert not inside(tmp_path, SAMPLES)
 
 
-def test_demo_build_starts_no_process_yet(demo_runs):
+def test_demo_build_starts_git(demo_runs):
+    """#29 bound the history reader into the build: the demo build starts git,
+    and every start is classified as the git helper by
+    test_demo_build_reads_only_samples_and_the_package."""
     for run in ("planted", "baseline"):
         record = demo_runs[run].record
         assert record["hook_errors"] == 0
         events = [e["event"] for e in record["events"]]
         assert [e for e in events if e in PROCESS_EVENTS] == [], "the demo build starts a process"
-        assert [e for e in events if e in SPAWNS] == [], TRIPWIRE
+        assert [e for e in events if e == "subprocess.Popen"], "the demo build starts no git"
 
 
 # --- the classifier's controls ----------------------------------------------------------

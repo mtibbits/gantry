@@ -7,11 +7,13 @@ repository's git history (#28):
   of weeks, and whether the site's working-tree `WBS.md` matches its
   committed version;
 - `committed_text`: a committed file's text at `HEAD`;
+- `committed_paths`: which per-issue checklists are committed at `HEAD`, in
+  one git call;
 - `history_repository`: which repository answers, the one rule every read
   goes through.
 
-No page shows these answers yet: #29 (Derive the five time thieves) reads
-them. Until #29 binds them, the signatures below are provisional. When git
+The strategic page's time thieves (#29) read these answers, which binds the
+signatures below ([strategic-page.md](strategic-page.md#time-thieves)). When git
 cannot answer, the result is **no data** with a reason, never an error that
 stops the build.
 
@@ -122,6 +124,21 @@ the site's history directory, in `/` form (for example
 `last_state_change` returns the `Repo | NoData` it used as
 `HistoryResult.repo`, so a caller passes it straight on.
 
+## Committed checklists
+
+`committed_paths(repo, name)` lists the `<folder>/<name>` files committed at
+`HEAD` exactly one folder below the history directory (paths relative to it,
+in `/` form, for example `Issue-7/checklist.md` for the name `checklist.md`), from ONE
+`git ls-tree -r --name-only -z HEAD -- <history directory>` in the top level.
+It is the **`ls-tree` prefilter**: a caller reads a checklist with
+`committed_text` only when its path is listed, so an issue with no committed
+checklist costs no git call. A `NoData` given passes through with no git
+call. When `ls-tree` exits non-zero, one more call resolves `HEAD`: an unborn
+`HEAD` (a repository with no commit yet) lists nothing, as `committed_text`
+reads it `Absent`; otherwise the answer is `NoData` (`git failed: ...`). When
+git cannot run at all (not found, timed out), that `NoData` is the answer,
+with no second call.
+
 ## The uncommitted check
 
 `HistoryResult.uncommitted` says whether the site's working-tree `WBS.md` (in
@@ -156,7 +173,8 @@ Every git call goes through one helper, `run_git`:
 
 - an argument list, never a shell, with no input;
 - plumbing only, each with an allow-list of options: `rev-parse`,
-  `rev-list`, `cat-file blob` and `hash-object` (never `-w`,
+  `rev-list`, `cat-file blob`, `ls-tree` (only `-r`, `--name-only` and
+  `-z`) and `hash-object` (never `-w`,
   `--no-filters`, `--batch`, `--textconv` or `--filters`), so no pager or
   `textconv` applies; anything else is refused with an error;
 - every inherited `GIT_*` environment variable removed, so a hook's
@@ -165,8 +183,8 @@ Every git call goes through one helper, `run_git`:
   `LC_ALL=C` so git's messages are not translated;
 - run in the history directory to find the repository, then in its top
   level, with every path relative to that top level: `rev-list` takes it
-  as the pathspec `:(top,literal)<path>`, `rev-parse` as `<commit>:<path>`
-  and `hash-object` as `--path=<path>`;
+  as the pathspec `:(top,literal)<path>`, `rev-parse` as `<commit>:<path>`,
+  `ls-tree` as `:(top,literal)<prefix>` (`.` at the top level) and `hash-object` as `--path=<path>`;
 - a time limit per call.
 
 The user's global git config is kept, so a `safe.directory` entry the
@@ -232,6 +250,10 @@ Each reason, as the result's text gives it (`no data: <reason>`):
   the version before the last commit read;
 - `git failed: <first line of git's message>`: any other git call failed,
   with every absolute path in the message replaced by the site's name.
+
+A `NoData` for `git not found` or `git failed` carries `git=True` (not part of
+its equality), so a caller tells git's own failure from the others without
+reading the reason text.
 
 The uncommitted check alone can also read ``cannot check the working-tree
 `WBS.md`: <reason>``, or the roots refusal for the working-tree file. No case

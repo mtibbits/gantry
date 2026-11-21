@@ -14,13 +14,18 @@ docs/strategic-page.md states the rules.
 """
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 
 from gantry.est_rules import classify_est
 from gantry.inputs import scheduled
 from gantry.links import page_href
 from gantry.portfolio_file import Allocation, PortfolioEntry, intended_shares
+
+# Why a built site's panel has no gap (Panel.gap_reason), in precedence order.
+NO_GAP_NO_SHARE = "no intended share set"
+NO_GAP_NO_OPEN_WORK = "no open work across built sites"
+NO_GAP_SHARES_ZERO = "the built sites' intended shares sum to 0"
 
 
 def built_sites(result) -> tuple[str, ...]:
@@ -55,6 +60,8 @@ class Panel:
     comparable: float | None  # intended rescaled over the built sites' shares; None when not comparable
     gap: float | None  # |backlog share - comparable|, unrounded
     serves: tuple[str, ...]  # the business requirement IDs the portfolio file's serves lists, as text
+    gap_reason: str | None = None  # why a built site has no gap (a NO_GAP_* text); None with a gap or not built
+    thieves: object = None  # a thieves.Thieves, attached by the build (#29); None when not derived
 
 
 @dataclass(frozen=True)
@@ -81,6 +88,7 @@ class StrategicModel:
     off_not_in_config: int | float  # intended share on names that are not sites
     headline: Panel | None  # the built site with the largest gap; the first in config order on a tie
     report: tuple[PortfolioEntry, ...]  # the build's portfolio entries, in report order
+    fires_no_site: object = None  # a thieves.NoSiteFires, attached by the build (#29)
 
     @property
     def projects(self) -> tuple[str, ...]:
@@ -90,6 +98,13 @@ class StrategicModel:
     def backlog(self) -> dict:
         """{built site: SiteBacklog}, config order."""
         return {name: p.backlog for name, p in self.panels.items() if p.built}
+
+
+def replace_panels(model, panels, **changes) -> StrategicModel:
+    """The model with `panels` in place of its own, the headline re-pointed to
+    its new panel object."""
+    headline = panels[model.headline.site] if model.headline is not None else None
+    return replace(model, panels=panels, headline=headline, **changes)
 
 
 def _split(data) -> dict:
@@ -133,7 +148,17 @@ def _panel(result, summary, backlog, shares, built_sum, portfolio) -> Panel:
     return Panel(site=name, built=True, href=page_href(name, from_top=True), reason=None,
                  open_leaves=summary.open_leaves, held_out=summary.open_leaves - len(scheduled(inputs.data)),
                  backlog=site, estimates=inputs.estimates.name if inputs.estimates is not None else None,
-                 intended=intended, comparable=comparable, gap=gap, serves=serves)
+                 intended=intended, comparable=comparable, gap=gap, serves=serves,
+                 gap_reason=_gap_reason(intended, site.share) if gap is None else None)
+
+
+def _gap_reason(intended, share) -> str:
+    """Why a built site has no gap, the first that applies (D1)."""
+    if intended is None:
+        return NO_GAP_NO_SHARE
+    if share is None:
+        return NO_GAP_NO_OPEN_WORK
+    return NO_GAP_SHARES_ZERO
 
 
 def _group(kind, br_id, text, sites, panels) -> Group:

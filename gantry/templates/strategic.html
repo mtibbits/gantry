@@ -9,12 +9,13 @@
 /* The index's sheet, with the groups and their panels. */
 :root {
   --bg: #f3f4f6; --sheet: #ffffff; --ink: #18202c; --muted: #5d6878; --rule: #d6dbe3; --link: #3a55c9;
+  --flag: #a3361f;
   --f-display: "Arial Narrow", "Segoe UI", system-ui, sans-serif;
   --f-body: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
   --f-mono: ui-monospace, "Cascadia Mono", Consolas, Menlo, monospace;
 }
 @media (prefers-color-scheme: dark) {
-  :root { --bg: #0f131a; --sheet: #161c25; --ink: #e5e9ef; --muted: #98a3b3; --rule: #2b3442; --link: #8fa3ff; }
+  :root { --bg: #0f131a; --sheet: #161c25; --ink: #e5e9ef; --muted: #98a3b3; --rule: #2b3442; --link: #8fa3ff; --flag: #ff9a7a; }
 }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--f-body); }
 .wrap { max-width: 56rem; margin: 0 auto; padding: 2rem 1.25rem 3rem; background: var(--sheet); min-height: 100vh; }
@@ -33,6 +34,11 @@ ul { padding-left: 1.25rem; }
 .panel .reason { color: var(--muted); }
 .source { color: var(--muted); font-size: .8rem; margin-left: .5rem; }
 #report h2 { margin-top: 1rem; }
+.thieves { margin: .4rem 0 0; padding-left: .75rem; border-left: 2px solid var(--rule); }
+.thief { font-size: .9rem; }
+.thief.flagged { color: var(--flag); font-weight: 600; }
+.machine { color: var(--muted); font-style: italic; font-weight: 400; }
+.thief .source { font-weight: 400; }
 </style>
 </head>
 <body>
@@ -43,6 +49,7 @@ ul { padding-left: 1.25rem; }
   <ul id="notes">{{NOTES}}</ul>
   <p id="totals">{{TOTALS}}</p>
   <p id="off-page">{{OFF_PAGE}}</p>
+  <p id="fires-no-site">{{FIRES_NO_SITE}}</p>
   <div id="groups">{{GROUPS}}</div>
   <section id="report"><h2>{{REPORT_HEADING}}</h2><ul>{{REPORT}}</ul></section>
 </main>

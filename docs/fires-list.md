@@ -299,7 +299,8 @@ reads `read` and still hides a fire: a two- or three-space bullet under an
 entry whose box comes after a mark, which is a note
 ([Entry-like lines](#entry-like-lines)). The fire
 collector applies that rule ([daily-screen.md](daily-screen.md#statuses-and-nothing-on-fire)),
-and the daily page (#34) will; no page shows the fires list yet.
+and the daily page (#34) will; the strategic page counts its fires
+([time thieves](strategic-page.md#time-thieves), #29) but lists none.
 
 ## Checking the file
 

@@ -12,7 +12,9 @@ page script: the one script element is the gantry-data JSON block.
 docs/strategic-page.md states the page.
 """
 
-from gantry import render
+import datetime
+
+from gantry import render, thieves
 from gantry.portfolio_file import PORTFOLIO_LABEL, format_entry
 from gantry.render import Markup, embed_json, esc, fill
 from gantry.sites import shown
@@ -79,7 +81,8 @@ STRATEGIC_TEXTS = (
     SOURCE_HOURS_NO_FILE, SOURCE_INTENDED, SOURCE_COMPUTED, SOURCE_TOTAL, SOURCE_HEADLINE, SOURCE_GROUP_NONE,
 )
 
-FIGURE_KINDS = ("hours", "intended", "backlog", "gap", "total", "group-sum", "headline", "index-share")
+FIGURE_KINDS = ("hours", "intended", "backlog", "gap", "total", "group-sum", "headline", "index-share",
+                *thieves.FIGURES.values(), thieves.FIRES_NO_SITE_FIGURE)
 GROUP_CLASSES = {"br": "g-br", "no_requirement": "g-no-requirement", "no_share": "g-no-share",
                  "not_built": "g-not-built"}
 GROUP_TITLES = {"no_requirement": GROUP_NO_REQUIREMENT, "no_share": GROUP_NO_SHARE, "not_built": GROUP_NOT_BUILT}
@@ -161,6 +164,8 @@ def _panel(model, panel) -> str:
         if panel.gap is not None:
             rows.append(_p(figure("gap", GAP.format(points=_round(panel.gap), comparable=pct(panel.comparable)),
                                   SOURCE_COMPUTED)))
+        if panel.thieves is not None:
+            rows.append(_thieves(panel.thieves))
     else:
         rows.append(f'{_part("name", shown(panel.site))}{esc(DOT)}'
                     f'{_part("reason", NOT_BUILT.format(reason=panel.reason))}')
@@ -169,6 +174,68 @@ def _panel(model, panel) -> str:
             rows.append(_p(NOT_BUILT_SERVES.format(ids=", ".join(panel.serves))))
         rows.append(_p(NOT_BUILT_BACKLOG))
     return f'<li class="panel">{"".join(rows)}</li>'
+
+
+# --- the time thieves (#29) ------------------------------------------------------------
+
+
+def threshold_number(value) -> str:
+    """A threshold as configured: an integer in full, a float as Python writes it ("10.25", "1e+308"),
+    a whole float bare. Never rounded, so the text names the number the flag compares; never raises."""
+    if isinstance(value, int):
+        return str(value)
+    text = repr(value)
+    return text[:-2] if text.endswith(".0") else text
+
+
+def threshold_text(thief) -> str:
+    """The thief's threshold, as configured."""
+    return thieves.THRESHOLD_TEXTS[thief.kind].format(n=threshold_number(thief.threshold))
+
+
+def shows_flag(thief) -> bool:
+    """A thief says flagged or not flagged unless it has no value to judge:
+    no data, or a count left incomplete with nothing counted."""
+    return thief.no_data is None and (thief.value is not None or thief.flagged)
+
+
+def _thief(kind, thief) -> str:
+    dot = esc(DOT)
+    out = [figure(thieves.FIGURES[kind], thief.text, thief.source), dot, esc(threshold_text(thief))]
+    if shows_flag(thief):
+        out += [dot, esc(thieves.FLAGGED if thief.flagged else thieves.NOT_FLAGGED)]
+    for part in thief.parts:
+        out += [dot, _part("part machine" if part.machine else "part", part.text)]
+    if thief.label is not None:
+        out += [dot, _part("machine", thief.label)]
+    css = "thief flagged" if thief.flagged else "thief"
+    return f'<p class="{css}">{esc(thieves.TITLES[kind])}: {"".join(out)}</p>'
+
+
+def _thieves(found) -> str:
+    rows = "".join(_thief(kind, getattr(found, kind)) for kind in thieves.KINDS)
+    return f'<div class="thieves"><p class="label">{esc(thieves.ROW_TITLE)}</p>{rows}</div>'
+
+
+def _fires_no_site(model) -> Markup:
+    found = model.fires_no_site
+    if found is None:
+        return Markup("")
+    return figure(thieves.FIRES_NO_SITE_FIGURE, thieves.FIRES_NO_SITE.format(text=found.text), found.source)
+
+
+def _thieves_data(found) -> dict | None:
+    if found is None:
+        return None
+
+    def one(thief):
+        value = thief.value.isoformat() if isinstance(thief.value, datetime.date) else thief.value
+        return {"value": value, "text": thief.text, "threshold": thief.threshold, "flagged": thief.flagged,
+                "source": thief.source, "no_data": thief.no_data, "by_kind": dict(thief.by_kind),
+                "parts": [{"text": part.text, "machine": part.machine} for part in thief.parts],
+                "label": thief.label, "counts": dict(thief.counts)}
+
+    return {kind: one(getattr(found, kind)) for kind in thieves.KINDS}
 
 
 def _group_sum(model, group) -> Markup:
@@ -250,7 +317,8 @@ def _data(result, model) -> dict:
                 "unestimated_count": b.unestimated_count if b else None, "non_time": b.non_time if b else None,
                 "non_time_split": b.non_time_split if b else None, "estimates": p.estimates,
                 "intended": p.intended, "backlog_share": b.share if b else None, "comparable": p.comparable,
-                "gap": p.gap, "serves": list(p.serves)}
+                "gap": p.gap, "serves": list(p.serves), "thieves": _thieves_data(p.thieves),
+                "uncommitted": p.thieves.uncommitted if p.thieves is not None else None}
 
     allocation = model.allocation
     return {
@@ -266,6 +334,8 @@ def _data(result, model) -> dict:
                    "not_built_share": model.off_not_built, "not_in_config_share": model.off_not_in_config},
         "report": [{"section": section_label(e), "line": e.line, "kind": e.kind, "key_path": e.key_path,
                     "message": e.message} for e in model.report],
+        "fires_no_site": None if model.fires_no_site is None else {"count": model.fires_no_site.count,
+                                                                   "text": model.fires_no_site.text},
     }
 
 
@@ -279,6 +349,7 @@ def render_strategic(result, model) -> str:
         NOTES=Markup(_notes(model)),
         TOTALS=Markup(_totals(model)),
         OFF_PAGE=Markup(_off_page(model)),
+        FIRES_NO_SITE=_fires_no_site(model),
         GROUPS=Markup("".join(_group(model, g) for g in model.groups)),
         REPORT_HEADING=REPORT_HEADING,
         REPORT=Markup(_report(model)),
