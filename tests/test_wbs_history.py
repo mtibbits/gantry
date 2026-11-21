@@ -818,9 +818,10 @@ def test_committed_paths_lists_checklists(tmp_path, git_ready):
     assert wbs_history.committed_paths(repo, CHECKLIST) == expected
 
 
-@pytest.mark.skipif(os.name == "nt", reason="a folder name cannot start with a colon on Windows")
 def test_committed_paths_prefix_is_literal(tmp_path, git_ready):
     """A history directory whose path starts with `:` is not read as pathspec magic."""
+    if os.name == "nt":  # in the body, not a skipif mark: git_ready must gate first (test_git_gate_end_to_end)
+        pytest.skip("a folder name cannot start with a colon on Windows")
     top, planning = repo_below(tmp_path, ":plan")
     commit(top, "plan/Issue-9/checklist.md", "decoy\n", "2026-01-04")
     for rel in ("Issue-1/checklist.md", "Issue-2/checklist.md", "Issue-3/notes.md", "a/b/checklist.md"):
