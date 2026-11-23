@@ -28,7 +28,8 @@ from helpers_config import sample_build
 from page_safety import HOSTILE, RULES, assert_no_external_resources, assert_page_safe
 from page_script.harness import Planted, open_page
 from test_plan_file import shape_errors
-from test_planner import FIXTURE_NAMES, FIXTURES, NO_PLAN_CASES, install, leaf, portfolio_md, wbs_md
+from test_planner import (CAPACITY_NO_PLAN_CASES, FIXTURE_NAMES, FIXTURES, NO_PLAN_CASES, install, leaf,
+                          portfolio_md, wbs_md)
 from test_worksite_page import find, text_of, tree, visible_text
 
 STAMP = "built 2026-01-19 09:00"
@@ -1093,7 +1094,11 @@ def test_no_plan_pages(tmp_path, key, case, changes):
 
 def test_no_plan_cases_cover_every_reason():
     assert len(NO_PLAN_CASES) == 15
-    assert {key for key, _, _ in NO_PLAN_CASES} == set(NO_PLAN)
+    # The four reasons a devagent capacity declaration adds (#39) are CAPACITY_NO_PLAN_CASES'. They
+    # have no page here: a build passes the planner no declaration.
+    assert len({key for key, _, _ in NO_PLAN_CASES}) == 5
+    assert {key for key, _, _ in NO_PLAN_CASES} | {key for key, _, _, _ in CAPACITY_NO_PLAN_CASES} == set(NO_PLAN)
+    assert len(NO_PLAN) == 9
 
 
 # --- safety, attributes and invariants -----------------------------------------------------------

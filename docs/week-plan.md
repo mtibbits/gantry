@@ -553,9 +553,21 @@ The plan has status `no_plan` and one reason, the first that applies, when:
 |---|---|
 | no portfolio_file is configured | the installation config sets no `portfolio_file` |
 | the portfolio file's settings were not read | the file is missing or unreadable, has no settings block, holds invalid TOML or a `portfolio_version` this Gantry does not read |
-| the portfolio file declares no usable attention hours after reserved blocks on any weekday | `attention_hours` is absent or was rejected, or every weekday has under half a minute left after its reserved blocks |
-| the portfolio file declares no usable agent_lanes, or 0 | `agent_lanes` is absent, was rejected or is 0 |
+| devagent declares T h a week, but the portfolio file reserves every weekday's attention hours | devagent's capacity declaration is used, and reserved blocks take every minute it could go to: `attention_hours` gives some weekday a minute and none has one left after its reserved blocks, or `attention_hours` is not set and each day from Monday to Friday is reserved for its 24 hours |
+| devagent declares T h a week, under one minute on every working day | devagent's capacity declaration is used, and its weekly hours come to under half a minute on every weekday they are scaled onto or spread over |
+| devagent's capacity declaration is invalid (N violations), and the portfolio file declares no attention hours | devagent's capacity declaration breaks a rule, and `attention_hours` is absent or was rejected, or every weekday has under half a minute left after its reserved blocks |
+| devagent's capacity declaration is invalid (N violations), and the portfolio file declares no agent lanes | devagent's capacity declaration breaks a rule, and `agent_lanes` is absent, was rejected or is 0 |
+| the portfolio file declares no usable attention hours after reserved blocks on any weekday | devagent declares no capacity, and `attention_hours` is absent or was rejected, or every weekday has under half a minute left after its reserved blocks; or devagent's capacity declaration is used, and `attention_hours` is set and gives every weekday under half a minute |
+| the portfolio file declares no usable agent_lanes, or 0 | devagent declares no capacity, and `agent_lanes` is absent, was rejected or is 0 |
 | no site was built | no site's page was rendered |
+
+The four reasons that name devagent are its capacity declaration's (#39).
+A declaration is used when it has a `[capacity]` table and breaks no rule:
+it gives the week's attention hours and the lanes, so the portfolio file
+need set neither. In a reason, T is the declared `operator_hours_per_week`
+in its shortest decimal form, never rounded (`30`, `30.5`, `0.001`), and
+"N violations" counts the lines devagent's reader writes about the rules
+the declaration breaks: "1 violation" for one.
 
 No reason holds a path. A site counts as built when its page was rendered;
 a page that later fails to write does not change the plan. A `no_plan` plan
@@ -601,7 +613,7 @@ Hours are minutes divided by 60, and a date is `YYYY-MM-DD` text.
 | `days` | one record per working day, below |
 | `leaves` | one record per placed leaf, sites in config order, then by first placement |
 | `sites` | one record per built site, in config order |
-| `report` | what the plan found across sites, one entry per finding; empty when there is none and on a `no_plan` plan |
+| `report` | devagent's lines about its capacity declaration, on a `no_plan` plan too, then what the plan found across sites: one entry per line or finding, empty when there is none |
 | `notes` | what the plan says about the intended shares it applied, by date; empty on a `no_plan` plan |
 
 A day holds its `date` and `weekday` (`mon` to `sun`), its
@@ -660,10 +672,15 @@ keeps absent and unresolved outcomes as well as open ones, since each holds the 
 targets are the values at the horizon's end; the file holds no per-day
 target.
 
-A report entry holds its `kind`, `cross_site_cycle`, and its `leaves`,
-each a `site` and `key`, in devagent's config order of site, then `WBS.md`
-order; entries go in the order of their first leaf. At version 1, `report`
-holds only `cross_site_cycle` entries. No view reads `report` yet (the
+A report entry holds its `kind`, its `leaves`, each a `site` and `key`,
+and its `text`. There are three kinds, and entries go in this order. A
+`capacity_invalid` entry is one rule devagent's capacity declaration breaks
+and a `capacity_unknown_key` entry one key of it that devagent does not
+know (#39): its `text` is the line devagent's reader writes about it, its
+`leaves` are empty, and these entries keep devagent's order, on a `no_plan`
+plan too. A `cross_site_cycle` entry has a null `text` and names its
+`leaves` in devagent's config order of site, then `WBS.md` order; such
+entries go in the order of their first leaf. No view reads `report` yet (the
 week view shows cycle leaves by their reason), so its shape stays
 provisional until one does (#167); a kind with another shape changes the pinned
 shape and this section in the same change.

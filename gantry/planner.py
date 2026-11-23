@@ -1,7 +1,8 @@
 """The week planner (#61): the next 10 working days laid onto blocks per day.
 
 plan_week plans every built site's open leaves from the build's resolved
-inputs, the portfolio file's capacity and each leaf's attention rate
+inputs, the portfolio file's capacity, devagent's capacity declaration when
+the caller passes one (#39, gantry/capacity.py) and each leaf's attention rate
 (gantry/attention.py). It reads no file and no clock; it charges whole
 minutes and its targets are exact fractions, so the same inputs and as-of
 date give the same plan on any machine. docs/week-plan.md states the rules.
@@ -9,7 +10,7 @@ date give the same plan on any machine. docs/week-plan.md states the rules.
 
 import json
 import math
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import timedelta
 from fractions import Fraction
 from graphlib import TopologicalSorter
@@ -30,10 +31,18 @@ POOL_ATTENTION = "operator attention hours"
 POOL_LANES = "agent lanes"
 POOLS = (POOL_ATTENTION, POOL_LANES)
 CAPACITY_SOURCE = "portfolio file"
-# The plan's `capacity` object (#39) when devagent declares nothing: its
-# `declaration`, and the `rule` of attention hours read off the portfolio file as they stand.
-NOT_DECLARED = "not_declared"
-RULE_PORTFOLIO_FILE = "portfolio_file"
+# Both pools' source when the plan is made from devagent's capacity declaration (#39).
+CAPACITY_SOURCE_DEVAGENT = "devagent capacity declaration (this build machine)"
+# The plan's `capacity.declaration` (#39): what devagent's capacity declaration
+# is to the plan. Only a used one changes the capacity planned from.
+DECLARATIONS = ("not_declared", "used", "invalid")
+NOT_DECLARED, USED, INVALID = DECLARATIONS
+# The plan's `capacity.attention.rule`: where each day's attention hours come
+# from. The portfolio file's as they stand; a used declaration's weekly total
+# scaled onto the portfolio file's weekdays; or, when the portfolio file sets
+# no attention_hours, that total spread evenly over SPREAD_DAYS.
+ATTENTION_RULES = ("portfolio_file", "scaled", "even_spread")
+RULE_PORTFOLIO_FILE, RULE_SCALED, RULE_EVEN_SPREAD = ATTENTION_RULES
 NO_POOL = "no pool ran out"
 HORIZON_DAYS = 10
 WEEK_DAYS = 5
@@ -50,10 +59,24 @@ NOTE_TEXTS = {
     SHARES_DROPPED: "shares dropped on {date} for projects that are not built sites: {projects}",
     NO_ALLOCATION: "no intended shares apply on {date}; every site planned with equal shares",
 }
-# Why there is no plan, in the order checked: the first that applies is the reason.
+# Why there is no plan: the first that applies is the reason (_no_plan). The
+# four after settings_not_read are a devagent capacity declaration's (#39).
+# A used one gives the attention and the lanes, so no_lanes never applies and
+# the two capacity_* texts are its reasons, with no_attention for an
+# attention_hours table that gives no weekday a minute. An invalid one is
+# named by the two invalid_* texts, in place of no_attention and no_lanes.
+# {total} is the declared weekly hours as written, never rounded, and {count}
+# is "1 violation" or "N violations" (_reason).
 NO_PLAN = {
     "no_portfolio": "no portfolio_file is configured",
     "settings_not_read": "the portfolio file's settings were not read",
+    "capacity_reserved":
+        "devagent declares {total} h a week, but the portfolio file reserves every weekday's attention hours",
+    "capacity_too_small": "devagent declares {total} h a week, under one minute on every working day",
+    "invalid_no_attention":
+        "devagent's capacity declaration is invalid ({count}), and the portfolio file declares no attention hours",
+    "invalid_no_lanes":
+        "devagent's capacity declaration is invalid ({count}), and the portfolio file declares no agent lanes",
     "no_attention": "the portfolio file declares no usable attention hours after reserved blocks on any weekday",
     "no_lanes": "the portfolio file declares no usable agent_lanes, or 0",
     "no_sites": "no site was built",
@@ -64,21 +87,30 @@ UNPLANNED_REASONS = ("blocked_externally", "parked", "waits_on_cycle", "cross_si
                      "waits_on_site_absent", "waits_on_unresolved", "waits_on_unplanned", "beyond_horizon")
 (BLOCKED_EXTERNALLY, PARKED, WAITS_ON_CYCLE, CROSS_SITE_CYCLE, WAITS_ON_SITE_ABSENT,
  WAITS_ON_UNRESOLVED, WAITS_ON_UNPLANNED, BEYOND_HORIZON) = UNPLANNED_REASONS
-# The kinds of a plan report entry: what the plan finds across sites (#62).
-PLAN_REPORT_KINDS = (CROSS_SITE_CYCLE,)
+# The kinds of a plan report entry, in report order: devagent's lines about
+# its capacity declaration (#39), each violation and then each unknown key,
+# then what the plan finds across sites (#62).
+PLAN_REPORT_KINDS = ("capacity_invalid", "capacity_unknown_key", CROSS_SITE_CYCLE)
+CAPACITY_INVALID, CAPACITY_UNKNOWN_KEY = PLAN_REPORT_KINDS[:2]
 
 # The site report's kinds of a local depends_on entry that names nothing (#8):
 # no dependency in the plan, only counted on the leaf's record (#62).
 LOCAL_UNRESOLVED_KINDS = ("unresolved_ref", "malformed_ref")
 
 # The caps that keep the arithmetic whole and finite whatever the portfolio
-# file holds: no day has more than 24 hours, a lane count above this plans
-# like it, and a leaf longer than this is cut to it.
+# file and devagent's capacity declaration hold: no day has more than 24
+# hours, of attention or of one lane; a lane count above this plans like it;
+# and a leaf longer than this is cut to it.
 DAY_MINUTES = 24 * 60
 LANE_MINUTES = HOURS_PER_DAY * 60
 MAX_LANES = 1_000_000
 MAX_LEAF_MINUTES = 60 * 1_000_000_000
 PPM = 1_000_000
+# A declared weekly total (#39) this many minutes or fewer from the portfolio
+# file's weekday sum scales no day: 0.01 h, compared exactly.
+SCALING_TOLERANCE = Fraction(6, 10)
+# The weekdays a declared weekly total is spread over when the portfolio file sets no attention_hours.
+SPREAD_DAYS = WEEKDAYS[:5]
 
 
 @dataclass(frozen=True)
@@ -97,7 +129,7 @@ class WeekPlan:
 
     plan_version: int
     status: str  # "planned" or "no_plan"
-    reason: str | None  # a NO_PLAN text when status is "no_plan"
+    reason: str | None  # a NO_PLAN text, filled in, when status is "no_plan"
     as_of: str
     allocation_rule: str
     unestimated_planned: int
@@ -157,10 +189,14 @@ def _hours(minutes) -> float:
 class _Capacity:
     declared: dict  # weekday -> minutes before reserved blocks
     reserved: dict  # weekday -> [{start, hours, label}] in file order
+    taken: dict  # weekday -> minutes of its reserved blocks
     attention: dict  # weekday -> minutes after reserved blocks
     lost: dict  # weekday -> minutes of attention that do not fit in the day
+    rule: dict  # the plan's `capacity.attention`: the rule that gave `attention`, and its figures
     lanes: int
     lane_minutes: int  # the agent minutes one lane, and so one leaf, takes in a day
+    lane_week: int | float | None  # devagent's lane_hours_per_week as declared; None from the portfolio file
+    lane_lost: int  # minutes a week of one lane that do not fit in its days
     block_min: int
     start_cost: int
     block_default: int  # never under block_min
@@ -173,7 +209,8 @@ def _setting(value, key):
 def _capacity(portfolio) -> _Capacity:
     """The portfolio file's capacity in whole minutes. attention_hours or
     agent_lanes that is absent or was rejected reads 0. Its hours fit in
-    their days, so no minute is lost, and a lane's day is LANE_MINUTES."""
+    their days, so no minute is lost, and a lane's day is LANE_MINUTES.
+    _declared_capacity makes a used capacity declaration's from it."""
     capacity = portfolio.capacity
     hours = capacity.attention_hours or {}
     declared = {day: to_minutes(hours.get(day, 0)) for day in WEEKDAYS}
@@ -190,10 +227,14 @@ def _capacity(portfolio) -> _Capacity:
     return _Capacity(
         declared=declared,
         reserved=reserved,
+        taken=taken,
         attention={day: max(0, declared[day] - taken[day]) for day in WEEKDAYS},
         lost=dict.fromkeys(WEEKDAYS, 0),
+        rule={"rule": RULE_PORTFOLIO_FILE, "total_hours": None, "weekday_sum_hours": None, "factor": None},
         lanes=min(lanes, MAX_LANES) if _is_number(lanes) and lanes > 0 else 0,
         lane_minutes=LANE_MINUTES,
+        lane_week=None,
+        lane_lost=0,
         block_min=block_min,
         start_cost=to_minutes(_setting(capacity.block_start_cost_hours, "capacity.block_start_cost_hours")),
         block_default=max(block_min, to_minutes(_setting(capacity.block_default_hours,
@@ -206,25 +247,136 @@ def _built_sites(result) -> list[str]:
     return [site.name for site in result.sites if site.name in result.pages]
 
 
-def _no_plan(portfolio, result):
-    """(NO_PLAN key, None) when there is no plan, else (None, capacity)."""
+def _declaration(capacity) -> str:
+    """What devagent's capacity declaration, a DeclaredCapacity or None, is to
+    a plan, one of DECLARATIONS. Invalid with any violation, whether or not
+    it has a [capacity] table: a project's capacity table without one is a
+    violation. Else used when it declares capacity. None is not_declared."""
+    if capacity is None:
+        return NOT_DECLARED
+    if capacity.violations:
+        return INVALID
+    return USED if capacity.usable else NOT_DECLARED
+
+
+def _exact_minutes(hours) -> Fraction:
+    """A declared hour figure in minutes, exactly as written: from the
+    number's shortest decimal form, as render.hundredths reads one. 20.01 h
+    is 1200.6 minutes; the binary float times 60 is not."""
+    return Fraction(repr(float(hours))) * 60
+
+
+def _half_up(minutes) -> int:
+    """An exact figure rounded once to whole minutes, a half up."""
+    return math.floor(minutes + Fraction(1, 2))
+
+
+def _declared_attention(portfolio, available, capacity):
+    """A used declaration's attention before any day's cap: (NO_PLAN key,
+    None, None) when the portfolio file's weekdays give its weekly total
+    nowhere to go, else (None, {weekday: minutes}, the plan's
+    `capacity.attention`).
+
+    The total is scaled onto the portfolio file's weekdays after reserved
+    blocks, each day rounded once, unless it is within SCALING_TOLERANCE of
+    their sum: then the factor is 1 and each day is the file's. When the
+    portfolio file sets no attention_hours it is spread evenly over
+    SPREAD_DAYS instead. A table that leaves no weekday a minute is set, so
+    nothing is spread over it: its reserved blocks took its hours
+    (capacity_reserved), or it gave none (no_attention)."""
+    total = _exact_minutes(capacity.operator_hours_per_week)
+    record = {"rule": RULE_SCALED, "total_hours": capacity.operator_hours_per_week,
+              "weekday_sum_hours": None, "factor": None}
+    if portfolio.capacity.attention_hours is None:
+        each = _half_up(total / len(SPREAD_DAYS))
+        return None, {day: each if day in SPREAD_DAYS else 0 for day in WEEKDAYS}, record | {"rule": RULE_EVEN_SPREAD}
+    weekday_sum = sum(available.attention.values())
+    if weekday_sum == 0:
+        return ("capacity_reserved" if any(available.declared.values()) else "no_attention"), None, None
+    factor = total / weekday_sum if abs(total - weekday_sum) > SCALING_TOLERANCE else Fraction(1)
+    minutes = {day: _half_up(available.attention[day] * factor) for day in WEEKDAYS}
+    return None, minutes, record | {"weekday_sum_hours": _hours(weekday_sum), "factor": float(factor)}
+
+
+def _declared_capacity(portfolio, available, capacity):
+    """(NO_PLAN key, None) when a used declaration `capacity` gives no plan,
+    else (None, the capacity planned from): `available`, the portfolio
+    file's, with the declaration's attention and lanes.
+
+    A day's attention (_declared_attention) is capped at the 24 hours less
+    its reserved blocks, and what does not fit is the day's `lost`; its
+    minutes before reserved blocks are its attention plus those blocks. A
+    lane's day is lane_hours_per_week over the working days, the weekdays
+    left with a minute of attention, rounded once, from 1 minute to the 24
+    hours; what does not fit is `lane_lost`, a week. max_lanes above
+    MAX_LANES plans as MAX_LANES. A usable declaration's numbers are in
+    devagent's ranges (gantry/capacity.py), so none is checked again."""
+    key, minutes, record = _declared_attention(portfolio, available, capacity)
+    if key is not None:
+        return key, None
+    attention = {day: min(minutes[day], max(0, DAY_MINUTES - available.taken[day])) for day in WEEKDAYS}
+    if not any(attention.values()):
+        # Under a minute everywhere, or every day with a minute is reserved for its 24 hours.
+        return ("capacity_reserved" if any(minutes.values()) else "capacity_too_small"), None
+    working_days = sum(1 for day in WEEKDAYS if attention[day] > 0)
+    lane = _half_up(_exact_minutes(capacity.lane_hours_per_week) / working_days)
+    lane_minutes = min(max(lane, 1), DAY_MINUTES)
+    return None, replace(
+        available,
+        declared={day: attention[day] + available.taken[day] for day in WEEKDAYS},
+        attention=attention,
+        lost={day: minutes[day] - attention[day] for day in WEEKDAYS},
+        rule=record,
+        lanes=min(capacity.max_lanes, MAX_LANES),
+        lane_minutes=lane_minutes,
+        lane_week=capacity.lane_hours_per_week,
+        lane_lost=max(0, lane - lane_minutes) * working_days,
+    )
+
+
+def _no_plan(portfolio, result, capacity):
+    """(NO_PLAN key, None) when there is no plan, else (None, the capacity
+    planned from). `capacity` is devagent's declaration or None.
+
+    A used declaration gives the attention and the lanes, so the portfolio
+    file need set neither (_declared_capacity). With any other the portfolio
+    file's capacity is planned from, and an invalid one names itself in the
+    reason."""
     if portfolio is None:
         return "no_portfolio", None
     if not portfolio.settings_read:
         return "settings_not_read", None
-    capacity = _capacity(portfolio)
-    if not any(capacity.attention.values()):
-        return "no_attention", None
-    if not capacity.lanes:
-        return "no_lanes", None
+    available = _capacity(portfolio)
+    declaration = _declaration(capacity)
+    if declaration == USED:
+        key, available = _declared_capacity(portfolio, available, capacity)
+        if key is not None:
+            return key, None
+    else:
+        invalid = declaration == INVALID
+        if not any(available.attention.values()):
+            return ("invalid_no_attention" if invalid else "no_attention"), None
+        if not available.lanes:
+            return ("invalid_no_lanes" if invalid else "no_lanes"), None
     if not _built_sites(result):
         return "no_sites", None
-    return None, capacity
+    return None, available
+
+
+def _reason(key, capacity) -> str:
+    """The NO_PLAN text of `key`, with what it names of the declaration filled
+    in: {total}, the weekly hours as declared ("0.001", never rounded), and
+    {count}, how many violations it has."""
+    if capacity is None:
+        return NO_PLAN[key]
+    count = len(capacity.violations)
+    return NO_PLAN[key].format(total=repr(capacity.operator_hours_per_week),
+                               count="1 violation" if count == 1 else f"{count} violations")
 
 
 def _working_days(as_of, capacity) -> list:
     """The first HORIZON_DAYS dates from `as_of` on whose weekday has attention
-    left after reserved blocks. Bounded: some weekday has (no_attention)."""
+    left after reserved blocks. Bounded: some weekday has (_no_plan)."""
     days, day = [], as_of
     while len(days) < HORIZON_DAYS:
         if capacity.attention[WEEKDAYS[day.weekday()]] > 0:
@@ -290,9 +442,11 @@ def _tier(eff_priority, state) -> str:
     return TIER_STARTED if state in STARTED_STATES else TIER_FAIR
 
 
-def _pools(run_out):
-    return [{"name": name, "capacity_source": CAPACITY_SOURCE, "days_run_out": run_out.get(name, [])}
-            for name in POOLS]
+def _pools(run_out, capacity):
+    """The plan's pools. Both read devagent's declaration as their source when
+    it is used, on a no_plan plan too; else the portfolio file."""
+    source = CAPACITY_SOURCE_DEVAGENT if _declaration(capacity) == USED else CAPACITY_SOURCE
+    return [{"name": name, "capacity_source": source, "days_run_out": run_out.get(name, [])} for name in POOLS]
 
 
 def _unresolved_local(data, open_leaves) -> dict:
@@ -417,10 +571,19 @@ def _reasons(by_node, cycles, sites) -> dict:
     return reasons
 
 
-def _report(cycles) -> list[dict]:
-    """The plan's report entries. A cross_site_cycle entry names its leaves and has no `text`."""
-    return [{"kind": CROSS_SITE_CYCLE, "leaves": [{"site": site, "key": key} for site, key in cycle], "text": None}
-            for cycle in cycles]
+def _report(capacity, cycles=()) -> list[dict]:
+    """The plan's report entries, in PLAN_REPORT_KINDS' order. A capacity
+    entry is one line devagent's reader writes about the declaration, as its
+    `text`, and names no leaf: each violation, then each unknown key, in
+    devagent's order, on a no_plan plan too. A cross_site_cycle entry names
+    its leaves and has no `text`."""
+    lines = []
+    if capacity is not None:
+        lines = ([(CAPACITY_INVALID, line) for line in capacity.violations]
+                 + [(CAPACITY_UNKNOWN_KEY, line) for line in capacity.warnings])
+    return ([{"kind": kind, "leaves": [], "text": line} for kind, line in lines]
+            + [{"kind": CROSS_SITE_CYCLE, "leaves": [{"site": site, "key": key} for site, key in cycle], "text": None}
+               for cycle in cycles])
 
 
 def _site_order(ready) -> list[dict]:
@@ -876,18 +1039,23 @@ def _leaf_record(item) -> dict:
     }
 
 
-def _capacity_record(available) -> dict:
-    """The plan's `capacity` object when devagent declares nothing. `available`
-    is the capacity planned from, None on a no_plan plan: such a plan has no
-    `attention` and no `lanes`."""
+def _capacity_record(capacity, available) -> dict:
+    """The plan's `capacity` object: what devagent's declaration `capacity` is
+    to the plan, with the contract's schema once anything is declared, and
+    the attention and lanes of `available`, the capacity planned from. That
+    is None on a no_plan plan: such a plan has no `attention` and no `lanes`.
+    No plan records a declared ratio, a token budget or a paused site yet."""
+    declaration = _declaration(capacity)
     attention = lanes = None
     if available is not None:
-        attention = {"rule": RULE_PORTFOLIO_FILE, "total_hours": None, "weekday_sum_hours": None, "factor": None}
-        lanes = {"max_lanes": available.lanes, "lane_hours_per_week": None,
+        attention = dict(available.rule)
+        lanes = {"max_lanes": available.lanes, "lane_hours_per_week": available.lane_week,
                  "working_days": sum(1 for day in WEEKDAYS if available.attention[day] > 0),
-                 "lane_hours_per_day": _hours(available.lane_minutes), "hours_lost_to_cap": _hours(0)}
-    return {"declaration": NOT_DECLARED, "capacity_schema": None, "attention": attention, "lanes": lanes,
-            "declared_ratio": None, "token_budget": None, "paused": []}
+                 "lane_hours_per_day": _hours(available.lane_minutes),
+                 "hours_lost_to_cap": _hours(available.lane_lost)}
+    return {"declaration": declaration,
+            "capacity_schema": None if declaration == NOT_DECLARED else capacity.capacity_schema,
+            "attention": attention, "lanes": lanes, "declared_ratio": None, "token_budget": None, "paused": []}
 
 
 def plan_week(result, portfolio, config, *, capacity=None, trace=None) -> WeekPlan:
@@ -900,22 +1068,28 @@ def plan_week(result, portfolio, config, *, capacity=None, trace=None) -> WeekPl
     list gets each day's charges, lifts and flags (_Day); the plan is the same.
 
     `capacity` is devagent's capacity declaration (gantry/capacity.py's
-    DeclaredCapacity) or None. It is not read yet (#39): whatever it holds,
-    the plan is made from the portfolio file's capacity and its `capacity`
-    object says nothing is declared, which is the plan of None and of a
-    declaration that declares nothing.
+    DeclaredCapacity) or None (#39). A used one, declared and without a
+    violation, gives the week's attention and the lanes in place of the
+    portfolio file's (_declared_capacity) and is both pools' source. None
+    and one that declares nothing give the same plan, from the portfolio
+    file's capacity. So does an invalid one, apart from what the plan says
+    of it: the `capacity` object's `declaration`, a no_plan reason that
+    names it, and devagent's lines, which lead the report of any plan
+    (_report). The declared ratio, the paused projects and the token budget
+    are not read.
     """
     mapping = mapping_in_use(portfolio)
     fields = {
         "plan_version": PLAN_VERSION, "as_of": config.as_of.isoformat(), "allocation_rule": ALLOCATION_RULE,
         "mapping": {"values": list(mapping.values), "source": mapping.source, "rejected": mapping.rejected},
     }
-    key, available = _no_plan(portfolio, result)
+    key, available = _no_plan(portfolio, result, capacity)
     if key is not None:
         run_out, binding = _binding([])
-        return WeekPlan(status="no_plan", reason=NO_PLAN[key], unestimated_planned=0, horizon_days=[],
-                        planned_week=[], pools=_pools(run_out), binding=binding, capacity=_capacity_record(None),
-                        days=[], leaves=[], sites=[], report=[], notes=[], **fields)
+        return WeekPlan(status="no_plan", reason=_reason(key, capacity), unestimated_planned=0, horizon_days=[],
+                        planned_week=[], pools=_pools(run_out, capacity), binding=binding,
+                        capacity=_capacity_record(capacity, None), days=[], leaves=[], sites=[],
+                        report=_report(capacity), notes=[], **fields)
     names = _built_sites(result)
     ranked = {name: _ranked(result.inputs[name].data) for name in names}
     items = {name: _site_work(name, result.inputs[name], mapping, config.default_unit_hours, ranked[name][1])
@@ -969,9 +1143,9 @@ def plan_week(result, portfolio, config, *, capacity=None, trace=None) -> WeekPl
     dates = [day.isoformat() for day in horizon]
     return WeekPlan(status="planned", reason=None,
                     unestimated_planned=sum(item["unestimated"] for item in placed_order),
-                    horizon_days=dates, planned_week=dates[:WEEK_DAYS], pools=_pools(run_out), binding=binding,
-                    capacity=_capacity_record(available), days=days, leaves=leaves, sites=sites,
-                    report=_report(cycles),
+                    horizon_days=dates, planned_week=dates[:WEEK_DAYS], pools=_pools(run_out, capacity),
+                    binding=binding, capacity=_capacity_record(capacity, available), days=days, leaves=leaves,
+                    sites=sites, report=_report(capacity, cycles),
                     notes=[note for found in day_shares for note in found.notes], **fields)
 
 
