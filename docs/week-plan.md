@@ -654,6 +654,13 @@ of `unestimated` leaves. A block holds its `number`, `site`,
 its `site`, `key`, `agent_hours` and `operator_hours`. A lanes-row entry
 holds `site`, `key` and `agent_hours`.
 
+A day's `attention_hours_lost_to_cap` is what of devagent's weekly hours
+does not fit in the day after its reserved blocks (#39), and
+`capacity.attention.weekdays_lost_to_cap` lists the same loss by weekday,
+each with its `weekday` (`mon` to `sun`) and `hours`, Monday first and only
+the weekdays with a loss: a weekday that keeps none of its hours is no day
+of the plan, so its loss is in that list alone.
+
 A leaf holds its `site` and `key`, its `rate`, `need`, `tag` and `basis`,
 its total `agent_hours`, whether it is `unestimated`, its `state`, its
 `hours_after_horizon` and the `days` it is on, its `unresolved_local`
@@ -737,7 +744,8 @@ item:
       "factor": null,
       "rule": "portfolio_file",
       "total_hours": null,
-      "weekday_sum_hours": null
+      "weekday_sum_hours": null,
+      "weekdays_lost_to_cap": []
     },
     "capacity_schema": null,
     "declaration": "not_declared",
@@ -1114,8 +1122,10 @@ four decimals ("1.5", "0.6667").
     when they were scaled by a factor other than 1, or
     `devagent declares {total} a week; the portfolio file sets no attention_hours, so it is spread evenly over Monday to Friday`;
   - `{weekday}: {lost} of devagent's weekly hours do not fit in the day after its reserved blocks`,
-    once for each weekday of the plan that lost hours to the day's cap,
-    Monday first;
+    once for each weekday that lost hours to its day's cap, Monday first,
+    from the plan's `capacity.attention.weekdays_lost_to_cap`: a weekday
+    that kept none of its hours is no day of the plan and is named here
+    all the same;
   - `devagent's capacity declaration is invalid; the portfolio file's capacity is used`
     when the declaration breaks a rule, then a list of the lines devagent's
     reader writes about it, one per violation, as written (the report's
@@ -1234,12 +1244,14 @@ cell is `{charged} charged, {target} target` over the 10 days.
 **No plan.** When the plan's status is `no_plan`, the page shows
 `no week plan: {reason}` and the stamp; the index still links it. When
 devagent declares no capacity that is all. Otherwise the capacity lines
-above follow the reason, by the same rule, each only when it applies:
-`capacity from: {parts}`, the note of an invalid declaration with its
+above follow the reason, each only when it applies: `capacity from: {parts}`
+when the declaration is used, the note of an invalid declaration with its
 violation lines, the unknown-key lines, the ratio line and the token
-budget. No capacity is used on this page, so the note reads
-`devagent's capacity declaration is invalid` and no more. A plan with no
-days holds no scaling and no day's cap, so those lines are never here.
+budget. With an invalid declaration no capacity is used on this page, so
+it has no `capacity from:` line and the note reads
+`devagent's capacity declaration is invalid` and no more. A `no_plan` plan
+holds no attention record, so the scaling and the cap lines are never
+here.
 
 **Errors.** When the page cannot be rendered, the build prints
 `gantry: error: cannot render week.html: <type>: <message>`; when it cannot

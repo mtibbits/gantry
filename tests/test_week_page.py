@@ -44,11 +44,10 @@ NEW_ATTRS = ("data-beyond", "data-block", "data-day", "data-figure", "data-lanes
              "data-source", "data-state", "data-tag", "data-tier", "data-today", "data-unplanned")
 # Classes that name a part of the page, never a record value.
 STRUCTURAL = frozenset({"wrap", "label", "stamp", "not-working", "rule", "mapping", "capacity", "invalid", "shareless",
-                        "day", "later",
-                        "today", "hours", "reserved", "none", "block", "lanes", "left", "leaf", "title", "unest",
-                        "state", "tier", "need", "basis", "cont", "site-unplanned", "beyond-list", "reason", "held",
-                        "p0-leaf", "gone", "top", "key", "meta", "prio", "ttl", "tl", "facts", "bands",
-                        "band", "lane-site", "sw", "xsite",
+                        "day", "later", "today", "hours", "reserved", "none", "block", "lanes", "left", "leaf", "title",
+                        "unest", "state", "tier", "need", "basis", "cont", "site-unplanned", "beyond-list", "reason",
+                        "held", "p0-leaf", "gone", "top", "key", "meta", "prio", "ttl", "tl", "facts", "bands", "band",
+                        "lane-site", "sw", "xsite",
                         # The workflow phase row (#173).
                         "phases", "ph-svg", "ph-row", "ph-cell", "ph-box", "ph-mark", "ph-t", "ph-done", "ph-current",
                         "ph-stuck", "ph-parked", "ph-blocked", "ph-ahead", "ph-none", "ph-unknown"})
@@ -70,7 +69,7 @@ def capacity_record(planned=True, **fields):
     record = {
         "declaration": "not_declared", "capacity_schema": None,
         "attention": {"rule": "portfolio_file", "total_hours": None, "weekday_sum_hours": None,
-                      "factor": None} if planned else None,
+                      "factor": None, "weekdays_lost_to_cap": []} if planned else None,
         "lanes": {"max_lanes": 1, "lane_hours_per_week": None, "working_days": 5, "lane_hours_per_day": 6.0,
                   "hours_lost_to_cap": 0.0} if planned else None,
         "declared_ratio": None, "token_budget": None, "paused": [],
@@ -1410,12 +1409,17 @@ def test_capacity_source_lines(tmp_path):
     # An invalid declaration is not the source.
     plan, html = capacity_build(tmp_path, invalid_config(), "invalid")
     assert plan.status == "planned" and capacity_notes(tree(html))[0] == FROM_FILE
-    # The no-plan page has the line only when devagent declares something, used or not.
+    # The no-plan page has the line only when the declaration is used: with no plan no other
+    # capacity is used, so a page that named the portfolio file as the source would be wrong.
     plan, html = capacity_build(tmp_path, declares(), **NO_PORTFOLIO)
     assert plan.status == "no_plan" and capacity_notes(tree(html))[0] == FROM_DEVAGENT
+    assert visible_text(html).count("capacity from:") == 1
     plan, html = capacity_build(tmp_path, invalid_config(), "invalid", **NO_PORTFOLIO)
-    assert plan.status == "no_plan" and capacity_notes(tree(html))[0] == FROM_FILE
+    assert plan.status == "no_plan" and capacity_notes(tree(html)) == [INVALID_NO_PLAN_NOTE]
+    assert [pool["capacity_source"] for pool in plan.pools] == ["portfolio file"] * 2
+    assert "capacity from:" not in visible_text(html)
     plan, html = capacity_build(tmp_path, capacity_config("not_declared"), "not_declared", **NO_PORTFOLIO)
+    assert "capacity from:" not in visible_text(html)
     t = tree(html)
     assert plan.status == "no_plan" and capacity_notes(t) == [] and week._capacity_notes(plan) == ""
     # With nothing declared the no-plan page is the reason and the stamp, as it was before #39.
@@ -1427,7 +1431,7 @@ def test_capacity_source_lines(tmp_path):
 def test_scaling_note(tmp_path):
     plan, html = capacity_build(tmp_path, declares(total=30), portfolio=unscaled())
     assert plan.capacity["attention"] == {"rule": "scaled", "total_hours": 30, "weekday_sum_hours": 20.0,
-                                          "factor": 1.5}
+                                          "factor": 1.5, "weekdays_lost_to_cap": []}
     assert capacity_notes(tree(html)) == [
         FROM_DEVAGENT,
         "devagent declares 30 h a week; the portfolio file's weekdays after reserved blocks sum to 20 h; "
@@ -1465,7 +1469,7 @@ def test_no_scaling_note_at_factor_1(tmp_path):
 def test_even_spread_note(tmp_path):
     plan, html = capacity_build(tmp_path, declares(total=30), portfolio=capacity_portfolio("no_hours"))
     assert plan.capacity["attention"] == {"rule": "even_spread", "total_hours": 30, "weekday_sum_hours": None,
-                                          "factor": None}
+                                          "factor": None, "weekdays_lost_to_cap": []}
     assert capacity_notes(tree(html)) == [
         FROM_DEVAGENT,
         "devagent declares 30 h a week; the portfolio file sets no attention_hours, so it is spread evenly over "
@@ -1495,6 +1499,28 @@ def test_cap_note(tmp_path):
     assert plan.capacity["attention"]["rule"] == "even_spread"
     assert capacity_notes(tree(html))[2:-1] == [
         "Tuesday: 2 h of devagent's weekly hours do not fit in the day after its reserved blocks"]
+    # A weekday that keeps none of its hours is no day of the plan, and is named all the same: a
+    # Tuesday reserved for its 24 hours loses the 6 h spread onto it.
+    spread = portfolio_md(attention="", lanes=2, tail=reserved("tue", 24) + SHARES)
+    plan, html = capacity_build(tmp_path, declares(total=30), portfolio=spread)
+    assert "tue" not in {day["weekday"] for day in plan.days}
+    assert {day["attention_hours_lost_to_cap"] for day in plan.days} == {0}
+    t = tree(html)
+    assert capacity_notes(t) == [
+        FROM_DEVAGENT,
+        "devagent declares 30 h a week; the portfolio file sets no attention_hours, so it is spread evenly over "
+        "Monday to Friday",
+        "Tuesday: 6 h of devagent's weekly hours do not fit in the day after its reserved blocks", TOKENS_NOTE]
+    assert not any(text.startswith("Tuesday ") for text in texts(t, "h2"))
+    # The lines are the attention record's list as the plan holds it, in its order, and a weekday
+    # the page does not know is written as it stands.
+    record = {"rule": "portfolio_file", "total_hours": None, "weekday_sum_hours": None, "factor": None,
+              "weekdays_lost_to_cap": [{"weekday": "sun", "hours": 1.5}, {"weekday": "sat", "hours": 0.25},
+                                       {"weekday": "caturday", "hours": 2}]}
+    plan = make_plan(capacity=capacity_record(attention=record))
+    assert capacity_notes(tree(render_week(plan, make_result(), STAMP)))[1:] == [
+        CAPPED_NOTE.format(weekday=name, lost=lost)
+        for name, lost in (("Sunday", "1.5 h"), ("Saturday", "0.25 h"), ("caturday", "2 h"))]
 
 
 def next_sibling(t, i):
@@ -1648,14 +1674,14 @@ def test_no_plan_page_shows_capacity_notes(tmp_path):
     reason = one(t, "id", "no-plan")
     assert text_of(t, reason) == ("no week plan: devagent's capacity declaration is invalid (9 violations), and "
                                   "the portfolio file declares no attention hours")
-    assert capacity_notes(t) == [FROM_FILE, INVALID_NO_PLAN_NOTE]
+    assert capacity_notes(t) == [INVALID_NO_PLAN_NOTE]
     assert list_lines(t, "capacity-violations") == EXPECTED_LINES["order"]["violations"]
     assert list_lines(t, "capacity-warnings") == EXPECTED_LINES["order"]["warnings"]
     assert len(list_lines(t, "capacity-violations")) == 9 and len(list_lines(t, "capacity-warnings")) == 2
     # Under the reason, in the planned page's order; the page is still the no-plan page.
     (note,) = find(t, "p", ["capacity", "invalid"])
     assert [next_sibling(t, reason), next_sibling(t, note), next_sibling(t, one(t, "id", "capacity-violations"))] == [
-        find(t, "p", ["capacity"])[0], one(t, "id", "capacity-violations"), one(t, "id", "capacity-warnings")]
+        note, one(t, "id", "capacity-violations"), one(t, "id", "capacity-warnings")]
     assert with_attr(t, "id", "lines") == [] and with_attr(t, "data-day") == [] and with_attr(t, "id", "legend") == []
     assert len(texts(t, "p", ["stamp"])) == 1
     # A used declaration and no portfolio file: its token budget, its unknown keys and its ratio.
@@ -1686,13 +1712,16 @@ def test_no_plan_page_invalid_wording(tmp_path, key, changes):
     plan, html = capacity_build(tmp_path, invalid_config(), "invalid", **changes)
     assert (plan.status, plan.reason) == ("no_plan", NO_PLAN[key])
     t = tree(html)
-    # No capacity is used on a page with no plan, so the note stops at "is invalid".
-    assert capacity_notes(t) == [FROM_FILE, "devagent's capacity declaration is invalid"]
+    # No capacity is used on a page with no plan: the note stops at "is invalid", and no line
+    # says where capacity comes from.
+    assert capacity_notes(t) == ["devagent's capacity declaration is invalid"]
     assert list_lines(t, "capacity-violations") == [MISSING_TOTAL] and list_lines(t, "capacity-warnings") is None
-    assert "is used" not in visible_text(html)
-    # Premise: planned, the same declaration's note says what is used.
+    text = visible_text(html)
+    assert "is used" not in text and "capacity from:" not in text
+    # Premise: planned, the same declaration's page says both.
     _, planned = capacity_build(tmp_path, invalid_config(), "invalid")
     assert "; the portfolio file's capacity is used" in visible_text(planned)
+    assert capacity_notes(tree(planned))[0] == FROM_FILE
 
 
 def test_week_hostile_capacity_lines(node, tmp_path):
@@ -1716,35 +1745,45 @@ def test_week_hostile_capacity_lines(node, tmp_path):
 
 def test_week_hostile_capacity_fields(node, tmp_path):
     """Every text the capacity notes read from a plan, planted by hand: the
-    pools' sources, the refused ratio's reason, the token unit and a line
-    of each report kind."""
+    pools' sources, a weekday of the attention record, the refused ratio's
+    reason, the token unit and a line of each report kind. A no-plan page
+    has no attention record, and with an invalid declaration no source
+    line: there the pools' sources are in the page's data and not shown."""
     h = HOSTILE
-    planted = [h[0], h[1], h[2], h[4], h[5], h[6]]
     fields = {
         "pools": [{"name": ATTENTION, "capacity_source": h[0], "days_run_out": []},
                   {"name": LANES, "capacity_source": h[1], "days_run_out": []}],
         "report": [{"kind": "capacity_invalid", "leaves": [], "text": h[5]},
                    {"kind": "capacity_unknown_key", "leaves": [], "text": h[6]}],
     }
-    record = {"declaration": "invalid", "capacity_schema": "1.0",
-              "declared_ratio": {"value": 30, "used": False, "reason": h[2]},
+    record = {"capacity_schema": "1.0", "declared_ratio": {"value": 30, "used": False, "reason": h[2]},
               "token_budget": {"tokens_per_week": 7, "binding": "tokens_per_week", "unit": h[4]}}
-    pages = {
-        "planned": make_plan(capacity=capacity_record(**record), **fields),
-        "no_plan": make_plan(status="no_plan", reason="no reason", horizon_days=[], planned_week=[],
-                             capacity=capacity_record(planned=False, **record), **fields),
-    }
-    for name, plan in pages.items():
+    lost = {"rule": "portfolio_file", "total_hours": None, "weekday_sum_hours": None, "factor": None,
+            "weekdays_lost_to_cap": [{"weekday": h[3], "hours": 2}]}
+    no_plan = {"status": "no_plan", "reason": "no reason", "horizon_days": [], "planned_week": []}
+    source = f"capacity from: {ATTENTION}: {h[0]}; {LANES}: {h[1]}"
+    ratio_and_budget = [h[2], f"token budget (not scheduled): 7 {h[4]} a week"]
+    in_every_page = [h[0], h[1], h[2], h[4], h[5], h[6]]
+    # (the page, its plan, what it holds, its notes, what it holds and does not show)
+    pages = [
+        ("planned", make_plan(capacity=capacity_record(declaration="invalid", attention=lost, **record), **fields),
+         [*in_every_page, h[3]],
+         [source, CAPPED_NOTE.format(weekday=h[3], lost="2 h"), INVALID_NOTE, *ratio_and_budget], []),
+        ("no_plan_invalid",
+         make_plan(capacity=capacity_record(planned=False, declaration="invalid", **record), **no_plan, **fields),
+         in_every_page, [INVALID_NO_PLAN_NOTE, *ratio_and_budget], [h[0], h[1]]),
+        ("no_plan_used",
+         make_plan(capacity=capacity_record(planned=False, declaration="used", **record), **no_plan, **fields),
+         in_every_page, [source, *ratio_and_budget], []),
+    ]
+    for name, plan, planted, expected, not_shown in pages:
         html = render_week(plan, make_result(), STAMP)
         assert_page_safe(html, planted)
         t = tree(html)
-        assert capacity_notes(t) == [
-            f"capacity from: {ATTENTION}: {h[0]}; {LANES}: {h[1]}",
-            INVALID_NOTE if name == "planned" else INVALID_NO_PLAN_NOTE, h[2],
-            f"token budget (not scheduled): 7 {h[4]} a week"]
+        assert capacity_notes(t) == expected, name
         assert (list_lines(t, "capacity-violations"), list_lines(t, "capacity-warnings")) == ([h[5]], [h[6]])
         with open_page(write(tmp_path, html, f"{name}.html")) as page:
-            assert page.planted_nodes(planted) == Planted([], [], []), name
+            assert page.planted_nodes(planted) == Planted([], [], not_shown), name
 
 
 # --- the demo build (AC 12) --------------------------------------------------------------------

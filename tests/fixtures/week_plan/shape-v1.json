@@ -32,7 +32,11 @@
         "rule": "string",
         "total_hours": ["null", "number"],
         "weekday_sum_hours": ["null", "number"],
-        "factor": ["null", "number"]
+        "factor": ["null", "number"],
+        "weekdays_lost_to_cap": {"array": {"object": {
+          "weekday": "string",
+          "hours": "number"
+        }}}
       }}],
       "lanes": ["null", {"object": {
         "max_lanes": "integer",

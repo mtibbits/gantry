@@ -2005,7 +2005,8 @@ def test_not_declared_plan_is_unchanged(tmp_path, base):
     # The capacity planned from is the portfolio file's, read here by the test itself.
     hours, lanes, _, _ = file_capacity(copy / "portfolio.md")
     assert plan.capacity == NO_DECLARATION | {
-        "attention": {"rule": "portfolio_file", "total_hours": None, "weekday_sum_hours": None, "factor": None},
+        "attention": {"rule": "portfolio_file", "total_hours": None, "weekday_sum_hours": None, "factor": None,
+                      "weekdays_lost_to_cap": []},
         "lanes": {"max_lanes": lanes, "lane_hours_per_week": None,
                   "working_days": sum(1 for left in hours.values() if left > 0),
                   "lane_hours_per_day": 6, "hours_lost_to_cap": 0},
@@ -2085,6 +2086,11 @@ def day_hours(plan, n=5):
              day["attention_hours_lost_to_cap"]) for day in plan.days[:n]]
 
 
+def weekdays_lost(plan):
+    """(weekday, hours lost to the day's cap) of each weekday in the plan's attention record, in its order."""
+    return [(entry["weekday"], entry["hours"]) for entry in plan.capacity["attention"]["weekdays_lost_to_cap"]]
+
+
 def agent_hours_by_day(plan):
     """{(site, key): its agent hours on each day it is placed, in day order}."""
     found = {}
@@ -2158,7 +2164,7 @@ def test_weekly_total_scales_net_hours(tmp_path):
     plan = declared_plan(tmp_path, portfolio, total=30)
     assert plan.status == "planned"
     assert plan.capacity["attention"] == {"rule": "scaled", "total_hours": 30, "weekday_sum_hours": 20.0,
-                                          "factor": 1.5}
+                                          "factor": 1.5, "weekdays_lost_to_cap": []}
     assert type(plan.capacity["attention"]["total_hours"]) is int  # as declared: 30 is not 30.0
     # Each day's hours after its reserved blocks are 1.5 times the portfolio file's, and its hours
     # before them are that plus the blocks: Wednesday's 2 h are 3 h after its 2-hour block, 5 h before.
@@ -2181,7 +2187,7 @@ def test_scaling_tolerance_boundary(tmp_path):
     for total, factor in ((20.01, 1), (19.99, 1), (20, 1), (20.02, 1.001), (19.98, 0.999)):
         plan = declared_plan(tmp_path, portfolio, total=total)
         assert plan.capacity["attention"] == {"rule": "scaled", "total_hours": total, "weekday_sum_hours": 20.0,
-                                              "factor": factor}, total
+                                              "factor": factor, "weekdays_lost_to_cap": []}, total
         # Within the tolerance the days are the portfolio file's; 1.001 times 300 minutes is still 300.
         assert day_hours(plan, 10) == unscaled, total
     # The total is read in its decimal form: 18.01 h is 1080.6 minutes, 0.6 off 18 h. As a binary
@@ -2190,7 +2196,7 @@ def test_scaling_tolerance_boundary(tmp_path):
     eighteen = portfolio_md(attention=WEEK % (2, 5, 4, 5, 4), lanes=2, tail=reserved("wed", 2) + SHARES)
     plan = declared_plan(tmp_path, eighteen, total=18.01)
     assert plan.capacity["attention"] == {"rule": "scaled", "total_hours": 18.01, "weekday_sum_hours": 18.0,
-                                          "factor": 1}
+                                          "factor": 1, "weekdays_lost_to_cap": []}
     assert day_hours(plan, 10) == day_hours(file_plan(tmp_path, eighteen), 10)
     # A scaled day is rounded once, half up: 20.375 h are 1222.5 minutes, and 240 of 1200 make 244.5.
     plan = declared_plan(tmp_path, portfolio, total=20.375)
@@ -2203,16 +2209,49 @@ def test_scaled_day_capped_and_loss_recorded(tmp_path):
     # one_day's Monday has 10 h and a 2-hour block: 8 h after it. 30 h a week are all Monday's, and
     # a day holds 24 h less its reserved 2.
     plan = declared_plan(tmp_path, capacity_portfolio("one_day"), total=30)
+    # The loss is the weekday's, in the attention record, and each Monday's, on its day.
     assert plan.capacity["attention"] == {"rule": "scaled", "total_hours": 30, "weekday_sum_hours": 8.0,
-                                          "factor": 3.75}
+                                          "factor": 3.75, "weekdays_lost_to_cap": [{"weekday": "mon", "hours": 8}]}
     assert day_hours(plan, 10) == [("mon", 24, 22, 8)] * 10
     assert plan.capacity["lanes"]["working_days"] == 1
     assert shape_problems(plan) == []
     # 22 h a week are what fits: nothing is lost.
-    assert day_hours(declared_plan(tmp_path, capacity_portfolio("one_day"), total=22), 10) == [("mon", 24, 22, 0)] * 10
+    plan = declared_plan(tmp_path, capacity_portfolio("one_day"), total=22)
+    assert day_hours(plan, 10) == [("mon", 24, 22, 0)] * 10 and weekdays_lost(plan) == []
     # An evenly spread day is capped the same way: of a Tuesday's 6 h, 4 fit after 20 reserved hours.
     spread = portfolio_md(attention="", lanes=2, tail=reserved("tue", 20) + SHARES)
-    assert day_hours(declared_plan(tmp_path, spread, total=30))[:2] == [("mon", 6, 6, 0), ("tue", 24, 4, 2)]
+    plan = declared_plan(tmp_path, spread, total=30)
+    assert day_hours(plan)[:2] == [("mon", 6, 6, 0), ("tue", 24, 4, 2)] and weekdays_lost(plan) == [("tue", 2)]
+
+
+def test_loss_of_a_weekday_that_is_no_plan_day_is_recorded(tmp_path):
+    # 30 h spread evenly are 6 h a day. Tuesday is reserved for its 24 hours and keeps none of its
+    # 6, so it is no day of the plan: no day's record holds the loss, and the attention record does.
+    spread = portfolio_md(attention="", lanes=2, tail=reserved("tue", 24) + SHARES)
+    plan = declared_plan(tmp_path, spread, total=30)
+    assert plan.status == "planned" and plan.capacity["lanes"]["working_days"] == 4
+    assert day_hours(plan, 10) == [(day, 6, 6, 0) for day in ("mon", "wed", "thu", "fri")] * 2 + [
+        ("mon", 6, 6, 0), ("wed", 6, 6, 0)]
+    assert plan.capacity["attention"] == {"rule": "even_spread", "total_hours": 30, "weekday_sum_hours": None,
+                                          "factor": None, "weekdays_lost_to_cap": [{"weekday": "tue", "hours": 6}]}
+    # The week's days and the list hold the declared total between them.
+    assert sum(day["attention_hours"] for day in plan.days[:4]) + sum(hours for _, hours in weekdays_lost(plan)) == 30
+    assert shape_problems(plan) == []
+    # Monday first, whatever day the plan starts on, with the weekdays that are days of the plan
+    # and those that are not: 168 h are 33.6 h a day, 9.6 more than a day holds.
+    copy = install(tmp_path, CAPACITY_INSTALL, portfolio=spread, devagent=declares(total=168),
+                   config={"as_of": "2026-01-21"})
+    plan = plan_from(copy)
+    assert [day["weekday"] for day in plan.days[:4]] == ["wed", "thu", "fri", "mon"]
+    assert weekdays_lost(plan) == [("mon", 9.6), ("tue", 33.6), ("wed", 9.6), ("thu", 9.6), ("fri", 9.6)]
+    # Each day of a plan loses what the list says of its weekday.
+    lost = dict(weekdays_lost(plan))
+    assert [day["attention_hours_lost_to_cap"] for day in plan.days] == [lost[day["weekday"]] for day in plan.days]
+    # Nothing declared, and a declaration that fits: an empty list. A no_plan plan has no attention record.
+    assert weekdays_lost(file_plan(tmp_path, capacity_portfolio("shape_20h"))) == []
+    assert weekdays_lost(declared_plan(tmp_path, capacity_portfolio("shape_20h"), total=30)) == []
+    every = portfolio_md(attention="", lanes=2, tail="".join(reserved(day, 24) for day in MON_TO_FRI) + SHARES)
+    assert declared_plan(tmp_path, every, total=30).capacity["attention"] is None
 
 
 def test_no_weekday_hours_spreads_evenly(tmp_path):
@@ -2221,7 +2260,7 @@ def test_no_weekday_hours_spreads_evenly(tmp_path):
     plan = declared_plan(tmp_path, portfolio, total=30)
     assert plan.status == "planned"
     assert plan.capacity["attention"] == {"rule": "even_spread", "total_hours": 30, "weekday_sum_hours": None,
-                                          "factor": None}
+                                          "factor": None, "weekdays_lost_to_cap": []}
     assert day_hours(plan, 10) == [(day, 6, 6, 0) for day in MON_TO_FRI] * 2
     assert sources(plan) == SOURCES_DEVAGENT and shape_problems(plan) == []
     # attention_hours that was rejected is not set either. A day's hours before its reserved
@@ -2229,7 +2268,7 @@ def test_no_weekday_hours_spreads_evenly(tmp_path):
     rejected = portfolio_md(attention="3", lanes=2, tail=reserved("thu", 1.5) + SHARES)
     plan = declared_plan(tmp_path, rejected, total=30.5)
     assert plan.capacity["attention"] == {"rule": "even_spread", "total_hours": 30.5, "weekday_sum_hours": None,
-                                          "factor": None}
+                                          "factor": None, "weekdays_lost_to_cap": []}
     assert day_hours(plan) == [(day, 7.6 if day == "thu" else 6.1, 6.1, 0) for day in MON_TO_FRI]
 
 
@@ -2321,7 +2360,7 @@ def test_valid_declaration_plans_without_portfolio_capacity(tmp_path):
     assert sources(plan) == SOURCES_DEVAGENT
     assert (plan.capacity["declaration"], plan.capacity["capacity_schema"]) == ("used", "1.0")
     assert plan.capacity["attention"] == {"rule": "even_spread", "total_hours": 20, "weekday_sum_hours": None,
-                                          "factor": None}
+                                          "factor": None, "weekdays_lost_to_cap": []}
     assert plan.capacity["lanes"] == {"max_lanes": 3, "lane_hours_per_week": 40, "working_days": 5,
                                       "lane_hours_per_day": 8, "hours_lost_to_cap": 0}
     assert day_hours(plan, 10) == [(day, 4, 4, 0) for day in MON_TO_FRI] * 2
@@ -2493,7 +2532,7 @@ def test_declared_extremes_still_plan(tmp_path, case, portfolio, table, status):
     assert 1 / 60 <= lanes["lane_hours_per_day"] <= 24 and lanes["hours_lost_to_cap"] >= 0
     for day in plan.days:
         assert 0 < day["attention_hours"] <= day["attention_hours_declared"] <= 24
-        assert day["attention_hours_lost_to_cap"] >= 0
+        assert day["attention_hours_lost_to_cap"] == dict(weekdays_lost(plan)).get(day["weekday"], 0) >= 0
         assert day["lane_hours"] == lanes["max_lanes"] * lanes["lane_hours_per_day"]
     assert all(max(found) <= lanes["lane_hours_per_day"] + EPS for found in agent_hours_by_day(plan).values())
 
@@ -2504,8 +2543,10 @@ def test_declared_extremes_are_exact(tmp_path):
 
     # 168 h on one_day's Monday: 22 fit after its 2 reserved hours, 146 do not.
     assert day_hours(plan("one_day", total=168), 10) == [("mon", 24, 22, 146)] * 10
+    assert weekdays_lost(plan("one_day", total=168)) == [("mon", 146)]
     # 168 h spread evenly are 33.6 a day: 24 fit.
     assert day_hours(plan("no_hours", total=168)) == [(day, 24, 24, 9.6) for day in MON_TO_FRI]
+    assert weekdays_lost(plan("no_hours", total=168)) == [(day, 9.6) for day in MON_TO_FRI]
     # A lane is never under a minute a day, and a lane count above the planner's cap plans as the cap.
     assert plan("shape_20h", lane_hours=0.001).capacity["lanes"] == {
         "max_lanes": 3, "lane_hours_per_week": 0.001, "working_days": 5, "lane_hours_per_day": 1 / 60,

@@ -17,6 +17,7 @@ from fractions import Fraction
 
 from gantry import phases, planner, render
 from gantry.links import leaf_href
+from gantry.portfolio_file import WEEKDAYS
 from gantry.render import Markup, decimals, embed_json, esc, fill, hours_text, hundredths, unestimated_text
 from gantry.sites import shown
 from gantry.views import leafbox
@@ -27,6 +28,7 @@ TITLE = "Week view"
 LINK = (TITLE, PAGE)
 
 WEEKDAY_NAMES = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+WEEKDAY_OF = dict(zip(WEEKDAYS, WEEKDAY_NAMES))  # the plan's weekday, "mon" to "sun", to its name
 DAY_HEAD = "{weekday} {date}"
 TODAY = "today"
 NOT_WORKING = "the as-of date {as_of} is not a working day; the plan starts {weekday} {date}"
@@ -307,21 +309,24 @@ def _capacity_notes(plan) -> str:
     above the days, and the lines under the reason on the no-plan page; ""
     when none applies. In order, each only when it applies:
 
-    - each pool's capacity source, on the no-plan page only when devagent
-      declares something, so that page is unchanged when it declares nothing;
+    - each pool's capacity source, on the no-plan page only when devagent's
+      declaration is used: with no plan no other capacity is, so the page
+      of a plan with nothing declared is unchanged and that of an invalid
+      declaration names no source;
     - how devagent's weekly hours were laid on the weekdays, when they were
       scaled by a factor other than 1 or spread evenly;
-    - one line per weekday that lost hours to the day's cap, Monday first;
+    - one line per weekday that lost hours to its day's cap, in the plan's
+      order (Monday first), a weekday that is no day of the plan included;
     - an invalid declaration's note, then devagent's violation lines;
     - devagent's unknown-key lines;
     - the declared ratio, when the planner plans it as rate 0 or refused it;
     - the token budget.
 
-    A plan with no days holds no rule for the hours and no day's loss, so
-    the no-plan page never has the second or the third."""
+    A no_plan plan holds no attention record, so the no-plan page never
+    has the second or the third."""
     capacity, planned = plan.capacity, plan.status == "planned"
     out = []
-    if planned or capacity["declaration"] != planner.NOT_DECLARED:
+    if planned or capacity["declaration"] == planner.USED:
         parts = "; ".join(f"{p['name']}: {p['capacity_source']}" for p in plan.pools)
         out.append(_p("capacity", CAPACITY.format(parts=parts)))
     attention = capacity["attention"]
@@ -331,13 +336,12 @@ def _capacity_notes(plan) -> str:
         out.append(_p("capacity", SCALED.format(total=hours_text(attention["total_hours"]),
                                                 sum=hours_text(attention["weekday_sum_hours"]),
                                                 factor=factor_text(attention["factor"]))))
-    # A weekday loses the same hours on each of its days: the first is read.
-    lost = {}
-    for day in plan.days:
-        if day["attention_hours_lost_to_cap"] > 0:
-            lost.setdefault(date.fromisoformat(day["date"]).weekday(), day["attention_hours_lost_to_cap"])
-    for weekday in sorted(lost):
-        out.append(_p("capacity", DAY_CAPPED.format(weekday=WEEKDAY_NAMES[weekday], lost=hours_text(lost[weekday]))))
+    lost = attention["weekdays_lost_to_cap"] if attention is not None else ()
+    for entry in lost:
+        weekday = entry["weekday"]
+        if isinstance(weekday, str):
+            weekday = WEEKDAY_OF.get(weekday, weekday)  # one the page does not know: as the plan has it
+        out.append(_p("capacity", DAY_CAPPED.format(weekday=weekday, lost=hours_text(entry["hours"]))))
     if capacity["declaration"] == planner.INVALID:
         out.append(_p("capacity invalid", INVALID if planned else INVALID_NO_PLAN))
     for name, kind in (("capacity-violations", planner.CAPACITY_INVALID),

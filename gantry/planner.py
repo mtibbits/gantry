@@ -210,7 +210,7 @@ class _Capacity:
     taken: dict  # weekday -> minutes of its reserved blocks
     attention: dict  # weekday -> minutes after reserved blocks
     lost: dict  # weekday -> minutes of attention that do not fit in the day
-    rule: dict  # the plan's `capacity.attention`: the rule that gave `attention`, and its figures
+    rule: dict  # the rule that gave `attention`, and its figures: the plan's `capacity.attention` but for `lost`
     lanes: int
     lane_minutes: int  # the agent minutes one lane, and so one leaf, takes in a day
     lane_week: int | float | None  # devagent's lane_hours_per_week as declared; None from the portfolio file
@@ -328,8 +328,8 @@ def _half_up(minutes) -> int:
 def _declared_attention(portfolio, available, capacity):
     """A used declaration's attention before any day's cap: (NO_PLAN key,
     None, None) when the portfolio file's weekdays give its weekly total
-    nowhere to go, else (None, {weekday: minutes}, the plan's
-    `capacity.attention`).
+    nowhere to go, else (None, {weekday: minutes}, the rule's record for
+    the plan's `capacity.attention`).
 
     The total is scaled onto the portfolio file's weekdays after reserved
     blocks, each day rounded once, unless it is within SCALING_TOLERANCE of
@@ -1110,11 +1110,18 @@ def _capacity_record(capacity, available, declared_ratio, paused) -> dict:
     is None on a no_plan plan: such a plan has no `attention` and no `lanes`.
     `declared_ratio` is _declared_ratio's record and `paused` the paused
     built sites; they and the token budget are a used declaration's, held
-    whether or not there is a plan, and null, null and empty with any other."""
+    whether or not there is a plan, and null, null and empty with any other.
+
+    `attention` is the rule and, as `weekdays_lost_to_cap`, each weekday's
+    hours that do not fit in the day, Monday first, the weekdays with a
+    loss only. A day of the plan holds its own weekday's loss too; a
+    weekday that keeps no minute is no day of the plan, so its loss is
+    held here alone."""
     declaration = _declaration(capacity)
     attention = lanes = None
     if available is not None:
-        attention = dict(available.rule)
+        attention = dict(available.rule) | {"weekdays_lost_to_cap": [
+            {"weekday": day, "hours": _hours(available.lost[day])} for day in WEEKDAYS if available.lost[day] > 0]}
         lanes = {"max_lanes": available.lanes, "lane_hours_per_week": available.lane_week,
                  "working_days": sum(1 for day in WEEKDAYS if available.attention[day] > 0),
                  "lane_hours_per_day": _hours(available.lane_minutes),

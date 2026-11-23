@@ -209,7 +209,8 @@ def test_shape_holds_on_plans_made_from_a_declaration(tmp_path):
                                    portfolio=capacity_portfolio("one_day")))
     capacity = document["capacity"]
     assert (document["status"], capacity["declaration"], capacity["capacity_schema"]) == ("planned", "used", "1.0")
-    assert capacity["attention"] == {"rule": "scaled", "total_hours": 30, "weekday_sum_hours": 8.0, "factor": 3.75}
+    assert capacity["attention"] == {"rule": "scaled", "total_hours": 30, "weekday_sum_hours": 8.0, "factor": 3.75,
+                                     "weekdays_lost_to_cap": [{"weekday": "mon", "hours": 8.0}]}
     assert capacity["lanes"] == {"max_lanes": 1, "lane_hours_per_week": 168, "working_days": 1,
                                  "lane_hours_per_day": 24.0, "hours_lost_to_cap": 144.0}
     assert capacity["declared_ratio"] == {"value": 0.25, "used": True, "reason": None}
@@ -224,6 +225,7 @@ def test_shape_holds_on_plans_made_from_a_declaration(tmp_path):
     # A ratio that is not used holds its reason, and unknown keys their lines.
     devagent = declares(more=RATIO % 30 + "max_lane = 3\n")
     document = document_of(plan_of(tmp_path, CAPACITY_INSTALL, devagent=devagent))
+    assert (document["status"], document["capacity"]["declaration"]) == ("planned", "used")
     assert document["capacity"]["declared_ratio"] == {
         "value": 30, "used": False,
         "reason": "devagent declares 30 operator hours per agent hour, above 24; it is not used"}
@@ -258,7 +260,8 @@ def test_shape_holds_a_declared_capacity(tmp_path):
         None, None, [])
     base["capacity"] |= {
         "declaration": "used", "capacity_schema": "1.0",
-        "attention": {"rule": "scaled", "total_hours": 30, "weekday_sum_hours": 20.0, "factor": 1.5},
+        "attention": {"rule": "scaled", "total_hours": 30, "weekday_sum_hours": 20.0, "factor": 1.5,
+                      "weekdays_lost_to_cap": [{"weekday": "tue", "hours": 6}]},
         "declared_ratio": {"value": 30, "used": False, "reason": "above 24"},
         "token_budget": {"tokens_per_week": 246000000, "binding": "tokens_per_week",
                          "unit": "weighted_input_token_equivalents"},
@@ -281,6 +284,18 @@ def test_shape_holds_a_declared_capacity(tmp_path):
         (lambda d: d["capacity"].update(capacity_schema=1.0), "plan.capacity.capacity_schema: not a string"),
         (lambda d: d["capacity"]["attention"].pop("factor"), "plan.capacity.attention.factor: missing"),
         (lambda d: d["capacity"]["attention"].update(rule=None), "plan.capacity.attention.rule: not a string"),
+        (lambda d: d["capacity"]["attention"].pop("weekdays_lost_to_cap"),
+         "plan.capacity.attention.weekdays_lost_to_cap: missing"),
+        (lambda d: d["capacity"]["attention"].update(weekdays_lost_to_cap=None),
+         "plan.capacity.attention.weekdays_lost_to_cap: not an array"),
+        (lambda d: d["capacity"]["attention"]["weekdays_lost_to_cap"][0].update(weekday=1),
+         "plan.capacity.attention.weekdays_lost_to_cap[0].weekday: not a string"),
+        (lambda d: d["capacity"]["attention"]["weekdays_lost_to_cap"][0].update(hours="6"),
+         "plan.capacity.attention.weekdays_lost_to_cap[0].hours: not a number"),
+        (lambda d: d["capacity"]["attention"]["weekdays_lost_to_cap"][0].pop("hours"),
+         "plan.capacity.attention.weekdays_lost_to_cap[0].hours: missing"),
+        (lambda d: d["capacity"]["attention"]["weekdays_lost_to_cap"][0].update(date="2026-01-20"),
+         "plan.capacity.attention.weekdays_lost_to_cap[0].date: not in the pinned shape"),
         (lambda d: d["capacity"]["lanes"].update(max_lanes=2.5), "plan.capacity.lanes.max_lanes: not an integer"),
         (lambda d: d["capacity"]["lanes"].update(working_days=None),
          "plan.capacity.lanes.working_days: not an integer"),
