@@ -681,10 +681,31 @@ item:
     "pool": "agent lanes",
     "text": "agent lanes"
   },
+  "capacity": {
+    "attention": {
+      "factor": null,
+      "rule": "portfolio_file",
+      "total_hours": null,
+      "weekday_sum_hours": null
+    },
+    "capacity_schema": null,
+    "declaration": "not_declared",
+    "declared_ratio": null,
+    "lanes": {
+      "hours_lost_to_cap": 0.0,
+      "lane_hours_per_day": 6.0,
+      "lane_hours_per_week": null,
+      "max_lanes": 1,
+      "working_days": 5
+    },
+    "paused": [],
+    "token_budget": null
+  },
   "days": [
     {
       "attention_hours": 8.0,
       "attention_hours_declared": 8.0,
+      "attention_hours_lost_to_cap": 0.0,
       "blocks": [
         {
           "leaves": [
@@ -834,6 +855,15 @@ The `no_plan` form keeps every key:
     "pool": null,
     "text": "no pool ran out"
   },
+  "capacity": {
+    "attention": null,
+    "capacity_schema": null,
+    "declaration": "not_declared",
+    "declared_ratio": null,
+    "lanes": null,
+    "paused": [],
+    "token_budget": null
+  },
   "days": [],
   "horizon_days": [],
   "leaves": [],
@@ -890,7 +920,8 @@ The `report` list from `tests/fixtures/week_plan/cross_site_cycle/`:
         "key": "Issue-1",
         "site": "b"
       }
-    ]
+    ],
+    "text": null
   },
   {
     "kind": "cross_site_cycle",
@@ -903,7 +934,8 @@ The `report` list from `tests/fixtures/week_plan/cross_site_cycle/`:
         "key": "Issue-7",
         "site": "b"
       }
-    ]
+    ],
+    "text": null
   }
 ]
 ```

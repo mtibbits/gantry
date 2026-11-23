@@ -58,6 +58,21 @@ def pools(attention_out=(), lanes_out=()):
             {"name": LANES, "capacity_source": "portfolio file", "days_run_out": list(lanes_out)}]
 
 
+def capacity_record(planned=True, **fields):
+    """A plan's `capacity` object when devagent declares nothing: one lane, as
+    day() has it, and no `attention` or `lanes` on a no_plan plan."""
+    record = {
+        "declaration": "not_declared", "capacity_schema": None,
+        "attention": {"rule": "portfolio_file", "total_hours": None, "weekday_sum_hours": None,
+                      "factor": None} if planned else None,
+        "lanes": {"max_lanes": 1, "lane_hours_per_week": None, "working_days": 5, "lane_hours_per_day": 6.0,
+                  "hours_lost_to_cap": 0.0} if planned else None,
+        "declared_ratio": None, "token_budget": None, "paused": [],
+    }
+    record.update(fields)
+    return record
+
+
 def make_plan(**fields) -> WeekPlan:
     """A planned WeekPlan with a 10-day horizon from Monday 2026-01-19; `days`
     holds only the days a test sets. The plan file's pinned shape holds."""
@@ -67,6 +82,7 @@ def make_plan(**fields) -> WeekPlan:
         "planned_week": HORIZON[:5],
         "mapping": {"values": [0.0, 0.1, 0.25, 0.5, 1.0], "source": "default", "rejected": None},
         "pools": pools(), "binding": {"pool": None, "first_day": None, "text": "no pool ran out"},
+        "capacity": capacity_record(planned=fields.get("status", "planned") == "planned"),
         "days": [], "leaves": [], "sites": [], "report": [], "notes": [],
     }
     base.update(fields)
@@ -77,6 +93,7 @@ def make_plan(**fields) -> WeekPlan:
 
 def day(date, blocks=(), lanes_row=(), reserved=(), attention=8.0, left=(1.0, 2.0), weekday="mon"):
     return {"date": date, "weekday": weekday, "attention_hours_declared": attention, "attention_hours": attention,
+            "attention_hours_lost_to_cap": 0.0,
             "reserved": list(reserved), "lane_hours": 6.0, "blocks": list(blocks), "lanes_row": list(lanes_row),
             "left": {"attention_hours": left[0], "lane_hours": left[1]}, "ran_out": [], "unestimated": 0}
 

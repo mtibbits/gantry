@@ -30,6 +30,10 @@ POOL_ATTENTION = "operator attention hours"
 POOL_LANES = "agent lanes"
 POOLS = (POOL_ATTENTION, POOL_LANES)
 CAPACITY_SOURCE = "portfolio file"
+# The plan's `capacity` object (#39) when devagent declares nothing: its
+# `declaration`, and the `rule` of attention hours read off the portfolio file as they stand.
+NOT_DECLARED = "not_declared"
+RULE_PORTFOLIO_FILE = "portfolio_file"
 NO_POOL = "no pool ran out"
 HORIZON_DAYS = 10
 WEEK_DAYS = 5
@@ -102,6 +106,7 @@ class WeekPlan:
     mapping: dict
     pools: list
     binding: dict
+    capacity: dict
     days: list
     leaves: list
     sites: list
@@ -153,7 +158,9 @@ class _Capacity:
     declared: dict  # weekday -> minutes before reserved blocks
     reserved: dict  # weekday -> [{start, hours, label}] in file order
     attention: dict  # weekday -> minutes after reserved blocks
+    lost: dict  # weekday -> minutes of attention that do not fit in the day
     lanes: int
+    lane_minutes: int  # the agent minutes one lane, and so one leaf, takes in a day
     block_min: int
     start_cost: int
     block_default: int  # never under block_min
@@ -165,7 +172,8 @@ def _setting(value, key):
 
 def _capacity(portfolio) -> _Capacity:
     """The portfolio file's capacity in whole minutes. attention_hours or
-    agent_lanes that is absent or was rejected reads 0."""
+    agent_lanes that is absent or was rejected reads 0. Its hours fit in
+    their days, so no minute is lost, and a lane's day is LANE_MINUTES."""
     capacity = portfolio.capacity
     hours = capacity.attention_hours or {}
     declared = {day: to_minutes(hours.get(day, 0)) for day in WEEKDAYS}
@@ -183,7 +191,9 @@ def _capacity(portfolio) -> _Capacity:
         declared=declared,
         reserved=reserved,
         attention={day: max(0, declared[day] - taken[day]) for day in WEEKDAYS},
+        lost=dict.fromkeys(WEEKDAYS, 0),
         lanes=min(lanes, MAX_LANES) if _is_number(lanes) and lanes > 0 else 0,
+        lane_minutes=LANE_MINUTES,
         block_min=block_min,
         start_cost=to_minutes(_setting(capacity.block_start_cost_hours, "capacity.block_start_cost_hours")),
         block_default=max(block_min, to_minutes(_setting(capacity.block_default_hours,
@@ -408,7 +418,8 @@ def _reasons(by_node, cycles, sites) -> dict:
 
 
 def _report(cycles) -> list[dict]:
-    return [{"kind": CROSS_SITE_CYCLE, "leaves": [{"site": site, "key": key} for site, key in cycle]}
+    """The plan's report entries. A cross_site_cycle entry names its leaves and has no `text`."""
+    return [{"kind": CROSS_SITE_CYCLE, "leaves": [{"site": site, "key": key} for site, key in cycle], "text": None}
             for cycle in cycles]
 
 
@@ -445,7 +456,8 @@ class _Day:
         self.index, self.text, self.capacity, self.names = index, day.isoformat(), capacity, names
         self.weekday = WEEKDAYS[day.weekday()]
         self.attention = capacity.attention[self.weekday]
-        self.lanes = capacity.lanes * LANE_MINUTES
+        self.lane_minutes = capacity.lane_minutes
+        self.lanes = capacity.lanes * self.lane_minutes
         self.placed_order, self.ledger = placed_order, ledger
         self.shares, self.shareless = day_shares.shares, day_shares.shareless
         # plan_week's trace: a list gets one entry per charge, lift and flag (#37); it changes no record.
@@ -485,11 +497,11 @@ class _Day:
 
     def room(self, item) -> int:
         """The agent minutes the leaf could still take today, lanes allowing."""
-        return min(item["left"], LANE_MINUTES - item["today"], self.lanes)
+        return min(item["left"], self.lane_minutes - item["today"], self.lanes)
 
     def waiting(self, item) -> bool:
         """Whether a ready leaf still has minutes to place and is under its 6 agent hours today."""
-        return item["left"] > 0 and item["today"] < LANE_MINUTES
+        return item["left"] > 0 and item["today"] < self.lane_minutes
 
     # --- the ledger --------------------------------------------------------------------
 
@@ -828,8 +840,9 @@ class _Day:
             "date": self.text, "weekday": self.weekday,
             "attention_hours_declared": _hours(capacity.declared[self.weekday]),
             "attention_hours": _hours(capacity.attention[self.weekday]),
+            "attention_hours_lost_to_cap": _hours(capacity.lost[self.weekday]),
             "reserved": [dict(block) for block in capacity.reserved[self.weekday]],
-            "lane_hours": _hours(capacity.lanes * LANE_MINUTES),
+            "lane_hours": _hours(capacity.lanes * capacity.lane_minutes),
             "blocks": self.blocks, "lanes_row": self.row,
             "left": {"attention_hours": _hours(self.attention), "lane_hours": _hours(self.lanes)},
             "ran_out": [pool for pool in POOLS if pool in ran],
@@ -863,7 +876,21 @@ def _leaf_record(item) -> dict:
     }
 
 
-def plan_week(result, portfolio, config, *, trace=None) -> WeekPlan:
+def _capacity_record(available) -> dict:
+    """The plan's `capacity` object when devagent declares nothing. `available`
+    is the capacity planned from, None on a no_plan plan: such a plan has no
+    `attention` and no `lanes`."""
+    attention = lanes = None
+    if available is not None:
+        attention = {"rule": RULE_PORTFOLIO_FILE, "total_hours": None, "weekday_sum_hours": None, "factor": None}
+        lanes = {"max_lanes": available.lanes, "lane_hours_per_week": None,
+                 "working_days": sum(1 for day in WEEKDAYS if available.attention[day] > 0),
+                 "lane_hours_per_day": _hours(available.lane_minutes), "hours_lost_to_cap": _hours(0)}
+    return {"declaration": NOT_DECLARED, "capacity_schema": None, "attention": attention, "lanes": lanes,
+            "declared_ratio": None, "token_budget": None, "paused": []}
+
+
+def plan_week(result, portfolio, config, *, capacity=None, trace=None) -> WeekPlan:
     """The week plan of one full build.
 
     `result` is build_all's BuildResult, `portfolio` the portfolio file as
@@ -871,17 +898,23 @@ def plan_week(result, portfolio, config, *, trace=None) -> WeekPlan:
     and default_unit_hours. A built site is one with a page in result.pages,
     in config order. Never raises on a portfolio file's content. A `trace`
     list gets each day's charges, lifts and flags (_Day); the plan is the same.
+
+    `capacity` is devagent's capacity declaration (gantry/capacity.py's
+    DeclaredCapacity) or None. It is not read yet (#39): whatever it holds,
+    the plan is made from the portfolio file's capacity and its `capacity`
+    object says nothing is declared, which is the plan of None and of a
+    declaration that declares nothing.
     """
     mapping = mapping_in_use(portfolio)
     fields = {
         "plan_version": PLAN_VERSION, "as_of": config.as_of.isoformat(), "allocation_rule": ALLOCATION_RULE,
         "mapping": {"values": list(mapping.values), "source": mapping.source, "rejected": mapping.rejected},
     }
-    key, capacity = _no_plan(portfolio, result)
+    key, available = _no_plan(portfolio, result)
     if key is not None:
         run_out, binding = _binding([])
         return WeekPlan(status="no_plan", reason=NO_PLAN[key], unestimated_planned=0, horizon_days=[],
-                        planned_week=[], pools=_pools(run_out), binding=binding,
+                        planned_week=[], pools=_pools(run_out), binding=binding, capacity=_capacity_record(None),
                         days=[], leaves=[], sites=[], report=[], notes=[], **fields)
     names = _built_sites(result)
     ranked = {name: _ranked(result.inputs[name].data) for name in names}
@@ -896,13 +929,13 @@ def plan_week(result, portfolio, config, *, trace=None) -> WeekPlan:
         item["reason"] = reasons.get(node)
         item["preds"] = [by_node[pred] for pred in item["preds"]]
     work = {name: [item for item in items[name] if item["reason"] is None] for name in names}
-    horizon = _working_days(config.as_of, capacity)
+    horizon = _working_days(config.as_of, available)
     day_shares = [_day_shares(portfolio, day, names) for day in horizon]
     placed_order = []
     # One ledger per site and pool for the horizon: whole minutes charged, an exact target.
     ledger = {pool: {"charged": dict.fromkeys(names, 0), "target": dict.fromkeys(names, Fraction(0))}
               for pool in POOLS}
-    days = [_Day(index, day, capacity, names, work, placed_order, ledger, shares, trace).plan()
+    days = [_Day(index, day, available, names, work, placed_order, ledger, shares, trace).plan()
             for index, (day, shares) in enumerate(zip(horizon, day_shares))]
     run_out, binding = _binding(days)
     placed_by_site = {name: [] for name in names}
@@ -937,7 +970,8 @@ def plan_week(result, portfolio, config, *, trace=None) -> WeekPlan:
     return WeekPlan(status="planned", reason=None,
                     unestimated_planned=sum(item["unestimated"] for item in placed_order),
                     horizon_days=dates, planned_week=dates[:WEEK_DAYS], pools=_pools(run_out), binding=binding,
-                    days=days, leaves=leaves, sites=sites, report=_report(cycles),
+                    capacity=_capacity_record(available), days=days, leaves=leaves, sites=sites,
+                    report=_report(cycles),
                     notes=[note for found in day_shares for note in found.notes], **fields)
 
 

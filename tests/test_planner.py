@@ -11,6 +11,7 @@ import pytest
 
 from gantry import planner, schedule
 from gantry.build import build_all
+from gantry.capacity import resolve_capacity
 from gantry.config import load_config
 from gantry.planner import NO_PLAN, plan_week
 from gantry.portfolio_file import intended_shares, read_portfolio_file
@@ -460,9 +461,10 @@ def test_cross_site_cycle_reported_once(tmp_path):
     plan = plan_of(tmp_path, "cross_site_cycle")
     assert plan.status == "planned" and len(plan.days) == 10
     assert plan.report == [
-        {"kind": "cross_site_cycle", "leaves": [
+        {"kind": "cross_site_cycle", "text": None, "leaves": [
             {"site": "a", "key": "Issue-1"}, {"site": "a", "key": "Issue-2"}, {"site": "b", "key": "Issue-1"}]},
-        {"kind": "cross_site_cycle", "leaves": [{"site": "a", "key": "Issue-5"}, {"site": "b", "key": "Issue-7"}]},
+        {"kind": "cross_site_cycle", "text": None,
+         "leaves": [{"site": "a", "key": "Issue-5"}, {"site": "b", "key": "Issue-7"}]},
     ]
     a, b = unplanned(plan, "a"), unplanned(plan, "b")
     for site, key in (("a", "Issue-1"), ("a", "Issue-2"), ("b", "Issue-1"), ("a", "Issue-5"), ("b", "Issue-7")):
@@ -1949,6 +1951,50 @@ def test_raising_a_rate_zero_leaf_does_not_reorder_its_tiers_blocks(tmp_path):
         found[raise_it] = first_placement(plan, "a", "Issue-1")
     assert found[False] != NEVER
     assert found[True] <= found[False], found
+
+
+# --- the capacity argument (#39): nothing declared ---------------------------------------------
+
+DECLARES_NOTHING = resolve_capacity({})
+# The plan's `capacity` object with nothing declared, as a no_plan plan holds it.
+NO_DECLARATION = {"declaration": "not_declared", "capacity_schema": None, "attention": None, "lanes": None,
+                  "declared_ratio": None, "token_budget": None, "paused": []}
+
+
+@pytest.mark.parametrize("base", FIXTURE_NAMES)
+def test_not_declared_plan_is_unchanged(tmp_path, base):
+    copy = install(tmp_path, base)
+    args = built(copy)
+    plan = plan_week(*args)
+    assert plan.status == "planned"
+    assert not DECLARES_NOTHING.declared and not DECLARES_NOTHING.violations
+    for capacity in (None, DECLARES_NOTHING):
+        same = plan_week(*args, capacity=capacity)
+        assert same == plan and planner.plan_to_json(same) == planner.plan_to_json(plan)
+    # The capacity planned from is the portfolio file's, read here by the test itself.
+    hours, lanes, _, _ = file_capacity(copy / "portfolio.md")
+    assert plan.capacity == NO_DECLARATION | {
+        "attention": {"rule": "portfolio_file", "total_hours": None, "weekday_sum_hours": None, "factor": None},
+        "lanes": {"max_lanes": lanes, "lane_hours_per_week": None,
+                  "working_days": sum(1 for left in hours.values() if left > 0),
+                  "lane_hours_per_day": 6, "hours_lost_to_cap": 0},
+    }
+    assert [pool["capacity_source"] for pool in plan.pools] == [planner.CAPACITY_SOURCE] * 2
+    assert [day["attention_hours_lost_to_cap"] for day in plan.days] == [0] * 10
+    assert [day["lane_hours"] for day in plan.days] == [lanes * 6] * 10
+    # A cross_site_cycle entry has no line of its own.
+    assert bool(plan.report) == (base == "cross_site_cycle")
+    assert all(entry["text"] is None for entry in plan.report)
+
+
+@pytest.mark.parametrize(("key", "case", "changes"), NO_PLAN_CASES, ids=[f"{k}: {c}" for k, c, _ in NO_PLAN_CASES])
+def test_not_declared_no_plan_is_unchanged(tmp_path, key, case, changes):
+    args = built(install(tmp_path, "binds_lanes", **changes))
+    plan = plan_week(*args)
+    assert (plan.status, plan.reason) == ("no_plan", NO_PLAN[key])
+    for capacity in (None, DECLARES_NOTHING):
+        assert planner.plan_to_json(plan_week(*args, capacity=capacity)) == planner.plan_to_json(plan)
+    assert plan.capacity == NO_DECLARATION
 
 
 # --- through the build ------------------------------------------------------------------------

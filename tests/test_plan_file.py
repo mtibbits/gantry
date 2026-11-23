@@ -200,6 +200,62 @@ def test_shape_accepts_unknown_unplanned_reason(tmp_path):
     assert shape_errors(document) == []
 
 
+def test_shape_holds_a_declared_capacity(tmp_path):
+    # No plan yet holds a declared ratio, a token budget, a paused site or a report line (#39):
+    # the nodes no written document reaches are checked on one filled in by hand.
+    base = _states(tmp_path)
+    assert base["capacity"]["declaration"] == "not_declared" and base["report"] == []
+    assert (base["capacity"]["declared_ratio"], base["capacity"]["token_budget"], base["capacity"]["paused"]) == (
+        None, None, [])
+    base["capacity"] |= {
+        "declaration": "used", "capacity_schema": "1.0",
+        "attention": {"rule": "scaled", "total_hours": 30, "weekday_sum_hours": 20.0, "factor": 1.5},
+        "declared_ratio": {"value": 30, "used": False, "reason": "above 24"},
+        "token_budget": {"tokens_per_week": 246000000, "binding": "tokens_per_week",
+                         "unit": "weighted_input_token_equivalents"},
+        "paused": ["b"],
+    }
+    base["capacity"]["lanes"] |= {"lane_hours_per_week": 0.001, "hours_lost_to_cap": 144}
+    base["days"][0]["attention_hours_lost_to_cap"] = 8
+    base["report"] = [{"kind": "capacity_unknown_key", "leaves": [], "text": "capacity: warning"},
+                      {"kind": "cross_site_cycle", "leaves": [{"site": "a", "key": "Issue-1"}], "text": None}]
+    assert shape_errors(base) == []
+
+    used = copy.deepcopy(base)
+    used["capacity"]["declared_ratio"] = {"value": 0.25, "used": True, "reason": None}
+    assert shape_errors(used) == []
+
+    for change, error in [
+        (lambda d: d.pop("capacity"), "plan.capacity: missing"),
+        (lambda d: d["capacity"].pop("paused"), "plan.capacity.paused: missing"),
+        (lambda d: d["capacity"].update(declaration=None), "plan.capacity.declaration: not a string"),
+        (lambda d: d["capacity"].update(capacity_schema=1.0), "plan.capacity.capacity_schema: not a string"),
+        (lambda d: d["capacity"]["attention"].pop("factor"), "plan.capacity.attention.factor: missing"),
+        (lambda d: d["capacity"]["attention"].update(rule=None), "plan.capacity.attention.rule: not a string"),
+        (lambda d: d["capacity"]["lanes"].update(max_lanes=2.5), "plan.capacity.lanes.max_lanes: not an integer"),
+        (lambda d: d["capacity"]["lanes"].update(working_days=None),
+         "plan.capacity.lanes.working_days: not an integer"),
+        (lambda d: d["capacity"]["lanes"].update(lane_hours_per_day=None),
+         "plan.capacity.lanes.lane_hours_per_day: not a number"),
+        (lambda d: d["capacity"]["declared_ratio"].update(used="no"),
+         "plan.capacity.declared_ratio.used: not a boolean"),
+        (lambda d: d["capacity"]["token_budget"].update(tokens_per_week=1.5),
+         "plan.capacity.token_budget.tokens_per_week: not an integer"),
+        (lambda d: d["capacity"]["token_budget"].update(binding=None),
+         "plan.capacity.token_budget.binding: not a string"),
+        (lambda d: d["capacity"].update(paused=[1]), "plan.capacity.paused[0]: not a string"),
+        (lambda d: d["days"][0].pop("attention_hours_lost_to_cap"),
+         "plan.days[0].attention_hours_lost_to_cap: missing"),
+        (lambda d: d["days"][0].update(attention_hours_lost_to_cap=None),
+         "plan.days[0].attention_hours_lost_to_cap: not a number"),
+        (lambda d: d["report"][1].pop("text"), "plan.report[1].text: missing"),
+        (lambda d: d["report"][0].update(text=3), "plan.report[0].text: not a string"),
+    ]:
+        changed = copy.deepcopy(base)
+        change(changed)
+        assert shape_errors(changed) == [error]
+
+
 def test_shape_file_matches_plan_version():
     assert SHAPE["plan_version"] == PLAN_VERSION
     assert SHAPE["status_values"] == ["planned", "no_plan"]
