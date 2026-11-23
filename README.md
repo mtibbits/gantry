@@ -193,8 +193,11 @@ The devagent contract test, and the portfolio tests that run devagent's
 aggregator (`tests/test_portfolio_equivalence.py`), need a devagent checkout
 at the release named in `tests/devagent.pin`, given by
 `GANTRY_DEVAGENT_DIR`, and devagent's own toolchain (bash and GNU
-coreutils). They follow the same rule: without the checkout they skip,
-except under `CI`, where they fail. On Windows they always skip. See
+coreutils). A test of a devagent contract that release lacks needs a second
+checkout, at the release named in `tests/devagent-latest.pin`, given by
+`GANTRY_DEVAGENT_LATEST_DIR`. They follow the same rule: without the
+checkout they skip, except under `CI`, where they fail. On Windows they
+always skip. See
 [docs/devagent-formats.md](docs/devagent-formats.md#fixtures-and-the-contract-test)
 and
 [docs/worksite-page.md](docs/worksite-page.md#reading-devagents-portfolio-json).

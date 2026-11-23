@@ -34,6 +34,14 @@ release. Moving the pin is a change of its own, made with every file that
 records the pin regenerated
 ([Fixtures and the contract test](#fixtures-and-the-contract-test)).
 
+A second pin, `tests/devagent-latest.pin`, names the release that holds the
+newest devagent contract Gantry mirrors: today `devagent--v3.4.0`. A test of
+a contract the first pin's release lacks runs against a checkout of this
+one. It moves in the change that needs a newer contract, as #40 and #41
+may, and it is never below the first pin. No tool reads it and no committed
+file is written at it, so moving it regenerates nothing. The first pin is
+"the pin" everywhere on this page; the second is always "the latest pin".
+
 ## Where the records are
 
 devagent keeps an issue's records in `<planning directory>/<issue>/`
@@ -343,6 +351,16 @@ each of these fails the run. On Windows it always skips with the reason
 clones devagent at the pin and checks the tag's commit against the
 fixtures' `provenance.json`, because the test workflow has no conditional
 steps; only the Ubuntu legs run the test.
+
+A test that needs the latest pin's release reads its checkout from
+`GANTRY_DEVAGENT_LATEST_DIR` and follows the same rules under that variable
+and `tests/devagent-latest.pin`: it skips locally when the variable is unset
+or is not a devagent checkout, warns when the checkout's version differs
+from the latest pin's, fails on each of these with `CI` set, and always
+skips on Windows. Neither variable stands in for the other. Every CI leg
+clones devagent at the latest pin too. That clone is checked against no
+commit, because no committed file records one for it: the version check is
+its guard.
 
 ## What can move to the portfolio JSON
 
