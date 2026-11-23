@@ -20,6 +20,7 @@ from it: conftest's `node` fixture would clash.
 
 import copy
 import functools
+from dataclasses import dataclass
 from pathlib import Path
 
 import helpers_devagent as hd
@@ -263,6 +264,100 @@ def append_nodes(doc, project_name, *nodes) -> dict:
     proj["nodes"] += added
 
     out["parse_report"] = [e for e in out["parse_report"] if not auto_entry(e, project_name)] + auto_report(proj)
+    return out
+
+
+# --- document-carrying sources (#195) ---------------------------------------------------------
+# A build-side test writes a WBS.md and, beside it, the portfolio document #12's build
+# will read. A Source carries both: the bytes, and the nodes devagent reads from them.
+
+# devagent v3.0.0 scripts/lib/portfolio.py: REASON_NO_WBS, and REASON_UNREADABLE with _err_detail's
+# UnicodeDecodeError form (over the whole file).
+NO_WBS_REASON = "the devdoc dir has no WBS.md"
+UNREADABLE_REASON = "WBS.md could not be read: UnicodeDecodeError: {reason} at byte {start}"
+
+
+@dataclass(frozen=True)
+class Source:
+    text: bytes  # the WBS.md bytes write_site_tree writes
+    nodes: tuple  # numbered node dicts, project()'s shape; ids are made again per document
+    report: tuple  # (line, kind, message): entries of kinds auto_report does not write
+
+
+def _decode_error(text):
+    try:
+        text.decode("utf-8")
+    except UnicodeDecodeError as e:
+        return e
+    return None
+
+
+def source(text, *nodes, start=1, report=()) -> Source:
+    """A WBS.md text and devagent's reading of it: `nodes` as project() numbers
+    them from `start`, and `report`'s (line, kind, message) entries of kinds
+    auto_report does not write (near_miss_line, issue_not_id ...)."""
+    if not isinstance(text, bytes):
+        raise TypeError(f"source: the text is {type(text).__name__}, not bytes")
+    made = tuple(project("_", *nodes, start=start)["nodes"])
+    if made and _decode_error(text) is not None:
+        raise ValueError("source: a WBS.md that is not UTF-8 is unreadable, so it has no nodes")
+    return Source(text, made, tuple(tuple(entry) for entry in report))
+
+
+def fixture_source(name) -> Source:
+    """A FIXTURE_SOURCES text: its bytes, written.json's nodes of project `name`,
+    and that project's entries auto_report does not write (classified under `name`)."""
+    doc = _parsed(sp.WRITTEN)
+    (proj,) = [p for p in doc["projects"] if p["project"] == name]
+    report = tuple((e["source_line"], e["kind"], e["message"]) for e in doc["parse_report"]
+                   if e["project"] == name and not auto_entry(e, name))
+    return Source((sp.ROOT / sp.FIXTURE_SOURCES[name]).read_bytes(), tuple(copy.deepcopy(proj["nodes"])), report)
+
+
+def _not_read(name, status, reason):
+    return {"project": name, "status": status, "status_reason": reason, "nodes": []}
+
+
+def _highest_id(doc):
+    return max((int(n["id"][1:]) for p in doc["projects"] for n in p["nodes"] if n["id"][1:].isdigit()), default=0)
+
+
+def _project_of(name, source, first):
+    """(project, report rows) for `source` as project `name`, node ids n<first>, n<first + 1> ..."""
+    if not isinstance(source, Source):
+        raise TypeError(f"site {name!r}: {type(source).__name__} is not a Source")
+    error = _decode_error(source.text)
+    if error is not None:
+        return _not_read(name, "unreadable", UNREADABLE_REASON.format(reason=error.reason, start=error.start)), []
+    ids = {n["id"]: f"n{i}" for i, n in enumerate(source.nodes, start=first)}
+    nodes = [{**copy.deepcopy(n), "id": ids[n["id"]], "parent": ids.get(n["parent"])} for n in source.nodes]
+    return {"project": name, "status": "read", "status_reason": None, "nodes": nodes}, \
+        [(name, *entry) for entry in source.report]
+
+
+def site_document(sites) -> dict:
+    """The portfolio document over `sites`, {name: Source | None} in config order:
+    None is devagent's no_wbs project, a text that is not UTF-8 its unreadable
+    one, any other Source a read project; ids n<N> are unique across the document."""
+    projects, report = [], []
+    for name, value in sites.items():
+        if value is None:
+            projects.append(_not_read(name, "no_wbs", NO_WBS_REASON))
+            continue
+        made, rows = _project_of(name, value, 1 + sum(len(p["nodes"]) for p in projects))
+        projects.append(made)
+        report += rows
+    return document(*projects, report=report)
+
+
+def append_project(doc, name, source) -> dict:
+    """A copy of `doc` with one more project `name` of `source`, after the others;
+    its ids continue from the document's highest n<N>."""
+    out = copy.deepcopy(doc)
+    made, rows = _project_of(name, source, _highest_id(out) + 1)
+    out["projects"].append(made)
+    out["parse_report"] += auto_report(made) + [
+        {"project": p, "source_line": line, "kind": kind, "message": message} for p, line, kind, message in rows]
     return out
 
 

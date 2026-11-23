@@ -57,6 +57,16 @@ def test_site_numbers_nests_and_names():
     assert not data.leaves[2].open
     assert [entry.line for entry in kinds(data, "no_issue")] == [3]
     assert [entry.kind for entry in data.report] == ["no_issue"]
+    # site_document (#195): ids unique across the document, bytes only, a Source's report under the site name.
+    doc = hp.site_document({"a": hp.source(b"- [ ] A {issue: Issue-1}\n", hp.node("A", issue="Issue-1")),
+                            "b": hp.source(b"- [ ] E\n  - [ ] F\n", hp.node("E", hp.node("F")))})
+    ids = [n["id"] for p in doc["projects"] for n in p["nodes"]]
+    assert ids == ["n1", "n2", "n3"]
+    assert [n["parent"] for n in doc["projects"][1]["nodes"]] == [None, "n2"]
+    with pytest.raises(TypeError):
+        hp.source("x")
+    near = hp.site_document({"a": hp.source(b"", report=((3, "near_miss_line", "m"),))})
+    assert [(e["project"], e["source_line"], e["kind"]) for e in near["parse_report"]] == [("a", 3, "near_miss_line")]
 
 
 def test_site_meta_is_parsed_and_ordered():
@@ -111,6 +121,14 @@ def test_fixture_doc_narrows_and_renames():
         hp.site_of(hp.written_doc(), "not_utf8")
     with pytest.raises(ValueError):
         hp.site_of(hp.written_doc())
+    # fixture_source (#195): written.json's nodes and its entries of the kinds auto_report does not write.
+    refs = hp.fixture_source("refs")
+    assert refs.text == (ROOT / sp.FIXTURE_SOURCES["refs"]).read_bytes()
+    from_source = hp.site_of(hp.site_document({"alpha": refs}))
+    assert [n.key for n in (*from_source.leaves, *from_source.rows)] == [
+        n.key for n in (*hp.fixture_site("refs").leaves, *hp.fixture_site("refs").rows)]
+    assert refs.report and not {kind for _, kind, _ in refs.report} & set(hp.AUTO_KINDS) - {"dep_unresolved"}
+    assert all(not hp.auto_entry({"project": "refs", "kind": k, "message": m}, "refs") for _, k, m in refs.report)
 
 
 def test_drop_lines():
@@ -268,3 +286,20 @@ def test_append_nodes():
     assert (late.line, late.open) == (last + 1, False)
     assert [entry.line for entry in kinds(data, "no_issue")] == [
         entry.line for entry in kinds(hp.sample_site(SMALL), "no_issue")] + [last + 2]
+    # append_project (#195): one read project more, its ids from the document's highest + 1.
+    one = hp.site_document({"a": hp.source(b"- [ ] A {issue: Issue-1}\n", hp.node("A", issue="Issue-1"))})
+    two = hp.append_project(one, "b", hp.source(b"- [ ] B\n", hp.node("B")))
+    assert [p["project"] for p in two["projects"]] == ["a", "b"]
+    assert [n["id"] for n in two["projects"][1]["nodes"]] == ["n2"]
+    assert [(e["project"], e["kind"]) for e in two["parse_report"]] == [("b", "leaf_no_issue")]
+
+
+def test_site_document_not_read_reason_is_devagents():
+    # The not-read projects site_document writes are devagent's own, as the aggregator wrote them in samples.json.
+    doc = hp.site_document({"x": None, "m": hp.source((ROOT / "samples" / UNREADABLE / "WBS.md").read_bytes())})
+    written = {p["project"]: p for p in hp.sample_doc()["projects"]}
+    made = {p["project"]: p for p in doc["projects"]}
+    for mine, theirs in (("x", NO_WBS), ("m", UNREADABLE)):
+        assert (made[mine]["status"], made[mine]["status_reason"]) == (
+            written[theirs]["status"], written[theirs]["status_reason"]), mine
+        assert made[mine]["nodes"] == written[theirs]["nodes"] == [], mine
