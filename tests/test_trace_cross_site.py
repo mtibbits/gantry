@@ -384,10 +384,8 @@ TWO_REQS = "# R\n\n## Functional requirements\n\n- FR-1: One.\n"
 
 
 def test_whole_installation_uses_unscoped_texts(tmp_path):
-    wbs = {"alpha": hp.source(b"# Alpha\n\n- [ ] One {issue: Issue-1}\n", hp.node("One", issue="Issue-1"),
-                              start=3), "beta": hp.source(b"# Beta\n\n- [ ] Two {issue: Issue-2}\n",
-                                                                                 hp.node("Two", issue="Issue-2"),
-                                                                                 start=3)}
+    wbs = {"alpha": hp.source(b"# Alpha\n\n- [ ] One {issue: Issue-1}\n", hp.node("One", issue="Issue-1"), start=3),
+           "beta": hp.source(b"# Beta\n\n- [ ] Two {issue: Issue-2}\n", hp.node("Two", issue="Issue-2"), start=3)}
     fr1 = path_of(installation_models(installation(tmp_path / "a", wbs, {"alpha": TWO_REQS}))["alpha"], "alpha:FR-1")
     assert fr1["lines"] == [worksite.PATH_UNSERVED] and fr1["incomplete"] == []
     wbs["beta"] = hp.source(b"# Beta\n\n- [x] Two {issue: Issue-2, satisfies: alpha:FR-1}\n",

@@ -43,7 +43,6 @@ from test_samples import ROOT
 from test_worksite_page import by_id, find, text_of, tree
 
 
-
 def site_lines(t):
     """{site name: (li index, its text)} in page order, keyed by the line's first span or link."""
     lines = {}

@@ -20,6 +20,7 @@ from it: conftest's `node` fixture would clash.
 
 import copy
 import functools
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -454,15 +455,19 @@ def rewrite_document(copy, fn):
     copy = Path(copy)
     path = copy.joinpath(sp.OUT, *sp.DOCUMENT)
     before = path.read_bytes()
-    new = fn(sp._load(path))
+    new = fn(json.loads(before.decode("utf-8")))
     assert new is not None, "rewrite_document: fn returned None"
     after = sp.dumps(new)
     assert after != before, "rewrite_document: the document did not change"
     path.write_bytes(after)
     home = copy / "devagent"
     tables = tomllib.loads((home / "config.toml").read_bytes().decode("utf-8"))["project"]
-    _stopgap_agreement(copy, path, {p["project"]: (home / tables[p["project"]]["devdoc_dir"] / "WBS.md").read_bytes()
-                                    for p in new["projects"] if p["status"] == "read"})
+    try:
+        _stopgap_agreement(copy, path, {p["project"]: (home / tables[p["project"]]["devdoc_dir"] / "WBS.md").read_bytes()
+                                        for p in new["projects"] if p["status"] == "read"}, who="rewrite_document")
+    except AssertionError:
+        path.write_bytes(before)  # the check reads the written file; a failed rewrite leaves the old document
+        raise
 
 
 def append_not_read(doc, name, status, reason) -> dict:

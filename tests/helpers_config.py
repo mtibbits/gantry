@@ -126,10 +126,10 @@ def _kept(where, stopgap, document):
     return True
 
 
-def _stopgap_agreement(root, document, sites):
+def _stopgap_agreement(root, document, sites, who="write_site_tree"):
     """Assert that the portfolio document at `document`, read under `root`, reads each project
     of `sites` ({name: that site's WBS.md bytes}) as the stopgap reads those bytes, on the
-    fields COMPARED names (see its comment for what is not compared). The pin of ONE_SIDED
+    fields COMPARED names (see its comment for what is not compared); `who` heads a failure. The pin of ONE_SIDED
     against known_differences.json is test_site_builder's."""
     import update_expected_leaves as ue
     from gantry.portfolio_json import ProjectInput, read_portfolio
@@ -139,14 +139,14 @@ def _stopgap_agreement(root, document, sites):
     projects = read_portfolio(directory_roots([root]), document).projects
     for name, wbs in sites.items():
         found = [p for p in projects if p.name == name]
-        assert len(found) == 1, f"write_site_tree: site {name!r}: the portfolio document holds {len(found)} such projects"
+        assert len(found) == 1, f"{who}: site {name!r}: the portfolio document holds {len(found)} such projects"
         (project,) = found
         try:
             text = wbs.decode("utf-8")
         except UnicodeDecodeError:
-            assert project.status == "unreadable", f"write_site_tree: site {name!r}: not UTF-8 but {project.status}"
+            assert project.status == "unreadable", f"{who}: site {name!r}: not UTF-8 but {project.status}"
             continue
-        assert project.status == "read", f"write_site_tree: site {name!r}: the document says {project.status}"
+        assert project.status == "read", f"{who}: site {name!r}: the document says {project.status}"
 
         def snap(data):
             return ue.snapshot_of(ProjectInput(name, "read", None, data), (), pin="agreement", schema_version="1.1",
@@ -157,7 +157,7 @@ def _stopgap_agreement(root, document, sites):
         remaining = [row for row in rows
                      if not (row[0].startswith("report[") and (_row_class(row[0]), _holder(row[2])) in ONE_SIDED)]
         if remaining:
-            raise AssertionError(f"write_site_tree: site {name!r}: the portfolio document disagrees with the "
+            raise AssertionError(f"{who}: site {name!r}: the portfolio document disagrees with the "
                                  f"stopgap's reading: {remaining}")
 
 

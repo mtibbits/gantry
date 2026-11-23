@@ -225,13 +225,13 @@ def test_finished_source_checked_not_flagged(tmp_path):
     assert (w.waits_on_other_site, w.foreign_targets) == (False, None)
     assert [e.kind for e in foreign_report(resolved, "alpha")] == ["foreign_site_absent"]
 
+
 # A cycle holds out A, which also waits on beta:Issue-1.
 HELD_ON_BETA = hp.source(("- [ ] A {issue: Issue-1, depends_on: [Issue-2, beta:Issue-1]}\n"
                           "- [ ] B {issue: Issue-2, depends_on: [Issue-1]}\n").encode(),
                          hp.node("A", issue="Issue-1", depends_on=["Issue-2", "beta:Issue-1"]),
                          hp.node("B", issue="Issue-2", depends_on=["Issue-1"]),
                          report=((1, "dep_cycle", "dependency cycle: Issue-1 (line 1), Issue-2 (line 2)"),))
-
 
 
 def test_held_out_leaf_flagged(tmp_path):

@@ -37,7 +37,6 @@ from test_portfolio_file import EVERY_FIXTURE
 from test_samples import ROOT
 
 
-
 def run_module(*args, cwd=ROOT):
     return subprocess.run(
         [sys.executable, "-m", "gantry", *args],
