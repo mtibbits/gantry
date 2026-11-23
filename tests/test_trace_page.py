@@ -12,6 +12,7 @@ import re
 import pytest
 
 from commit_check import path_form_hits
+import helpers_portfolio as hp
 from gantry import build
 from gantry.build import build_all
 from gantry.cli import main
@@ -37,16 +38,19 @@ from test_worksite_page import STRUCTURAL, find, text_of, tree, visible_text
 # cycle with Issue-2.
 CYCLE_REQS = "# R\n\n## Functional requirements\n\n- FR-1: Served only by a held-out leaf.\n"
 CYCLE = {
-    "alpha": ("# Alpha\n\n"
-              "- [ ] One {issue: Issue-1, depends_on: [Issue-2], satisfies: alpha:FR-1}\n"
-              "- [ ] Two {issue: Issue-2, depends_on: [Issue-1]}\n"
-              "- [ ] Three {issue: Issue-3}\n"),
+    "alpha": hp.source(("# Alpha\n\n"
+                        "- [ ] One {issue: Issue-1, depends_on: [Issue-2], satisfies: alpha:FR-1}\n"
+                        "- [ ] Two {issue: Issue-2, depends_on: [Issue-1]}\n"
+                        "- [ ] Three {issue: Issue-3}\n").encode(),
+                       hp.node("One", issue="Issue-1", depends_on=["Issue-2"], satisfies="alpha:FR-1"),
+                       hp.node("Two", issue="Issue-2", depends_on=["Issue-1"]), hp.node("Three", issue="Issue-3"),
+                       start=3, report=((3, "dep_cycle", "dependency cycle: Issue-1 (line 3), Issue-2 (line 4)"),)),
 }
 
 
 def installation(tmp_path, wbs, requirements=None, portfolio=None):
     """An installation in tmp_path: `wbs` maps each site name to its WBS.md
-    text, in config order; `requirements` maps a site name to its
+    as an hp.Source (or None), in config order; `requirements` maps a site name to its
     requirements text, which puts it in the trace; `portfolio` is the
     portfolio file's business-requirements text. Returns the config path."""
     tmp_path.mkdir(parents=True, exist_ok=True)
@@ -58,8 +62,7 @@ def installation(tmp_path, wbs, requirements=None, portfolio=None):
     if portfolio is not None:
         (tmp_path / "portfolio.md").write_bytes(("# P\n\n## Business requirements\n\n" + portfolio).encode("utf-8"))
         raw["portfolio_file"] = '"portfolio.md"'
-    sites = {name: text.encode("utf-8") for name, text in wbs.items()}
-    return write_site_tree(tmp_path, sites, tail="".join(tables), **raw)
+    return write_site_tree(tmp_path, wbs, tail="".join(tables), **raw)
 
 
 def built(config_path):
@@ -202,21 +205,29 @@ SELF_NEED_REQS = ("# R\n\n## Use cases\n\n- UC-1: Needs itself and FR-1. {needs:
 
 
 def test_use_case_does_not_need_itself(tmp_path):
-    wbs = {"alpha": "# A\n\n- [ ] One {issue: Issue-1, satisfies: alpha:UC-1}\n"}
+    wbs = {"alpha": hp.source(b"# A\n\n- [ ] One {issue: Issue-1, satisfies: alpha:UC-1}\n",
+                              hp.node("One", issue="Issue-1", satisfies="alpha:UC-1"), start=3)}
     page, _ = traced(installation(tmp_path, wbs, {"alpha": SELF_NEED_REQS}), "alpha")
     assert row(page, "alpha:UC-1")["needs"] == ["alpha:FR-1"]
 
 
 COUNTS_REQS = ("# R\n\n## Functional requirements\n\n- FR-1: Nobody serves it.\n- FR-2: Served four ways.\n"
                "- FR-3: Served twice.\n")
-COUNTS_WBS = ("# Alpha\n\n"
-              "- [ ] A {issue: Issue-1, satisfies: alpha:FR-2}\n"
-              "- [ ] B {issue: Issue-2, satisfies: alpha:FR-2}\n"
-              "- [ ] C {issue: Issue-3, depends_on: [Issue-4], satisfies: alpha:FR-2}\n"
-              "- [ ] D {issue: Issue-4, depends_on: [Issue-3]}\n"
-              "- [x] E {issue: Issue-5, satisfies: [alpha:FR-2, alpha:FR-3]}\n"
-              "- [ ] F {issue: Issue-6, satisfies: alpha:FR-3}\n")
-ONE_LEAF = "# A\n\n- [ ] One {issue: Issue-1}\n"
+COUNTS_WBS = hp.source(("# Alpha\n\n"
+                        "- [ ] A {issue: Issue-1, satisfies: alpha:FR-2}\n"
+                        "- [ ] B {issue: Issue-2, satisfies: alpha:FR-2}\n"
+                        "- [ ] C {issue: Issue-3, depends_on: [Issue-4], satisfies: alpha:FR-2}\n"
+                        "- [ ] D {issue: Issue-4, depends_on: [Issue-3]}\n"
+                        "- [x] E {issue: Issue-5, satisfies: [alpha:FR-2, alpha:FR-3]}\n"
+                        "- [ ] F {issue: Issue-6, satisfies: alpha:FR-3}\n").encode(),
+                       hp.node("A", issue="Issue-1", satisfies="alpha:FR-2"),
+                       hp.node("B", issue="Issue-2", satisfies="alpha:FR-2"),
+                       hp.node("C", issue="Issue-3", depends_on=["Issue-4"], satisfies="alpha:FR-2"),
+                       hp.node("D", issue="Issue-4", depends_on=["Issue-3"]),
+                       hp.node("E", glyph="x", issue="Issue-5", satisfies=["alpha:FR-2", "alpha:FR-3"]),
+                       hp.node("F", issue="Issue-6", satisfies="alpha:FR-3"), start=3,
+                       report=((5, "dep_cycle", "dependency cycle: Issue-3 (line 5), Issue-4 (line 6)"),))
+ONE_LEAF = hp.source(b"# A\n\n- [ ] One {issue: Issue-1}\n", hp.node("One", issue="Issue-1"), start=3)
 
 
 def test_counts_text(tmp_path):
@@ -228,7 +239,8 @@ def test_counts_text(tmp_path):
 
 def test_counts_line(tmp_path):
     assert counts_line(SMALL, traced(GANTRY_SAMPLE, SMALL)[0]) == SAMPLE_LINE_SITE
-    wbs = {"alpha": ONE_LEAF, "beta": "# B\n\n- [ ] One {issue: Issue-1, satisfies: beta:FR-9}\n"}
+    wbs = {"alpha": ONE_LEAF, "beta": hp.source(b"# B\n\n- [ ] One {issue: Issue-1, satisfies: beta:FR-9}\n",
+                                                hp.node("One", issue="Issue-1", satisfies="beta:FR-9"), start=3)}
     config_path = installation(tmp_path, wbs)
     assert counts_line("alpha", traced(config_path, "alpha")[0]) is None
     assert counts_line("beta", traced(config_path, "beta")[0]) == (
@@ -337,7 +349,8 @@ def test_site_build_prints_trace_line(tmp_path, monkeypatch):
 
 
 def test_untraced_site_with_entry_prints_line(tmp_path, capsys):
-    wbs = {"alpha": "# A\n\n- [ ] One {issue: Issue-1, satisfies: alpha:FR-9}\n", "beta": ONE_LEAF}
+    wbs = {"alpha": hp.source(b"# A\n\n- [ ] One {issue: Issue-1, satisfies: alpha:FR-9}\n",
+                              hp.node("One", issue="Issue-1", satisfies="alpha:FR-9"), start=3), "beta": ONE_LEAF}
     config_path = installation(tmp_path, wbs)
     assert main(["build", "--config", str(config_path)]) == 0
     lines = capsys.readouterr().out.splitlines()
@@ -353,8 +366,11 @@ def test_untraced_site_with_entry_prints_line(tmp_path, capsys):
 @pytest.mark.parametrize("args", [[], ["--site", "alpha"]])
 def test_parent_row_objective_reaches_the_build(tmp_path, capsys, args):
     # #79: a full build and a --site build both pass the site's rows to the trace.
-    wbs = {"alpha": "# A\n\n- [ ] Epic {objective: alpha:FR-1}\n"
-                    "  - [ ] One {issue: Issue-1, satisfies: alpha:FR-1}\n"}
+    wbs = {"alpha": hp.source(("# A\n\n- [ ] Epic {objective: alpha:FR-1}\n"
+                               "  - [ ] One {issue: Issue-1, satisfies: alpha:FR-1}\n").encode(),
+                              hp.node("Epic", hp.node("One", issue="Issue-1", satisfies="alpha:FR-1"),
+                                      objective="alpha:FR-1"),
+                              start=3)}
     config_path = installation(tmp_path, wbs, {"alpha": "- FR-1: a\n"})
     assert main(["build", "--config", str(config_path), *args]) == 0
     lines = capsys.readouterr().out.splitlines()
@@ -424,11 +440,15 @@ def test_sample_box_chips(tmp_path):
 
 
 def test_chip_count_extremes(tmp_path):
-    wbs = {"alpha": ("# A\n\n"
-                     "- [ ] Three {issue: Issue-1, satisfies: [alpha:FR-1, alpha:FR-2, alpha:FR-3]}\n"
-                     "- [ ] Four {issue: Issue-2, depends_on: [Issue-1], "
-                     "satisfies: [alpha:FR-1, alpha:FR-2, alpha:FR-3, alpha:FR-4]}\n"
-                     "- [ ] None {issue: Issue-3, depends_on: [Issue-2]}\n")}
+    wbs = {"alpha": hp.source(("# A\n\n"
+                               "- [ ] Three {issue: Issue-1, satisfies: [alpha:FR-1, alpha:FR-2, alpha:FR-3]}\n"
+                               "- [ ] Four {issue: Issue-2, depends_on: [Issue-1], "
+                               "satisfies: [alpha:FR-1, alpha:FR-2, alpha:FR-3, alpha:FR-4]}\n"
+                               "- [ ] None {issue: Issue-3, depends_on: [Issue-2]}\n").encode(),
+                              hp.node("Three", issue="Issue-1", satisfies=["alpha:FR-1", "alpha:FR-2", "alpha:FR-3"]),
+                              hp.node("Four", issue="Issue-2", depends_on=["Issue-1"],
+                                      satisfies=["alpha:FR-1", "alpha:FR-2", "alpha:FR-3", "alpha:FR-4"]),
+                              hp.node("None", issue="Issue-3", depends_on=["Issue-2"]), start=3)}
     t = tree(page_of(installation(tmp_path, wbs, {"alpha": FOUR_REQS}), "alpha"))
     three, four, none = (node_of(t, f"Issue-{n}") for n in (1, 2, 3))
     assert [label for label, _ in chips(t, three)] == ["FR-1", "FR-2", "FR-3"] and more_of(t, three) == []
@@ -517,8 +537,7 @@ def render_traced(config_path, site, trace=True):
 
 
 def test_untraced_site_renders_as_before(tmp_path):
-    wbs = (ROOT / "tests" / "fixtures" / "wbs" / "page.md").read_bytes().decode("utf-8")
-    config_path = installation(tmp_path, {"alpha": wbs})
+    config_path = installation(tmp_path, {"alpha": hp.fixture_source("page")})
     page, _ = render_traced(config_path, "alpha")
     assert find(tree(page), "g", ["chip"]) == []
     assert "requirements" not in page_ids(page) and "trace" not in page_ids(page)
@@ -531,8 +550,10 @@ def test_untraced_site_renders_as_before(tmp_path):
 
 def test_untraced_site_with_resolvable_id(tmp_path):
     wbs = {"alpha": ONE_LEAF,
-           "beta": ("# B\n\n- [ ] One {issue: Issue-1, satisfies: alpha:FR-1}\n"
-                    "- [ ] Two {issue: Issue-2, depends_on: [Issue-1]}\n")}
+           "beta": hp.source(("# B\n\n- [ ] One {issue: Issue-1, satisfies: alpha:FR-1}\n"
+                              "- [ ] Two {issue: Issue-2, depends_on: [Issue-1]}\n").encode(),
+                             hp.node("One", issue="Issue-1", satisfies="alpha:FR-1"),
+                             hp.node("Two", issue="Issue-2", depends_on=["Issue-1"]), start=3)}
     page = page_of(installation(tmp_path, wbs, {"alpha": FOUR_REQS}), "beta")
     t = tree(page)
     assert chips(t, node_of(t, "Issue-1")) == [("alpha:FR-1", "alpha:FR-1")]
@@ -542,8 +563,10 @@ def test_untraced_site_with_resolvable_id(tmp_path):
 
 def test_business_requirement_has_no_text(tmp_path):
     secret = "Grow the keeper guild across the coast"
-    wbs = {"alpha": ("# A\n\n- [ ] One {issue: Issue-1, satisfies: life:BR-1}\n"
-                     "- [ ] Two {issue: Issue-2, depends_on: [Issue-1]}\n")}
+    wbs = {"alpha": hp.source(("# A\n\n- [ ] One {issue: Issue-1, satisfies: life:BR-1}\n"
+                               "- [ ] Two {issue: Issue-2, depends_on: [Issue-1]}\n").encode(),
+                              hp.node("One", issue="Issue-1", satisfies="life:BR-1"),
+                              hp.node("Two", issue="Issue-2", depends_on=["Issue-1"]), start=3)}
     page = page_of(installation(tmp_path, wbs, portfolio=f"- BR-1: {secret}.\n"), "alpha")
     t = tree(page)
     assert chips(t, node_of(t, "Issue-1")) == [("life:BR-1", "life:BR-1")]
@@ -554,7 +577,8 @@ def test_business_requirement_has_no_text(tmp_path):
 
 
 def test_empty_report_draws_no_trace_element(tmp_path):
-    wbs = {"alpha": "# A\n\n- [ ] One {issue: Issue-1, satisfies: alpha:FR-1}\n"}
+    wbs = {"alpha": hp.source(b"# A\n\n- [ ] One {issue: Issue-1, satisfies: alpha:FR-1}\n",
+                              hp.node("One", issue="Issue-1", satisfies="alpha:FR-1"), start=3)}
     page = page_of(installation(tmp_path, wbs, {"alpha": "# R\n\n## Functional requirements\n\n- FR-1: One.\n"}),
                    "alpha")
     assert "requirements" in page_ids(page) and "trace" not in page_ids(page)
@@ -595,8 +619,10 @@ def test_chip_row_width_bounded(tmp_path):
     reqs = {name: "# R\n\n## Functional requirements\n\n- FR-1: One.\n" for name in LONG}
     ids = ", ".join(f"{name}:FR-1" for name in LONG)
     assert all(len(f"{name}:FR-1") >= 17 for name in LONG)
-    wbs = {"alpha": (f"# A\n\n- [ ] Long {{issue: Issue-1, satisfies: [{ids}]}}\n"
-                     "- [ ] Two {issue: Issue-2, depends_on: [Issue-1]}\n"),
+    wbs = {"alpha": hp.source((f"# A\n\n- [ ] Long {{issue: Issue-1, satisfies: [{ids}]}}\n"
+                               "- [ ] Two {issue: Issue-2, depends_on: [Issue-1]}\n").encode(),
+                              hp.node("Long", issue="Issue-1", satisfies=[f"{name}:FR-1" for name in LONG]),
+                              hp.node("Two", issue="Issue-2", depends_on=["Issue-1"]), start=3),
            **{name: ONE_LEAF for name in LONG}}
     t = tree(page_of(installation(tmp_path, wbs, reqs), "alpha"))
     node = node_of(t, "Issue-1")
@@ -615,8 +641,12 @@ def test_chip_row_width_bounded(tmp_path):
 
 def test_cut_chip_labels_stay_distinct(tmp_path):
     reqs = {"devagent": "# R\n\n## Functional requirements\n\n- FR-3: Three.\n- FR-4: Four.\n- FR-12: Twelve.\n"}
-    wbs = {"alpha": ("# A\n\n- [ ] One {issue: Issue-1, satisfies: [devagent:FR-3, devagent:FR-4, devagent:FR-12]}\n"
-                     "- [ ] Two {issue: Issue-2, depends_on: [Issue-1]}\n"),
+    wbs = {"alpha": hp.source(("# A\n\n- [ ] One {issue: Issue-1, "
+                               "satisfies: [devagent:FR-3, devagent:FR-4, devagent:FR-12]}\n"
+                               "- [ ] Two {issue: Issue-2, depends_on: [Issue-1]}\n").encode(),
+                              hp.node("One", issue="Issue-1",
+                                      satisfies=["devagent:FR-3", "devagent:FR-4", "devagent:FR-12"]),
+                              hp.node("Two", issue="Issue-2", depends_on=["Issue-1"]), start=3),
            "devagent": ONE_LEAF}
     t = tree(page_of(installation(tmp_path, wbs, reqs), "alpha"))
     labels = [label for label, _ in chips(t, node_of(t, "Issue-1"))]
@@ -627,12 +657,18 @@ def test_cut_chip_labels_stay_distinct(tmp_path):
 def test_chip_row_clears_large_circle(tmp_path):
     # Issue-3 (90 h) is a circle in the row under Issue-2, in the same column.
     # The row clears a circle up to about 93 h only; a larger one overlaps (a known limit).
-    wbs = {"alpha": ("# A\n\n- [ ] Root {issue: Issue-1, est: 3w}\n"
-                     "- [ ] Box {issue: Issue-2, est: 1d, priority: P1, depends_on: [Issue-1], "
-                     "satisfies: [alpha:FR-1, alpha:FR-2]}\n"
-                     "- [ ] Big {issue: Issue-3, est: 3w, depends_on: [Issue-1]}\n"
-                     "- [ ] Tail {issue: Issue-4, est: 3w, depends_on: [Issue-2]}\n"
-                     "- [ ] Tail2 {issue: Issue-5, est: 3w, depends_on: [Issue-4]}\n")}
+    wbs = {"alpha": hp.source(("# A\n\n- [ ] Root {issue: Issue-1, est: 3w}\n"
+                               "- [ ] Box {issue: Issue-2, est: 1d, priority: P1, depends_on: [Issue-1], "
+                               "satisfies: [alpha:FR-1, alpha:FR-2]}\n"
+                               "- [ ] Big {issue: Issue-3, est: 3w, depends_on: [Issue-1]}\n"
+                               "- [ ] Tail {issue: Issue-4, est: 3w, depends_on: [Issue-2]}\n"
+                               "- [ ] Tail2 {issue: Issue-5, est: 3w, depends_on: [Issue-4]}\n").encode(),
+                              hp.node("Root", issue="Issue-1", est="3w"),
+                              hp.node("Box", issue="Issue-2", est="1d", priority="P1", depends_on=["Issue-1"],
+                                      satisfies=["alpha:FR-1", "alpha:FR-2"]),
+                              hp.node("Big", issue="Issue-3", est="3w", depends_on=["Issue-1"]),
+                              hp.node("Tail", issue="Issue-4", est="3w", depends_on=["Issue-2"]),
+                              hp.node("Tail2", issue="Issue-5", est="3w", depends_on=["Issue-4"]), start=3)}
     page = page_of(installation(tmp_path, wbs, {"alpha": FOUR_REQS}), "alpha")
     t = tree(page)
     leaves = {leaf["key"]: leaf for leaf in assert_page_safe(page, [])["leaves"]}
@@ -1084,7 +1120,8 @@ STATED_REQS = "- FR-1: a\n  - Threshold: t\n  - Objective: o\n- FR-2: b\n"
 
 
 def test_row_carries_statements(tmp_path):
-    wbs = {"alpha": "# A\n\n- [ ] One {issue: Issue-1, satisfies: [alpha:FR-1, alpha:FR-2]}\n"}
+    wbs = {"alpha": hp.source(b"# A\n\n- [ ] One {issue: Issue-1, satisfies: [alpha:FR-1, alpha:FR-2]}\n",
+                              hp.node("One", issue="Issue-1", satisfies=["alpha:FR-1", "alpha:FR-2"]), start=3)}
     page, _ = traced(installation(tmp_path, wbs, {"alpha": STATED_REQS}), "alpha")
     fr1, fr2 = row(page, "alpha:FR-1"), row(page, "alpha:FR-2")
     assert list(fr1) == ROW_KEYS
@@ -1095,8 +1132,10 @@ def test_row_carries_statements(tmp_path):
 def test_business_requirement_statements_never_on_page(tmp_path):
     secrets = ("Grow the keeper guild", "Every coast has a keeper", "Every keeper has a relief")
     portfolio = f"- BR-1: {secrets[0]}.\n  - Threshold: {secrets[1]}.\n  - Objective: {secrets[2]}.\n"
-    wbs = {"alpha": ("# A\n\n- [ ] One {issue: Issue-1, satisfies: life:BR-1}\n"
-                     "- [ ] Two {issue: Issue-2, depends_on: [Issue-1]}\n")}
+    wbs = {"alpha": hp.source(("# A\n\n- [ ] One {issue: Issue-1, satisfies: life:BR-1}\n"
+                               "- [ ] Two {issue: Issue-2, depends_on: [Issue-1]}\n").encode(),
+                              hp.node("One", issue="Issue-1", satisfies="life:BR-1"),
+                              hp.node("Two", issue="Issue-2", depends_on=["Issue-1"]), start=3)}
     config_path = installation(tmp_path, wbs, portfolio=portfolio)
     config = load_config(config_path)
     br = load_catalog(config_roots(config), config, load_sites(config)[0]).requirements["life:BR-1"]
@@ -1107,12 +1146,20 @@ def test_business_requirement_statements_never_on_page(tmp_path):
     assert [s for s in secrets if s in page] == []
 
 
-OBJECTIVE_WBS = ("# A\n\n"
-                 "- [ ] Gate {issue: Issue-1, satisfies: alpha:FR-1}\n"
-                 "- [ ] Lit {issue: Issue-2, satisfies: alpha:FR-1, objective: alpha:FR-1}\n"
-                 "- [ ] Held {issue: Issue-3, depends_on: [Issue-4], satisfies: alpha:FR-1, objective: alpha:FR-1}\n"
-                 "- [ ] Loop {issue: Issue-4, depends_on: [Issue-3]}\n"
-                 "- [x] Done {issue: Issue-5, satisfies: alpha:FR-1, objective: alpha:FR-1}\n")
+OBJECTIVE_WBS = hp.source(("# A\n\n"
+                           "- [ ] Gate {issue: Issue-1, satisfies: alpha:FR-1}\n"
+                           "- [ ] Lit {issue: Issue-2, satisfies: alpha:FR-1, objective: alpha:FR-1}\n"
+                           "- [ ] Held {issue: Issue-3, depends_on: [Issue-4], satisfies: alpha:FR-1, "
+                           "objective: alpha:FR-1}\n"
+                           "- [ ] Loop {issue: Issue-4, depends_on: [Issue-3]}\n"
+                           "- [x] Done {issue: Issue-5, satisfies: alpha:FR-1, objective: alpha:FR-1}\n").encode(),
+                          hp.node("Gate", issue="Issue-1", satisfies="alpha:FR-1"),
+                          hp.node("Lit", issue="Issue-2", satisfies="alpha:FR-1", objective="alpha:FR-1"),
+                          hp.node("Held", issue="Issue-3", depends_on=["Issue-4"], satisfies="alpha:FR-1",
+                                  objective="alpha:FR-1"),
+                          hp.node("Loop", issue="Issue-4", depends_on=["Issue-3"]),
+                          hp.node("Done", glyph="x", issue="Issue-5", satisfies="alpha:FR-1", objective="alpha:FR-1"),
+                          start=3, report=((5, "dep_cycle", "dependency cycle: Issue-3 (line 5), Issue-4 (line 6)"),))
 
 
 def test_row_objective_only_keys(tmp_path):
@@ -1125,7 +1172,8 @@ def test_row_objective_only_keys(tmp_path):
 
 
 def test_malformed_objective_in_report_panel(tmp_path):
-    wbs = {"alpha": "# A\n\n- [ ] One {issue: Issue-1, satisfies: alpha:FR-1, objective: FR-1}\n"}
+    wbs = {"alpha": hp.source(b"# A\n\n- [ ] One {issue: Issue-1, satisfies: alpha:FR-1, objective: FR-1}\n",
+                              hp.node("One", issue="Issue-1", satisfies="alpha:FR-1", objective="FR-1"), start=3)}
     config_path = installation(tmp_path, wbs, {"alpha": "- FR-1: a\n"})
     page, _ = traced(config_path, "alpha")
     assert counts_line("alpha", page) == (

@@ -13,6 +13,7 @@ from dataclasses import replace
 import pytest
 
 import gantry.path
+import helpers_portfolio as hp
 from gantry import build
 from gantry.config import load_config
 from gantry.inputs import scheduled
@@ -302,14 +303,20 @@ def test_sample_fr1_path(tmp_path):
 
 
 def test_fixture_site_path_set_and_order(tmp_path):
-    wbs = ("# Alpha\n\n"
-           "- [x] Done {issue: Issue-1}\n"
-           "- [ ] Third {issue: Issue-2, est: 1d}\n"
-           "- [ ] Urgent {issue: Issue-3, est: 1d, priority: P1}\n"
-           "- [ ] Middle {issue: Issue-4, est: 1d, depends_on: [Issue-2]}\n"
-           "- [ ] Target {issue: Issue-5, est: 1d, depends_on: [Issue-3, Issue-4, Issue-1], "
-           "satisfies: alpha:FR-1}\n"
-           "- [ ] Apart {issue: Issue-6, est: 1d}\n")
+    wbs = hp.source(("# Alpha\n\n"
+                     "- [x] Done {issue: Issue-1}\n"
+                     "- [ ] Third {issue: Issue-2, est: 1d}\n"
+                     "- [ ] Urgent {issue: Issue-3, est: 1d, priority: P1}\n"
+                     "- [ ] Middle {issue: Issue-4, est: 1d, depends_on: [Issue-2]}\n"
+                     "- [ ] Target {issue: Issue-5, est: 1d, depends_on: [Issue-3, Issue-4, Issue-1], "
+                     "satisfies: alpha:FR-1}\n"
+                     "- [ ] Apart {issue: Issue-6, est: 1d}\n").encode(),
+                    hp.node("Done", glyph="x", issue="Issue-1"), hp.node("Third", issue="Issue-2", est="1d"),
+                    hp.node("Urgent", issue="Issue-3", est="1d", priority="P1"),
+                    hp.node("Middle", issue="Issue-4", est="1d", depends_on=["Issue-2"]),
+                    hp.node("Target", issue="Issue-5", est="1d", depends_on=["Issue-3", "Issue-4", "Issue-1"],
+                            satisfies="alpha:FR-1"),
+                    hp.node("Apart", issue="Issue-6", est="1d"), start=3)
     m = site_model(tmp_path, wbs)
     p = path_of(m, "alpha:FR-1")
     keys = [k for k, _ in p["order"]]
@@ -323,22 +330,26 @@ def test_fixture_site_path_set_and_order(tmp_path):
 def test_use_case_path_from_serving_set(tmp_path):
     reqs = ("# R\n\n## Use cases\n\n- UC-1: Needs FR-1. {needs: [FR-1]}\n\n"
             "## Functional requirements\n\n- FR-1: Needed.\n")
-    wbs = ("# Alpha\n\n- [ ] A {issue: Issue-1, est: 1d, satisfies: alpha:UC-1}\n"
-           "- [ ] B {issue: Issue-2, est: 1d, depends_on: [Issue-1], satisfies: alpha:FR-1}\n")
+    wbs = hp.source(("# Alpha\n\n- [ ] A {issue: Issue-1, est: 1d, satisfies: alpha:UC-1}\n"
+                     "- [ ] B {issue: Issue-2, est: 1d, depends_on: [Issue-1], satisfies: alpha:FR-1}\n").encode(),
+                    hp.node("A", issue="Issue-1", est="1d", satisfies="alpha:UC-1"),
+                    hp.node("B", issue="Issue-2", est="1d", depends_on=["Issue-1"], satisfies="alpha:FR-1"), start=3)
     m = site_model(tmp_path, wbs, reqs)
     uc1 = row(m["trace"], "alpha:UC-1")
     assert uc1["path"]["order"] == [["Issue-1", "direct"], ["Issue-2", "indirect"]] == uc1["light"]
 
 
 def test_heading_counts_unestimated_and_carries_label(tmp_path):
-    m = site_model(tmp_path, "# Alpha\n\n- [ ] No est {issue: Issue-1, satisfies: alpha:FR-1}\n")
+    m = site_model(tmp_path, hp.source(b"# Alpha\n\n- [ ] No est {issue: Issue-1, satisfies: alpha:FR-1}\n",
+                                       hp.node("No est", issue="Issue-1", satisfies="alpha:FR-1"), start=3))
     assert path_of(m, "alpha:FR-1")["lines"][0].endswith(worksite.PATH_UNEST.format(n=1))
     assert "agent capacity only" in m["texts"]["label"]
 
 
 def lone(tmp_path, est):
-    return path_of(site_model(tmp_path / est, f"# Alpha\n\n- [ ] T {{issue: Issue-1, est: {est}, "
-                                                   "satisfies: alpha:FR-1}\n"), "alpha:FR-1")
+    wbs = hp.source(f"# Alpha\n\n- [ ] T {{issue: Issue-1, est: {est}, satisfies: alpha:FR-1}}\n".encode(),
+                    hp.node("T", issue="Issue-1", est=est, satisfies="alpha:FR-1"), start=3)
+    return path_of(site_model(tmp_path / est, wbs), "alpha:FR-1")
 
 
 def test_chain_days_half_up_and_end_day_up(tmp_path):
@@ -353,10 +364,14 @@ def test_chain_days_half_up_and_end_day_up(tmp_path):
     assert lone(tmp_path, "1d")["lines"][1].endswith("about 1 working day")
 
 
-CYCLE_UP = ("# Alpha\n\n"
-            "- [ ] One {issue: Issue-1, depends_on: [Issue-2], satisfies: alpha:FR-1}\n"
-            "- [ ] Two {issue: Issue-2, depends_on: [Issue-1, Issue-3]}\n"
-            "- [ ] Three {issue: Issue-3, est: 1d}\n")
+CYCLE_UP = hp.source(("# Alpha\n\n"
+                      "- [ ] One {issue: Issue-1, depends_on: [Issue-2], satisfies: alpha:FR-1}\n"
+                      "- [ ] Two {issue: Issue-2, depends_on: [Issue-1, Issue-3]}\n"
+                      "- [ ] Three {issue: Issue-3, est: 1d}\n").encode(),
+                     hp.node("One", issue="Issue-1", depends_on=["Issue-2"], satisfies="alpha:FR-1"),
+                     hp.node("Two", issue="Issue-2", depends_on=["Issue-1", "Issue-3"]),
+                     hp.node("Three", issue="Issue-3", est="1d"), start=3,
+                     report=((3, "dep_cycle", "dependency cycle: Issue-1 (line 3), Issue-2 (line 4)"),))
 
 
 def test_all_held_has_no_end_day(tmp_path):
@@ -369,10 +384,16 @@ def test_all_held_has_no_end_day(tmp_path):
 
 
 def test_site_build_names_foreign_waits_unchecked(tmp_path):
-    wbs = ("# Alpha\n\n"
-           "- [ ] Epic {issue: Issue-10, depends_on: [beta:Issue-8]}\n"
-           "  - [ ] Up {issue: Issue-2, est: 1d}\n"
-           "- [ ] Target {issue: Issue-1, est: 1d, depends_on: [Issue-2, beta:Issue-9], satisfies: alpha:FR-1}\n")
+    wbs = hp.source(("# Alpha\n\n"
+                     "- [ ] Epic {issue: Issue-10, depends_on: [beta:Issue-8]}\n"
+                     "  - [ ] Up {issue: Issue-2, est: 1d}\n"
+                     "- [ ] Target {issue: Issue-1, est: 1d, depends_on: [Issue-2, beta:Issue-9], "
+                     "satisfies: alpha:FR-1}\n").encode(),
+                    hp.node("Epic", hp.node("Up", issue="Issue-2", est="1d"), issue="Issue-10",
+                            depends_on=["beta:Issue-8"]),
+                    hp.node("Target", issue="Issue-1", est="1d", depends_on=["Issue-2", "beta:Issue-9"],
+                            satisfies="alpha:FR-1"),
+                    start=3)
     p = path_of(site_model(tmp_path, wbs), "alpha:FR-1")
     assert sorted(p["incomplete"]) == sorted([
         worksite.FBOX_TIP.format(key="Issue-1", text="beta:Issue-9 (on another site) not checked in this build"),
@@ -382,9 +403,13 @@ def test_site_build_names_foreign_waits_unchecked(tmp_path):
 
 def test_full_build_uses_outcomes(tmp_path):
     config_path = installation(tmp_path, {
-        "alpha": "# Alpha\n\n- [ ] T {issue: Issue-1, est: 1d, depends_on: [beta:Issue-1, gamma:Issue-1], "
-                 "satisfies: alpha:FR-1}\n",
-        "beta": "# Beta\n\n- [x] Done {issue: Issue-1}\n",
+        "alpha": hp.source(("# Alpha\n\n- [ ] T {issue: Issue-1, est: 1d, depends_on: [beta:Issue-1, gamma:Issue-1], "
+                            "satisfies: alpha:FR-1}\n").encode(),
+                           hp.node("T", issue="Issue-1", est="1d", depends_on=["beta:Issue-1", "gamma:Issue-1"],
+                                   satisfies="alpha:FR-1"),
+                           start=3),
+        "beta": hp.source(b"# Beta\n\n- [x] Done {issue: Issue-1}\n",
+                          hp.node("Done", glyph="x", issue="Issue-1"), start=3),
     }, {"alpha": FR1})
     trace = trace_of(built(config_path).pages["alpha"])
     assert row(trace, "alpha:FR-1")["path"]["incomplete"] == [
@@ -401,8 +426,10 @@ def test_path_status_follows_what_the_build_read():
 
 def test_empty_cases_have_no_list_or_figures(tmp_path):
     reqs = "# R\n\n## Functional requirements\n\n- FR-1: Nobody.\n- FR-2: Done.\n"
-    m = site_model(tmp_path, "# Alpha\n\n- [x] Done {issue: Issue-1, satisfies: alpha:FR-2}\n"
-                             "- [ ] Open {issue: Issue-2}\n", reqs)
+    m = site_model(tmp_path, hp.source(("# Alpha\n\n- [x] Done {issue: Issue-1, satisfies: alpha:FR-2}\n"
+                                        "- [ ] Open {issue: Issue-2}\n").encode(),
+                                       hp.node("Done", glyph="x", issue="Issue-1", satisfies="alpha:FR-2"),
+                                       hp.node("Open", issue="Issue-2"), start=3), reqs)
     empty = {"state": "unserved", "lines": [worksite.PATH_UNSERVED_SITE], "order": [], "chain": [],
              "targets": [], "end_day": None, "incomplete": []}
     assert path_of(m, "alpha:FR-1") == empty
@@ -410,8 +437,12 @@ def test_empty_cases_have_no_list_or_figures(tmp_path):
 
 
 def test_path_extremes(tmp_path):
-    wbs = ("# Alpha\n\n- [ ] A {issue: Issue-1, est: 1d}\n- [ ] B {issue: Issue-2, est: 1d}\n"
-           "- [ ] T {issue: Issue-3, est: 1d, depends_on: [Issue-1, Issue-2], satisfies: alpha:FR-1}\n")
+    wbs = hp.source(("# Alpha\n\n- [ ] A {issue: Issue-1, est: 1d}\n- [ ] B {issue: Issue-2, est: 1d}\n"
+                     "- [ ] T {issue: Issue-3, est: 1d, depends_on: [Issue-1, Issue-2], "
+                     "satisfies: alpha:FR-1}\n").encode(),
+                    hp.node("A", issue="Issue-1", est="1d"), hp.node("B", issue="Issue-2", est="1d"),
+                    hp.node("T", issue="Issue-3", est="1d", depends_on=["Issue-1", "Issue-2"], satisfies="alpha:FR-1"),
+                    start=3)
     m = site_model(tmp_path / "whole", wbs)
     head = path_of(m, "alpha:FR-1")["lines"][0]
     assert head == worksite.PATH_HEADING.format(n=len(m["schedule"]["items"]), hours="18") and "(" not in head

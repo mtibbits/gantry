@@ -10,6 +10,7 @@ import re
 
 import pytest
 
+import helpers_portfolio as hp
 from gantry import build
 from gantry.config import load_config
 from gantry.inputs import scheduled
@@ -39,21 +40,34 @@ THRESHOLD_KEYS = [*PATH_KEYS, "waits", "rest", "objective_lines"]
 
 # The paths fixture of the ACs: a 4-hour gating leaf and an independent 20-hour
 # objective-only leaf, ahead by priority.
-PATHS = ("# Alpha\n\n"
-         "- [ ] Core {issue: Issue-1, est: 4h, satisfies: alpha:FR-1}\n"
-         "- [ ] Tail {issue: Issue-2, est: 20h, priority: P1, satisfies: alpha:FR-1, objective: alpha:FR-1}\n")
+PATHS = hp.source(("# Alpha\n\n"
+                   "- [ ] Core {issue: Issue-1, est: 4h, satisfies: alpha:FR-1}\n"
+                   "- [ ] Tail {issue: Issue-2, est: 20h, priority: P1, satisfies: alpha:FR-1, "
+                   "objective: alpha:FR-1}\n").encode(),
+                  hp.node("Core", issue="Issue-1", est="4h", satisfies="alpha:FR-1"),
+                  hp.node("Tail", issue="Issue-2", est="20h", priority="P1", satisfies="alpha:FR-1",
+                          objective="alpha:FR-1"),
+                  start=3)
 FR1 = "# R\n\n## Functional requirements\n\n- FR-1: One.\n"
 STATED = ("# R\n\n## Functional requirements\n\n- FR-1: One.\n"
           "  - Threshold: the common cases.\n  - Objective: every case.\n")
 # AC4: Gate waits on Mid, which waits on Tail, objective-only.
-WAITS = ("# Alpha\n\n"
-         "- [ ] Gate {issue: Issue-1, est: 1d, depends_on: [Issue-2], satisfies: alpha:FR-1}\n"
-         "- [ ] Mid {issue: Issue-2, est: 1d, depends_on: [Issue-3]}\n"
-         "- [ ] Tail {issue: Issue-3, est: 1d, satisfies: alpha:FR-1, objective: alpha:FR-1}\n")
+WAITS = hp.source(("# Alpha\n\n"
+                   "- [ ] Gate {issue: Issue-1, est: 1d, depends_on: [Issue-2], satisfies: alpha:FR-1}\n"
+                   "- [ ] Mid {issue: Issue-2, est: 1d, depends_on: [Issue-3]}\n"
+                   "- [ ] Tail {issue: Issue-3, est: 1d, satisfies: alpha:FR-1, objective: alpha:FR-1}\n").encode(),
+                  hp.node("Gate", issue="Issue-1", est="1d", depends_on=["Issue-2"], satisfies="alpha:FR-1"),
+                  hp.node("Mid", issue="Issue-2", est="1d", depends_on=["Issue-3"]),
+                  hp.node("Tail", issue="Issue-3", est="1d", satisfies="alpha:FR-1", objective="alpha:FR-1"), start=3)
 
 
 def no_objective(wbs):
-    return wbs.replace(", objective: alpha:FR-1", "")
+    """`wbs` with no objective: alpha:FR-1 key, in its text and in devagent's reading of it."""
+    def keep(meta):
+        return {key: value for key, value in meta.items() if (key, value) != ("objective", "alpha:FR-1")}
+
+    return hp.Source(wbs.text.replace(b", objective: alpha:FR-1", b""),
+                     tuple({**n, "meta": keep(n["meta"])} for n in wbs.nodes), wbs.report)
 
 
 def split_row(tmp_path, wbs, reqs=FR1):
@@ -87,16 +101,27 @@ def test_threshold_waits_on_objective_only(tmp_path):
     assert "Issue-3" in r["objective_only"]
 
 
-HELD_TAIL = ("# Alpha\n\n"
-             "- [ ] Gate {issue: Issue-4, est: 1d, satisfies: alpha:FR-1}\n"
-             "- [ ] One {issue: Issue-1, depends_on: [Issue-2], satisfies: alpha:FR-1, objective: alpha:FR-1}\n"
-             "- [ ] Two {issue: Issue-2, depends_on: [Issue-1, Issue-3]}\n"
-             "- [ ] Three {issue: Issue-3, est: 1d}\n")
-HELD_GATE = ("# Alpha\n\n"
-             "- [ ] One {issue: Issue-1, depends_on: [Issue-2], satisfies: alpha:FR-1}\n"
-             "- [ ] Two {issue: Issue-2, depends_on: [Issue-1, Issue-3]}\n"
-             "- [ ] Three {issue: Issue-3, est: 1d}\n"
-             "- [ ] Tail {issue: Issue-4, est: 1d, satisfies: alpha:FR-1, objective: alpha:FR-1}\n")
+HELD_TAIL = hp.source(("# Alpha\n\n"
+                       "- [ ] Gate {issue: Issue-4, est: 1d, satisfies: alpha:FR-1}\n"
+                       "- [ ] One {issue: Issue-1, depends_on: [Issue-2], satisfies: alpha:FR-1, objective: alpha:FR-1}\n"
+                       "- [ ] Two {issue: Issue-2, depends_on: [Issue-1, Issue-3]}\n"
+                       "- [ ] Three {issue: Issue-3, est: 1d}\n").encode(),
+                      hp.node("Gate", issue="Issue-4", est="1d", satisfies="alpha:FR-1"),
+                      hp.node("One", issue="Issue-1", depends_on=["Issue-2"], satisfies="alpha:FR-1",
+                              objective="alpha:FR-1"),
+                      hp.node("Two", issue="Issue-2", depends_on=["Issue-1", "Issue-3"]),
+                      hp.node("Three", issue="Issue-3", est="1d"), start=3,
+                      report=((4, "dep_cycle", "dependency cycle: Issue-1 (line 4), Issue-2 (line 5)"),))
+HELD_GATE = hp.source(("# Alpha\n\n"
+                       "- [ ] One {issue: Issue-1, depends_on: [Issue-2], satisfies: alpha:FR-1}\n"
+                       "- [ ] Two {issue: Issue-2, depends_on: [Issue-1, Issue-3]}\n"
+                       "- [ ] Three {issue: Issue-3, est: 1d}\n"
+                       "- [ ] Tail {issue: Issue-4, est: 1d, satisfies: alpha:FR-1, objective: alpha:FR-1}\n").encode(),
+                      hp.node("One", issue="Issue-1", depends_on=["Issue-2"], satisfies="alpha:FR-1"),
+                      hp.node("Two", issue="Issue-2", depends_on=["Issue-1", "Issue-3"]),
+                      hp.node("Three", issue="Issue-3", est="1d"),
+                      hp.node("Tail", issue="Issue-4", est="1d", satisfies="alpha:FR-1", objective="alpha:FR-1"),
+                      start=3, report=((3, "dep_cycle", "dependency cycle: Issue-1 (line 3), Issue-2 (line 4)"),))
 
 
 def test_held_objective_only_leaf_is_no_reason(tmp_path):
@@ -115,23 +140,34 @@ def test_held_gating_leaf_is_a_reason(tmp_path):
 def test_other_site_objective_only_leaf_is_no_reason(tmp_path):
     def alpha_row(case, beta):
         config_path = installation(tmp_path / case, {
-            "alpha": ("# Alpha\n\n- [ ] Core {issue: Issue-1, est: 1d, satisfies: alpha:FR-1}\n"
-                      "- [ ] Tail {issue: Issue-2, est: 1d, satisfies: alpha:FR-1, objective: alpha:FR-1}\n"),
+            "alpha": hp.source(("# Alpha\n\n- [ ] Core {issue: Issue-1, est: 1d, satisfies: alpha:FR-1}\n"
+                                "- [ ] Tail {issue: Issue-2, est: 1d, satisfies: alpha:FR-1, "
+                                "objective: alpha:FR-1}\n").encode(),
+                               hp.node("Core", issue="Issue-1", est="1d", satisfies="alpha:FR-1"),
+                               hp.node("Tail", issue="Issue-2", est="1d", satisfies="alpha:FR-1",
+                                       objective="alpha:FR-1"),
+                               start=3),
             "beta": beta}, {"alpha": FR1})
         return row(installation_models(config_path)["alpha"]["trace"], "alpha:FR-1")
 
     also = w.PATH_OTHER_SITE.format(site="beta", issue="Issue-7")
-    r = alpha_row("tail", "# Beta\n\n- [ ] Far {issue: Issue-7, satisfies: alpha:FR-1, objective: alpha:FR-1}\n")
+    r = alpha_row("tail", hp.source(b"# Beta\n\n- [ ] Far {issue: Issue-7, satisfies: alpha:FR-1, "
+                                    b"objective: alpha:FR-1}\n",
+                                    hp.node("Far", issue="Issue-7", satisfies="alpha:FR-1", objective="alpha:FR-1"),
+                                    start=3))
     assert also in r["path"]["incomplete"]
     assert also not in r["threshold_path"]["incomplete"]
-    r = alpha_row("gate", "# Beta\n\n- [ ] Far {issue: Issue-7, satisfies: alpha:FR-1}\n")
+    r = alpha_row("gate", hp.source(b"# Beta\n\n- [ ] Far {issue: Issue-7, satisfies: alpha:FR-1}\n",
+                                    hp.node("Far", issue="Issue-7", satisfies="alpha:FR-1"), start=3))
     assert also in r["path"]["incomplete"] and also in r["threshold_path"]["incomplete"]
 
 
 def test_other_site_open_objective_only_leaf_splits_the_row(tmp_path):
     config_path = installation(tmp_path, {
-        "alpha": "# Alpha\n\n- [ ] Core {issue: Issue-1, est: 1d, satisfies: alpha:FR-1}\n",
-        "beta": "# Beta\n\n- [ ] Far {issue: Issue-7, satisfies: alpha:FR-1, objective: alpha:FR-1}\n"},
+        "alpha": hp.source(b"# Alpha\n\n- [ ] Core {issue: Issue-1, est: 1d, satisfies: alpha:FR-1}\n",
+                           hp.node("Core", issue="Issue-1", est="1d", satisfies="alpha:FR-1"), start=3),
+        "beta": hp.source(b"# Beta\n\n- [ ] Far {issue: Issue-7, satisfies: alpha:FR-1, objective: alpha:FR-1}\n",
+                          hp.node("Far", issue="Issue-7", satisfies="alpha:FR-1", objective="alpha:FR-1"), start=3)},
         {"alpha": FR1})
     r = row(installation_models(config_path)["alpha"]["trace"], "alpha:FR-1")
     assert r["threshold_path"]["order"] == [["Issue-1", "direct"]]
@@ -139,7 +175,10 @@ def test_other_site_open_objective_only_leaf_splits_the_row(tmp_path):
 
 
 def test_no_open_objective_only_leaf_keeps_77(tmp_path):
-    finished = PATHS.replace("- [ ] Tail", "- [x] Tail")
+    finished = hp.source(PATHS.text.replace(b"- [ ] Tail", b"- [x] Tail"),
+                         hp.node("Core", issue="Issue-1", est="4h", satisfies="alpha:FR-1"),
+                         hp.node("Tail", glyph="x", issue="Issue-2", est="20h", priority="P1", satisfies="alpha:FR-1",
+                                 objective="alpha:FR-1"), start=3)
     r = split_row(tmp_path / "finished", finished, STATED)
     assert r["threshold_path"] is None
     assert r["path"] == split_row(tmp_path / "plain", no_objective(finished), STATED)["path"]
@@ -161,9 +200,14 @@ def test_threshold_status():
                                                           "Its threshold work on this site is finished")
 
 
-ONLY_TAIL = "# Alpha\n\n- [ ] Tail {issue: Issue-2, est: 1d, satisfies: alpha:FR-1, objective: alpha:FR-1}\n"
-DONE_GATE = ("# Alpha\n\n- [x] Core {issue: Issue-1, satisfies: alpha:FR-1}\n"
-             "- [ ] Tail {issue: Issue-2, est: 1d, satisfies: alpha:FR-1, objective: alpha:FR-1}\n")
+ONLY_TAIL = hp.source(b"# Alpha\n\n- [ ] Tail {issue: Issue-2, est: 1d, satisfies: alpha:FR-1, objective: alpha:FR-1}\n",
+                      hp.node("Tail", issue="Issue-2", est="1d", satisfies="alpha:FR-1", objective="alpha:FR-1"),
+                      start=3)
+DONE_GATE = hp.source(("# Alpha\n\n- [x] Core {issue: Issue-1, satisfies: alpha:FR-1}\n"
+                       "- [ ] Tail {issue: Issue-2, est: 1d, satisfies: alpha:FR-1, objective: alpha:FR-1}\n").encode(),
+                      hp.node("Core", glyph="x", issue="Issue-1", satisfies="alpha:FR-1"),
+                      hp.node("Tail", issue="Issue-2", est="1d", satisfies="alpha:FR-1", objective="alpha:FR-1"),
+                      start=3)
 TAIL_FIGURES = ["1 leaf, 6 agent-hours to finish all its serving work",
                 "Longest chain: 6 agent-hours, about 1 working day"]
 
@@ -175,10 +219,15 @@ def test_threshold_empty_cases(tmp_path):
         assert t["order"] == [] and t["targets"] == [] and t["end_day"] is None and t["rest"] == [["Issue-2", "direct"]]
         assert t["objective_lines"] == TAIL_FIGURES, case
     # A finished objective-only leaf gates nothing, so no leaf gates: here, or on another site in a full build.
-    done_tail = ONLY_TAIL + "- [x] Old {issue: Issue-1, satisfies: alpha:FR-1, objective: alpha:FR-1}\n"
+    done_tail = hp.source(ONLY_TAIL.text + b"- [x] Old {issue: Issue-1, satisfies: alpha:FR-1, objective: alpha:FR-1}\n",
+                          hp.node("Tail", issue="Issue-2", est="1d", satisfies="alpha:FR-1", objective="alpha:FR-1"),
+                          hp.node("Old", glyph="x", issue="Issue-1", satisfies="alpha:FR-1", objective="alpha:FR-1"),
+                          start=3)
     assert split_row(tmp_path / "done-tail", done_tail)["threshold_path"]["lines"] == [w.PATH_T_UNSERVED_SITE]
-    config_path = installation(tmp_path / "done-tail-all", {"alpha": ONLY_TAIL, "beta": (
-        "# Beta\n\n- [x] Far {issue: Issue-7, satisfies: alpha:FR-1, objective: alpha:FR-1}\n")}, {"alpha": FR1})
+    done_far = hp.source(b"# Beta\n\n- [x] Far {issue: Issue-7, satisfies: alpha:FR-1, objective: alpha:FR-1}\n",
+                         hp.node("Far", glyph="x", issue="Issue-7", satisfies="alpha:FR-1", objective="alpha:FR-1"),
+                         start=3)
+    config_path = installation(tmp_path / "done-tail-all", {"alpha": ONLY_TAIL, "beta": done_far}, {"alpha": FR1})
     t = row(trace_of(build.build_all(load_config(config_path)).pages["alpha"]), "alpha:FR-1")["threshold_path"]
     assert t["lines"] == [w.PATH_T_UNSERVED]
     # A full build that read every site: the unscoped texts.
@@ -189,8 +238,8 @@ def test_threshold_empty_cases(tmp_path):
     # A site not read: "No leaf on this site gates", but "Its threshold work is finished", with the reason.
     for case, wbs, status in (("none-unread", ONLY_TAIL, w.PATH_T_UNSERVED_SITE),
                               ("done-unread", DONE_GATE, w.PATH_T_FINISHED)):
-        config = write_site_tree(tmp_path / case, {"alpha": wbs.encode("utf-8"),
-                                                    "gamma": b"# Gamma\n\n- [ ] Bad \xff {issue: Issue-3}\n"},
+        config = write_site_tree(tmp_path / case, {"alpha": wbs,
+                                                    "gamma": hp.source(b"# Gamma\n\n- [ ] Bad \xff {issue: Issue-3}\n")},
                                  tail='[site.alpha]\nrequirements = "req-alpha.md"\n')
         (tmp_path / case / "req-alpha.md").write_bytes(FR1.encode("utf-8"))
         t = row(trace_of(build.build_all(load_config(config)).pages["alpha"]), "alpha:FR-1")["threshold_path"]
@@ -199,11 +248,16 @@ def test_threshold_empty_cases(tmp_path):
         assert t["objective_lines"] == TAIL_FIGURES, case
 
 
-CYCLE_GATE = ("# Alpha\n\n"
-              "- [ ] One {issue: Issue-1, depends_on: [Issue-2], satisfies: alpha:FR-1}\n"
-              "- [ ] Two {issue: Issue-2, depends_on: [Issue-1, Issue-3]}\n"
-              "- [ ] Three {issue: Issue-3, est: 1d}\n"
-              "- [ ] Tail {issue: Issue-4, est: 1d, satisfies: alpha:FR-1, objective: alpha:FR-1}\n")
+CYCLE_GATE = hp.source(("# Alpha\n\n"
+                        "- [ ] One {issue: Issue-1, depends_on: [Issue-2], satisfies: alpha:FR-1}\n"
+                        "- [ ] Two {issue: Issue-2, depends_on: [Issue-1, Issue-3]}\n"
+                        "- [ ] Three {issue: Issue-3, est: 1d}\n"
+                        "- [ ] Tail {issue: Issue-4, est: 1d, satisfies: alpha:FR-1, objective: alpha:FR-1}\n").encode(),
+                       hp.node("One", issue="Issue-1", depends_on=["Issue-2"], satisfies="alpha:FR-1"),
+                       hp.node("Two", issue="Issue-2", depends_on=["Issue-1", "Issue-3"]),
+                       hp.node("Three", issue="Issue-3", est="1d"),
+                       hp.node("Tail", issue="Issue-4", est="1d", satisfies="alpha:FR-1", objective="alpha:FR-1"),
+                       start=3, report=((3, "dep_cycle", "dependency cycle: Issue-1 (line 3), Issue-2 (line 4)"),))
 
 
 def test_threshold_all_gating_held(tmp_path):
@@ -211,8 +265,14 @@ def test_threshold_all_gating_held(tmp_path):
     assert t["lines"][0] == "1 upstream leaf, 6 agent-hours feed its held-out threshold work"
     assert t["targets"] == [] and t["end_day"] is None
     assert t["incomplete"] == [w.PATH_HELD.format(key="Issue-1")]
-    two = CYCLE_GATE.replace("depends_on: [Issue-1, Issue-3]", "depends_on: [Issue-1, Issue-3, Issue-5]") + (
-        "- [ ] Five {issue: Issue-5, est: 1d}\n")
+    two = hp.source(CYCLE_GATE.text.replace(b"depends_on: [Issue-1, Issue-3]", b"depends_on: [Issue-1, Issue-3, Issue-5]")
+                    + b"- [ ] Five {issue: Issue-5, est: 1d}\n",
+                    hp.node("One", issue="Issue-1", depends_on=["Issue-2"], satisfies="alpha:FR-1"),
+                    hp.node("Two", issue="Issue-2", depends_on=["Issue-1", "Issue-3", "Issue-5"]),
+                    hp.node("Three", issue="Issue-3", est="1d"),
+                    hp.node("Tail", issue="Issue-4", est="1d", satisfies="alpha:FR-1", objective="alpha:FR-1"),
+                    hp.node("Five", issue="Issue-5", est="1d"), start=3,
+                    report=((3, "dep_cycle", "dependency cycle: Issue-1 (line 3), Issue-2 (line 4)"),))
     t = split_row(tmp_path / "two", two)["threshold_path"]
     assert t["lines"][0] == "2 upstream leaves, 12 agent-hours feed its held-out threshold work"
 
@@ -260,8 +320,11 @@ def test_threshold_keys_exact(tmp_path):
 
 def test_constraint_row_has_no_threshold_path(tmp_path):
     reqs = FR1 + "\n## Constraints\n\n- CON-1: Bound.\n"
-    wbs = PATHS.replace("satisfies: alpha:FR-1, objective: alpha:FR-1",
-                        "satisfies: [alpha:FR-1, alpha:CON-1], objective: alpha:CON-1")
+    wbs = hp.source(PATHS.text.replace(b"satisfies: alpha:FR-1, objective: alpha:FR-1",
+                                       b"satisfies: [alpha:FR-1, alpha:CON-1], objective: alpha:CON-1"),
+                    hp.node("Core", issue="Issue-1", est="4h", satisfies="alpha:FR-1"),
+                    hp.node("Tail", issue="Issue-2", est="20h", priority="P1", satisfies=["alpha:FR-1", "alpha:CON-1"],
+                            objective="alpha:CON-1"), start=3)
     m = site_model(tmp_path, wbs, reqs)
     con = row(m["trace"], "alpha:CON-1")
     assert con["objective_only"] == ["Issue-2"]
@@ -510,7 +573,8 @@ def hostile_threshold_site(tmp_path):
     h = HOSTILE
     reqs = ("# R\n\n## Functional requirements\n\n- FR-1: One.\n"
             f"  - Threshold: {h[0]}\n  - Objective: {h[2]}\n")
-    config_path = installation(tmp_path, {"alpha": "# A\n\n- [ ] One {issue: Issue-1}\n"}, {"alpha": reqs})
+    config_path = installation(tmp_path, {"alpha": hp.source(b"# A\n\n- [ ] One {issue: Issue-1}\n",
+                                                             hp.node("One", issue="Issue-1"), start=3)}, {"alpha": reqs})
     config = load_config(config_path)
     roots = config_roots(config)
     catalog = load_catalog(roots, config, load_sites(config, roots)[0])

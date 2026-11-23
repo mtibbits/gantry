@@ -9,6 +9,7 @@ import re
 from pathlib import PurePath
 from urllib.parse import quote, unquote
 
+import helpers_portfolio as hp
 from gantry import build, links, sites
 from gantry.config import load_config
 from gantry.inputs import Inputs
@@ -265,9 +266,12 @@ def test_trace_data_keys(tmp_path):
 
 
 def test_row_objective_only_foreign_is_index(tmp_path):
-    wbs = {"alpha": "# A\n\n- [ ] Own {issue: Issue-1, satisfies: alpha:FR-1}\n",
-           "beta": ("# B\n\n- [ ] Tail {issue: Issue-1, satisfies: alpha:FR-1, objective: alpha:FR-1}\n"
-                    "- [ ] Core {issue: Issue-2, satisfies: alpha:FR-1}\n")}
+    wbs = {"alpha": hp.source(b"# A\n\n- [ ] Own {issue: Issue-1, satisfies: alpha:FR-1}\n",
+                              hp.node("Own", issue="Issue-1", satisfies="alpha:FR-1"), start=3),
+           "beta": hp.source(("# B\n\n- [ ] Tail {issue: Issue-1, satisfies: alpha:FR-1, objective: alpha:FR-1}\n"
+                              "- [ ] Core {issue: Issue-2, satisfies: alpha:FR-1}\n").encode(),
+                             hp.node("Tail", issue="Issue-1", satisfies="alpha:FR-1", objective="alpha:FR-1"),
+                             hp.node("Core", issue="Issue-2", satisfies="alpha:FR-1"), start=3)}
     pages, wide, *_ = sample_installation(installation(tmp_path, wbs, {"alpha": "- FR-1: a\n"}))
     assert [(f.key, f.objective_only) for f in wide["alpha"].foreign] == [("Issue-1", ("alpha:FR-1",)),
                                                                           ("Issue-2", ())]
@@ -380,10 +384,14 @@ TWO_REQS = "# R\n\n## Functional requirements\n\n- FR-1: One.\n"
 
 
 def test_whole_installation_uses_unscoped_texts(tmp_path):
-    wbs = {"alpha": "# Alpha\n\n- [ ] One {issue: Issue-1}\n", "beta": "# Beta\n\n- [ ] Two {issue: Issue-2}\n"}
+    wbs = {"alpha": hp.source(b"# Alpha\n\n- [ ] One {issue: Issue-1}\n", hp.node("One", issue="Issue-1"),
+                              start=3), "beta": hp.source(b"# Beta\n\n- [ ] Two {issue: Issue-2}\n",
+                                                                                 hp.node("Two", issue="Issue-2"),
+                                                                                 start=3)}
     fr1 = path_of(installation_models(installation(tmp_path / "a", wbs, {"alpha": TWO_REQS}))["alpha"], "alpha:FR-1")
     assert fr1["lines"] == [worksite.PATH_UNSERVED] and fr1["incomplete"] == []
-    wbs["beta"] = "# Beta\n\n- [x] Two {issue: Issue-2, satisfies: alpha:FR-1}\n"
+    wbs["beta"] = hp.source(b"# Beta\n\n- [x] Two {issue: Issue-2, satisfies: alpha:FR-1}\n",
+                            hp.node("Two", glyph="x", issue="Issue-2", satisfies="alpha:FR-1"), start=3)
     fr1 = path_of(installation_models(installation(tmp_path / "b", wbs, {"alpha": TWO_REQS}))["alpha"], "alpha:FR-1")
     assert fr1["state"] == "finished" and fr1["lines"] == [worksite.PATH_FINISHED] and fr1["incomplete"] == []
 
@@ -441,8 +449,9 @@ def test_foreign_hrefs_land(tmp_path, monkeypatch):
 def test_render_failed_site_unlinked(tmp_path, monkeypatch):
     calls = force_render(monkeypatch, lambda site, n: site == "beta")
     config = write_site_tree(tmp_path, {
-        "alpha": b"- [ ] One {issue: Issue-1}\n",
-        "beta": b"- [ ] Two {issue: Issue-2, satisfies: alpha:FR-1}\n",
+        "alpha": hp.source(b"- [ ] One {issue: Issue-1}\n", hp.node("One", issue="Issue-1")),
+        "beta": hp.source(b"- [ ] Two {issue: Issue-2, satisfies: alpha:FR-1}\n",
+                          hp.node("Two", issue="Issue-2", satisfies="alpha:FR-1")),
     }, tail='[site.alpha]\nrequirements = "req-alpha.md"\n')
     (tmp_path / "req-alpha.md").write_bytes(TWO_REQS.encode("utf-8"))
     result = build.build_all(load_config(config))
@@ -461,8 +470,9 @@ def test_row_link_target_failed_rerenders(tmp_path, monkeypatch):
     # alpha fails to render, beta is rendered again without the link (#21).
     calls = force_render(monkeypatch, lambda site, n: site == "alpha")
     config = write_site_tree(tmp_path, {
-        "alpha": b"- [ ] One {issue: Issue-1}\n",
-        "beta": b"- [ ] Two {issue: Issue-2, satisfies: alpha:FR-1}\n",
+        "alpha": hp.source(b"- [ ] One {issue: Issue-1}\n", hp.node("One", issue="Issue-1")),
+        "beta": hp.source(b"- [ ] Two {issue: Issue-2, satisfies: alpha:FR-1}\n",
+                          hp.node("Two", issue="Issue-2", satisfies="alpha:FR-1")),
     }, tail='[site.alpha]\nrequirements = "req-alpha.md"\n')
     (tmp_path / "req-alpha.md").write_bytes(TWO_REQS.encode("utf-8"))
     result = build.build_all(load_config(config))
@@ -476,9 +486,10 @@ def test_foreign_id_target_failed_rerenders(tmp_path, monkeypatch):
     # IDs) and beta (through its own leaf's) are rendered again without it.
     calls = force_render(monkeypatch, lambda site, n: site == "gamma")
     config = write_site_tree(tmp_path, {
-        "alpha": b"- [ ] One {issue: Issue-1}\n",
-        "beta": b"- [ ] Two {issue: Issue-2, satisfies: [alpha:FR-1, gamma:FR-1]}\n",
-        "gamma": b"- [ ] Three {issue: Issue-3}\n",
+        "alpha": hp.source(b"- [ ] One {issue: Issue-1}\n", hp.node("One", issue="Issue-1")),
+        "beta": hp.source(b"- [ ] Two {issue: Issue-2, satisfies: [alpha:FR-1, gamma:FR-1]}\n",
+                          hp.node("Two", issue="Issue-2", satisfies=["alpha:FR-1", "gamma:FR-1"])),
+        "gamma": hp.source(b"- [ ] Three {issue: Issue-3}\n", hp.node("Three", issue="Issue-3")),
     }, tail='[site.alpha]\nrequirements = "req-alpha.md"\n[site.gamma]\nrequirements = "req-gamma.md"\n')
     for name in ("alpha", "gamma"):
         (tmp_path / f"req-{name}.md").write_bytes(TWO_REQS.encode("utf-8"))
@@ -545,8 +556,10 @@ def test_panel_item_forms(tmp_path):
 
 
 def test_no_panel_without_foreign(tmp_path, monkeypatch):
-    wbs = {"alpha": "# Alpha\n\n- [ ] One {issue: Issue-1, satisfies: alpha:FR-1}\n",
-           "beta": "# Beta\n\n- [ ] Two {issue: Issue-2}\n"}
+    wbs = {"alpha": hp.source(b"# Alpha\n\n- [ ] One {issue: Issue-1, satisfies: alpha:FR-1}\n",
+                              hp.node("One", issue="Issue-1", satisfies="alpha:FR-1"), start=3),
+           "beta": hp.source(b"# Beta\n\n- [ ] Two {issue: Issue-2}\n", hp.node("Two", issue="Issue-2"),
+                             start=3)}
     result = build.build_all(load_config(installation(tmp_path, wbs, {"alpha": TWO_REQS})))
     page = result.pages["alpha"]
     assert "served-elsewhere" not in page and find(page_tree(page), "li", ["xleaf"]) == []
@@ -617,8 +630,10 @@ UC_REQS = "# R\n\n## Use cases\n\n- UC-1: Use. {needs: [FR-1]}\n\n## Functional 
 
 
 def test_use_case_lights_foreign_through_needs(node, tmp_path):
-    wbs = {"alpha": "# Alpha\n\n- [ ] One {issue: Issue-1}\n",
-           "beta": "# Beta\n\n- [ ] Two {issue: Issue-2, satisfies: alpha:FR-1}\n"}
+    wbs = {"alpha": hp.source(b"# Alpha\n\n- [ ] One {issue: Issue-1}\n", hp.node("One", issue="Issue-1"),
+                              start=3),
+           "beta": hp.source(b"# Beta\n\n- [ ] Two {issue: Issue-2, satisfies: alpha:FR-1}\n",
+                             hp.node("Two", issue="Issue-2", satisfies="alpha:FR-1"), start=3)}
     result = build.build_all(load_config(installation(tmp_path, wbs, {"alpha": UC_REQS})))
     path = tmp_path / "alpha.html"
     path.write_bytes(result.pages["alpha"].encode("utf-8"))
@@ -727,9 +742,10 @@ def test_finished_elsewhere_with_unread_site(tmp_path):
     # Only another site's finished leaf serves FR-1 and a third site is unreadable:
     # nothing on alpha serves it, so the status may not say "on this site".
     config = write_site_tree(tmp_path, {
-        "alpha": b"# Alpha\n\n- [ ] One {issue: Issue-1}\n",
-        "beta": b"# Beta\n\n- [x] Two {issue: Issue-2, satisfies: alpha:FR-1}\n",
-        "gamma": b"# Gamma\n\n- [ ] Bad \xff {issue: Issue-3}\n",
+        "alpha": hp.source(b"# Alpha\n\n- [ ] One {issue: Issue-1}\n", hp.node("One", issue="Issue-1"), start=3),
+        "beta": hp.source(b"# Beta\n\n- [x] Two {issue: Issue-2, satisfies: alpha:FR-1}\n",
+                          hp.node("Two", glyph="x", issue="Issue-2", satisfies="alpha:FR-1"), start=3),
+        "gamma": hp.source(b"# Gamma\n\n- [ ] Bad \xff {issue: Issue-3}\n"),
     }, tail='[site.alpha]\nrequirements = "req-alpha.md"\n')
     (tmp_path / "req-alpha.md").write_bytes(TWO_REQS.encode("utf-8"))
     result = build.build_all(load_config(config))
@@ -742,8 +758,10 @@ def test_finished_elsewhere_with_unread_site(tmp_path):
 def test_br_namespace_site_rows_keep_site_forms(tmp_path):
     # A site named like br_namespace is never in the trace: its rows are not
     # covered by the installation trace, so they keep the --site forms (D2).
-    wbs = {"life": "# Life\n\n- [x] Done {issue: Issue-1, satisfies: life:BR-1}\n",
-           "alpha": "# Alpha\n\n- [ ] Open {issue: Issue-2, satisfies: life:BR-1}\n"}
+    wbs = {"life": hp.source(b"# Life\n\n- [x] Done {issue: Issue-1, satisfies: life:BR-1}\n",
+                             hp.node("Done", glyph="x", issue="Issue-1", satisfies="life:BR-1"), start=3),
+           "alpha": hp.source(b"# Alpha\n\n- [ ] Open {issue: Issue-2, satisfies: life:BR-1}\n",
+                              hp.node("Open", issue="Issue-2", satisfies="life:BR-1"), start=3)}
     result = build.build_all(load_config(installation(tmp_path, wbs, {"alpha": TWO_REQS}, portfolio="- BR-1: b\n")))
     trace = trace_of(result.pages["life"])
     assert trace["in_trace"] is False and trace["scope"] == "installation"
