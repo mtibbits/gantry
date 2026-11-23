@@ -144,10 +144,22 @@ score like any other, and wins over both site ratios.
 
 A **site ratio** is one rate for every leaf of a site. The two are separate
 inputs, `measured=` and `declared=`: #40 will pass the ratio measured from
-devagent's history, and #39 the ratio devagent's capacity declaration
-states. No caller passes either yet, so today every leaf is scored or
-estimated. A ratio passed in the other source's slot is refused
-(`ValueError`), so no caller can invert the ranking.
+devagent's history, and the week planner passes the ratio devagent's
+capacity declaration states (#39). No caller passes a measured ratio yet,
+so today every leaf is scored, declared or estimated. A ratio passed in the
+other source's slot is refused (`ValueError`), so no caller can invert the
+ranking.
+
+The declared ratio is the `operator_hours_per_agent_hour` of a capacity
+declaration the plan uses, the same for every site. A leaf that takes it
+has the basis "declared: site ratio 0.25; devagent capacity declaration
+(this build machine)". devagent allows a ratio above 24, and no rate may
+be: the planner then passes none, the leaves with no `h:` stay estimated,
+and the plan's `capacity.declared_ratio` holds the ratio with `used` false
+and the reason. A rate is planned in whole parts per million
+([What each leaf costs](#what-each-leaf-costs)), so a declared ratio under
+half a part per million plans as rate 0, like a declared 0: its leaves run
+in the lanes row and need no block.
 
 A site ratio must be a number from 0 to `MAX_RATE`. One that is not is
 refused when it is built (`ValueError`), naming the reason: not a number (a
@@ -473,24 +485,40 @@ The leaves downstream of them are `waits_on_unplanned`. A site's own cycle
 stays `waits_on_cycle` and is not in `report`; a cycle across sites that
 holds one is reported whole. The planner always finishes.
 
+The leaves of a paused site ([Unplanned leaves](#unplanned-leaves)) are
+left out before the cycles are found. A paused leaf is in no cycle across
+sites and no `cross_site_cycle` entry names one; a leaf that waits on it,
+in what would have been a cycle or not, is `waits_on_unplanned`.
+
 ### Unplanned leaves
 
 Every open leaf of a built site that is not in the 10 days is listed under
 its site, in `WBS.md` order, with its state and one reason, the first of
 these that applies:
 
-1. `blocked_externally`: its state is `?`;
-2. `parked`: its state is `P`;
-3. `waits_on_cycle`: it is in, or waits on, a dependency cycle within its
+1. `paused`: its site is paused in devagent's capacity declaration;
+2. `blocked_externally`: its state is `?`;
+3. `parked`: its state is `P`;
+4. `waits_on_cycle`: it is in, or waits on, a dependency cycle within its
    site;
-4. `cross_site_cycle`: it is in a dependency cycle across sites;
-5. `waits_on_site_absent`: it waits on a site not in this installation;
-6. `waits_on_unresolved`: it waits on an entry naming another site that
+5. `cross_site_cycle`: it is in a dependency cycle across sites;
+6. `waits_on_site_absent`: it waits on a site not in this installation;
+7. `waits_on_unresolved`: it waits on an entry naming another site that
    could not be resolved;
-7. `waits_on_unplanned`: it waits on a leaf that is unplanned for one of
+8. `waits_on_unplanned`: it waits on a leaf that is unplanned for one of
    the reasons above or this one;
-8. `beyond_horizon`: it was never placed in the 10 days, a leaf whose
+9. `beyond_horizon`: it was never placed in the 10 days, a leaf whose
    blocker is itself `beyond_horizon` included.
+
+A site is paused when the capacity declaration the plan uses sets
+`paused = true` in its `[project.<name>.capacity]` table (#39); a
+declaration that is invalid pauses nothing. A paused site stays a built
+site of the plan and keeps its intended share, but every open leaf of it is
+`paused`, whatever its state, its priority and what it waits on. Nothing of
+it is placed, so it can use neither pool and accrues nothing: its share
+goes to the share sites that can
+([Fair share between sites](#fair-share-between-sites)), as if its leaves
+were done. The plan lists the paused built sites in `capacity.paused`.
 
 ### Past the horizon
 
@@ -633,9 +661,10 @@ count: its own and its open rows' `depends_on` entries that name nothing,
 and its `tier`: `p0`, `started` or `fair_share`.
 
 A site holds its `name`, its `ratio_source` (the
-[site ratio source](#the-site-ratio-source): `estimated` until #39 or #40
-passes a ratio), its `attention_hours_charged` (its block lengths over the
-10 days, start costs and minimum-length padding included), its
+[site ratio source](#the-site-ratio-source): `declared` when devagent's
+capacity declaration gives a ratio the plan uses (#39), else `estimated`
+until #40 passes a measured one), its `attention_hours_charged` (its block
+lengths over the 10 days, start costs and minimum-length padding included), its
 `lane_hours_charged` (the agent hours placed), its `attention_hours_target`
 and `lane_hours_target` (each pool's fair-share target at the horizon's
 end: [Fair share between sites](#fair-share-between-sites)), its
@@ -648,9 +677,12 @@ set; planned only into capacity left after the sites with shares" when
 effective priority is 0 ([Priority tiers](#priority-tiers)), in `WBS.md`
 order, by `key`, with `held_by`, the `<site>:<issue>` of each
 cross-site entry that holds it. An unplanned leaf's `reason` is one of
-`blocked_externally`, `parked`, `waits_on_cycle`, `cross_site_cycle`,
-`waits_on_site_absent`, `waits_on_unresolved`, `waits_on_unplanned` and
-`beyond_horizon` ([Unplanned leaves](#unplanned-leaves)).
+`paused`, `blocked_externally`, `parked`, `waits_on_cycle`,
+`cross_site_cycle`, `waits_on_site_absent`, `waits_on_unresolved`,
+`waits_on_unplanned` and `beyond_horizon`
+([Unplanned leaves](#unplanned-leaves)). A paused site's record is like any
+other's: nothing is charged to it, its targets are 0 and every open leaf of
+it is in `unplanned`.
 
 A note holds its `kind`, its `date`, the `projects` it names and its
 `text`. A `shares_dropped` note names, in the allocation's own order, the
@@ -1157,7 +1189,8 @@ from the one sheet both pages insert (`gantry/templates/leaf_colours.css`).
 
 **Unplanned leaves.** Under `Unplanned leaves`, each built site lists its
 unplanned leaves with their reason in words
-([Unplanned leaves](#unplanned-leaves)): `blocked externally`, `parked`,
+([Unplanned leaves](#unplanned-leaves)):
+`paused in devagent's capacity declaration`, `blocked externally`, `parked`,
 `waits on a cycle`, `part of a cycle across sites`,
 `waits on a site not in this installation`,
 `waits on a reference that could not be resolved` and

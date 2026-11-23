@@ -17,7 +17,7 @@ from graphlib import TopologicalSorter
 from typing import NamedTuple
 
 from gantry import priority, schedule
-from gantry.attention import MAX_RATE, leaf_attention, mapping_in_use, site_ratio_source
+from gantry.attention import MAX_RATE, SiteRatio, leaf_attention, mapping_in_use, rate_problem, site_ratio_source
 from gantry.deps import find_cycles, inside, open_sources
 from gantry.inputs import scheduled
 from gantry.model import HOURS_PER_DAY
@@ -43,6 +43,14 @@ NOT_DECLARED, USED, INVALID = DECLARATIONS
 # no attention_hours, that total spread evenly over SPREAD_DAYS.
 ATTENTION_RULES = ("portfolio_file", "scaled", "even_spread")
 RULE_PORTFOLIO_FILE, RULE_SCALED, RULE_EVEN_SPREAD = ATTENTION_RULES
+# A used declaration's operator_hours_per_agent_hour is every site's declared
+# ratio (gantry/attention.py). RATIO_BASIS follows the ratio in the basis of a
+# leaf that takes it: "declared: site ratio 0.25; " + RATIO_BASIS. One above
+# MAX_RATE is valid for devagent and no rate here: it is not used, and
+# RATIO_REFUSED is the reason in the plan's `capacity.declared_ratio`, {value}
+# being the ratio as declared.
+RATIO_BASIS = CAPACITY_SOURCE_DEVAGENT
+RATIO_REFUSED = "devagent declares {value} operator hours per agent hour, above 24; it is not used"
 NO_POOL = "no pool ran out"
 HORIZON_DAYS = 10
 WEEK_DAYS = 5
@@ -82,10 +90,12 @@ NO_PLAN = {
     "no_sites": "no site was built",
 }
 
-# Why an open leaf of a built site is not in the 10 days: the first that applies.
-UNPLANNED_REASONS = ("blocked_externally", "parked", "waits_on_cycle", "cross_site_cycle",
+# Why an open leaf of a built site is not in the 10 days: the first that
+# applies. `paused` is every open leaf of a site a used capacity declaration
+# pauses (#39), whatever else holds it.
+UNPLANNED_REASONS = ("paused", "blocked_externally", "parked", "waits_on_cycle", "cross_site_cycle",
                      "waits_on_site_absent", "waits_on_unresolved", "waits_on_unplanned", "beyond_horizon")
-(BLOCKED_EXTERNALLY, PARKED, WAITS_ON_CYCLE, CROSS_SITE_CYCLE, WAITS_ON_SITE_ABSENT,
+(PAUSED, BLOCKED_EXTERNALLY, PARKED, WAITS_ON_CYCLE, CROSS_SITE_CYCLE, WAITS_ON_SITE_ABSENT,
  WAITS_ON_UNRESOLVED, WAITS_ON_UNPLANNED, BEYOND_HORIZON) = UNPLANNED_REASONS
 # The kinds of a plan report entry, in report order: devagent's lines about
 # its capacity declaration (#39), each violation and then each unknown key,
@@ -257,6 +267,42 @@ def _declaration(capacity) -> str:
     if capacity.violations:
         return INVALID
     return USED if capacity.usable else NOT_DECLARED
+
+
+def _declared_ratio(capacity):
+    """(every site's declared ratio or None, the plan's
+    `capacity.declared_ratio`) from devagent's declaration `capacity`. Both
+    are None unless it is used and sets operator_hours_per_agent_hour. A
+    ratio that can be a rate is built, here and nowhere else; one that
+    cannot is not built, and the record says why. A usable declaration's
+    ratio is a number from 0 up (gantry/capacity.py), so the one reason is
+    that it is above MAX_RATE."""
+    if _declaration(capacity) != USED or capacity.operator_hours_per_agent_hour is None:
+        return None, None
+    value = capacity.operator_hours_per_agent_hour
+    if rate_problem(value) is not None:
+        return None, {"value": value, "used": False, "reason": RATIO_REFUSED.format(value=repr(value))}
+    return SiteRatio(value, "declared", basis=RATIO_BASIS), {"value": value, "used": True, "reason": None}
+
+
+def _token_budget(capacity):
+    """The plan's `capacity.token_budget`: a used declaration's effective
+    weekly token budget, the term that sets it and its unit, else None. The
+    budget is recorded and never planned with, and 0 is a budget."""
+    if _declaration(capacity) != USED or capacity.token_budget is None:
+        return None
+    return {"tokens_per_week": capacity.token_budget, "binding": capacity.token_binding_term,
+            "unit": capacity.token_unit}
+
+
+def _paused_sites(capacity, names) -> list[str]:
+    """Those of `names`, the built sites in config order, that a used
+    declaration pauses. A paused project that is not a built site is not in
+    the plan."""
+    if _declaration(capacity) != USED:
+        return []
+    paused = set(capacity.paused)
+    return [name for name in names if name in paused]
 
 
 def _exact_minutes(hours) -> Fraction:
@@ -461,7 +507,7 @@ def _unresolved_local(data, open_leaves) -> dict:
     return {leaf.key: sum(per_line.get(node.line, 0) for node in open_sources(leaf, row_at)) for leaf in open_leaves}
 
 
-def _site_work(name, inputs, mapping, unit, effective) -> list[dict]:
+def _site_work(name, inputs, mapping, unit, effective, declared=None) -> list[dict]:
     """One item per open leaf of a site, in WBS.md order, its reason not yet
     decided. An item with no `reason` is work for the day loop, and a
     schedule.pick_ready item.
@@ -470,6 +516,8 @@ def _site_work(name, inputs, mapping, unit, effective) -> list[dict]:
     blocked, parked and cross-site waiters), so an unplanned dependent still
     lifts its blocker; it never crosses sites. A leaf's predecessors are its
     open prerequisites within the site, as (site, key) ids for now.
+    `declared` is the site's declared ratio (_declared_ratio) or None: the
+    rate of a leaf with no h: score.
     """
     data = inputs.data
     open_leaves = [leaf for leaf in data.leaves if leaf.open]
@@ -484,7 +532,7 @@ def _site_work(name, inputs, mapping, unit, effective) -> list[dict]:
     for leaf in open_leaves:
         estimate = leaf.estimate
         hours = (estimate.lo_h + estimate.hi_h) / 2 if estimate is not None else unit
-        attention = leaf_attention(leaf, data, mapping)
+        attention = leaf_attention(leaf, data, mapping, declared=declared)
         need = _leaf_minutes(hours)
         eff = effective.get(leaf.key, priority.rank(leaf.priority))
         items.append({
@@ -528,29 +576,36 @@ def _cross_site_preds(result, items):
                         item["preds"].append(node)
 
 
-def _cross_site_cycles(by_node) -> list[list[tuple[str, str]]]:
+def _cross_site_cycles(by_node, paused=()) -> list[list[tuple[str, str]]]:
     """The dependency cycles over every built site's open leaves that span two
     or more sites: find_cycles' components, members in config order of site
     then WBS.md order, ordered by first member. A cycle within one site uses
-    only its own links, so it lies in #8's cycle and stays waits_on_cycle."""
-    links = [(pred, node) for node, item in by_node.items() for pred in item["preds"]]
-    return [cycle for cycle in find_cycles(list(by_node), links) if len({site for site, _ in cycle}) >= 2]
+    only its own links, so it lies in #8's cycle and stays waits_on_cycle.
+    The leaves of the `paused` sites are no nodes here: a paused leaf is in
+    no cycle, and a link to or from one closes none."""
+    nodes = [node for node in by_node if node[0] not in paused]
+    links = [(pred, node) for node in nodes for pred in by_node[node]["preds"]]
+    return [cycle for cycle in find_cycles(nodes, links) if len({site for site, _ in cycle}) >= 2]
 
 
-def _reasons(by_node, cycles, sites) -> dict:
+def _reasons(by_node, cycles, sites, paused=()) -> dict:
     """{(site, key): reason} for each open leaf the plan leaves out whatever
     the capacity: the first reason that applies, in UNPLANNED_REASONS' order.
-    An open outcome naming a site not in `sites`, the ones this plan plans
-    (the same set _cross_site_preds holds on), is unresolved too:
-    work the plan cannot see. waits_on_unplanned is decided in one order over
-    every site, so a chain through several sites is followed whatever their
-    config order."""
+    Every open leaf of a site in `paused` is paused, so such a site has no
+    work for the day loop. An open outcome naming a site not in `sites`, the
+    ones this plan plans (the same set _cross_site_preds holds on, the
+    paused ones included), is unresolved too: work the plan cannot see.
+    waits_on_unplanned is decided in one order over every site, so a chain
+    through several sites is followed whatever their config order, and a
+    leaf that waits on a paused one is found by it."""
     in_cycle = {node for cycle in cycles for node in cycle}
     reasons = {}
     for node, item in by_node.items():
         statuses = {outcome.status for outcome in item["foreign"]}
         unseen = any(o.status == "open" and o.target_site not in sites for o in item["foreign"])
-        if item["state"] == "blocked_external":
+        if item["site"] in paused:
+            reasons[node] = PAUSED
+        elif item["state"] == "blocked_external":
             reasons[node] = BLOCKED_EXTERNALLY
         elif item["state"] == "parked":
             reasons[node] = PARKED
@@ -562,7 +617,8 @@ def _reasons(by_node, cycles, sites) -> dict:
             reasons[node] = WAITS_ON_SITE_ABSENT
         elif "unresolved" in statuses or unseen:
             reasons[node] = WAITS_ON_UNRESOLVED
-    # Every cycle's leaves have a reason now, so each leaf left is reached after its predecessors.
+    # Every cycle's leaves have a reason now, or it runs through a paused leaf, which has one:
+    # each leaf left is reached after its predecessors.
     rest = TopologicalSorter({node: [p for p in item["preds"] if p not in reasons]
                               for node, item in by_node.items() if node not in reasons})
     for node in rest.static_order():
@@ -1039,12 +1095,14 @@ def _leaf_record(item) -> dict:
     }
 
 
-def _capacity_record(capacity, available) -> dict:
+def _capacity_record(capacity, available, declared_ratio, paused) -> dict:
     """The plan's `capacity` object: what devagent's declaration `capacity` is
     to the plan, with the contract's schema once anything is declared, and
     the attention and lanes of `available`, the capacity planned from. That
     is None on a no_plan plan: such a plan has no `attention` and no `lanes`.
-    No plan records a declared ratio, a token budget or a paused site yet."""
+    `declared_ratio` is _declared_ratio's record and `paused` the paused
+    built sites; they and the token budget are a used declaration's, held
+    whether or not there is a plan, and null, null and empty with any other."""
     declaration = _declaration(capacity)
     attention = lanes = None
     if available is not None:
@@ -1055,7 +1113,8 @@ def _capacity_record(capacity, available) -> dict:
                  "hours_lost_to_cap": _hours(available.lane_lost)}
     return {"declaration": declaration,
             "capacity_schema": None if declaration == NOT_DECLARED else capacity.capacity_schema,
-            "attention": attention, "lanes": lanes, "declared_ratio": None, "token_budget": None, "paused": []}
+            "attention": attention, "lanes": lanes, "declared_ratio": declared_ratio,
+            "token_budget": _token_budget(capacity), "paused": list(paused)}
 
 
 def plan_week(result, portfolio, config, *, capacity=None, trace=None) -> WeekPlan:
@@ -1070,34 +1129,44 @@ def plan_week(result, portfolio, config, *, capacity=None, trace=None) -> WeekPl
     `capacity` is devagent's capacity declaration (gantry/capacity.py's
     DeclaredCapacity) or None (#39). A used one, declared and without a
     violation, gives the week's attention and the lanes in place of the
-    portfolio file's (_declared_capacity) and is both pools' source. None
-    and one that declares nothing give the same plan, from the portfolio
-    file's capacity. So does an invalid one, apart from what the plan says
-    of it: the `capacity` object's `declaration`, a no_plan reason that
-    names it, and devagent's lines, which lead the report of any plan
-    (_report). The declared ratio, the paused projects and the token budget
-    are not read.
+    portfolio file's (_declared_capacity) and is both pools' source. Its
+    operator_hours_per_agent_hour, when it can be a rate, is every site's
+    declared ratio: the rate of each leaf with no h: score
+    (_declared_ratio). A site it pauses stays a site of the plan with every
+    open leaf unplanned as paused: nothing is placed for it, and it accrues
+    no share, so its share goes to the sites that can use it (_Day.accrual).
+    Its token budget is recorded and never planned with, and a project's
+    priority, lane cap, reserves and deadline are not read.
+
+    None and a declaration that declares nothing give the same plan, from
+    the portfolio file's capacity. So does an invalid one, whatever it
+    holds, apart from what the plan says of it: the `capacity` object's
+    `declaration`, a no_plan reason that names it, and devagent's lines,
+    which lead the report of any plan (_report).
     """
     mapping = mapping_in_use(portfolio)
     fields = {
         "plan_version": PLAN_VERSION, "as_of": config.as_of.isoformat(), "allocation_rule": ALLOCATION_RULE,
         "mapping": {"values": list(mapping.values), "source": mapping.source, "rejected": mapping.rejected},
     }
+    names = _built_sites(result)
+    ratio, ratio_record = _declared_ratio(capacity)
+    paused = _paused_sites(capacity, names)
     key, available = _no_plan(portfolio, result, capacity)
     if key is not None:
         run_out, binding = _binding([])
         return WeekPlan(status="no_plan", reason=_reason(key, capacity), unestimated_planned=0, horizon_days=[],
                         planned_week=[], pools=_pools(run_out, capacity), binding=binding,
-                        capacity=_capacity_record(capacity, None), days=[], leaves=[], sites=[],
-                        report=_report(capacity), notes=[], **fields)
-    names = _built_sites(result)
+                        capacity=_capacity_record(capacity, None, ratio_record, paused), days=[], leaves=[],
+                        sites=[], report=_report(capacity), notes=[], **fields)
     ranked = {name: _ranked(result.inputs[name].data) for name in names}
-    items = {name: _site_work(name, result.inputs[name], mapping, config.default_unit_hours, ranked[name][1])
+    items = {name: _site_work(name, result.inputs[name], mapping, config.default_unit_hours, ranked[name][1],
+                              declared=ratio)
              for name in names}
     _cross_site_preds(result, items)
     by_node = {(name, item["key"]): item for name in names for item in items[name]}
-    cycles = _cross_site_cycles(by_node)
-    reasons = _reasons(by_node, cycles, items.keys())
+    cycles = _cross_site_cycles(by_node, paused)
+    reasons = _reasons(by_node, cycles, items.keys(), paused)
     # A planned leaf's predecessors are all planned: hold them as items.
     for node, item in by_node.items():
         item["reason"] = reasons.get(node)
@@ -1121,7 +1190,7 @@ def plan_week(result, portfolio, config, *, capacity=None, trace=None) -> WeekPl
         placed = placed_by_site[name]
         shareless_days = [day.isoformat() for day, found in zip(horizon, day_shares) if name in found.shareless]
         sites.append({
-            "name": name, "ratio_source": site_ratio_source(),
+            "name": name, "ratio_source": site_ratio_source(declared=ratio),
             # Block lengths (start cost and minimum-length padding included) and agent hours placed.
             "attention_hours_charged": _hours(ledger[POOL_ATTENTION]["charged"][name]),
             "lane_hours_charged": _hours(ledger[POOL_LANES]["charged"][name]),
@@ -1144,8 +1213,8 @@ def plan_week(result, portfolio, config, *, capacity=None, trace=None) -> WeekPl
     return WeekPlan(status="planned", reason=None,
                     unestimated_planned=sum(item["unestimated"] for item in placed_order),
                     horizon_days=dates, planned_week=dates[:WEEK_DAYS], pools=_pools(run_out, capacity),
-                    binding=binding, capacity=_capacity_record(capacity, available), days=days, leaves=leaves,
-                    sites=sites, report=_report(capacity, cycles),
+                    binding=binding, capacity=_capacity_record(capacity, available, ratio_record, paused),
+                    days=days, leaves=leaves, sites=sites, report=_report(capacity, cycles),
                     notes=[note for found in day_shares for note in found.notes], **fields)
 
 

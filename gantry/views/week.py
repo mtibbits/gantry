@@ -66,7 +66,8 @@ BEYOND_ONE = "1 leaf beyond the 10 days"
 BEYOND_BUTTON = "show or hide"
 DAYS_BUTTONS = (("5", "5 days"), ("10", "10 days"))
 NOTHING_UNPLANNED = "no unplanned leaves"
-REASON_TEXTS = {"blocked_externally": "blocked externally", "parked": "parked",
+REASON_TEXTS = {"paused": "paused in devagent's capacity declaration",
+                "blocked_externally": "blocked externally", "parked": "parked",
                 "waits_on_cycle": "waits on a cycle", "cross_site_cycle": "part of a cycle across sites",
                 "waits_on_site_absent": "waits on a site not in this installation",
                 "waits_on_unresolved": "waits on a reference that could not be resolved",

@@ -990,6 +990,10 @@ def test_beyond_horizon_count():
     words = [i for i in with_attr(t, "data-unplanned") if attr(t, i, "data-unplanned") != "beyond_horizon"]
     assert [attr(t, i, "data-unplanned") for i in words] == others
     assert [texts(t, "span", ["reason"], i) for i in words] == [[week.REASON_TEXTS[r]] for r in others]
+    # A paused site's leaves read so (#39): the reason is known to the page, with its own class.
+    assert others[0] == "paused" and len(others) == 8
+    assert texts(t, "span", ["reason"], words[0]) == ["paused in devagent's capacity declaration"]
+    assert "why-paused" in t.elements[words[0]]["classes"]
     assert all(attr(t, find(t, "a", within=i)[0], "href").startswith("sites/alpha.html#leaf-") for i in words)
 
 

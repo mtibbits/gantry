@@ -120,8 +120,9 @@ TAG_CLASSES = {"scored": "tag-scored", "measured": "tag-measured", "declared": "
 TAG_FALLBACK = "tag-other"
 TIER_CLASSES = {"p0": "tier-p0", "started": "tier-started", "fair_share": "tier-fair"}
 TIER_FALLBACK = "tier-other"
-# One per planner.UNPLANNED_REASONS (a test pins the keys); no planner import.
+# One per planner.UNPLANNED_REASONS, in its order (a test pins the keys); no planner import.
 REASON_CLASSES = {
+    "paused": "why-paused",
     "blocked_externally": "why-blocked", "parked": "why-parked", "waits_on_cycle": "why-cycle",
     "cross_site_cycle": "why-cross-cycle", "waits_on_site_absent": "why-site-absent",
     "waits_on_unresolved": "why-unresolved", "waits_on_unplanned": "why-waits", "beyond_horizon": "why-beyond",

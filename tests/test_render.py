@@ -112,14 +112,17 @@ def test_week_class_tables():
                                   "declared": "tag-declared", "estimated": "tag-estimated"}
     assert render.TIER_CLASSES == {"p0": "tier-p0", "started": "tier-started", "fair_share": "tier-fair"}
     assert render.REASON_CLASSES == {
+        "paused": "why-paused",
         "blocked_externally": "why-blocked", "parked": "why-parked", "waits_on_cycle": "why-cycle",
         "cross_site_cycle": "why-cross-cycle", "waits_on_site_absent": "why-site-absent",
         "waits_on_unresolved": "why-unresolved", "waits_on_unplanned": "why-waits", "beyond_horizon": "why-beyond",
     }
-    assert set(render.REASON_CLASSES) == set(planner.UNPLANNED_REASONS)
+    # One class per reason, in the planner's order (#39 put paused first).
+    assert tuple(render.REASON_CLASSES) == planner.UNPLANNED_REASONS
     assert render.tag_class("measured") == "tag-measured"
     assert render.tier_class("fair_share") == "tier-fair"
     assert render.reason_class("parked") == "why-parked"
+    assert render.reason_class("paused") == "why-paused"
     for value in ("unknown", None, ["p0"], 3):
         assert render.tag_class(value) == "tag-other"
         assert render.tier_class(value) == "tier-other"
