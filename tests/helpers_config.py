@@ -164,10 +164,36 @@ def roots_around(*paths):
     return directory_roots([os.path.dirname(os.path.abspath(p)) for p in paths])
 
 
-def copy_samples(tmp_path):
+def copy_samples(tmp_path, document=True):
+    """A copy of samples/ at <tmp_path>/samples, every folder named out left behind.
+
+    With `document` (#195) the copy holds the committed sample document where
+    devagent's aggregator writes it (install_sample_document). A caller that
+    runs the aggregator on the copy passes document=False: sp.make_sample
+    refuses to delete an out/ it cannot prove git ignores.
+    """
     copy = tmp_path / "samples"
     shutil.copytree(SAMPLES, copy, ignore=shutil.ignore_patterns("out"))
+    if document:
+        install_sample_document(copy)
     return copy
+
+
+def install_sample_document(samples):
+    """Write tests/fixtures/portfolio/samples.json to <samples>/devagent/out/portfolio/portfolio.json,
+    the aggregator's path in a samples folder (#195); the path. A link at any folder on the way
+    or at the file raises sp.Refused, before anything is written."""
+    import sample_portfolio as sp
+    from helpers_links import is_link
+
+    home = Path(samples) / "devagent"
+    target = home.joinpath("out", *sp.DOCUMENT)
+    for path in (home, home / "out", target.parent, target):
+        if os.path.lexists(path) and is_link(path):
+            raise sp.Refused(f"{path.relative_to(samples).as_posix()} is a link; the sample document is not written")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(sp.SAMPLES_WRITTEN.read_bytes())
+    return target
 
 
 def append_bytes(path, text):

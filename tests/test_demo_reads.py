@@ -23,7 +23,7 @@ from typing import NamedTuple
 import pytest
 
 from gantry.roots import gantry_root
-from helpers_config import written_bytes
+from helpers_config import install_sample_document, written_bytes
 from test_samples import GANTRY_SAMPLE
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -265,9 +265,12 @@ def planted_env(folders):
 
 
 def copy_with_history(folder):
-    """A copy of the samples, sample history included, without the demo's output."""
+    """A copy of the samples, sample history included, without the demo's output; its
+    devagent/out holds the committed sample document, never the real tree's (#195)."""
     copy = Path(folder) / "samples"
-    shutil.copytree(SAMPLES, copy, ignore=lambda d, names: ["out"] if Path(d) == SAMPLES else [])
+    top = (SAMPLES, SAMPLES / "devagent")
+    shutil.copytree(SAMPLES, copy, ignore=lambda d, names: ["out"] if Path(d) in top else [])
+    install_sample_document(copy)
     return copy
 
 

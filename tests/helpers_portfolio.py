@@ -45,7 +45,7 @@ def build_sample_document(tmp, env=None, os_name=None):
     nothing is copied without a checkout.
     """
     checkout = hd.require_devagent(env, os_name)
-    copy = copy_samples(Path(tmp))
+    copy = copy_samples(Path(tmp), document=False)  # make_sample refuses an out/ git does not ignore
     return sp.make_sample(checkout, copy), copy
 
 
@@ -429,6 +429,18 @@ def append_project(doc, name, source) -> dict:
         {"project": p, "source_line": line, "kind": kind, "message": message} for p, line, kind, message in rows
     ] + foreign_report(out["projects"])
     return out
+
+
+def rewrite_document(copy, fn):
+    """Replace the portfolio document in the samples copy `copy` with fn(the parsed document),
+    for a test that edits the copy's WBS.md or config (#195); an edit that changes nothing fails."""
+    path = Path(copy).joinpath(sp.OUT, *sp.DOCUMENT)
+    before = path.read_bytes()
+    new = fn(sp._load(path))
+    assert new is not None, "rewrite_document: fn returned None"
+    after = sp.dumps(new)
+    assert after != before, "rewrite_document: the document did not change"
+    path.write_bytes(after)
 
 
 # Two WBS texts written.json does not hold, described node by node: (source, first line, nodes).

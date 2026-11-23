@@ -941,12 +941,7 @@ DEMO_FIRES_LINE = "fires: 8; sources not fully read: 1"
 
 def fires_install(tmp_path, name="samples", fires_list=None):
     """A samples copy under tmp_path/name, its fires_list repointed when given."""
-    import shutil
-
-    from helpers_config import SAMPLES
-
-    copy = tmp_path / name / "samples"
-    shutil.copytree(SAMPLES, copy, ignore=shutil.ignore_patterns("out"))
+    copy = copy_samples(tmp_path / name)
     if fires_list is not None:
         config = copy / "gantry.sample.toml"
         text = config.read_bytes().decode("utf-8")

@@ -20,7 +20,8 @@ import update_expected_leaves as ue
 from gantry import deps
 from gantry.model import ParsedValue
 from gantry.portfolio_json import ProjectInput, map_document
-from helpers_config import append_bytes, copy_samples, sample_projects, write_site_tree
+from helpers_config import append_bytes, copy_samples, install_sample_document, sample_projects, write_site_tree
+from helpers_links import link_dir
 from sample_roles import BUSY, NO_WBS, READABLE, SMALL, UNREADABLE
 from test_portfolio_equivalence import known
 from test_samples import ROOT
@@ -180,6 +181,23 @@ def test_write_site_tree_refuses_bytes(tmp_path):
     assert list(tmp_path.iterdir()) == []
 
 
+def test_copy_samples_installs_the_committed_document(tmp_path):
+    copy = copy_samples(tmp_path / "a")
+    assert copy.joinpath(sp.OUT, *sp.DOCUMENT).read_bytes() == sp.SAMPLES_WRITTEN.read_bytes()
+    bare = copy_samples(tmp_path / "b", document=False)
+    assert not (bare / "devagent" / "out").exists()
+    # The writer refuses a link at each folder it makes or writes into, and writes nothing through it.
+    for linked in (("out",), ("out", "portfolio")):
+        elsewhere = tmp_path / ("elsewhere-" + "-".join(linked))
+        elsewhere.mkdir()
+        bare = copy_samples(tmp_path / ("linked-" + "-".join(linked)), document=False)
+        bare.joinpath("devagent", *linked[:-1]).mkdir(parents=True, exist_ok=True)
+        link_dir(elsewhere, bare.joinpath("devagent", *linked))
+        with pytest.raises(sp.Refused, match="link"):
+            install_sample_document(bare)
+        assert list(elsewhere.iterdir()) == []
+
+
 # --- the committed sample document (Task 3) ---------------------------------------------------
 
 
@@ -297,7 +315,7 @@ def test_append_nodes_keeps_foreign_and_malformed_unresolved():
         hp.append_nodes(doc, "beta", hp.node("Late"))
 
 
-def test_append_nodes():
+def test_append_nodes(tmp_path):
     doc = hp.narrow(hp.sample_doc(), SMALL)
     before = sp.dumps(doc)
     nodes = doc["projects"][0]["nodes"]
@@ -319,6 +337,13 @@ def test_append_nodes():
     assert [p["project"] for p in two["projects"]] == ["a", "b"]
     assert [n["id"] for n in two["projects"][1]["nodes"]] == ["n2"]
     assert [(e["project"], e["kind"]) for e in two["parse_report"]] == [("b", "leaf_no_issue")]
+    # rewrite_document (#195): a samples copy's document, changed where it lies; a change that changes nothing fails.
+    copy = copy_samples(tmp_path)
+    hp.rewrite_document(copy, lambda d: hp.append_nodes(d, SMALL, hp.node("Later", issue="Issue-98")))
+    written = json.loads(copy.joinpath(sp.OUT, *sp.DOCUMENT).read_bytes().decode("utf-8"))
+    assert "Issue-98" in [leaf.key for leaf in hp.site_of(written, SMALL).leaves]
+    with pytest.raises(AssertionError):
+        hp.rewrite_document(copy, lambda d: d)
 
 
 def test_site_document_not_read_reason_is_devagents():
