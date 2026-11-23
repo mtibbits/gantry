@@ -461,11 +461,11 @@ def rewrite_document(copy, fn):
     assert after != before, "rewrite_document: the document did not change"
     path.write_bytes(after)
     home = copy / "devagent"
-    tables = tomllib.loads((home / "config.toml").read_bytes().decode("utf-8"))["project"]
     try:
+        tables = tomllib.loads((home / "config.toml").read_bytes().decode("utf-8"))["project"]
         _stopgap_agreement(copy, path, {p["project"]: (home / tables[p["project"]]["devdoc_dir"] / "WBS.md").read_bytes()
                                         for p in new["projects"] if p["status"] == "read"}, who="rewrite_document")
-    except AssertionError:
+    except BaseException:
         path.write_bytes(before)  # the check reads the written file; a failed rewrite leaves the old document
         raise
 

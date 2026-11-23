@@ -8,6 +8,7 @@ map_document. These tests pin the builder to what devagent writes.
 """
 
 import json
+import os
 import re
 
 import pytest
@@ -22,7 +23,7 @@ from gantry.model import ParsedValue
 from gantry.portfolio_json import ProjectInput, map_document
 from helpers_config import (ONE_SIDED, append_bytes, copy_samples, install_sample_document, one_sided_classes,
                             sample_projects, write_site_tree)
-from helpers_links import link_dir
+from helpers_links import link_dir, symlink
 from sample_roles import BUSY, NO_WBS, READABLE, SMALL, UNREADABLE
 from test_portfolio_equivalence import known
 from test_samples import ROOT
@@ -197,6 +198,23 @@ def test_copy_samples_installs_the_committed_document(tmp_path):
         with pytest.raises(sp.Refused, match="link"):
             install_sample_document(bare)
         assert list(elsewhere.iterdir()) == []
+    bare = copy_samples(tmp_path / "linked-devagent", document=False)
+    elsewhere = tmp_path / "elsewhere-devagent"
+    bare.joinpath("devagent").rename(elsewhere)
+    link_dir(elsewhere, bare / "devagent")
+    with pytest.raises(sp.Refused, match="link"):
+        install_sample_document(bare)
+    assert not (elsewhere / "out").exists()
+    if os.name != "nt":  # a file symlink needs a privilege on Windows; the folder legs above use junctions there
+        bare = copy_samples(tmp_path / "linked-file", document=False)
+        target = bare.joinpath(sp.OUT, *sp.DOCUMENT)
+        target.parent.mkdir(parents=True)
+        outside = tmp_path / "outside.json"
+        outside.write_bytes(b"")
+        symlink(outside, target)
+        with pytest.raises(sp.Refused, match="link"):
+            install_sample_document(bare)
+        assert outside.read_bytes() == b""
 
 
 # --- the committed sample document (Task 3) ---------------------------------------------------

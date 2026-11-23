@@ -290,7 +290,7 @@ def wbs_opens(record):
 
 
 @pytest.fixture(scope="module")
-def demo_runs(tmp_path_factory, built_sample_history):
+def demo_runs(tmp_path_factory, built_sample_history, real_sample_document):
     """The baseline, planted and control runs.
 
     Builds into the real samples/out, so one pytest session per checkout at a

@@ -90,8 +90,8 @@ def write_site_tree(folder, sites, tail="", **raw):
 # satisfies ...), and the entries devagent alone writes that the reader passes through as
 # shown entries (a Source's report=: issue_not_id, near_miss_line, meta_unreadable,
 # dep_cycle, unknown_meta_key ...). Those were checked once against devagent's own
-# aggregator; re-run that differential (Issue-195 analysis/census-tools/README.md) for
-# any new or changed Source.
+# aggregator; re-run that differential (its scripts and run line are in #195's pull
+# request) for any new or changed Source.
 COMPARED = re.compile(r"nodes\[\d+\](\.(key|issue|outline|title|state|depends_on|meta))?|links|held_out"
                       r"|report\[(\d+|null), [a-z_]+\]")
 # (class, the side holding the entry): known_differences.json's one-sided entries on
