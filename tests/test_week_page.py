@@ -8,6 +8,7 @@ import copy
 import functools
 import json
 import re
+import tomllib
 from dataclasses import asdict
 from pathlib import Path
 from types import SimpleNamespace
@@ -16,7 +17,7 @@ import pytest
 
 from gantry import planner, render
 from gantry.build import build_all
-from gantry.capacity import read_declared_capacity
+from gantry.capacity import read_declared_capacity, resolve_capacity
 from gantry.config import load_config
 from gantry.model import Models
 from gantry.planner import ALLOCATION_RULE, NO_PLAN, PLAN_VERSION, UNPLANNED_REASONS, WeekPlan, plan_week
@@ -25,7 +26,7 @@ from gantry.render import (MODEL_CLASSES, MODEL_FALLBACK, SLACK_CLASSES, STATE_C
                            WEEK_CLASSES)
 from gantry.views import leafbox, week
 from gantry.views.week import render_week
-from helpers_config import sample_build
+from helpers_config import copy_samples, demo_build, sample_build, written_bytes
 from page_safety import HOSTILE, RULES, assert_no_external_resources, assert_page_safe
 from page_script.harness import Planted, open_page
 from test_plan_file import shape_errors
@@ -1102,8 +1103,8 @@ def test_no_plan_pages(tmp_path, key, case, changes):
 
 def test_no_plan_cases_cover_every_reason():
     assert len(NO_PLAN_CASES) == 15
-    # The four reasons a devagent capacity declaration adds (#39) are CAPACITY_NO_PLAN_CASES'. They
-    # have no page here: a build passes the planner no declaration.
+    # The four reasons a devagent capacity declaration adds (#39) are CAPACITY_NO_PLAN_CASES', on
+    # their own installation: test_capacity_no_plan_pages has their pages.
     assert len({key for key, _, _ in NO_PLAN_CASES}) == 5
     assert {key for key, _, _ in NO_PLAN_CASES} | {key for key, _, _, _ in CAPACITY_NO_PLAN_CASES} == set(NO_PLAN)
     assert len(NO_PLAN) == 9
@@ -1724,6 +1725,35 @@ def test_no_plan_page_invalid_wording(tmp_path, key, changes):
     assert capacity_notes(tree(planned))[0] == FROM_FILE
 
 
+@pytest.mark.parametrize(("key", "case", "fill", "changes"), CAPACITY_NO_PLAN_CASES,
+                         ids=[f"{k}: {c}" for k, c, _, _ in CAPACITY_NO_PLAN_CASES])
+def test_capacity_no_plan_pages(tmp_path, key, case, fill, changes):
+    # The page of a build: build_all reads the declaration, and the page is of the plan it made.
+    result, page = fixture_build(tmp_path, CAPACITY_INSTALL, **changes)
+    reason = NO_PLAN[key].format(**fill)
+    assert (result.plan.status, result.plan.reason) == ("no_plan", reason)
+    t = tree(page)
+    assert text_of(t, one(t, "id", "no-plan")) == "no week plan: " + reason
+    assert texts(t, "p", ["stamp"]) == [result.stamp]
+    for name in ("data-day", "data-figure", "data-unestimated"):
+        assert with_attr(t, name) == [], name
+    assert with_attr(t, "id", "lines") == [] and with_attr(t, "id", "per-site") == []
+    assert with_attr(t, "id", "legend") == []
+    # Under the reason, the declaration's notes: devagent's lines as its reader has them.
+    declared = resolve_capacity(tomllib.loads(changes["devagent"]))
+    if key.startswith("invalid_"):
+        count = len(declared.violations)
+        assert fill["count"] == ("1 violation" if count == 1 else f"{count} violations")
+        assert capacity_notes(t) == [INVALID_NO_PLAN_NOTE]
+        assert list_lines(t, "capacity-violations") == list(declared.violations)
+        assert "capacity from:" not in visible_text(page)
+    else:
+        assert declared.usable and capacity_notes(t) == [FROM_DEVAGENT, TOKENS_NOTE]
+        assert list_lines(t, "capacity-violations") is None
+    assert list_lines(t, "capacity-warnings") == (list(declared.warnings) or None)
+    assert_page_safe(page, [])
+
+
 def test_week_hostile_capacity_lines(node, tmp_path):
     # capacity/config/hostile.toml: one project per HOSTILE string, each with a violation that names it.
     lines = EXPECTED_LINES["hostile"]["violations"]
@@ -1798,6 +1828,78 @@ def test_demo_week_page_byte_identical(tmp_path, monkeypatch):
         assert code == 0, stderr
         pages.append((out / "week.html").read_bytes())
     assert pages[0] == pages[1]
+
+
+SAMPLE_CAPACITY = {"operator_hours_per_week": 18, "lane_hours_per_week": 36, "max_lanes": 2,
+                   "tokens_per_week": 500000000, "tokens_per_window": 60000000, "windows_per_week": 10}
+
+
+def without_table(text, name):
+    """A TOML text with its `[name]` table cut: the header's line and every line up to the next table's."""
+    lines = text.splitlines(keepends=True)
+    start = lines.index(f"[{name}]\n")
+    end = next(i for i in range(start + 1, len(lines)) if lines[i].startswith("["))
+    return "".join(lines[:start] + lines[end:])
+
+
+def shown_texts(html):
+    """The page's visible texts in page order, white space between elements left out."""
+    return [text for text in tree(html).visible if text.strip()]
+
+
+def test_demo_blocks_unchanged_by_sample_capacity(tmp_path, monkeypatch):
+    # Premise: the committed sample devagent config declares the capacity below, with no ratio
+    # and nothing paused, and the second copy differs from it by that table alone.
+    copies = {"declared": copy_samples(tmp_path / "declared"), "bare": copy_samples(tmp_path / "bare")}
+    path = copies["bare"] / "devagent" / "config.toml"
+    text = path.read_bytes().decode("utf-8")
+    path.write_bytes(without_table(text, "capacity").encode("utf-8"))
+    whole, rest = tomllib.loads(text), tomllib.loads(path.read_bytes().decode("utf-8"))
+    assert whole["capacity"] == SAMPLE_CAPACITY
+    assert all(type(whole["capacity"][key]) is int for key in SAMPLE_CAPACITY)
+    assert not any("capacity" in project for project in whole["project"].values())
+    assert rest == {key: value for key, value in whole.items() if key != "capacity"}
+
+    files, said = {}, {}
+    for name, folder in copies.items():
+        code, out, stdout, stderr = demo_build(tmp_path, monkeypatch, copy=folder)
+        assert code == 0, stderr
+        files[name] = written_bytes(out)
+        # What the build printed, without the copy's own folder.
+        said[name] = (stdout.replace(str(folder), ""), stderr.replace(str(folder), ""))
+    declared, bare = files["declared"], files["bare"]
+    plans = [json.loads(found["week-plan.json"].decode("utf-8")) for found in (declared, bare)]
+    assert [plan["capacity"]["declaration"] for plan in plans] == ["used", "not_declared"]
+    assert [plan["status"] for plan in plans] == ["planned", "planned"]
+    # The blocks, the leaves and the sites are the ones planned from the portfolio file alone.
+    for key in ("days", "leaves", "sites"):
+        assert plans[0][key] == plans[1][key], key
+    assert {key for key in plans[0] if plans[0][key] != plans[1][key]} == {"capacity", "pools"}
+    # Why: 18 h a week is the sum of the portfolio file's weekdays after reserved blocks, so no
+    # day is scaled, and 36 lane hours over its 6 working days are the 6 h day of a lane.
+    capacity = plans[0]["capacity"]
+    assert capacity["attention"] == {"rule": "scaled", "total_hours": 18, "weekday_sum_hours": 18.0,
+                                     "factor": 1.0, "weekdays_lost_to_cap": []}
+    assert capacity["lanes"] == {"max_lanes": 2, "lane_hours_per_week": 36, "working_days": 6,
+                                 "lane_hours_per_day": 6.0, "hours_lost_to_cap": 0.0}
+    assert capacity["lanes"] == plans[1]["capacity"]["lanes"] | {"lane_hours_per_week": 36}
+    assert plans[1]["capacity"]["attention"]["rule"] == "portfolio_file"
+    assert (capacity["declared_ratio"], capacity["paused"], plans[0]["report"]) == (None, [], [])
+    # min(500000000, 60000000 x 10): the week's own figure binds.
+    assert capacity["token_budget"] == {"tokens_per_week": 500000000, "binding": "tokens_per_week",
+                                        "unit": "weighted_input_token_equivalents"}
+    assert [[pool["capacity_source"] for pool in plan["pools"]] for plan in plans] == [[DEVAGENT] * 2,
+                                                                                         ["portfolio file"] * 2]
+
+    # The week pages' visible texts differ in the capacity-source line and the token-budget line,
+    # and in nothing else; every other file is the same, and so is what the build prints.
+    with_table, without = (shown_texts(found["week.html"].decode("utf-8")) for found in (declared, bare))
+    at = with_table.index(FROM_DEVAGENT)
+    assert with_table[at:at + 2] == [FROM_DEVAGENT, TOKENS_NOTE] and without[at] == FROM_FILE
+    assert with_table[:at] + [FROM_FILE] + with_table[at + 2:] == without
+    assert sorted(declared) == sorted(bare)
+    assert {name for name in declared if declared[name] != bare[name]} == {"week.html", "week-plan.json"}
+    assert said["declared"] == said["bare"]
 
 
 # --- the docs (AC 17) ---------------------------------------------------------------------
