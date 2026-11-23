@@ -280,9 +280,6 @@ def test_agreement_covers_every_read_fixture_and_description():
     assert len(AGREEMENT) == len(set(AGREEMENT)) == 15
     assert set(AGREEMENT) == {*sp.FIXTURE_SOURCES} - {"not_utf8"} | set(hp.DESCRIBED)
     assert [name for name in AGREEMENT if known_rows(name)] == ["ids", "edges"]
-
-
-def test_one_sided_pin_matches_known_differences():
     # write_site_tree's agreement check forgives exactly these one-sided report classes (#195).
     assert one_sided_classes() == ONE_SIDED
 
