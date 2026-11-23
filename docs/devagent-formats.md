@@ -42,10 +42,11 @@ A second pin, `tests/devagent-latest.pin`, names the release that holds the
 newest devagent contract Gantry mirrors: today `devagent--v3.4.0`. A test of
 a contract the first pin's release lacks runs against a checkout of this
 one; today that contract is the capacity declaration
-([The capacity declaration](#the-capacity-declaration)). It moves in the change that needs a newer contract, as #40 and #41
-may, and it is never below the first pin. No tool reads it and no committed
-file is written at it, so moving it regenerates nothing. The first pin is
-"the pin" everywhere on this page; the second is always "the latest pin".
+([The capacity declaration](#the-capacity-declaration)). It moves in the
+change that needs a newer contract, as #40 and #41 may, and it is never
+below the first pin. No tool reads it and no committed file is written at
+it, so moving it regenerates nothing. The first pin is "the pin" everywhere
+on this page; the second is always "the latest pin".
 
 ## Where the records are
 
@@ -371,10 +372,12 @@ reserve_tokens_per_week sum exceeds the effective weekly token budget
   `exceeds capacity.max_lanes`, whether or not the project is paused.
 - A project's capacity table in a config with no `[capacity]` table is
   `[capacity] table missing`.
-- The last two are the pool rules, and their `<where>` is `pool`: the
-  unpaused projects' reserved operator hours add up to more than
-  `operator_hours_per_week`, or their reserved tokens to more than the
-  effective weekly token budget.
+- The last two are the pool rules, and their `<where>` is `pool`. The
+  hours rule: the unpaused projects' reserved operator hours add up to more
+  than `operator_hours_per_week` plus 1e-9. That fixed tolerance takes up
+  binary rounding, so reservations that fill the hours exactly pass. The
+  token rule is strict: their reserved tokens, whole numbers, add up to
+  more than the effective weekly token budget.
 
 The lines come in devagent's order: the shared table's keys in the order
 above, then each project in file order with its keys in the order above,

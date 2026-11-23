@@ -245,7 +245,7 @@ the key path where it applies. No entry holds a path.
 | `bad_allocation` | settings | an allocation's `shares` is missing or not a table, a share is not a finite number 0 or more, or the shares do not sum to 100; the allocation is not used |
 | `bad_value` | settings | any other key with the wrong type or out of range; its default, or "not set", is used |
 | `duplicate_allocation_date` | settings | a second valid allocation with the same `from`; the first is used |
-| `capacity_missing` | settings | advisory: no `attention_hours` or no `agent_lanes`. With nothing else to plan from, the week planner has no capacity to plan into. It is not a problem when the week plan uses devagent's capacity declaration, which gives both ([week-plan.md](week-plan.md#declared-capacity-from-devagent)); this file's check reads this file alone, so the entry is reported either way |
+| `capacity_missing` | settings | advisory: no `attention_hours` or no `agent_lanes`, so the week planner has no capacity to plan into unless devagent's capacity declaration is used. It is not a problem when the week plan uses devagent's capacity declaration, which gives both ([week-plan.md](week-plan.md#declared-capacity-from-devagent)). This file's check reads this file alone, so the entry is reported either way: `gantry portfolio` prints it, and a full build lists it on the strategic page ([strategic-page.md](strategic-page.md#the-report-panel)) |
 | `reserved_exceeds_capacity` | settings | a weekday's reserved hours are more than its attention hours |
 | `undefined_priority` | settings | a `serves` ID names no business requirement in this file |
 | `misplaced_priority` | settings | a `serves` ID is in another namespace, or is not a `BR` |

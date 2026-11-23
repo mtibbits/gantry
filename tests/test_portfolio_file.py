@@ -537,7 +537,11 @@ def test_every_default():
         ("capacity_missing", SETTINGS, None, "capacity.attention_hours"),
         ("capacity_missing", SETTINGS, None, "capacity.agent_lanes"),
     ]
-    assert p.report[1].message == "no capacity.agent_lanes, so the week planner has no capacity to plan into"
+    # True whether or not devagent declares capacity (#39): a used declaration gives the lanes.
+    assert p.report[1].message == ("no capacity.agent_lanes, so the week planner has no capacity to plan into "
+                                   "unless devagent's capacity declaration is used")
+    assert p.report[0].message == ("no capacity.attention_hours, so the week planner has no capacity to plan into "
+                                   "unless devagent's capacity declaration is used")
     assert p.settings_read is True
     c = p.capacity
     assert (c.attention_hours, c.agent_lanes, c.reserved, c.attention_mapping) == (None, None, (), None)
@@ -1060,7 +1064,8 @@ def test_format_entry():
     assert lines[0] == "line 16: bad_value: site.harbor.serves: must be an array of business requirement IDs, " \
                        "not a string; it is empty"
     assert lines[2] == "line 19: capacity_missing (advisory): capacity.attention_hours: no capacity.attention_hours, " \
-                       "so the week planner has no capacity to plan into"
+                       "so the week planner has no capacity to plan into unless devagent's capacity declaration " \
+                       "is used"
     assert format_entry(read("no_settings.md").report[0]).startswith("no_settings: no ```toml block")
 
 

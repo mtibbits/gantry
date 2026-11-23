@@ -1759,6 +1759,35 @@ def test_capacity_read_failure_stops_the_build(tmp_path, monkeypatch):
     assert not devagent.exists() and sorted(written_bytes(copy / "out")) == ["sites/a.html"]
 
 
+def test_capacity_missing_line_is_true_beside_a_declared_plan(tmp_path):
+    # The portfolio file sets no attention_hours, so its own check reports capacity_missing, and a
+    # full build lists that line on the strategic page. devagent's declaration is used, so the same
+    # build plans the week: what the line says of the planner must be true beside that plan.
+    from test_planner import capacity_portfolio, declares
+    from test_worksite_page import by_id, find, text_of, tree
+
+    copy = capacity_install(tmp_path, devagent=declares(total=30), portfolio=capacity_portfolio("no_hours"))
+    code, _, stderr = run_main("--config", str(copy / "gantry.toml"))
+    assert code == 0, stderr
+    document = json.loads((copy / "out" / "week-plan.json").read_bytes().decode("utf-8"))
+    assert (document["status"], document["capacity"]["attention"]["rule"]) == ("planned", "even_spread")
+    t = tree((copy / "out" / "strategic.html").read_bytes().decode("utf-8"))
+    lines = [text_of(t, li) for li in find(t, "li", within=by_id(t, "report"))]
+    missing = [line for line in lines if "capacity_missing" in line]
+    assert missing == [
+        "settings: line 18: capacity_missing (advisory): capacity.attention_hours: no capacity.attention_hours, so "
+        "the week planner has no capacity to plan into unless devagent's capacity declaration is used"]
+    # Nothing declared, the same file gives no plan, and the same line is as true.
+    bare = capacity_install(tmp_path, portfolio=capacity_portfolio("no_hours"))
+    code, _, stderr = run_main("--config", str(bare / "gantry.toml"))
+    assert code == 0, stderr
+    document = json.loads((bare / "out" / "week-plan.json").read_bytes().decode("utf-8"))
+    assert (document["status"], document["capacity"]["declaration"]) == ("no_plan", "not_declared")
+    t = tree((bare / "out" / "strategic.html").read_bytes().decode("utf-8"))
+    assert [line for line in (text_of(t, li) for li in find(t, "li", within=by_id(t, "report")))
+            if "capacity_missing" in line] == missing
+
+
 def test_declared_plan_writes_byte_identical_files(tmp_path, monkeypatch):
     from gantry import cli
     from test_planner import PAUSED_C, RATIO, declares

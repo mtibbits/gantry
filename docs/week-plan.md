@@ -217,11 +217,11 @@ planned around. An as-of date so late that the 10 working days would run
 past 9999-12-31 is not supported: the build exits 1 with a Python
 traceback.
 
-Each working day has `agent_lanes` lanes. A **lane's day** is the agent
-hours one lane gives in a day, and so the most one leaf takes in a day: 6
-agent hours. A capacity declaration the plan uses gives both figures in
-their place: its `max_lanes` lanes, and a lane's day made from its
-`lane_hours_per_week`.
+A **lane's day** is the agent hours one lane gives in a day, and so the
+most one leaf takes in a day. When the plan uses no capacity declaration,
+each working day has `agent_lanes` lanes and a lane's day is 6 agent hours.
+A capacity declaration the plan uses gives both figures in their place: its
+`max_lanes` lanes, and a lane's day made from its `lane_hours_per_week`.
 
 ### Declared capacity from devagent
 
@@ -365,10 +365,13 @@ A devagent config that cannot be read, or is not valid TOML, is a config
 error, as it is when the site list is read from it: the build exits 1 and
 writes nothing. It is never a violation.
 
-`gantry portfolio` reads the portfolio file alone, so it still reports
-`capacity_missing` for a file with no `attention_hours` or no
-`agent_lanes`. With a used declaration the plan needs neither
-([portfolio-file.md](portfolio-file.md#the-report)).
+The portfolio file's own check reads that file alone, so a file with no
+`attention_hours` or no `agent_lanes` still has a `capacity_missing` entry
+whatever devagent declares: `gantry portfolio` prints it, and a full build
+lists it on the strategic page
+([strategic-page.md](strategic-page.md#the-report-panel)). With a used
+declaration the plan needs neither key, and the entry's message allows for
+that ([portfolio-file.md](portfolio-file.md#the-report)).
 
 ### What each leaf costs
 
@@ -867,7 +870,8 @@ of the plan, so its loss is in that list alone.
   lost;
 - `lanes`: null on a `no_plan` plan, else `max_lanes`, the lanes as
   planned; `lane_hours_per_week` as declared, or null when the lanes are
-  the portfolio file's; `working_days`, the weekdays with attention hours;
+  the portfolio file's; `working_days`, how many weekdays have attention
+  hours;
   `lane_hours_per_day`, a lane's day; and `hours_lost_to_cap`, what the
   24-hour cap cuts from one lane over a week;
 - `declared_ratio`: null unless a used declaration sets
@@ -1287,8 +1291,9 @@ not given.
 A file written before #39 lacks `capacity`, each day's
 `attention_hours_lost_to_cap` and each report entry's `text`. A reader takes
 a missing `capacity` as nothing declared: its `declaration` as
-`not_declared`, its `declared_ratio` and `token_budget` as null, its
-`paused` as empty, and its `attention` and `lanes` as not given. It takes a
+`not_declared`, its `capacity_schema`, `declared_ratio` and `token_budget`
+as null, its `paused` as empty, and its `attention` and `lanes` as not
+given. It takes a
 missing `attention_hours_lost_to_cap` as 0 and a missing `text` as null.
 Those fields were added together, so a `capacity` that is present holds
 every field above, the `weekdays_lost_to_cap` of its `attention` included.

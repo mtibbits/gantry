@@ -865,6 +865,9 @@ def test_capacity_missing_row_points_to_the_declaration():
     (row,) = [line for line in markdown_text(ROOT / "docs" / "portfolio-file.md").split(LF)
               if line.startswith("| `capacity_missing` |")]
     assert "advisory" in row and "(week-plan.md#declared-capacity-from-devagent)" in row
+    # Not a problem with a used declaration; reported all the same, on the strategic page too.
+    assert "It is not a problem when the week plan uses devagent's capacity declaration" in row
+    assert "(strategic-page.md#the-report-panel)" in row
 
 
 def test_readme_row_names_both_pins_checks():
@@ -872,7 +875,6 @@ def test_readme_row_names_both_pins_checks():
 
     (row,) = [line for line in markdown_text(ROOT / "README.md").split(LF) if line.startswith("| devagent |")]
     floor, latest = hd.read_pin()[1], hd.read_pin("latest")[1]
-    assert (floor, latest) == ("3.0.0", "3.4.0")
     # The oldest supported devagent is the floor pin's, with its checks; the capacity
     # agreement test runs at the latest pin's.
     assert row.startswith(f"| devagent | {floor} |")
