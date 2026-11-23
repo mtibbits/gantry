@@ -82,7 +82,7 @@ def test_agreement_on_sample_sites(node, tmp_path):
     for site in sorted(READABLE):
         for unit in ("6", "2.7"):
             folder = tmp_path / f"{site}-{unit}"
-            config = load_config(write_site_tree(folder, {site: b"# x\n"}, default_unit_hours=unit))
+            config = load_config(write_site_tree(folder, {site: hp.source(b"# x\n")}, default_unit_hours=unit))
             data = hp.sample_site(site)
             path = write_page(folder, render_page(site, data, default_unit_hours=config.default_unit_hours), site)
             items = assert_page_safe(path.read_bytes().decode("utf-8"), [])["schedule"]["items"]

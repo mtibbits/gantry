@@ -5,6 +5,7 @@ tests/test_strategic_page.py."""
 import math
 from datetime import date
 
+import helpers_portfolio as hp
 from gantry.build import build_all
 from gantry.config import load_config
 from gantry.strategic import backlog_shares, strategic_model
@@ -230,8 +231,11 @@ def test_extremes(tmp_path):
     assert [p.intended for p in model.panels.values()] == [0, 0]
     assert model.headline is None
     # Leaves held out by a cycle are open but not in hours (B5).
-    done = b"- [x] Done {issue: Issue-1}\n"
-    held = b"- [ ] A {issue: Issue-1, depends_on: [Issue-2]}\n- [ ] B {issue: Issue-2, depends_on: [Issue-1]}\n"
+    done = hp.source(b"- [x] Done {issue: Issue-1}\n", hp.node("Done", glyph="x", issue="Issue-1"))
+    held = hp.source(b"- [ ] A {issue: Issue-1, depends_on: [Issue-2]}\n- [ ] B {issue: Issue-2, depends_on: [Issue-1]}\n",
+                     hp.node("A", issue="Issue-1", depends_on=["Issue-2"]),
+                     hp.node("B", issue="Issue-2", depends_on=["Issue-1"]),
+                     report=((1, "dep_cycle", "dependency cycle: Issue-1 (line 1), Issue-2 (line 2)"),))
     model = strategic_model(build_all(load_config(write_site_tree(tmp_path / "held", {"done": done, "held": held}))))
     panel = model.panels["held"]
     assert (panel.open_leaves, panel.held_out, panel.backlog.hours) == (2, 2, 0)
