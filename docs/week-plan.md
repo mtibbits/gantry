@@ -359,7 +359,11 @@ lists the lines.
 A key devagent does not know, in either table, is ignored and does not make
 the declaration invalid. The report gains a `capacity_unknown_key` entry
 holding devagent's warning line, and the week view lists it. `gantry build`
-prints no line for an entry of either kind.
+prints no line for an unknown key. For an invalid declaration it warns once
+on stderr, `gantry: warning: devagent's capacity declaration is invalid (<count>); it is not used`
+(`<count>` is `1 violation` or `N violations`), because the fallback also
+drops the declaration's pauses: a paused site is planned again. The exit
+code is unchanged.
 
 A devagent config that cannot be read, or is not valid TOML, is a config
 error, as it is when the site list is read from it: the build exits 1 and

@@ -10,9 +10,10 @@ command. A change here follows a change there, never the reverse.
 
 Two differences, both on purpose:
 - The project list is every key of `[project]` whose value is a table, in
-  file order, whatever its name. devagent's own list leaves out a name with
-  a dot, so its reader gives such a project no line and no place in the
-  document.
+  file order, whatever its name. devagent's own list leaves out a name it
+  cannot print as one `project.<name>` line (one with a dot or a line feed,
+  or the empty name), so its reader gives such a project no line and no
+  place in the document.
 - devagent also warns that a project's "only key is capacity". Gantry lists
   such a project as a site it cannot build (#7), so only the unknown-key
   warning is mirrored.

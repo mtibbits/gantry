@@ -413,6 +413,7 @@ def test_demo_pages_load_nothing_external(tmp_path, monkeypatch):
 
 STDERR_FORMS = (
     "gantry: warning: site <name> is not built: <reason>",
+    "gantry: warning: devagent's capacity declaration is invalid (<count>); it is not used",
     "gantry: error: cannot write <index path>: <reason>",
     "gantry: error: cannot write week-plan.json: <reason>",
     "gantry: error: cannot render week.html: <type>: <message>",
@@ -1722,6 +1723,30 @@ def test_build_passes_declared_capacity(tmp_path, monkeypatch):
     code, _, stderr = run_main("--config", str(copy / "gantry.toml"), "--site", "a")
     assert code == 0, stderr
     assert read == [] and passed == []
+
+
+def test_invalid_declaration_warns(tmp_path):
+    # An invalid declaration is not used, its pauses included, so the full build says so on
+    # stderr; the exit code is unchanged. A used one prints no capacity line.
+    from gantry.cli import CAPACITY_INVALID_LINE
+    from test_planner import PAUSED_C, capacity_config, declares
+
+    def build_lines(devagent):
+        copy = capacity_install(tmp_path, devagent=devagent)
+        code, _, stderr = run_main("--config", str(copy / "gantry.toml"))
+        assert code == 0, stderr
+        document = json.loads((copy / "out" / "week-plan.json").read_bytes().decode("utf-8"))
+        return [line for line in stderr.splitlines() if "capacity declaration" in line], document["capacity"]
+
+    lines, capacity = build_lines(declares(tail=PAUSED_C))
+    assert (lines, capacity["declaration"], capacity["paused"]) == ([], "used", ["c"])
+    # One broken rule anywhere drops the whole declaration: c is no longer paused.
+    lines, capacity = build_lines(declares(total=0, tail=PAUSED_C))
+    assert (capacity["declaration"], capacity["paused"]) == ("invalid", [])
+    assert lines == [CAPACITY_INVALID_LINE.format(count="1 violation")]
+    lines, capacity = build_lines(capacity_config("order"))
+    assert lines == [CAPACITY_INVALID_LINE.format(count="9 violations")]
+    assert lines[0] == "gantry: warning: devagent's capacity declaration is invalid (9 violations); it is not used"
 
 
 def test_capacity_read_failure_stops_the_build(tmp_path, monkeypatch):

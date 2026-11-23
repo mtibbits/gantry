@@ -7,7 +7,8 @@ slack class and workflow phase row (`phases`, `phases_why`, #173) from
 result.page_models, which sites have pages, and the not-built reasons. A
 placement is drawn as the worksite network's leaf box, by the one rule in
 gantry/views/leafbox.py (#170), with the same phase row. It computes no planning
-value and never changes the plan. All 10 days are rendered here; the page
+value and never changes the plan; to choose the declared-ratio-0 line (#39)
+it asks planner.is_rate_0 whether the plan's declared ratio plans as rate 0. All 10 days are rendered here; the page
 script only shows or hides days and lists. docs/week-plan.md describes the page.
 """
 

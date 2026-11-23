@@ -1467,6 +1467,13 @@ index with its reason and on stderr as
   `sites/ is not a folder` when a file stands in its place; each page
   then fails on its own and the index is still written.
 
+When devagent's capacity declaration is invalid (#39), stderr also has
+`gantry: warning: devagent's capacity declaration is invalid (<count>); it is not used`,
+after the not-built lines, where `<count>` is `1 violation` or
+`N violations`. The week is then planned from the portfolio file's capacity,
+so a site the declaration pauses is planned again; the week view lists the
+violations ([week-plan.md](week-plan.md)). The exit code is unchanged.
+
 A reason names the site and a config key or file kind, never an absolute
 path. Seven more lines can follow on stderr:
 

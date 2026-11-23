@@ -388,7 +388,9 @@ every value it reads is valid.
 part that matches `[A-Za-z0-9_-]+` in full is written bare. Any other part
 is written as a JSON string, its non-ASCII characters kept as they are:
 `project."my proj".capacity.priority`, `project."a.b".capacity.paused`. So
-a name that holds a line feed stays on one line. A line reaches the week
+a name that holds a line feed stays on one line in Gantry's own lines
+(devagent's reader does not read such a project; see the project list
+below). A line reaches the week
 view as plain text, through the page's safe render path.
 
 ### Warnings
@@ -446,9 +448,10 @@ output. The test skips, warns and fails by the latest pin's rules
 One fixture, with a project named `a.b`, is read differently on purpose.
 Gantry takes the projects from the config itself: every key of `[project]`
 whose value is a table, in file order, whatever its name. devagent's reader
-takes them from devagent's own project list, which leaves out a name with a
-dot in it, so that project's capacity table gets no line from devagent and
-no place in its document. Gantry reads it like any other.
+takes them from devagent's own project list, which holds only a name it
+prints as one `project.<name>` line: it leaves out a name with a dot or a
+line feed in it, and the empty name, so such a project's capacity table gets
+no line from devagent and no place in its document. Gantry reads it like any other.
 `[project."a.b".capacity]` with `paused = true` pauses the site `a.b` in
 Gantry's plan, and a broken rule in that table makes the declaration
 invalid for Gantry, though devagent's reader accepts the config. A test
