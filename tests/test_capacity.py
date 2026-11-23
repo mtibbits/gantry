@@ -5,17 +5,26 @@ gantry/capacity.py ports the rules of devagent's shipped reader
 Every config fixture is a fictional devagent config declaring projects a, b
 and c; fixtures/capacity/expected.json holds each one's violation and warning
 lines, written by hand: no fixture stores devagent output.
+
+The agreement tests run devagent's own scripts/capacity.sh, from a checkout at
+that release (GANTRY_DEVAGENT_LATEST_DIR, tests/helpers_devagent.py), on every
+config fixture and compare it with the port: they skip on Windows and locally
+without the variable, and fail under CI without it.
 """
 
 import ast
+import dataclasses
 import inspect
 import json
 import re
 import sys
 import tomllib
+from typing import NamedTuple
 
 import pytest
 
+import devagent_record_fixtures as fx
+import helpers_devagent as hd
 from gantry import capacity as cap
 from gantry import sites
 from gantry.config import ConfigError
@@ -632,3 +641,146 @@ def test_a_declaration_is_frozen():
     with pytest.raises(AttributeError):
         declared.projects[0].paused = True
     assert hash(declared) == hash(read("full"))
+
+
+# --- agreement with devagent's reader ----------------------------------------------
+#
+# devagent's own scripts/capacity.sh, from the checkout at the latest pin, reads
+# each config fixture as its home's config.toml, and Gantry's reader reads the
+# same file. Everything devagent prints is compared as bytes.
+
+AGREEMENT = sorted(p.stem for p in CONFIGS.glob("*.toml"))
+# The one fixture the two read differently on purpose; its own test pins how.
+DIFFERS = ("dotted",)
+AGREES = [name for name in AGREEMENT if name not in DIFFERS]
+WARNING_PREFIX = b"capacity: warning: "
+UNKNOWN_KEY_END = b": unknown key (ignored)"
+# devagent's alone: Gantry lists such a project as not built instead (#7).
+CAPACITY_ONLY_END = b": only key is capacity (misspelled project name?)"
+
+
+class DevagentRead(NamedTuple):
+    """What devagent's capacity.sh printed of one config, as bytes."""
+
+    code: int
+    stdout: bytes
+    lines: list[bytes]  # every stderr line, in order
+    violations: list[bytes]  # the lines that are not warnings
+    unknown_key: list[bytes]  # the warnings Gantry mirrors
+    capacity_only: list[bytes]  # the warnings that are devagent's alone
+
+
+def utf8(lines):
+    return [line.encode("utf-8") for line in lines]
+
+
+def devagent_home(tmp, name):
+    """A devagent home under `tmp` whose config.toml is the fixture `name`; the config's path."""
+    (tmp / "home").mkdir()
+    (tmp / "da").mkdir()
+    config = tmp / "da" / "config.toml"
+    config.write_bytes((CONFIGS / f"{name}.toml").read_bytes())
+    return config
+
+
+def devagent_reads(checkout, tmp) -> DevagentRead:
+    """Run `<checkout>/scripts/capacity.sh` over the devagent home under `tmp`,
+    through #31's run_bash under writer_env(tmp): PATH, HOME, DA_HOME, TZ and
+    LC_ALL, and no argument."""
+    env = fx.writer_env(tmp)
+    # run_bash runs from `tmp`, so a relative checkout path is made absolute first.
+    script = checkout.resolve() / "scripts" / "capacity.sh"
+    proc = fx.run_bash(fx.find_bash(env), tmp, env, script)
+    # Split at the line feed only: one hostile name holds U+2028 and U+2029,
+    # which splitlines() takes for line ends.
+    *lines, rest = proc.stderr.split(b"\n")
+    assert rest == b"", proc.stderr
+    warnings = [line for line in lines if line.startswith(WARNING_PREFIX)]
+    violations = [line for line in lines if not line.startswith(WARNING_PREFIX)]
+    # Warnings follow the violations, and each is one of devagent's two.
+    assert lines == violations + warnings
+    unknown_key = [line for line in warnings if line.endswith(UNKNOWN_KEY_END)]
+    capacity_only = [line for line in warnings if line.endswith(CAPACITY_ONLY_END)]
+    assert len(unknown_key) + len(capacity_only) == len(warnings), warnings
+    return DevagentRead(proc.returncode, proc.stdout, lines, violations, unknown_key, capacity_only)
+
+
+def gantry_reads(config):
+    return cap.read_declared_capacity(directory_roots([config.parent]), config)
+
+
+def capacity_only_lines(name):
+    """devagent's own warning for each project of the fixture `name` whose table
+    holds `capacity` and nothing else, in file order."""
+    return [
+        WARNING_PREFIX + cap.where(["project", project]).encode("utf-8") + CAPACITY_ONLY_END
+        for project, table in parsed(name)["project"].items()
+        if isinstance(table, dict) and list(table) == ["capacity"]
+    ]
+
+
+def test_agreement_set():
+    # Every config fixture goes through devagent's reader, the hostile one included.
+    assert AGREEMENT == sorted((*VALID, *INVALID))
+    assert len(AGREEMENT) == 29 and "hostile" in AGREEMENT
+    assert DIFFERS == ("dotted",) and len(AGREES) == 28
+    assert sorted((*AGREES, *DIFFERS)) == AGREEMENT
+
+
+@pytest.mark.parametrize("name", AGREES)
+def test_reader_agrees_with_devagent(name, tmp_path):
+    checkout = hd.require_devagent(pin="latest")
+    config = devagent_home(tmp_path, name)
+    theirs = devagent_reads(checkout, tmp_path)
+    ours = gantry_reads(config)
+    text = cap.document_text(ours)
+    if name in VALID:
+        assert theirs.code == 0, theirs.lines
+        # Byte for byte: 20 against 20.0, the key order and the last newline are all seen.
+        assert text is not None and theirs.stdout == text.encode("utf-8")
+        assert theirs.violations == [] and ours.violations == ()
+    else:
+        assert theirs.code == 3, theirs.lines
+        assert theirs.stdout == b"" and text is None
+        assert theirs.violations == utf8(ours.violations) != []
+    # On exit 0 and exit 3 alike: the unknown-key warnings are Gantry's warnings,
+    # and devagent adds one line of its own for each capacity-only project.
+    assert theirs.unknown_key == utf8(ours.warnings)
+    assert theirs.capacity_only == capacity_only_lines(name)
+    if name == "hostile":
+        assert len(theirs.violations) == len(theirs.capacity_only) == len(HOSTILE) == 11
+        assert len(theirs.lines) == 22
+
+
+def test_dotted_name_difference_is_pinned(tmp_path):
+    # devagent's project list leaves out a name with a dot, so its reader never
+    # sees the table; Gantry reads every [project] table. The difference is on
+    # purpose, and the pull request for #39 records it.
+    checkout = hd.require_devagent(pin="latest")
+    config = devagent_home(tmp_path, "dotted")
+    theirs = devagent_reads(checkout, tmp_path)
+    assert (theirs.code, theirs.lines) == (0, [])
+    document = json.loads(theirs.stdout.decode("utf-8"))
+    assert [p["name"] for p in document["projects"]] == ["a", "b", "c"]
+    assert all(p["paused"] == {"value": False, "source": "default"} for p in document["projects"])
+    ours = gantry_reads(config)
+    assert ours.paused == ("a.b",)
+    assert [p.name for p in ours.projects] == ["a", "b", "c", "a.b"]
+    assert (ours.violations, ours.warnings) == ((), ())
+    assert cap.document_text(ours).encode("utf-8") != theirs.stdout
+    # Less that one project, Gantry's document is devagent's.
+    less = dataclasses.replace(ours, projects=tuple(p for p in ours.projects if p.name != "a.b"), paused=())
+    assert cap.document_text(less).encode("utf-8") == theirs.stdout
+
+
+def test_capacity_only_line_is_devagents_alone(tmp_path):
+    checkout = hd.require_devagent(pin="latest")
+    config = devagent_home(tmp_path, "capacity_only")
+    theirs = devagent_reads(checkout, tmp_path)
+    assert theirs.code == 0
+    assert theirs.lines == [b"capacity: warning: project.d: only key is capacity (misspelled project name?)"]
+    assert theirs.lines == theirs.capacity_only == capacity_only_lines("capacity_only")
+    ours = gantry_reads(config)
+    assert ours.warnings == () and ours.violations == ()
+    # The line is the only difference: the documents are the same bytes.
+    assert theirs.stdout == cap.document_text(ours).encode("utf-8")
