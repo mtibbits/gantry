@@ -1,0 +1,38 @@
+# A fictional devagent config for the capacity reader's tests (#39).
+# Every key is set. 60000000 x 4.1 is 245999999.99999997 as a double: the token
+# budget is 246000000, bound by the window product. a writes its deadline as a
+# TOML date, b as a string and is paused; c has no capacity table.
+
+[capacity]
+operator_hours_per_week = 20
+lane_hours_per_week = 40.5
+max_lanes = 3
+tokens_per_week = 500000000
+tokens_per_window = 60000000
+windows_per_week = 4.1
+operator_hours_per_agent_hour = 0.25
+
+[project.a]
+devdoc_dir = "a"
+
+[project.a.capacity]
+priority = 2
+max_lanes = 2
+paused = false
+deadline = 2026-12-31
+reserve_operator_hours_per_week = 4.5
+reserve_tokens_per_week = 100000000
+
+[project.b]
+devdoc_dir = "b"
+
+[project.b.capacity]
+priority = 7
+max_lanes = 1
+paused = true
+deadline = "2027-03-01"
+reserve_operator_hours_per_week = 2
+reserve_tokens_per_week = 50000000
+
+[project.c]
+devdoc_dir = "c"

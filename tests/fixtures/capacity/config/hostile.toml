@@ -1,0 +1,55 @@
+# A fictional devagent config for the capacity reader's tests (#39).
+# One project per hostile string of tests/page_safety.py (HOSTILE, in its
+# order), each a quoted key holding a capacity table and nothing else, each
+# with a priority below its range: one violation line per string. The seventh
+# holds U+2028 and U+2029, written as TOML escapes.
+
+[capacity]
+operator_hours_per_week = 20
+lane_hours_per_week = 40
+max_lanes = 3
+tokens_per_week = 500000000
+tokens_per_window = 60000000
+windows_per_week = 10
+
+[project.a]
+devdoc_dir = "a"
+
+[project.b]
+devdoc_dir = "b"
+
+[project.c]
+devdoc_dir = "c"
+
+[project."<script>gantrypwn(1)</script>".capacity]
+priority = 0
+
+[project."</script><script>gantrypwn(2)</script>".capacity]
+priority = 0
+
+[project."<img src=x onerror=gantrypwn(3)>".capacity]
+priority = 0
+
+[project."\"><svg onload=gantrypwn(4)>".capacity]
+priority = 0
+
+[project."' onmouseover='gantrypwn(5)".capacity]
+priority = 0
+
+[project."<!-- gantrypwn(6)".capacity]
+priority = 0
+
+[project."a b gantrypwn(7)".capacity]
+priority = 0
+
+[project."__proto__".capacity]
+priority = 0
+
+[project."{{DATA}}".capacity]
+priority = 0
+
+[project."&amp;lt;b&amp;gt;".capacity]
+priority = 0
+
+[project."</title></style></textarea><script>gantrypwn(8)</script>".capacity]
+priority = 0

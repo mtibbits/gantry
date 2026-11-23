@@ -1,0 +1,37 @@
+# A fictional devagent config for the capacity reader's tests (#39).
+# The per-project keys Gantry reads and does not plan with: priority, the lane
+# cap, the two reservations and the deadline (both spellings).
+
+[capacity]
+operator_hours_per_week = 20
+lane_hours_per_week = 40
+max_lanes = 3
+tokens_per_week = 500000000
+tokens_per_window = 60000000
+windows_per_week = 10
+
+[project.a]
+devdoc_dir = "a"
+
+[project.a.capacity]
+priority = 1
+max_lanes = 2
+deadline = 2026-12-31
+reserve_operator_hours_per_week = 6
+reserve_tokens_per_week = 200000000
+
+[project.b]
+devdoc_dir = "b"
+
+[project.b.capacity]
+priority = 9
+max_lanes = 1
+deadline = "2027-03-01"
+reserve_operator_hours_per_week = 2.5
+reserve_tokens_per_week = 100000000
+
+[project.c]
+devdoc_dir = "c"
+
+[project.c.capacity]
+priority = 5

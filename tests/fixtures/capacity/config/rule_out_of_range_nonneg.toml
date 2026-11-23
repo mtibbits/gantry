@@ -1,0 +1,20 @@
+# A fictional devagent config for the capacity reader's tests (#39).
+# Breaks one rule: capacity.operator_hours_per_agent_hour is below 0.
+
+[capacity]
+operator_hours_per_week = 20
+lane_hours_per_week = 40
+max_lanes = 3
+tokens_per_week = 500000000
+tokens_per_window = 60000000
+windows_per_week = 10
+operator_hours_per_agent_hour = -0.1
+
+[project.a]
+devdoc_dir = "a"
+
+[project.b]
+devdoc_dir = "b"
+
+[project.c]
+devdoc_dir = "c"

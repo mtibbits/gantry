@@ -1,0 +1,11 @@
+# A fictional devagent config for the capacity reader's tests (#39).
+# No [capacity] table and no project capacity table: nothing is declared.
+
+[project.a]
+devdoc_dir = "a"
+
+[project.b]
+devdoc_dir = "b"
+
+[project.c]
+devdoc_dir = "c"

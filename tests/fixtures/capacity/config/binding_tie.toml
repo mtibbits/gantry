@@ -1,0 +1,20 @@
+# A fictional devagent config for the capacity reader's tests (#39).
+# tokens_per_week equals tokens_per_window x windows_per_week (60000000 x 10):
+# a tie binds on tokens_per_week.
+
+[capacity]
+operator_hours_per_week = 20
+lane_hours_per_week = 40
+max_lanes = 3
+tokens_per_week = 600000000
+tokens_per_window = 60000000
+windows_per_week = 10
+
+[project.a]
+devdoc_dir = "a"
+
+[project.b]
+devdoc_dir = "b"
+
+[project.c]
+devdoc_dir = "c"
