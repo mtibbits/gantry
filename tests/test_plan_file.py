@@ -340,11 +340,19 @@ def test_shape_file_matches_plan_version():
 
 
 def field_paths(node, path="plan"):
-    """Every field path of a shape node, with its scalar type where it has one."""
+    """Every field path of a shape node, with its scalar type where it has one.
+
+    A value that may be null is `null|<type>`. An object or an array that may
+    be null is a path of its own, `null|object` or `null|array`, and each
+    field under it keeps its own type: null marks the one field that may be."""
     if isinstance(node, str):
         return {path: node}
-    if isinstance(node, list):
-        return {key: f"null|{kind}" for key, kind in field_paths(node[1], path).items()}
+    if isinstance(node, list):  # ["null", <node>]
+        inner = node[1]
+        if isinstance(inner, str):
+            return {path: f"null|{inner}"}
+        (kind, _), = inner.items()
+        return {path: f"null|{kind}"} | field_paths(inner, path)
     (kind, inner), = node.items()
     if kind == "array":
         return field_paths(inner, path + "[]")
@@ -402,6 +410,20 @@ V1_FIELDS = {
     "plan.sites[].p0[].key": "string", "plan.sites[].p0[].held_by[]": "string",
     "plan.sites[].attention_hours_target": "number", "plan.sites[].lane_hours_target": "number",
 }
+
+
+def test_field_paths_give_a_nullable_object_its_own_path():
+    node = {"object": {
+        "a": ["null", {"object": {"b": "string", "c": ["null", "number"],
+                                  "d": {"array": {"object": {"e": "date"}}}}}],
+        "f": ["null", "string"],
+        "g": ["null", {"array": "integer"}],
+        "h": {"object": {"i": "boolean"}},
+    }}
+    assert field_paths(node) == {
+        "plan.a": "null|object", "plan.a.b": "string", "plan.a.c": "null|number", "plan.a.d[].e": "date",
+        "plan.f": "null|string", "plan.g": "null|array", "plan.g[]": "integer", "plan.h.i": "boolean",
+    }
 
 
 def test_shape_file_keeps_every_v1_field():
