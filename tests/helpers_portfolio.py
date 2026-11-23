@@ -295,23 +295,88 @@ def _decode_error(text):
 def source(text, *nodes, start=1, report=()) -> Source:
     """A WBS.md text and devagent's reading of it: `nodes` as project() numbers
     them from `start`, and `report`'s (line, kind, message) entries of kinds
-    auto_report does not write (near_miss_line, issue_not_id ...)."""
+    auto_report does not write (near_miss_line, issue_not_id ...). A foreign
+    depends_on entry's dep_unresolved is not one of them: site_document
+    resolves it against the document the site is in."""
     if not isinstance(text, bytes):
         raise TypeError(f"source: the text is {type(text).__name__}, not bytes")
     made = tuple(project("_", *nodes, start=start)["nodes"])
     if made and _decode_error(text) is not None:
         raise ValueError("source: a WBS.md that is not UTF-8 is unreadable, so it has no nodes")
-    return Source(text, made, tuple(tuple(entry) for entry in report))
+    report = tuple(tuple(entry) for entry in report)
+    for _, kind, message in report:
+        if _foreign_unresolved(kind, message):
+            raise ValueError(f"source: site_document resolves foreign depends_on entries itself: {message!r}")
+    return Source(text, made, report)
 
 
 def fixture_source(name) -> Source:
     """A FIXTURE_SOURCES text: its bytes, written.json's nodes of project `name`,
-    and that project's entries auto_report does not write (classified under `name`)."""
+    and that project's entries auto_report does not write (classified under `name`),
+    less its foreign dep_unresolved entries (site_document resolves those)."""
     doc = _parsed(sp.WRITTEN)
     (proj,) = [p for p in doc["projects"] if p["project"] == name]
     report = tuple((e["source_line"], e["kind"], e["message"]) for e in doc["parse_report"]
-                   if e["project"] == name and not auto_entry(e, name))
+                   if e["project"] == name and not auto_entry(e, name)
+                   and not _foreign_unresolved(e["kind"], e["message"]))
     return Source((sp.ROOT / sp.FIXTURE_SOURCES[name]).read_bytes(), tuple(copy.deepcopy(proj["nodes"])), report)
+
+
+# devagent's dep_unresolved texts for a foreign entry (scripts/lib/portfolio.py at the pin); they
+# depend on the other projects of the document, not on the site's own text.
+NOT_CONFIGURED = "depends_on '{raw}' names project '{target}', which is not configured"
+NOT_READ = "depends_on '{raw}' names project '{target}', whose WBS was not read ({status})"
+NO_SUCH_ISSUE = "depends_on '{raw}' matches no issue in project '{target}'"
+
+
+def _foreign_unresolved(kind, message):
+    return kind == "dep_unresolved" and ("' names project '" in message or "' matches no issue in project '" in message)
+
+
+def foreign_report(projects) -> list[dict]:
+    """devagent's dep_unresolved entries of the foreign depends_on entries of `projects`'
+    read nodes, in document order: by the branches devagent takes (not configured, not
+    read, no such issue)."""
+    by_name, issues = {}, {}
+    for p in projects:
+        by_name.setdefault(p["project"], p)
+        if p["status"] == "read":
+            issues.setdefault(p["project"], set()).update(n["issue"] for n in p["nodes"] if n["issue"] is not None)
+    out = []
+    for p in projects:
+        name = p["project"]
+        for n in p["nodes"]:
+            value = n["meta"].get("depends_on")
+            for entry in [value] if isinstance(value, str) and value else value if isinstance(value, list) else []:
+                ref = deps.classify(entry, name)
+                if ref.kind != "foreign":
+                    continue
+                target = by_name.get(ref.site)
+                if target is None:
+                    message = NOT_CONFIGURED.format(raw=entry, target=ref.site)
+                elif target["status"] != "read":
+                    message = NOT_READ.format(raw=entry, target=ref.site, status=target["status"])
+                elif ref.issue in issues.get(ref.site, ()):
+                    continue
+                else:
+                    message = NO_SUCH_ISSUE.format(raw=entry, target=ref.site)
+                out.append({"project": name, "source_line": n["source_line"], "kind": "dep_unresolved",
+                            "message": message})
+    return out
+
+
+def sample_source(site, text=None) -> Source:
+    """A read sample site as samples.json holds it: `text` (default: its WBS.md bytes,
+    else a copy of them such as CRLF line ends) with the sample's nodes, and its
+    entries that are neither auto_report's nor a foreign dep_unresolved."""
+    doc = _parsed(sp.SAMPLES_WRITTEN)
+    (proj,) = [p for p in doc["projects"] if p["project"] == site]
+    report = tuple((e["source_line"], e["kind"], e["message"]) for e in doc["parse_report"]
+                   if e["project"] == site and not auto_entry(e, site)
+                   and not _foreign_unresolved(e["kind"], e["message"]))
+    if text is None:
+        text = (sp.SAMPLES / site / "WBS.md").read_bytes()
+    return Source(text, tuple(copy.deepcopy(proj["nodes"])), report)
 
 
 def _not_read(name, status, reason):
@@ -347,17 +412,22 @@ def site_document(sites) -> dict:
         made, rows = _project_of(name, value, 1 + sum(len(p["nodes"]) for p in projects))
         projects.append(made)
         report += rows
-    return document(*projects, report=report)
+    doc = document(*projects, report=report)
+    doc["parse_report"] += foreign_report(projects)
+    return doc
 
 
 def append_project(doc, name, source) -> dict:
     """A copy of `doc` with one more project `name` of `source`, after the others;
-    its ids continue from the document's highest n<N>."""
+    its ids continue from the document's highest n<N>. Every project's foreign
+    dep_unresolved entries are resolved again, since the new project can answer them."""
     out = copy.deepcopy(doc)
     made, rows = _project_of(name, source, _highest_id(out) + 1)
     out["projects"].append(made)
-    out["parse_report"] += auto_report(made) + [
-        {"project": p, "source_line": line, "kind": kind, "message": message} for p, line, kind, message in rows]
+    kept = [e for e in out["parse_report"] if not _foreign_unresolved(e["kind"], e["message"])]
+    out["parse_report"] = kept + auto_report(made) + [
+        {"project": p, "source_line": line, "kind": kind, "message": message} for p, line, kind, message in rows
+    ] + foreign_report(out["projects"])
     return out
 
 

@@ -446,19 +446,6 @@ def wbs_source(a=" ", b=" ", note="", newline="\n"):
     return hp.source(text, hp.node("Epic", hp.node("A", glyph=a, issue="Issue-1"), last), start=2, report=report)
 
 
-# What devagent reports of each history sample when only HISTORY_SITES are configured (#195):
-# the sample document's own entries assume every sample site.
-NOT_CONFIGURED = "depends_on '{0}:{1}' names project '{0}', which is not configured"
-HISTORY_ONLY_REPORT = {
-    HISTORY_RECENT: ((7, "dep_unresolved", NOT_CONFIGURED.format("quarry", "Issue-3")),),
-    HISTORY_STALE: ((8, "dep_unresolved", NOT_CONFIGURED.format("marsh", "Issue-2")),
-                    (9, "dep_unresolved", NOT_CONFIGURED.format("ferry", "Issue-2")),
-                    (11, "dep_unresolved", NOT_CONFIGURED.format("bakery", "Issue-1")),
-                    (13, "dep_unresolved", "depends_on 'lighthouse:Issue-40' matches no issue in project 'lighthouse'")),
-    HISTORY_YOUNG: (),
-}
-
-
 def answer(tmp_path, history, *, as_of=AS_OF, weeks=4, cache=None, planning=None, sites=("harbor",)):
     """last_state_change for each site, every site's `history` naming `history`."""
     planning = wbs_source() if planning is None else planning
@@ -1161,8 +1148,7 @@ def test_crlf_copy_is_not_uncommitted(tmp_path, monkeypatch, built_sample_histor
         source = (SAMPLES / site / "WBS.md").read_bytes()
         crlf = source.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
         assert crlf != source, site
-        (sample,) = hp.narrow(hp.sample_doc(), site)["projects"]
-        copies[site] = hp.Source(crlf, tuple(sample["nodes"]), HISTORY_ONLY_REPORT[site])
+        copies[site] = hp.sample_source(site, crlf)
     out = SAMPLES / "history" / "out"
     config, roots, found = site_config(tmp_path / "inst", copies, history={s: out / s for s in HISTORY_SITES})
     cache = HistoryCache()

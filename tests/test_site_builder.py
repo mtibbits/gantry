@@ -92,6 +92,20 @@ def test_site_reports_local_unresolved_and_duplicates():
     assert mapped.devagent_report == ()
     assert kinds(mapped.projects[0].data, "unresolved_ref") == []
     assert kinds(mapped.projects[0].data, "duplicate_issue") == []
+    # site_document (#195) resolves foreign entries against the whole document, as devagent does
+    # (scripts/lib/portfolio.py at the pin, the dep_unresolved branches); a Source never carries them.
+    wait = b"- [ ] A {issue: Issue-1, depends_on: [b:Issue-1, b:Issue-9, c:Issue-1, n:Issue-1]}\n"
+    doc = hp.site_document({
+        "a": hp.source(wait, hp.node("A", issue="Issue-1", depends_on=["b:Issue-1", "b:Issue-9", "c:Issue-1", "n:Issue-1"])),
+        "b": hp.source(b"- [ ] B {issue: Issue-1}\n", hp.node("B", issue="Issue-1")), "n": None})
+    assert [(e["project"], e["source_line"], e["message"]) for e in doc["parse_report"]] == [
+        ("a", 1, "depends_on 'b:Issue-9' matches no issue in project 'b'"),
+        ("a", 1, "depends_on 'c:Issue-1' names project 'c', which is not configured"),
+        ("a", 1, "depends_on 'n:Issue-1' names project 'n', whose WBS was not read (no_wbs)")]
+    foreign = (1, "dep_unresolved", "depends_on 'c:Issue-1' names project 'c', which is not configured")
+    with pytest.raises(ValueError, match="site_document"):
+        hp.source(wait, report=(foreign,))
+    assert not [e for e in hp.fixture_source("page").report if "names project" in e[2]]
 
 
 def test_explicit_lines_and_bad_order():
@@ -214,6 +228,12 @@ def test_sample_site_reads_each_readable_sample():
         assert hp.sample_site(name).leaves, name
     with pytest.raises(ValueError, match=NO_WBS):
         hp.sample_site(NO_WBS)
+    # sample_source (#195): the sample's bytes, or a copy of them, carrying the sample's own reading.
+    whole = {name: hp.sample_source(name) for name in sample_projects() if name != NO_WBS}
+    assert whole[SMALL].text == (ROOT / "samples" / SMALL / "WBS.md").read_bytes()
+    doc = hp.site_document({**whole, NO_WBS: None})
+    assert ue.snapshots(map_document(doc), "x") == ue.snapshots(map_document(hp.sample_doc()), "x")
+    assert hp.sample_source(SMALL, b"x").text == b"x"
 
 
 # --- agreement with the stopgap (Task 5; #12 deletes it) ---------------------------------------
