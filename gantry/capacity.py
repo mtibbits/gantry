@@ -26,6 +26,7 @@ import json
 import math
 import re
 from dataclasses import dataclass
+from typing import ClassVar
 
 from gantry.config import read_toml
 
@@ -148,8 +149,10 @@ class DeclaredCapacity:
     devagent's order.
     """
 
+    capacity_schema: ClassVar[str] = CAPACITY_SCHEMA
+    token_unit: ClassVar[str] = TOKEN_UNIT
+
     declared: bool
-    capacity_schema: str
     operator_hours_per_week: int | float | None
     lane_hours_per_week: int | float | None
     max_lanes: int | None
@@ -159,11 +162,13 @@ class DeclaredCapacity:
     operator_hours_per_agent_hour: int | float | None
     token_budget: int | None
     token_binding_term: str | None
-    token_unit: str
     projects: tuple[ProjectCapacity, ...]
-    paused: tuple[str, ...]
     violations: tuple[str, ...]
     warnings: tuple[str, ...]
+
+    @property
+    def paused(self) -> tuple[str, ...]:
+        return tuple(project.name for project in self.projects if project.paused)
 
     @property
     def usable(self) -> bool:
@@ -361,13 +366,10 @@ def resolve_capacity(data) -> DeclaredCapacity:
         shared_ok, budget, binding, projects = {}, None, None, []
     return DeclaredCapacity(
         declared=declared,
-        capacity_schema=CAPACITY_SCHEMA,
         **{key: shared_ok.get(key) for key in SHARED_KEYS},
         token_budget=budget,
         token_binding_term=binding,
-        token_unit=TOKEN_UNIT,
         projects=tuple(_project(name, own) for name, own, _ in projects),
-        paused=tuple(name for name, own, _ in projects if own.get("paused") is True),
         violations=lines,
         warnings=warning_lines,
     )

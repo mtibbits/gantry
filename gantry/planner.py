@@ -50,7 +50,7 @@ RULE_PORTFOLIO_FILE, RULE_SCALED, RULE_EVEN_SPREAD = ATTENTION_RULES
 # RATIO_REFUSED is the reason in the plan's `capacity.declared_ratio`, {value}
 # being the ratio as repr writes the number read.
 RATIO_BASIS = CAPACITY_SOURCE_DEVAGENT
-RATIO_REFUSED = "devagent declares {value} operator hours per agent hour, above 24; it is not used"
+RATIO_REFUSED = f"devagent declares {{value}} operator hours per agent hour, above {MAX_RATE}; it is not used"
 NO_POOL = "no pool ran out"
 HORIZON_DAYS = 10
 WEEK_DAYS = 5
@@ -214,7 +214,6 @@ class _Capacity:
     rule: dict  # the rule that gave `attention`, and its figures: the plan's `capacity.attention` but for `lost`
     lanes: int
     lane_minutes: int  # the agent minutes one lane, and so one leaf, takes in a day
-    lane_week: int | float | None  # devagent's lane_hours_per_week as declared; None from the portfolio file
     lane_lost: int  # minutes a week of one lane that do not fit in its days
     block_min: int
     start_cost: int
@@ -252,7 +251,6 @@ def _capacity(portfolio) -> _Capacity:
         rule={"rule": RULE_PORTFOLIO_FILE, "total_hours": None, "weekday_sum_hours": None, "factor": None},
         lanes=min(lanes, MAX_LANES) if _is_number(lanes) and lanes > 0 else 0,
         lane_minutes=LANE_MINUTES,
-        lane_week=None,
         lane_lost=0,
         block_min=block_min,
         start_cost=to_minutes(_setting(capacity.block_start_cost_hours, "capacity.block_start_cost_hours")),
@@ -266,51 +264,52 @@ def _built_sites(result) -> list[str]:
     return [site.name for site in result.sites if site.name in result.pages]
 
 
-def _declaration(capacity) -> str:
-    """What devagent's capacity declaration, a DeclaredCapacity or None, is to
-    a plan, one of DECLARATIONS. Invalid with any violation, whether or not
-    it has a [capacity] table: a project's capacity table without one is a
-    violation. Else used when it declares capacity. None is not_declared."""
+def _declaration(capacity):
+    """(what devagent's capacity declaration, a DeclaredCapacity or None, is
+    to a plan, one of DECLARATIONS; the declaration when that is used, else
+    None). Invalid with any violation, whether or not it has a [capacity]
+    table: a project's capacity table without one is a violation. Else used
+    when it declares capacity. None is not_declared."""
     if capacity is None:
-        return NOT_DECLARED
+        return NOT_DECLARED, None
     if capacity.violations:
-        return INVALID
-    return USED if capacity.usable else NOT_DECLARED
+        return INVALID, None
+    return (USED, capacity) if capacity.usable else (NOT_DECLARED, None)
 
 
-def _declared_ratio(capacity):
+def _declared_ratio(used):
     """(every site's declared ratio or None, the plan's
-    `capacity.declared_ratio`) from devagent's declaration `capacity`. Both
-    are None unless it is used and sets operator_hours_per_agent_hour. A
+    `capacity.declared_ratio`) from `used`, a used declaration or None. Both
+    are None unless it sets operator_hours_per_agent_hour. A
     ratio that can be a rate is built, here and nowhere else; one that
     cannot is not built, and the record says why. A usable declaration's
     ratio is a number from 0 up (gantry/capacity.py), so the one reason is
     that it is above MAX_RATE."""
-    if _declaration(capacity) != USED or capacity.operator_hours_per_agent_hour is None:
+    if used is None or used.operator_hours_per_agent_hour is None:
         return None, None
-    value = capacity.operator_hours_per_agent_hour
+    value = used.operator_hours_per_agent_hour
     if rate_problem(value) is not None:
         return None, {"value": value, "used": False, "reason": RATIO_REFUSED.format(value=repr(value))}
     return SiteRatio(value, "declared", basis=RATIO_BASIS), {"value": value, "used": True, "reason": None}
 
 
-def _token_budget(capacity):
-    """The plan's `capacity.token_budget`: a used declaration's effective
-    weekly token budget, the term that sets it and its unit, else None. The
-    budget is recorded and never planned with, and 0 is a budget."""
-    if _declaration(capacity) != USED or capacity.token_budget is None:
+def _token_budget(used):
+    """The plan's `capacity.token_budget`: `used`'s effective weekly token
+    budget, the term that sets it and its unit, else None. `used` is a used
+    declaration or None. The budget is recorded and never planned with, and
+    0 is a budget."""
+    if used is None or used.token_budget is None:
         return None
-    return {"tokens_per_week": capacity.token_budget, "binding": capacity.token_binding_term,
-            "unit": capacity.token_unit}
+    return {"tokens_per_week": used.token_budget, "binding": used.token_binding_term, "unit": used.token_unit}
 
 
-def _paused_sites(capacity, names) -> list[str]:
-    """Those of `names`, the built sites in config order, that a used
-    declaration pauses. A paused project that is not a built site is not in
-    the plan."""
-    if _declaration(capacity) != USED:
+def _paused_sites(used, names) -> list[str]:
+    """Those of `names`, the built sites in config order, that `used`, a used
+    declaration or None, pauses. A paused project that is not a built site is
+    not in the plan."""
+    if used is None:
         return []
-    paused = set(capacity.paused)
+    paused = set(used.paused)
     return [name for name in names if name in paused]
 
 
@@ -324,6 +323,11 @@ def _exact_minutes(hours) -> Fraction:
 def _half_up(minutes) -> int:
     """An exact figure rounded once to whole minutes, a half up."""
     return math.floor(minutes + Fraction(1, 2))
+
+
+def _working_day_count(attention) -> int:
+    """How many weekdays of `attention` (weekday -> minutes) keep a minute."""
+    return sum(1 for day in WEEKDAYS if attention[day] > 0)
 
 
 def _declared_attention(portfolio, available, capacity):
@@ -373,7 +377,7 @@ def _declared_capacity(portfolio, available, capacity):
     if not any(attention.values()):
         # Under a minute everywhere, or every day with a minute is reserved for its 24 hours.
         return ("capacity_reserved" if any(minutes.values()) else "capacity_too_small"), None
-    working_days = sum(1 for day in WEEKDAYS if attention[day] > 0)
+    working_days = _working_day_count(attention)
     lane = _half_up(_exact_minutes(capacity.lane_hours_per_week) / working_days)
     lane_minutes = min(max(lane, 1), DAY_MINUTES)
     return None, replace(
@@ -384,14 +388,14 @@ def _declared_capacity(portfolio, available, capacity):
         rule=record,
         lanes=min(capacity.max_lanes, MAX_LANES),
         lane_minutes=lane_minutes,
-        lane_week=capacity.lane_hours_per_week,
         lane_lost=max(0, lane - lane_minutes) * working_days,
     )
 
 
-def _no_plan(portfolio, result, capacity):
+def _no_plan(portfolio, result, declaration, used):
     """(NO_PLAN key, None) when there is no plan, else (None, the capacity
-    planned from). `capacity` is devagent's declaration or None.
+    planned from). `declaration` is _declaration's class of devagent's
+    declaration and `used` the declaration when that is used, else None.
 
     A used declaration gives the attention and the lanes, so the portfolio
     file need set neither (_declared_capacity). With any other the portfolio
@@ -402,9 +406,8 @@ def _no_plan(portfolio, result, capacity):
     if not portfolio.settings_read:
         return "settings_not_read", None
     available = _capacity(portfolio)
-    declaration = _declaration(capacity)
-    if declaration == USED:
-        key, available = _declared_capacity(portfolio, available, capacity)
+    if used is not None:
+        key, available = _declared_capacity(portfolio, available, used)
         if key is not None:
             return key, None
     else:
@@ -498,10 +501,11 @@ def _tier(eff_priority, state) -> str:
     return TIER_STARTED if state in STARTED_STATES else TIER_FAIR
 
 
-def _pools(run_out, capacity):
+def _pools(run_out, used):
     """The plan's pools. Both read devagent's declaration as their source when
-    it is used, on a no_plan plan too; else the portfolio file."""
-    source = CAPACITY_SOURCE_DEVAGENT if _declaration(capacity) == USED else CAPACITY_SOURCE
+    it is used (`used` is not None), on a no_plan plan too; else the
+    portfolio file."""
+    source = CAPACITY_SOURCE if used is None else CAPACITY_SOURCE_DEVAGENT
     return [{"name": name, "capacity_source": source, "days_run_out": run_out.get(name, [])} for name in POOLS]
 
 
@@ -517,7 +521,7 @@ def _unresolved_local(data, open_leaves) -> dict:
     return {leaf.key: sum(per_line.get(node.line, 0) for node in open_sources(leaf, row_at)) for leaf in open_leaves}
 
 
-def _site_work(name, inputs, mapping, unit, effective, declared=None) -> list[dict]:
+def _site_work(name, inputs, mapping, unit, effective, declared) -> list[dict]:
     """One item per open leaf of a site, in WBS.md order, its reason not yet
     decided. An item with no `reason` is work for the day loop, and a
     schedule.pick_ready item.
@@ -586,7 +590,7 @@ def _cross_site_preds(result, items):
                         item["preds"].append(node)
 
 
-def _cross_site_cycles(by_node, paused=()) -> list[list[tuple[str, str]]]:
+def _cross_site_cycles(by_node, paused) -> list[list[tuple[str, str]]]:
     """The dependency cycles over every built site's open leaves that span two
     or more sites: find_cycles' components, members in config order of site
     then WBS.md order, ordered by first member. A cycle within one site uses
@@ -598,7 +602,7 @@ def _cross_site_cycles(by_node, paused=()) -> list[list[tuple[str, str]]]:
     return [cycle for cycle in find_cycles(nodes, links) if len({site for site, _ in cycle}) >= 2]
 
 
-def _reasons(by_node, cycles, sites, paused=()) -> dict:
+def _reasons(by_node, cycles, sites, paused) -> dict:
     """{(site, key): reason} for each open leaf the plan leaves out whatever
     the capacity: the first reason that applies, in UNPLANNED_REASONS' order.
     Every open leaf of a site in `paused` is paused, so such a site has no
@@ -1105,9 +1109,10 @@ def _leaf_record(item) -> dict:
     }
 
 
-def _capacity_record(capacity, available, declared_ratio, paused) -> dict:
+def _capacity_record(capacity, declaration, used, available, declared_ratio, paused) -> dict:
     """The plan's `capacity` object: what devagent's declaration `capacity` is
-    to the plan, with the contract's schema once anything is declared, and
+    to the plan (`declaration`, and `used` the declaration when that is used,
+    else None), with the contract's schema once anything is declared, and
     the attention and lanes of `available`, the capacity planned from. That
     is None on a no_plan plan: such a plan has no `attention` and no `lanes`.
     `declared_ratio` is _declared_ratio's record and `paused` the paused
@@ -1119,19 +1124,19 @@ def _capacity_record(capacity, available, declared_ratio, paused) -> dict:
     loss only. A day of the plan holds its own weekday's loss too; a
     weekday that keeps no minute is no day of the plan, so its loss is
     held here alone."""
-    declaration = _declaration(capacity)
     attention = lanes = None
     if available is not None:
         attention = dict(available.rule) | {"weekdays_lost_to_cap": [
             {"weekday": day, "hours": _hours(available.lost[day])} for day in WEEKDAYS if available.lost[day] > 0]}
-        lanes = {"max_lanes": available.lanes, "lane_hours_per_week": available.lane_week,
-                 "working_days": sum(1 for day in WEEKDAYS if available.attention[day] > 0),
+        lanes = {"max_lanes": available.lanes,
+                 "lane_hours_per_week": None if used is None else used.lane_hours_per_week,
+                 "working_days": _working_day_count(available.attention),
                  "lane_hours_per_day": _hours(available.lane_minutes),
                  "hours_lost_to_cap": _hours(available.lane_lost)}
     return {"declaration": declaration,
             "capacity_schema": None if declaration == NOT_DECLARED else capacity.capacity_schema,
             "attention": attention, "lanes": lanes, "declared_ratio": declared_ratio,
-            "token_budget": _token_budget(capacity), "paused": list(paused)}
+            "token_budget": _token_budget(used), "paused": list(paused)}
 
 
 def plan_week(result, portfolio, config, *, capacity=None, trace=None) -> WeekPlan:
@@ -1167,23 +1172,25 @@ def plan_week(result, portfolio, config, *, capacity=None, trace=None) -> WeekPl
         "mapping": {"values": list(mapping.values), "source": mapping.source, "rejected": mapping.rejected},
     }
     names = _built_sites(result)
-    ratio, ratio_record = _declared_ratio(capacity)
-    paused = _paused_sites(capacity, names)
-    key, available = _no_plan(portfolio, result, capacity)
+    declaration, used = _declaration(capacity)
+    ratio, ratio_record = _declared_ratio(used)
+    paused = _paused_sites(used, names)
+    key, available = _no_plan(portfolio, result, declaration, used)
     if key is not None:
         run_out, binding = _binding([])
         return WeekPlan(status="no_plan", reason=_reason(key, capacity), unestimated_planned=0, horizon_days=[],
-                        planned_week=[], pools=_pools(run_out, capacity), binding=binding,
-                        capacity=_capacity_record(capacity, None, ratio_record, paused), days=[], leaves=[],
-                        sites=[], report=_report(capacity), notes=[], **fields)
+                        planned_week=[], pools=_pools(run_out, used), binding=binding,
+                        capacity=_capacity_record(capacity, declaration, used, None, ratio_record, paused),
+                        days=[], leaves=[], sites=[], report=_report(capacity), notes=[], **fields)
     ranked = {name: _ranked(result.inputs[name].data) for name in names}
     items = {name: _site_work(name, result.inputs[name], mapping, config.default_unit_hours, ranked[name][1],
                               declared=ratio)
              for name in names}
     _cross_site_preds(result, items)
     by_node = {(name, item["key"]): item for name in names for item in items[name]}
-    cycles = _cross_site_cycles(by_node, paused)
-    reasons = _reasons(by_node, cycles, items.keys(), paused)
+    paused_set = frozenset(paused)
+    cycles = _cross_site_cycles(by_node, paused_set)
+    reasons = _reasons(by_node, cycles, items.keys(), paused_set)
     # A planned leaf's predecessors are all planned: hold them as items.
     for node, item in by_node.items():
         item["reason"] = reasons.get(node)
@@ -1229,8 +1236,9 @@ def plan_week(result, portfolio, config, *, capacity=None, trace=None) -> WeekPl
     dates = [day.isoformat() for day in horizon]
     return WeekPlan(status="planned", reason=None,
                     unestimated_planned=sum(item["unestimated"] for item in placed_order),
-                    horizon_days=dates, planned_week=dates[:WEEK_DAYS], pools=_pools(run_out, capacity),
-                    binding=binding, capacity=_capacity_record(capacity, available, ratio_record, paused),
+                    horizon_days=dates, planned_week=dates[:WEEK_DAYS], pools=_pools(run_out, used),
+                    binding=binding, capacity=_capacity_record(capacity, declaration, used, available, ratio_record,
+                                                               paused),
                     days=days, leaves=leaves, sites=sites, report=_report(capacity, cycles),
                     notes=[note for found in day_shares for note in found.notes], **fields)
 

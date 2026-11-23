@@ -330,18 +330,18 @@ def _capacity_notes(plan) -> str:
         parts = "; ".join(f"{p['name']}: {p['capacity_source']}" for p in plan.pools)
         out.append(_p("capacity", CAPACITY.format(parts=parts)))
     attention = capacity["attention"]
-    if attention is not None and attention["rule"] == planner.RULE_EVEN_SPREAD:
-        out.append(_p("capacity", EVEN_SPREAD.format(total=hours_text(attention["total_hours"]))))
-    elif attention is not None and attention["rule"] == planner.RULE_SCALED and attention["factor"] != 1:
-        out.append(_p("capacity", SCALED.format(total=hours_text(attention["total_hours"]),
-                                                sum=hours_text(attention["weekday_sum_hours"]),
-                                                factor=factor_text(attention["factor"]))))
-    lost = attention["weekdays_lost_to_cap"] if attention is not None else ()
-    for entry in lost:
-        weekday = entry["weekday"]
-        if isinstance(weekday, str):
-            weekday = WEEKDAY_OF.get(weekday, weekday)  # one the page does not know: as the plan has it
-        out.append(_p("capacity", DAY_CAPPED.format(weekday=weekday, lost=hours_text(entry["hours"]))))
+    if attention is not None:
+        if attention["rule"] == planner.RULE_EVEN_SPREAD:
+            out.append(_p("capacity", EVEN_SPREAD.format(total=hours_text(attention["total_hours"]))))
+        elif attention["rule"] == planner.RULE_SCALED and attention["factor"] != 1:
+            out.append(_p("capacity", SCALED.format(total=hours_text(attention["total_hours"]),
+                                                    sum=hours_text(attention["weekday_sum_hours"]),
+                                                    factor=factor_text(attention["factor"]))))
+        for entry in attention["weekdays_lost_to_cap"]:
+            weekday = entry["weekday"]
+            if isinstance(weekday, str):
+                weekday = WEEKDAY_OF.get(weekday, weekday)  # one the page does not know: as the plan has it
+            out.append(_p("capacity", DAY_CAPPED.format(weekday=weekday, lost=hours_text(entry["hours"]))))
     if capacity["declaration"] == planner.INVALID:
         out.append(_p("capacity invalid", INVALID if planned else INVALID_NO_PLAN))
     for name, kind in (("capacity-violations", planner.CAPACITY_INVALID),
@@ -350,10 +350,11 @@ def _capacity_notes(plan) -> str:
         if items:
             out.append(f'<ul id="{name}">{items}</ul>')
     ratio = capacity["declared_ratio"]
-    if ratio is not None and ratio["used"] and planner.is_rate_0(ratio["value"]):
-        out.append(_p("capacity", RATIO_ZERO))
-    elif ratio is not None and not ratio["used"] and ratio["reason"] is not None:
-        out.append(_p("capacity", ratio["reason"]))
+    if ratio is not None:
+        if ratio["used"] and planner.is_rate_0(ratio["value"]):
+            out.append(_p("capacity", RATIO_ZERO))
+        elif not ratio["used"] and ratio["reason"] is not None:
+            out.append(_p("capacity", ratio["reason"]))
     budget = capacity["token_budget"]
     if budget is not None:
         out.append(_p("capacity", TOKENS.format(n=budget["tokens_per_week"], unit=budget["unit"])))

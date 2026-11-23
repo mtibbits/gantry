@@ -769,7 +769,7 @@ def test_dotted_name_difference_is_pinned(tmp_path):
     assert (ours.violations, ours.warnings) == ((), ())
     assert cap.document_text(ours).encode("utf-8") != theirs.stdout
     # Less that one project, Gantry's document is devagent's.
-    less = dataclasses.replace(ours, projects=tuple(p for p in ours.projects if p.name != "a.b"), paused=())
+    less = dataclasses.replace(ours, projects=tuple(p for p in ours.projects if p.name != "a.b"))
     assert cap.document_text(less).encode("utf-8") == theirs.stdout
 
 

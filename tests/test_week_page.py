@@ -31,9 +31,9 @@ from page_safety import HOSTILE, RULES, assert_no_external_resources, assert_pag
 from page_script.harness import Planted, open_page
 from test_plan_file import shape_errors
 from test_planner import (CAPACITY_DEP, CAPACITY_INSTALL, CAPACITY_NO_PLAN_CASES, DELETE, EXPECTED_LINES,
-                          FIXTURE_NAMES, FIXTURES, MISSING_TOTAL, NO_PLAN_CASES, PAUSED_C, RATIO, SHARES, built,
-                          capacity_config, capacity_portfolio, declares, install, leaf, portfolio_md, reserved,
-                          wbs_md)
+                          FIXTURE_NAMES, FIXTURES, MISSING_TOTAL, NO_DECLARATION, NO_PLAN_CASES, PAUSED_C,
+                          RATIO, SHARES, built, capacity_config, capacity_portfolio, declares, install, leaf,
+                          portfolio_md, reserved, wbs_md)
 from test_planner import invalid as invalid_config
 from test_worksite_page import find, text_of, tree, visible_text
 
@@ -67,14 +67,12 @@ def pools(attention_out=(), lanes_out=()):
 def capacity_record(planned=True, **fields):
     """A plan's `capacity` object when devagent declares nothing: one lane, as
     day() has it, and no `attention` or `lanes` on a no_plan plan."""
-    record = {
-        "declaration": "not_declared", "capacity_schema": None,
-        "attention": {"rule": "portfolio_file", "total_hours": None, "weekday_sum_hours": None,
-                      "factor": None, "weekdays_lost_to_cap": []} if planned else None,
-        "lanes": {"max_lanes": 1, "lane_hours_per_week": None, "working_days": 5, "lane_hours_per_day": 6.0,
-                  "hours_lost_to_cap": 0.0} if planned else None,
-        "declared_ratio": None, "token_budget": None, "paused": [],
-    }
+    record = copy.deepcopy(NO_DECLARATION)
+    if planned:
+        record["attention"] = {"rule": "portfolio_file", "total_hours": None, "weekday_sum_hours": None,
+                               "factor": None, "weekdays_lost_to_cap": []}
+        record["lanes"] = {"max_lanes": 1, "lane_hours_per_week": None, "working_days": 5,
+                           "lane_hours_per_day": 6.0, "hours_lost_to_cap": 0.0}
     record.update(fields)
     return record
 

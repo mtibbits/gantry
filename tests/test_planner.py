@@ -19,6 +19,7 @@ from gantry.config import load_config
 from gantry.planner import NO_PLAN, plan_week
 from gantry.portfolio_file import intended_shares, read_portfolio_file
 from helpers_config import run_main, sample_build
+from test_capacity import CONFIGS, EXPECTED as EXPECTED_LINES, FIXTURES as CAPACITY
 from test_samples import ROOT
 
 FIXTURES = ROOT / "tests" / "fixtures" / "week_plan"
@@ -2031,12 +2032,10 @@ def test_not_declared_no_plan_is_unchanged(tmp_path, key, case, changes):
 
 # --- devagent's declared capacity (#39): attention, lanes and the narrowed refusals ---------------
 
-CAPACITY = ROOT / "tests" / "fixtures" / "capacity"
 # Three sites, a, b and c, each holding a share. Its own devagent config declares no capacity.
 CAPACITY_INSTALL = CAPACITY / "install"
 # The same installation with other leaves: leaves of a wait on leaves of c, for a paused c.
 CAPACITY_DEP = CAPACITY / "install_dep"
-EXPECTED_LINES = json.loads((CAPACITY / "expected.json").read_bytes())
 ABC = "".join(f'\n[project.{name}]\ndevdoc_dir = "{name}"\n' for name in "abc")
 # The allocation of the portfolio files under capacity/, for a portfolio_md() text.
 SHARES = allocation("2026-01-05", a=50, b=30, c=20)
@@ -2052,7 +2051,7 @@ def capacity_portfolio(name):
 
 def capacity_config(name):
     """The text of a devagent config under tests/fixtures/capacity/config/: projects a, b and c."""
-    return (CAPACITY / "config" / f"{name}.toml").read_bytes().decode("utf-8")
+    return (CONFIGS / f"{name}.toml").read_bytes().decode("utf-8")
 
 
 def declares(total=20, lane_hours=40, max_lanes=3, tokens=(500000000, 60000000, 10), more="", tail=""):
