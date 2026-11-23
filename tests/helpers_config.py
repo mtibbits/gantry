@@ -63,6 +63,10 @@ def write_site_tree(folder, sites, tail="", **raw):
     """
     import helpers_portfolio as hp  # hp imports copy_samples from here at load
 
+    for name, wbs in sites.items():
+        if wbs is not None and not isinstance(wbs, hp.Source):
+            raise TypeError(f"write_site_tree: site {name!r} is {type(wbs).__name__}; pass hp.source(text, *nodes) "
+                            "or hp.fixture_source(a FIXTURE_SOURCES key), so the site carries its portfolio document")
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
     tables = []
@@ -70,12 +74,11 @@ def write_site_tree(folder, sites, tail="", **raw):
         planning = folder / str(index)
         planning.mkdir()
         if wbs is not None:
-            (planning / "WBS.md").write_bytes(wbs if isinstance(wbs, bytes) else wbs.text)
+            (planning / "WBS.md").write_bytes(wbs.text)
         tables.append(f'[project.{toml_key(name)}]\ndevdoc_dir = "{index}"\n')
     (folder / "devagent.toml").write_bytes("\n".join(tables).encode("utf-8"))
-    carried = {name: wbs for name, wbs in sites.items() if not isinstance(wbs, bytes)}
-    (folder / "portfolio.json").write_bytes(hp.sp.dumps(hp.site_document(carried)))
-    for name, wbs in carried.items():
+    (folder / "portfolio.json").write_bytes(hp.sp.dumps(hp.site_document(sites)))
+    for name, wbs in sites.items():
         if wbs is not None:
             _stopgap_agreement(folder, name, wbs)
     return _write_toml(folder / "gantry.toml", tail, raw)

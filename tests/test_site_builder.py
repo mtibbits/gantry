@@ -20,7 +20,7 @@ import update_expected_leaves as ue
 from gantry import deps
 from gantry.model import ParsedValue
 from gantry.portfolio_json import ProjectInput, map_document
-from helpers_config import append_bytes, copy_samples, sample_projects
+from helpers_config import append_bytes, copy_samples, sample_projects, write_site_tree
 from sample_roles import BUSY, NO_WBS, READABLE, SMALL, UNREADABLE
 from test_portfolio_equivalence import known
 from test_samples import ROOT
@@ -171,6 +171,13 @@ def test_described_fixtures_are_in_line():
         data = hp.described_site(name)
         lines = [n.line for n in (*data.leaves, *data.rows)]
         assert min(lines) == start, name
+
+
+def test_write_site_tree_refuses_bytes(tmp_path):
+    # #195: every site carries its portfolio document, so bare WBS.md bytes are refused before anything is written.
+    with pytest.raises(TypeError, match=r"hp\.source"):
+        write_site_tree(tmp_path, {"alpha": b"- [ ] A\n"})
+    assert list(tmp_path.iterdir()) == []
 
 
 # --- the committed sample document (Task 3) ---------------------------------------------------
