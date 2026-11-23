@@ -329,6 +329,7 @@ def test_not_built_name_is_shown_escaped(tmp_path):
     """A not-built project's name is printed as on stderr: a tab in it is escaped (I4)."""
     copy = samples(tmp_path)
     append_bytes(copy / "devagent" / "config.toml", '\n[project."bad\\tname"]\ndevdoc_dir = "../ghost"\n')
+    hp.rewrite_document(copy, lambda doc: hp.append_not_read(doc, "bad\tname", "no_devdoc_dir", hp.ABSENT_REASON))
     text, _ = page(copy)
     t = tree(text)
     assert "bad\\tname" in [name for name, _ in panels(t)]
@@ -352,6 +353,7 @@ def test_strategic_hostile(tmp_path):
     replace_bytes(copy / "portfolio.md", "- BR-3: Bring in a full harvest each autumn.\n",
                   f"- BR-3: Bring in a full harvest each autumn.\n- BR-4: {HOSTILE[0]}\n")
     append_bytes(copy / "devagent" / "config.toml", f'\n[project.{toml_key(HOSTILE[3])}]\ndevdoc_dir = "../ghost"\n')
+    hp.rewrite_document(copy, lambda doc: hp.append_not_read(doc, HOSTILE[3], "no_devdoc_dir", hp.ABSENT_REASON))
     planted_values = [HOSTILE[0], HOSTILE[3], HOSTILE[7], HOSTILE[10]]
     try:
         (copy / OWN_UNIT / ODD_ESTIMATES).write_bytes(ESTIMATES_ROW.encode("utf-8"))

@@ -9,6 +9,8 @@ from fractions import Fraction
 
 import pytest
 
+import helpers_portfolio as hp
+import sample_portfolio as sp
 from gantry import planner, schedule
 from gantry.build import build_all
 from gantry.config import load_config
@@ -1869,21 +1871,40 @@ def priority_subjects(result):
     return subjects
 
 
-def priority_property(copy, build):
+def raised_meta(doc, site, line):
+    """`doc` with the meta of `site`'s node on `line` one priority step up, as raised() edits its
+    text: a priority replaced where it stands, else P2 written first (#195)."""
+    from gantry.priority import is_valid, rank
+
+    (n,) = [n for p in doc["projects"] if p["project"] == site for n in p["nodes"] if n["source_line"] == line]
+    value = n["meta"].get("priority")
+    step = f"P{rank(value) - 1}" if is_valid(value) else "P2"
+    n["meta"] = {**n["meta"], "priority": step} if "priority" in n["meta"] else {"priority": step, **n["meta"]}
+    return doc
+
+
+def priority_property(copy, build, *, document=True):
     """(subjects with a baseline placement, [(subject, before, after) moved later]) over every
-    subject of the installation at `copy`; build() gives (build result, plan)."""
+    subject of the installation at `copy`; build() gives (build result, plan). With `document`,
+    the copy's portfolio document is raised and restored with its WBS.md (#195)."""
     result, before = build()
     placed_n, later = 0, []
+    portfolio = copy.joinpath(sp.OUT, *sp.DOCUMENT)
     for site, key, line in priority_subjects(result):
         path = copy / site / "WBS.md"
         text = path.read_bytes().decode("utf-8")
         old = first_placement(before, site, key)
         placed_n += old != NEVER
+        saved = portfolio.read_bytes() if document else None
         path.write_bytes(raised(text, line).encode("utf-8"))
         try:
+            if document:
+                hp.rewrite_document(copy, lambda doc: raised_meta(doc, site, line))
             new = first_placement(build()[1], site, key)
         finally:
             path.write_bytes(text.encode("utf-8"))
+            if document:
+                portfolio.write_bytes(saved)
         if new > old:
             later.append(((site, key), old, new))
     return placed_n, later
@@ -1909,7 +1930,7 @@ def test_raising_priority_never_delays_first_placement(tmp_path):
     total = 0
     for base in FIXTURE_NAMES:
         copy = install(tmp_path, base)
-        placed_n, later = priority_property(copy, lambda copy=copy: fixture_build(copy))
+        placed_n, later = priority_property(copy, lambda copy=copy: fixture_build(copy), document=False)  # #197
         assert later == [], base
         total += placed_n
     # The spike's per-installation counts over 12 fixtures sum to 71 (its "75" was a slip);

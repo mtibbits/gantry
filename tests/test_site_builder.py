@@ -339,11 +339,32 @@ def test_append_nodes(tmp_path):
     assert [(e["project"], e["kind"]) for e in two["parse_report"]] == [("b", "leaf_no_issue")]
     # rewrite_document (#195): a samples copy's document, changed where it lies; a change that changes nothing fails.
     copy = copy_samples(tmp_path)
+    append_bytes(copy / SMALL / "WBS.md", "- [ ] Later {issue: Issue-98}\n")
     hp.rewrite_document(copy, lambda d: hp.append_nodes(d, SMALL, hp.node("Later", issue="Issue-98")))
     written = json.loads(copy.joinpath(sp.OUT, *sp.DOCUMENT).read_bytes().decode("utf-8"))
     assert "Issue-98" in [leaf.key for leaf in hp.site_of(written, SMALL).leaves]
     with pytest.raises(AssertionError):
         hp.rewrite_document(copy, lambda d: d)
+
+    def done(d):  # the document says a node is done that the copy's WBS.md still has open
+        nodes = next(p for p in d["projects"] if p["project"] == SMALL)["nodes"]
+        next(n for n in nodes if n["state"] == "pending").update(state="done", glyph="x")
+        return d
+
+    with pytest.raises(AssertionError, match=r"\.state"):
+        hp.rewrite_document(copy, done)
+    # A project appended to the document answers the foreign entries that named it.
+    waits = hp.site_document({"a": hp.source(b"- [ ] A {issue: Issue-1, depends_on: [c:Issue-1]}\n",
+                                             hp.node("A", issue="Issue-1", depends_on=["c:Issue-1"]))})
+    assert [e["kind"] for e in waits["parse_report"]] == ["dep_unresolved"]
+    answered = hp.append_project(waits, "c", hp.source(b"- [ ] C {issue: Issue-1}\n", hp.node("C", issue="Issue-1")))
+    assert answered["parse_report"] == []
+    # A project devagent lists but does not read, appended; it answers no foreign entry.
+    unread = hp.append_not_read(waits, "c", "no_devdoc_dir", hp.ABSENT_REASON)
+    assert [(p.name, p.status, p.reason) for p in map_document(unread).projects][1:] == [
+        ("c", "no_devdoc_dir", "the devdoc dir does not exist")]
+    assert [e["message"] for e in unread["parse_report"]] == [
+        "depends_on 'c:Issue-1' names project 'c', whose WBS was not read (no_devdoc_dir)"]
 
 
 def test_site_document_not_read_reason_is_devagents():

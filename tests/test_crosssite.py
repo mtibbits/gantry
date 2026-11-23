@@ -771,6 +771,16 @@ def strip_foreign(copy):
 
         path.write_bytes(re.sub(r"depends_on: \[([^\]]*)\]", keep, text).encode("utf-8"))
 
+    def strip(doc):  # the same edit in devagent's reading (#195): foreign entries leave each depends_on list
+        for project in doc["projects"]:
+            for n in project["nodes"]:
+                if "depends_on" in n["meta"]:
+                    n["meta"]["depends_on"] = [e for e in meta_values(n["meta"]["depends_on"])
+                                               if classify(e, project["project"]).kind != "foreign"]
+        return hp.refresh_foreign(doc)
+
+    hp.rewrite_document(copy, strip)
+
 
 def stripped_build(tmp_path):
     copy = copy_samples(tmp_path)

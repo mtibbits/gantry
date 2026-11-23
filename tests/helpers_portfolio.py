@@ -28,7 +28,7 @@ import sample_portfolio as sp
 from gantry import deps
 from gantry.model import STATE_GLYPHS
 from gantry.portfolio_json import map_document
-from helpers_config import copy_samples
+from helpers_config import _stopgap_agreement, copy_samples
 
 DOC_NAME = "portfolio.json"
 
@@ -275,6 +275,9 @@ def append_nodes(doc, project_name, *nodes) -> dict:
 # UnicodeDecodeError form (over the whole file).
 NO_WBS_REASON = "the devdoc dir has no WBS.md"
 UNREADABLE_REASON = "WBS.md could not be read: UnicodeDecodeError: {reason} at byte {start}"
+# The no_devdoc_dir reasons (REASON_UNSET, REASON_ABSENT), for a samples copy whose config a test edits.
+UNSET_REASON = "no devdoc dir is configured"
+ABSENT_REASON = "the devdoc dir does not exist"
 
 
 @dataclass(frozen=True)
@@ -424,23 +427,47 @@ def append_project(doc, name, source) -> dict:
     out = copy.deepcopy(doc)
     made, rows = _project_of(name, source, _highest_id(out) + 1)
     out["projects"].append(made)
-    kept = [e for e in out["parse_report"] if not _foreign_unresolved(e["kind"], e["message"])]
-    out["parse_report"] = kept + auto_report(made) + [
-        {"project": p, "source_line": line, "kind": kind, "message": message} for p, line, kind, message in rows
-    ] + foreign_report(out["projects"])
-    return out
+    out["parse_report"] += auto_report(made) + [
+        {"project": p, "source_line": line, "kind": kind, "message": message} for p, line, kind, message in rows]
+    return refresh_foreign(out)
 
 
 def rewrite_document(copy, fn):
     """Replace the portfolio document in the samples copy `copy` with fn(the parsed document),
-    for a test that edits the copy's WBS.md or config (#195); an edit that changes nothing fails."""
-    path = Path(copy).joinpath(sp.OUT, *sp.DOCUMENT)
+    for a test that edits the copy's WBS.md or config (#195); an edit that changes nothing fails.
+    Each read project of the new document is then checked against its WBS.md in the copy, as
+    write_site_tree checks its sites."""
+    import tomllib
+
+    copy = Path(copy)
+    path = copy.joinpath(sp.OUT, *sp.DOCUMENT)
     before = path.read_bytes()
     new = fn(sp._load(path))
     assert new is not None, "rewrite_document: fn returned None"
     after = sp.dumps(new)
     assert after != before, "rewrite_document: the document did not change"
     path.write_bytes(after)
+    home = copy / "devagent"
+    tables = tomllib.loads((home / "config.toml").read_bytes().decode("utf-8"))["project"]
+    for project in new["projects"]:
+        if project["status"] == "read":
+            wbs = (home / tables[project["project"]]["devdoc_dir"] / "WBS.md").read_bytes()
+            _stopgap_agreement(copy, path, project["project"], wbs)
+
+
+def append_not_read(doc, name, status, reason) -> dict:
+    """A copy of `doc` with a project `name` devagent lists but does not read (`status`, `reason`)
+    after the others, its foreign dep_unresolved entries resolved again."""
+    out = copy.deepcopy(doc)
+    out["projects"].append(_not_read(name, status, reason))
+    return refresh_foreign(out)
+
+
+def refresh_foreign(doc) -> dict:
+    """`doc` with its foreign dep_unresolved entries resolved again over its projects as they now are."""
+    kept = [e for e in doc["parse_report"] if not _foreign_unresolved(e["kind"], e["message"])]
+    doc["parse_report"] = kept + foreign_report(doc["projects"])
+    return doc
 
 
 # Two WBS texts written.json does not hold, described node by node: (source, first line, nodes).

@@ -80,7 +80,7 @@ def write_site_tree(folder, sites, tail="", **raw):
     (folder / "portfolio.json").write_bytes(hp.sp.dumps(hp.site_document(sites)))
     for name, wbs in sites.items():
         if wbs is not None:
-            _stopgap_agreement(folder, name, wbs)
+            _stopgap_agreement(folder, folder / "portfolio.json", name, wbs.text)
     return _write_toml(folder / "gantry.toml", tail, raw)
 
 
@@ -120,19 +120,19 @@ def _kept(where, stopgap, document):
     return True
 
 
-def _stopgap_agreement(folder, name, source):
-    """Assert that portfolio.json in `folder` reads project `name` as the stopgap reads `source.text`."""
+def _stopgap_agreement(root, document, name, wbs):
+    """Assert that the portfolio document at `document`, read under `root`, reads project
+    `name` as the stopgap reads `wbs`, that site's WBS.md bytes."""
     import update_expected_leaves as ue
     from gantry.portfolio_json import ProjectInput, read_portfolio
     from gantry.roots import directory_roots
     from gantry.wbs_stopgap import parse_wbs
 
-    found = [p for p in read_portfolio(directory_roots([folder]), folder / "portfolio.json").projects
-             if p.name == name]
+    found = [p for p in read_portfolio(directory_roots([root]), document).projects if p.name == name]
     assert len(found) == 1, f"write_site_tree: site {name!r}: the portfolio document holds {len(found)} such projects"
     (project,) = found
     try:
-        text = source.text.decode("utf-8")
+        text = wbs.decode("utf-8")
     except UnicodeDecodeError:
         assert project.status == "unreadable", f"write_site_tree: site {name!r}: not UTF-8 but {project.status}"
         return

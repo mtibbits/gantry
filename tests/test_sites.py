@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+import helpers_portfolio as hp
 from gantry import config as cfg
 from gantry import sites as st
 from gantry.cli import main
@@ -76,6 +77,8 @@ def test_problem_sites_listed_run_exits_0(tmp_path, capsys):
         copy / "devagent" / "config.toml",
         f'\n[project.{NODIR}]\nx = 1\n\n[project."{BAD_NAME}"]\ndevdoc_dir = "../{sorted(READABLE)[0]}"\n',
     )
+    hp.rewrite_document(copy, lambda doc: hp.append_project(
+        hp.append_not_read(doc, NODIR, "no_devdoc_dir", hp.UNSET_REASON), BAD_NAME, hp.sample_source(sorted(READABLE)[0])))
     sites, _ = site_list(gantry_config)
     problems = {s.name: s.problem for s in sites}
     assert problems[NODIR] == "no devdoc_dir"
@@ -107,6 +110,13 @@ def test_control_character_names_print_escaped(tmp_path, capsys):
         '[project."e\\u001bf"]\nx = 1\n'
         '[project]\n"g\\u001bh" = 1\n',
     )
+
+    def listed(doc):  # as devagent v3.0.0 lists them: "c\nd" as c, and no g\x1bh (not a table)
+        for name in ("a\tb", "c", "e\x1bf"):
+            doc = hp.append_not_read(doc, name, "no_devdoc_dir", hp.UNSET_REASON)
+        return doc
+
+    hp.rewrite_document(copy, listed)
     sites, _ = site_list(gantry_config)
     assert [s.name for s in sites][-4:] == ["a\tb", "c\nd", "e\x1bf", "g\x1bh"]
     capsys.readouterr()

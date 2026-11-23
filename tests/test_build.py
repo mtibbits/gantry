@@ -341,9 +341,12 @@ def test_index_mode_follows_umask(tmp_path):
 def test_added_project_appears(tmp_path, monkeypatch):
     copy = copy_samples(tmp_path)
     before = (copy / "gantry.sample.toml").read_bytes()
+    dunes = hp.source(b"# Dunes\n\n- [ ] Plant the grass {issue: Issue-1}\n", hp.node("Plant the grass", issue="Issue-1"),
+                      start=3)
     (copy / "dunes").mkdir()
-    (copy / "dunes" / "WBS.md").write_bytes(b"# Dunes\n\n- [ ] Plant the grass {issue: Issue-1}\n")
+    (copy / "dunes" / "WBS.md").write_bytes(dunes.text)
     append_bytes(copy / "devagent" / "config.toml", '\n[project.dunes]\ndevdoc_dir = "../dunes"\n')
+    hp.rewrite_document(copy, lambda doc: hp.append_project(doc, "dunes", dunes))
     code, out, _, _ = demo_build(tmp_path, monkeypatch, copy=copy)
     assert code == 0
     assert "sites/dunes.html" in page_links((out / "index.html").read_bytes().decode("utf-8"))
