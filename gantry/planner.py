@@ -48,7 +48,7 @@ RULE_PORTFOLIO_FILE, RULE_SCALED, RULE_EVEN_SPREAD = ATTENTION_RULES
 # leaf that takes it: "declared: site ratio 0.25; " + RATIO_BASIS. One above
 # MAX_RATE is valid for devagent and no rate here: it is not used, and
 # RATIO_REFUSED is the reason in the plan's `capacity.declared_ratio`, {value}
-# being the ratio as declared.
+# being the ratio as repr writes the number read.
 RATIO_BASIS = CAPACITY_SOURCE_DEVAGENT
 RATIO_REFUSED = "devagent declares {value} operator hours per agent hour, above 24; it is not used"
 NO_POOL = "no pool ran out"
@@ -73,8 +73,9 @@ NOTE_TEXTS = {
 # the two capacity_* texts are its reasons, with no_attention for an
 # attention_hours table that gives no weekday a minute. An invalid one is
 # named by the two invalid_* texts, in place of no_attention and no_lanes.
-# {total} is the declared weekly hours as written, never rounded, and {count}
-# is "1 violation" or "N violations" (_reason).
+# {total} is the declared weekly hours, never rounded, as repr writes the
+# number read (30.50 is "30.5", 0.00001 is "1e-05"), and {count} is
+# "1 violation" or "N violations" (_reason).
 NO_PLAN = {
     "no_portfolio": "no portfolio_file is configured",
     "settings_not_read": "the portfolio file's settings were not read",
@@ -419,8 +420,9 @@ def _no_plan(portfolio, result, capacity):
 
 def _reason(key, capacity) -> str:
     """The NO_PLAN text of `key`, with what it names of the declaration filled
-    in: {total}, the weekly hours as declared ("0.001", never rounded), and
-    {count}, how many violations it has."""
+    in: {total}, the declared weekly hours as repr writes the number read
+    ("0.001"; 30.50 is "30.5"), never rounded, and {count}, how many
+    violations it has."""
     if capacity is None:
         return NO_PLAN[key]
     count = len(capacity.violations)
@@ -727,14 +729,14 @@ class _Day:
         return min(item["left"], self.lane_minutes - item["today"], self.lanes)
 
     def waiting(self, item) -> bool:
-        """Whether a ready leaf still has minutes to place and is under its 6 agent hours today."""
+        """Whether a ready leaf still has minutes to place and is under a lane's day today."""
         return item["left"] > 0 and item["today"] < self.lane_minutes
 
     # --- the ledger --------------------------------------------------------------------
 
     def users(self, pool) -> list:
         """The sites that can use `pool` now, in config order: a ready leaf
-        under its 6 agent hours today, of rate above 0 for attention."""
+        under a lane's day today, of rate above 0 for attention."""
         return [name for name in self.names
                 if any(self.waiting(item) and (item["ppm"] or pool == POOL_LANES)
                        for tier in TIERS for item in self.order[name][tier])]
@@ -862,7 +864,7 @@ class _Day:
     def block_pass(self, name, items):
         """One pass of `name`'s block over its `items` of rate above 0, in
         order, continuing the open block when it is the site's or opening one
-        when a leaf fits, limited only by the day's pools and 6 agent hours."""
+        when a leaf fits, limited only by the day's pools and a lane's day."""
         rated = [item for item in items if item["ppm"]]
         if not self.open_for(name):
             if not any(self.fits(item) for item in rated):
@@ -877,7 +879,7 @@ class _Day:
                 self.put(item, agent, fit)
 
     def row_place(self, item):
-        """The rate-0 leaf joins the lanes row, up to its 6 agent hours or the lanes left."""
+        """The rate-0 leaf joins the lanes row, up to a lane's day or the lanes left."""
         agent = self.room(item)
         self.charge(item["site"], POOL_LANES, agent, self.phase)
         self.place(item, agent)
