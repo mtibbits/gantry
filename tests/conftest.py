@@ -41,3 +41,22 @@ def sample_document(tmp_path_factory):
     from helpers_portfolio import build_sample_document
 
     return build_sample_document(tmp_path_factory.mktemp("sample_portfolio"))
+
+
+@pytest.fixture(scope="session")
+def real_sample_document():
+    """The committed sample document (tests/fixtures/portfolio/samples.json) written to the real
+    samples tree's devagent/out/portfolio/portfolio.json, where #12's build will read it (#195);
+    once per session, over what a developer's aggregator run left there. Only after require_git
+    (skip locally, fail under CI) and sp.guard_out (git ignores devagent/out and tracks nothing
+    in it; a Refused fails); an archive copy of the tree, with no git work tree, skips."""
+    import sample_portfolio as sp
+    from helpers_config import install_sample_document
+    from helpers_history import require_git
+    from test_samples import ROOT, SAMPLES, git_work_tree
+
+    require_git()
+    if not git_work_tree(ROOT):
+        pytest.skip("the gantry root is not a git work tree")
+    sp.guard_out(SAMPLES)
+    return install_sample_document(SAMPLES)

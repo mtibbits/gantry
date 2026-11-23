@@ -138,7 +138,7 @@ def leaf_ids_of(page, key):
     return found
 
 
-def test_sample_light_sets():
+def test_sample_light_sets(real_sample_document):
     sr1 = row(traced(GANTRY_SAMPLE, SMALL)[0], "lighthouse:SR-1")
     assert sr1["label"] == "SR-1" and sr1["layer"] == "SR"
     assert sr1["text"] == "The system keeps a log of every lamp check."
@@ -150,7 +150,7 @@ def test_sample_light_sets():
     assert sr1["counts"] == "4 open, 2 finished"
 
 
-def test_sample_use_case_light_set():
+def test_sample_use_case_light_set(real_sample_document):
     page = traced(GANTRY_SAMPLE, SMALL)[0]
     uc3 = row(page, "lighthouse:UC-3")
     assert uc3["light"] == [["Issue-7", "indirect"], ["Issue-8", "direct"], ["Issue-10", "indirect"],
@@ -159,7 +159,7 @@ def test_sample_use_case_light_set():
     assert leaf_ids_of(page, "Issue-10") == [["lighthouse:FR-1", "FR-1"]]
 
 
-def test_sample_leaf_chips_data():
+def test_sample_leaf_chips_data(real_sample_document):
     page = traced(GANTRY_SAMPLE, SMALL)[0]
     assert leaf_ids_of(page, "Issue-7") == [["lighthouse:FR-1", "FR-1"], ["life:BR-1", "life:BR-1"],
                                             ["lighthouse:QA-1", "QA-1"], ["lighthouse:UC-1", "UC-1"]]
@@ -172,14 +172,14 @@ def test_sample_leaf_chips_data():
     assert page["not_read"] is None and page["foreign"] == []
 
 
-def test_sample_rows_by_layer():
+def test_sample_rows_by_layer(real_sample_document):
     page = traced(GANTRY_SAMPLE, SMALL)[0]
     assert [r["id"] for r in page["requirements"]] == [
         "life:BR-1", "lighthouse:UC-1", "lighthouse:UC-2", "lighthouse:UC-3", "lighthouse:SR-1",
         "lighthouse:FR-1", "lighthouse:FR-2", "lighthouse:FR-3", "lighthouse:QA-1", "lighthouse:CON-1"]
 
 
-def test_light_sets_partition_serving(tmp_path):
+def test_light_sets_partition_serving(tmp_path, real_sample_document):
     compared = 0
     for config_path, site in ((GANTRY_SAMPLE, SMALL), (installation(tmp_path, CYCLE, {"alpha": CYCLE_REQS}), "alpha")):
         page, trace = traced(config_path, site)
@@ -237,7 +237,7 @@ def test_counts_text(tmp_path):
     assert (COUNT_OPEN, COUNT_HELD, COUNT_FINISHED) == ("{n} open", "{n} waiting on a cycle", "{n} finished")
 
 
-def test_counts_line(tmp_path):
+def test_counts_line(tmp_path, real_sample_document):
     assert counts_line(SMALL, traced(GANTRY_SAMPLE, SMALL)[0]) == SAMPLE_LINE_SITE
     wbs = {"alpha": ONE_LEAF, "beta": hp.source(b"# B\n\n- [ ] One {issue: Issue-1, satisfies: beta:FR-9}\n",
                                                 hp.node("One", issue="Issue-1", satisfies="beta:FR-9"), start=3)}

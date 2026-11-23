@@ -84,7 +84,7 @@ def test_not_read_is_config_order():
     assert sites_not_read(entries, {}) == ()
 
 
-def test_not_read_samples():
+def test_not_read_samples(real_sample_document):
     config = load_config(GANTRY_SAMPLE)
     roots = config_roots(config)
     entries = load_sites(config, roots)[0]
@@ -252,7 +252,7 @@ def sample_installation(config_path=GANTRY_SAMPLE):
     return pages, wide, cat, inputs
 
 
-def test_trace_data_keys(tmp_path):
+def test_trace_data_keys(tmp_path, real_sample_document):
     result = sample(tmp_path)
     for name in sorted(READABLE):
         trace = trace_of(result.pages[name])
@@ -280,7 +280,7 @@ def test_row_objective_only_foreign_is_index(tmp_path):
     assert fr1["objective_only"] == []
 
 
-def test_foreign_index_not_key():
+def test_foreign_index_not_key(real_sample_document):
     pages, *_ = sample_installation()
     trace = pages[SMALL]
     fr2 = row(trace, "lighthouse:FR-2")
@@ -291,7 +291,7 @@ def test_foreign_index_not_key():
     assert all(r["foreign"] == [] for r in pages[UNESTIMATED]["requirements"])
 
 
-def test_foreign_record_and_not_read():
+def test_foreign_record_and_not_read(real_sample_document):
     pages, *_ = sample_installation()
     trace = pages[SMALL]
     assert trace["scope"] == "installation" and trace["not_read"] == [UNREADABLE]
@@ -300,13 +300,13 @@ def test_foreign_record_and_not_read():
     assert pages[UNESTIMATED]["foreign"] == [] and pages[UNESTIMATED]["not_read"] == [UNREADABLE]
 
 
-def test_foreign_href_needs_a_built_page():
+def test_foreign_href_needs_a_built_page(real_sample_document):
     _, wide, cat, inputs = sample_installation()
     page = page_trace(wide[SMALL], cat, inputs[SMALL].data, built=frozenset({SMALL}))
     assert page["foreign"][0][-1] is None
 
 
-def test_site_scope_page_trace_has_no_foreign():
+def test_site_scope_page_trace_has_no_foreign(real_sample_document):
     _, _, cat, inputs = sample_installation()
     page = page_trace(build_site_trace(SMALL, inputs[SMALL].data.leaves, cat), cat, inputs[SMALL].data)
     assert page["scope"] == "site" and page["not_read"] is None and page["foreign"] == []
@@ -365,7 +365,7 @@ def path_of(m, rid_):
 NOT_READ_MARSH = worksite.PATH_NOT_READ.format(sites=UNREADABLE)
 
 
-def test_sample_own_rows_installation_scope():
+def test_sample_own_rows_installation_scope(real_sample_document):
     models = installation_models()
     fr2 = path_of(models[SMALL], "lighthouse:FR-2")
     assert fr2["state"] == "path" and fr2["order"] == [] and fr2["lines"] == []

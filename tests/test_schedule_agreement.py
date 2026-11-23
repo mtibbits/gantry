@@ -17,7 +17,7 @@ import helpers_portfolio as hp
 from gantry.config import load_config
 from gantry.schedule import chain_hours, limit, plan
 from gantry.views.worksite import render_page
-from helpers_config import write_site_tree
+from helpers_config import copy_samples, write_site_tree
 from helpers_gate import gate_run
 from page_safety import assert_page_safe
 from page_script.gate import CI_SUFFIX
@@ -171,7 +171,9 @@ def test_check_schedulers_build_error_names_type_only(tmp_path, capsys, monkeypa
         raise KeyError("Issue-1 secret title")
 
     monkeypatch.setattr(tool, "page_model", boom)
-    code = tool.main(["--config", str(ROOT / "samples" / "gantry.sample.toml"), "--out", str(tmp_path / "out")])
+    # A samples copy, which carries its portfolio document (#195): this module also runs with no git on PATH.
+    copy = copy_samples(tmp_path)
+    code = tool.main(["--config", str(copy / "gantry.sample.toml"), "--out", str(tmp_path / "out")])
     out, err = capsys.readouterr()
     assert (code, out) == (2, "")
     assert err.startswith("check_schedulers: ") and err.endswith(": cannot build its page: KeyError\n")

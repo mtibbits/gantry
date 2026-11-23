@@ -53,7 +53,7 @@ def site_read(config_path, site):
 # --- Task 1: the sample path --------------------------------------------------------
 
 
-def test_sample_has_a_path():
+def test_sample_has_a_path(real_sample_document):
     page, data = site_read(GANTRY_SAMPLE, SMALL)
     work = {leaf.key for leaf in scheduled(data)}
     found = {}
@@ -146,7 +146,7 @@ def test_sub_plan_is_closed():
             assert sorted(order) == sorted(members)
 
 
-def test_sub_plan_is_closed_on_samples():
+def test_sub_plan_is_closed_on_samples(real_sample_document):
     for site in sorted(READABLE):
         page, site_data = site_read(GANTRY_SAMPLE, site)
         items = page_model(site, site_data, default_unit_hours=6)["schedule"]["items"]
@@ -290,7 +290,7 @@ def path_of(m, rid):
     return row(m["trace"], rid)["path"]
 
 
-def test_sample_fr1_path(tmp_path):
+def test_sample_fr1_path(tmp_path, real_sample_document):
     m = render_traced(GANTRY_SAMPLE, SMALL)[1]
     p = path_of(m, "lighthouse:FR-1")
     assert p["order"] == [["Issue-7", "direct"], ["Issue-12", "upstream"], ["Issue-10", "direct"]]
@@ -456,7 +456,7 @@ def test_path_extremes(tmp_path):
 PATH_KEYS = ["state", "lines", "order", "chain", "targets", "end_day", "incomplete"]
 
 
-def test_path_keys_exact_and_argument_unchanged():
+def test_path_keys_exact_and_argument_unchanged(real_sample_document):
     config = load_config(GANTRY_SAMPLE)
     roots = config_roots(config)
     sites = load_sites(config, roots)[0]
@@ -470,7 +470,7 @@ def test_path_keys_exact_and_argument_unchanged():
     assert all("path" not in r for r in trace["requirements"])
 
 
-def test_constraint_row_has_no_box():
+def test_constraint_row_has_no_box(real_sample_document):
     m = render_traced(GANTRY_SAMPLE, SMALL)[1]
     assert path_of(m, "lighthouse:CON-1") == {"state": "constraint", "lines": [], "order": [], "chain": [],
                                               "targets": [], "end_day": None, "incomplete": []}

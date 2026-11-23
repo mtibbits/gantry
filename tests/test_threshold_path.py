@@ -293,7 +293,7 @@ def check_split(items, links, lit, tail):
     return s
 
 
-def test_threshold_set_is_closed_subset():
+def test_threshold_set_is_closed_subset(real_sample_document):
     # U3: the threshold set is a subset of the path set and closed under preds, so work_order never raises.
     for items, _ in random_dags(count=48, seed=79):
         links = [(p, item["key"]) for item in items for p in item["preds"]]
