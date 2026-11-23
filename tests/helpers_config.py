@@ -5,8 +5,10 @@ import contract).
 """
 
 import io
+import json
 import os
 import posixpath
+import re
 import shutil
 from contextlib import redirect_stderr, redirect_stdout
 from html.parser import HTMLParser
@@ -48,13 +50,19 @@ def sample_projects():
 
 
 def write_site_tree(folder, sites, tail="", **raw):
-    """Write a devagent config naming `sites`, each site's WBS.md and a config.
+    """Write a devagent config naming `sites`, each site's WBS.md, the portfolio
+    document beside the devagent config, and a config.
 
-    `sites` maps a site name to its WBS.md bytes, in order; `None` leaves the
-    site's planning directory with no WBS.md. Site i's planning directory is
-    the folder `<i>` beside the devagent config. `tail` and `raw` are as
+    `sites` maps a site name to an hp.Source, in order: its text is the site's
+    WBS.md and its nodes are devagent's reading of it in portfolio.json (#195);
+    `None` leaves the site's planning directory with no WBS.md (devagent's
+    no_wbs project). Site i's planning directory is the folder `<i>` beside the
+    devagent config. Each Source's document is checked against the stopgap's
+    reading of its text (_stopgap_agreement). `tail` and `raw` are as
     write_config's.
     """
+    import helpers_portfolio as hp  # hp imports copy_samples from here at load
+
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
     tables = []
@@ -62,10 +70,83 @@ def write_site_tree(folder, sites, tail="", **raw):
         planning = folder / str(index)
         planning.mkdir()
         if wbs is not None:
-            (planning / "WBS.md").write_bytes(wbs)
+            (planning / "WBS.md").write_bytes(wbs if isinstance(wbs, bytes) else wbs.text)
         tables.append(f'[project.{toml_key(name)}]\ndevdoc_dir = "{index}"\n')
     (folder / "devagent.toml").write_bytes("\n".join(tables).encode("utf-8"))
+    carried = {name: wbs for name, wbs in sites.items() if not isinstance(wbs, bytes)}
+    (folder / "portfolio.json").write_bytes(hp.sp.dumps(hp.site_document(carried)))
+    for name, wbs in carried.items():
+        if wbs is not None:
+            _stopgap_agreement(folder, name, wbs)
     return _write_toml(folder / "gantry.toml", tail, raw)
+
+
+# The agreement check (#195): while gantry/wbs_stopgap.py lives, a site's portfolio
+# document must read its WBS.md as the stopgap does, on these snapshot fields only.
+COMPARED = re.compile(r"nodes\[\d+\](\.(key|issue|outline|title|state|depends_on|meta))?|links|held_out"
+                      r"|report\[(\d+|null), [a-z_]+\]")
+# (class, the side holding the entry): known_differences.json's one-sided entries on
+# COMPARED fields, pinned so a new entry cannot widen the check unseen.
+ONE_SIDED = {("report[*, skipped_line]", "stopgap"), ("report[*, skipped_line]", "document"),
+             ("report[*, no_issue]", "stopgap")}
+
+
+def _row_class(where):
+    return re.sub(r"\[(\d+|null)", "[*", where, count=1)
+
+
+def _holder(stopgap, document):
+    return "stopgap" if document is None else "document"
+
+
+def one_sided_classes():
+    """ONE_SIDED derived from known_differences.json: its entries on COMPARED fields with one side null."""
+    import update_expected_leaves as ue
+
+    entries = json.loads(ue.KNOWN.read_bytes().decode("utf-8"))
+    return {(_row_class(e["where"]), _holder(e["stopgap"], e["snapshot"])) for e in entries
+            if COMPARED.fullmatch(e["where"]) and (e["stopgap"] is None) != (e["snapshot"] is None)}
+
+
+def _kept(where, stopgap, document):
+    """Whether a diff_snapshots row counts: meta only by key order, a report entry only when one side lacks it."""
+    if where.endswith(".meta"):
+        return list(stopgap or {}) != list(document or {})
+    if where.startswith("report["):
+        return (stopgap is None) != (document is None)
+    return True
+
+
+def _stopgap_agreement(folder, name, source):
+    """Assert that portfolio.json in `folder` reads project `name` as the stopgap reads `source.text`."""
+    import update_expected_leaves as ue
+    from gantry.portfolio_json import ProjectInput, read_portfolio
+    from gantry.roots import directory_roots
+    from gantry.wbs_stopgap import parse_wbs
+
+    found = [p for p in read_portfolio(directory_roots([folder]), folder / "portfolio.json").projects
+             if p.name == name]
+    assert len(found) == 1, f"write_site_tree: site {name!r}: the portfolio document holds {len(found)} such projects"
+    (project,) = found
+    try:
+        text = source.text.decode("utf-8")
+    except UnicodeDecodeError:
+        assert project.status == "unreadable", f"write_site_tree: site {name!r}: not UTF-8 but {project.status}"
+        return
+    assert project.status == "read", f"write_site_tree: site {name!r}: the document says {project.status}"
+
+    def snap(data):
+        return ue.snapshot_of(ProjectInput(name, "read", None, data), (), pin="agreement", schema_version="1.1",
+                              namespaces={name})
+
+    assert one_sided_classes() == ONE_SIDED
+    rows = [row for row in ue.diff_snapshots(snap(parse_wbs(text, name)), snap(project.data))
+            if COMPARED.fullmatch(row[0]) and _kept(*row)]
+    remaining = [row for row in rows
+                 if not (row[0].startswith("report[") and (_row_class(row[0]), _holder(*row[1:])) in ONE_SIDED)]
+    if remaining:
+        raise AssertionError(
+            f"write_site_tree: site {name!r}: the portfolio document disagrees with the stopgap's reading: {remaining}")
 
 
 def toml_key(name):

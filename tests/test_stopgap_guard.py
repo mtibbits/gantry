@@ -127,6 +127,8 @@ ALLOWED = {  # (path relative to tests/, owner or "*"): why
     ("test_inputs.py", "test_est_fixture_totals"): "stopgap-path smoke: est.md totals",
     ("test_attention.py", "test_h_text_forms"): "stopgap-path smoke: the quoted h: forms",
     ("test_site_builder.py", "test_fixture_sites_agree_with_the_stopgap"): "the agreement check; #12 deletes it",
+    ("helpers_config.py", "_stopgap_agreement"):
+        "write_site_tree's agreement check (#195); #12 deletes it with the stopgap",
     ("test_portfolio_equivalence.py", "stopgap_snapshot"):
         "#83's stopgap-vs-reader comparison (AC1 amended); #12 deletes it",
     ("test_fires.py", "test_p0_report_problems_fail_closed"): "stopgap reading semantics (AC1 amended); #12 restates",

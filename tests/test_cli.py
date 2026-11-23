@@ -10,6 +10,7 @@ import tomllib
 
 import pytest
 
+import helpers_portfolio as hp
 from gantry import build, cli, stamp
 from gantry.build import MARKER_FILE, marker_bytes
 from gantry.cli import main
@@ -162,6 +163,17 @@ def test_write_site_tree_builds_sites(tmp_path, capsys):
         "fires: 0; sources not fully read: 2"]  # no fires_list; beta has no node line
     assert "14 open leaves" in (out / "index.html").read_bytes().decode("utf-8")
     assert NO_LEAVES in (out / "sites" / "beta.html").read_bytes().decode("utf-8")
+    # The agreement check (#195): a document that reads the text otherwise fails the write.
+    with pytest.raises(AssertionError, match=r"nodes\[1\]\.state"):
+        write_site_tree(tmp_path / "bad", {"a": hp.source(b"- [x] A {issue: Issue-1}\n",
+                                                          hp.node("A", issue="Issue-1"))})
+    with pytest.raises(AssertionError, match=r"nodes\[1\]\.meta"):
+        write_site_tree(tmp_path / "nometa", {"a": hp.source(b"- [ ] A {issue: Issue-1, est: 3h}\n",
+                                                             hp.node("A", issue="Issue-1"))})
+    write_site_tree(tmp_path / "edges", {"alpha": hp.fixture_source("edges")})  # all three exempt directions
+    write_site_tree(tmp_path / "unreadable", {"alpha": hp.fixture_source("not_utf8")})
+    doc = hp.read_doc(tmp_path / "unreadable", (tmp_path / "unreadable" / "portfolio.json").read_bytes())
+    assert [p.status for p in doc.projects] == ["unreadable"]
 
 
 # --- build --output-dir and its completion marker (#35) -------------------------
