@@ -248,24 +248,12 @@ def test_threshold_empty_cases(tmp_path):
         assert t["objective_lines"] == TAIL_FIGURES, case
 
 
-CYCLE_GATE = hp.source(("# Alpha\n\n"
-                        "- [ ] One {issue: Issue-1, depends_on: [Issue-2], satisfies: alpha:FR-1}\n"
-                        "- [ ] Two {issue: Issue-2, depends_on: [Issue-1, Issue-3]}\n"
-                        "- [ ] Three {issue: Issue-3, est: 1d}\n"
-                        "- [ ] Tail {issue: Issue-4, est: 1d, satisfies: alpha:FR-1, objective: alpha:FR-1}\n").encode(),
-                       hp.node("One", issue="Issue-1", depends_on=["Issue-2"], satisfies="alpha:FR-1"),
-                       hp.node("Two", issue="Issue-2", depends_on=["Issue-1", "Issue-3"]),
-                       hp.node("Three", issue="Issue-3", est="1d"),
-                       hp.node("Tail", issue="Issue-4", est="1d", satisfies="alpha:FR-1", objective="alpha:FR-1"),
-                       start=3, report=((3, "dep_cycle", "dependency cycle: Issue-1 (line 3), Issue-2 (line 4)"),))
-
-
 def test_threshold_all_gating_held(tmp_path):
-    t = split_row(tmp_path / "one", CYCLE_GATE)["threshold_path"]
+    t = split_row(tmp_path / "one", HELD_GATE)["threshold_path"]
     assert t["lines"][0] == "1 upstream leaf, 6 agent-hours feed its held-out threshold work"
     assert t["targets"] == [] and t["end_day"] is None
     assert t["incomplete"] == [w.PATH_HELD.format(key="Issue-1")]
-    two = hp.source(CYCLE_GATE.text.replace(b"depends_on: [Issue-1, Issue-3]", b"depends_on: [Issue-1, Issue-3, Issue-5]")
+    two = hp.source(HELD_GATE.text.replace(b"depends_on: [Issue-1, Issue-3]", b"depends_on: [Issue-1, Issue-3, Issue-5]")
                     + b"- [ ] Five {issue: Issue-5, est: 1d}\n",
                     hp.node("One", issue="Issue-1", depends_on=["Issue-2"], satisfies="alpha:FR-1"),
                     hp.node("Two", issue="Issue-2", depends_on=["Issue-1", "Issue-3", "Issue-5"]),

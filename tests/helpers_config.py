@@ -64,10 +64,7 @@ def write_site_tree(folder, sites, tail="", **raw):
     """
     import helpers_portfolio as hp  # hp imports copy_samples from here at load
 
-    for name, wbs in sites.items():
-        if wbs is not None and not isinstance(wbs, hp.Source):
-            raise TypeError(f"write_site_tree: site {name!r} is {type(wbs).__name__}; pass hp.source(text, *nodes) "
-                            "or hp.fixture_source(a FIXTURE_SOURCES key), so the site carries its portfolio document")
+    document = hp.site_document(sites)  # refuses a site that is not a Source, before anything is written
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
     tables = []
@@ -78,10 +75,9 @@ def write_site_tree(folder, sites, tail="", **raw):
             (planning / "WBS.md").write_bytes(wbs.text)
         tables.append(f'[project.{toml_key(name)}]\ndevdoc_dir = "{index}"\n')
     (folder / "devagent.toml").write_bytes("\n".join(tables).encode("utf-8"))
-    (folder / "portfolio.json").write_bytes(hp.sp.dumps(hp.site_document(sites)))
-    for name, wbs in sites.items():
-        if wbs is not None:
-            _stopgap_agreement(folder, folder / "portfolio.json", name, wbs.text)
+    (folder / "portfolio.json").write_bytes(hp.sp.dumps(document))
+    _stopgap_agreement(folder, folder / "portfolio.json",
+                       {name: wbs.text for name, wbs in sites.items() if wbs is not None})
     return _write_toml(folder / "gantry.toml", tail, raw)
 
 
@@ -108,7 +104,7 @@ def _row_class(where):
     return re.sub(r"\[(\d+|null)", "[*", where, count=1)
 
 
-def _holder(stopgap, document):
+def _holder(document):
     return "stopgap" if document is None else "document"
 
 
@@ -117,7 +113,7 @@ def one_sided_classes():
     import update_expected_leaves as ue
 
     entries = json.loads(ue.KNOWN.read_bytes().decode("utf-8"))
-    return {(_row_class(e["where"]), _holder(e["stopgap"], e["snapshot"])) for e in entries
+    return {(_row_class(e["where"]), _holder(e["snapshot"])) for e in entries
             if COMPARED.fullmatch(e["where"]) and (e["stopgap"] is None) != (e["snapshot"] is None)}
 
 
@@ -130,37 +126,39 @@ def _kept(where, stopgap, document):
     return True
 
 
-def _stopgap_agreement(root, document, name, wbs):
-    """Assert that the portfolio document at `document`, read under `root`, reads project
-    `name` as the stopgap reads `wbs`, that site's WBS.md bytes, on the fields COMPARED
-    names (see its comment for what is not compared)."""
+def _stopgap_agreement(root, document, sites):
+    """Assert that the portfolio document at `document`, read under `root`, reads each project
+    of `sites` ({name: that site's WBS.md bytes}) as the stopgap reads those bytes, on the
+    fields COMPARED names (see its comment for what is not compared). The pin of ONE_SIDED
+    against known_differences.json is test_site_builder's."""
     import update_expected_leaves as ue
     from gantry.portfolio_json import ProjectInput, read_portfolio
     from gantry.roots import directory_roots
     from gantry.wbs_stopgap import parse_wbs
 
-    found = [p for p in read_portfolio(directory_roots([root]), document).projects if p.name == name]
-    assert len(found) == 1, f"write_site_tree: site {name!r}: the portfolio document holds {len(found)} such projects"
-    (project,) = found
-    try:
-        text = wbs.decode("utf-8")
-    except UnicodeDecodeError:
-        assert project.status == "unreadable", f"write_site_tree: site {name!r}: not UTF-8 but {project.status}"
-        return
-    assert project.status == "read", f"write_site_tree: site {name!r}: the document says {project.status}"
+    projects = read_portfolio(directory_roots([root]), document).projects
+    for name, wbs in sites.items():
+        found = [p for p in projects if p.name == name]
+        assert len(found) == 1, f"write_site_tree: site {name!r}: the portfolio document holds {len(found)} such projects"
+        (project,) = found
+        try:
+            text = wbs.decode("utf-8")
+        except UnicodeDecodeError:
+            assert project.status == "unreadable", f"write_site_tree: site {name!r}: not UTF-8 but {project.status}"
+            continue
+        assert project.status == "read", f"write_site_tree: site {name!r}: the document says {project.status}"
 
-    def snap(data):
-        return ue.snapshot_of(ProjectInput(name, "read", None, data), (), pin="agreement", schema_version="1.1",
-                              namespaces={name})
+        def snap(data):
+            return ue.snapshot_of(ProjectInput(name, "read", None, data), (), pin="agreement", schema_version="1.1",
+                                  namespaces={name})
 
-    assert one_sided_classes() == ONE_SIDED
-    rows = [row for row in ue.diff_snapshots(snap(parse_wbs(text, name)), snap(project.data))
-            if COMPARED.fullmatch(row[0]) and _kept(*row)]
-    remaining = [row for row in rows
-                 if not (row[0].startswith("report[") and (_row_class(row[0]), _holder(*row[1:])) in ONE_SIDED)]
-    if remaining:
-        raise AssertionError(
-            f"write_site_tree: site {name!r}: the portfolio document disagrees with the stopgap's reading: {remaining}")
+        rows = [row for row in ue.diff_snapshots(snap(parse_wbs(text, name)), snap(project.data))
+                if COMPARED.fullmatch(row[0]) and _kept(*row)]
+        remaining = [row for row in rows
+                     if not (row[0].startswith("report[") and (_row_class(row[0]), _holder(row[2])) in ONE_SIDED)]
+        if remaining:
+            raise AssertionError(f"write_site_tree: site {name!r}: the portfolio document disagrees with the "
+                                 f"stopgap's reading: {remaining}")
 
 
 def toml_key(name):

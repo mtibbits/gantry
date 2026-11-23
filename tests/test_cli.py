@@ -36,7 +36,6 @@ from sample_roles import BUSY, NO_WBS, NOT_BUILT, READABLE, SMALL, UNREADABLE
 from test_portfolio_file import EVERY_FIXTURE
 from test_samples import ROOT
 
-FIXTURES = ROOT / "tests" / "fixtures" / "wbs"
 
 
 def run_module(*args, cwd=ROOT):

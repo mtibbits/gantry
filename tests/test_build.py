@@ -32,7 +32,6 @@ from sample_roles import BUSY, NO_WBS, OWN_UNIT, READABLE, SMALL, UNESTIMATED, U
 from test_samples import ROOT
 from test_week_page import placed_nodes
 
-FIXTURES = ROOT / "tests" / "fixtures" / "wbs"
 
 # --- anchors and hrefs ------------------------------------------------------------
 

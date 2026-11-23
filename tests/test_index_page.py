@@ -42,7 +42,6 @@ from sample_roles import BUSY, NO_WBS, OWN_UNIT, READABLE, SMALL, UNESTIMATED, U
 from test_samples import ROOT
 from test_worksite_page import by_id, find, text_of, tree
 
-FIXTURES = ROOT / "tests" / "fixtures" / "wbs"
 
 
 def site_lines(t):
@@ -93,12 +92,7 @@ def test_site_line_fields(tmp_path):
 
 
 def test_no_finish_line(tmp_path):
-    done = hp.source(b"- [x] Done {issue: Issue-1}\n", hp.node("Done", glyph="x", issue="Issue-1"))
-    held = hp.source(b"- [ ] A {issue: Issue-1, depends_on: [Issue-2]}\n- [ ] B {issue: Issue-2, depends_on: [Issue-1]}\n",
-                     hp.node("A", issue="Issue-1", depends_on=["Issue-2"]),
-                     hp.node("B", issue="Issue-2", depends_on=["Issue-1"]),
-                     report=((1, "dep_cycle", "dependency cycle: Issue-1 (line 1), Issue-2 (line 2)"),))
-    result = build_all(load_config(write_site_tree(tmp_path, {"done": done, "held": held})))
+    result = build_all(load_config(write_site_tree(tmp_path, {"done": hp.DONE_SITE, "held": hp.HELD_SITE})))
     t = tree(render_index(result))
     summaries = {s.name: s for s in result.summaries}
     assert summaries["held"].open_leaves == 2

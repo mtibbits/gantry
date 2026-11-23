@@ -103,11 +103,15 @@ def project(name, *nodes, start=1) -> dict:
     return {"project": name, "status": "read", "status_reason": None, "nodes": made}
 
 
+def _dep_entries(node):
+    """`node`'s depends_on entries: a non-empty str as one, a list as is, anything else as none."""
+    value = node["meta"].get("depends_on")
+    return [value] if isinstance(value, str) and value else value if isinstance(value, list) else []
+
+
 def _local_deps(node, project_name):
     """(entry, ref) for each depends_on entry of `node` that `project_name` calls local."""
-    value = node["meta"].get("depends_on")
-    entries = [value] if isinstance(value, str) and value else value if isinstance(value, list) else []
-    for entry in entries:
+    for entry in _dep_entries(node):
         ref = deps.classify(entry, project_name)
         if ref.kind == "local":
             yield entry, ref
@@ -256,9 +260,8 @@ def append_nodes(doc, project_name, *nodes) -> dict:
     if proj is None:
         raise ValueError(f"the document holds no project {project_name!r}")
     last = max((n["source_line"] for n in proj["nodes"]), default=0)
-    used = [int(n["id"][1:]) for p in out["projects"] for n in p["nodes"] if n["id"][1:].isdigit()]
     added = project(project_name, *nodes, start=last + 1)["nodes"]
-    ids = {n["id"]: f"n{max(used, default=0) + i}" for i, n in enumerate(added, start=1)}
+    ids = {n["id"]: f"n{i}" for i, n in enumerate(added, start=_highest_id(out) + 1)}
     for n in added:
         n["id"], n["parent"] = ids[n["id"]], ids.get(n["parent"])
     proj["nodes"] += added
@@ -317,12 +320,18 @@ def fixture_source(name) -> Source:
     """A FIXTURE_SOURCES text: its bytes, written.json's nodes of project `name`,
     and that project's entries auto_report does not write (classified under `name`),
     less its foreign dep_unresolved entries (site_document resolves those)."""
-    doc = _parsed(sp.WRITTEN)
+    return _written_source(sp.WRITTEN, name, (sp.ROOT / sp.FIXTURE_SOURCES[name]).read_bytes())
+
+
+def _written_source(path, name, text) -> Source:
+    """`text` with project `name`'s nodes in the committed document at `path`, and its entries
+    that are neither auto_report's nor a foreign dep_unresolved."""
+    doc = _parsed(path)
     (proj,) = [p for p in doc["projects"] if p["project"] == name]
     report = tuple((e["source_line"], e["kind"], e["message"]) for e in doc["parse_report"]
                    if e["project"] == name and not auto_entry(e, name)
                    and not _foreign_unresolved(e["kind"], e["message"]))
-    return Source((sp.ROOT / sp.FIXTURE_SOURCES[name]).read_bytes(), tuple(copy.deepcopy(proj["nodes"])), report)
+    return Source(text, tuple(copy.deepcopy(proj["nodes"])), report)
 
 
 # devagent's dep_unresolved texts for a foreign entry (scripts/lib/portfolio.py at the pin); they
@@ -349,8 +358,7 @@ def foreign_report(projects) -> list[dict]:
     for p in projects:
         name = p["project"]
         for n in p["nodes"]:
-            value = n["meta"].get("depends_on")
-            for entry in [value] if isinstance(value, str) and value else value if isinstance(value, list) else []:
+            for entry in _dep_entries(n):
                 ref = deps.classify(entry, name)
                 if ref.kind != "foreign":
                     continue
@@ -372,14 +380,17 @@ def sample_source(site, text=None) -> Source:
     """A read sample site as samples.json holds it: `text` (default: its WBS.md bytes,
     else a copy of them such as CRLF line ends) with the sample's nodes, and its
     entries that are neither auto_report's nor a foreign dep_unresolved."""
-    doc = _parsed(sp.SAMPLES_WRITTEN)
-    (proj,) = [p for p in doc["projects"] if p["project"] == site]
-    report = tuple((e["source_line"], e["kind"], e["message"]) for e in doc["parse_report"]
-                   if e["project"] == site and not auto_entry(e, site)
-                   and not _foreign_unresolved(e["kind"], e["message"]))
     if text is None:
         text = (sp.SAMPLES / site / "WBS.md").read_bytes()
-    return Source(text, tuple(copy.deepcopy(proj["nodes"])), report)
+    return _written_source(sp.SAMPLES_WRITTEN, site, text)
+
+
+# A site whose one leaf is done, and one whose two leaves are held out by a cycle: no open work anywhere.
+DONE_SITE = source(b"- [x] Done {issue: Issue-1}\n", node("Done", glyph="x", issue="Issue-1"))
+HELD_SITE = source(b"- [ ] A {issue: Issue-1, depends_on: [Issue-2]}\n- [ ] B {issue: Issue-2, depends_on: [Issue-1]}\n",
+                   node("A", issue="Issue-1", depends_on=["Issue-2"]),
+                   node("B", issue="Issue-2", depends_on=["Issue-1"]),
+                   report=((1, "dep_cycle", "dependency cycle: Issue-1 (line 1), Issue-2 (line 2)"),))
 
 
 def _not_read(name, status, reason):
@@ -393,7 +404,8 @@ def _highest_id(doc):
 def _project_of(name, source, first):
     """(project, report rows) for `source` as project `name`, node ids n<first>, n<first + 1> ..."""
     if not isinstance(source, Source):
-        raise TypeError(f"site {name!r}: {type(source).__name__} is not a Source")
+        raise TypeError(f"site {name!r}: {type(source).__name__} is not a Source; pass hp.source(text, *nodes) "
+                        "or hp.fixture_source(a FIXTURE_SOURCES key), so the site carries its portfolio document")
     error = _decode_error(source.text)
     if error is not None:
         return _not_read(name, "unreadable", UNREADABLE_REASON.format(reason=error.reason, start=error.start)), []
@@ -449,10 +461,8 @@ def rewrite_document(copy, fn):
     path.write_bytes(after)
     home = copy / "devagent"
     tables = tomllib.loads((home / "config.toml").read_bytes().decode("utf-8"))["project"]
-    for project in new["projects"]:
-        if project["status"] == "read":
-            wbs = (home / tables[project["project"]]["devdoc_dir"] / "WBS.md").read_bytes()
-            _stopgap_agreement(copy, path, project["project"], wbs)
+    _stopgap_agreement(copy, path, {p["project"]: (home / tables[p["project"]]["devdoc_dir"] / "WBS.md").read_bytes()
+                                    for p in new["projects"] if p["status"] == "read"})
 
 
 def append_not_read(doc, name, status, reason) -> dict:

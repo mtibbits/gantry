@@ -148,7 +148,7 @@ def test_absent_and_case(tmp_path):
     resolved, foreign = resolve_tree(tmp_path, {
         "alpha": hp.source(b"- [ ] Wait {issue: Issue-1, depends_on: [gamma:Issue-1, Beta:Issue-1]}\n",
                            hp.node("Wait", issue="Issue-1", depends_on=["gamma:Issue-1", "Beta:Issue-1"])),
-        "beta": hp.source(b"- [ ] Pour {issue: Issue-1}\n", hp.node("Pour", issue="Issue-1")),
+        "beta": GOOD_BETA,
     })
     assert [(o.raw, o.status) for o in foreign["alpha"]] == [("gamma:Issue-1", "absent"), ("Beta:Issue-1", "absent")]
     report = foreign_report(resolved, "alpha")
@@ -225,14 +225,18 @@ def test_finished_source_checked_not_flagged(tmp_path):
     assert (w.waits_on_other_site, w.foreign_targets) == (False, None)
     assert [e.kind for e in foreign_report(resolved, "alpha")] == ["foreign_site_absent"]
 
+# A cycle holds out A, which also waits on beta:Issue-1.
+HELD_ON_BETA = hp.source(("- [ ] A {issue: Issue-1, depends_on: [Issue-2, beta:Issue-1]}\n"
+                          "- [ ] B {issue: Issue-2, depends_on: [Issue-1]}\n").encode(),
+                         hp.node("A", issue="Issue-1", depends_on=["Issue-2", "beta:Issue-1"]),
+                         hp.node("B", issue="Issue-2", depends_on=["Issue-1"]),
+                         report=((1, "dep_cycle", "dependency cycle: Issue-1 (line 1), Issue-2 (line 2)"),))
+
+
 
 def test_held_out_leaf_flagged(tmp_path):
     resolved, _ = resolve_tree(tmp_path, {
-        "alpha": hp.source(("- [ ] A {issue: Issue-1, depends_on: [Issue-2, beta:Issue-1]}\n"
-                            "- [ ] B {issue: Issue-2, depends_on: [Issue-1]}\n").encode(),
-                           hp.node("A", issue="Issue-1", depends_on=["Issue-2", "beta:Issue-1"]),
-                           hp.node("B", issue="Issue-2", depends_on=["Issue-1"]),
-                           report=((1, "dep_cycle", "dependency cycle: Issue-1 (line 1), Issue-2 (line 2)"),)),
+        "alpha": HELD_ON_BETA,
         "beta": GOOD_BETA,
     })
     assert "Issue-1" in resolved["alpha"].data.held_out
@@ -327,7 +331,7 @@ def test_render_failure_reresolves(tmp_path, monkeypatch):
     calls = force_render(monkeypatch, lambda site, n: site == "beta")
     result = build_all(tree_config(tmp_path, {
         "alpha": WAIT_ON_BETA,
-        "beta": hp.source(b"- [ ] Pour {issue: Issue-1}\n", hp.node("Pour", issue="Issue-1")),
+        "beta": GOOD_BETA,
     }))
     (o,) = result.foreign["alpha"]
     assert (o.status, o.reason) == ("unresolved", "beta is not built: render error: ValueError: forced")
@@ -364,7 +368,7 @@ def test_site_mode_keeps_text(tmp_path):
     config = write_site_tree(tmp_path, {
         "alpha": hp.source(("- [ ] Wait {issue: Issue-1, depends_on: [%s]}\n" % ", ".join(entries)).encode(),
                            hp.node("Wait", issue="Issue-1", depends_on=entries)),
-        "beta": hp.source(b"- [ ] Pour {issue: Issue-1}\n", hp.node("Pour", issue="Issue-1")),
+        "beta": GOOD_BETA,
     })
     code, _, err = run_main("--config", str(config), "--site", "alpha")
     assert code == 0, err
@@ -471,11 +475,7 @@ def test_no_foreign_no_boxes(tmp_path):
 
 def test_held_out_flagged_not_drawn(tmp_path):
     result = full_build(tmp_path, {
-        "alpha": hp.source(("- [ ] A {issue: Issue-1, depends_on: [Issue-2, beta:Issue-1]}\n"
-                            "- [ ] B {issue: Issue-2, depends_on: [Issue-1]}\n").encode(),
-                           hp.node("A", issue="Issue-1", depends_on=["Issue-2", "beta:Issue-1"]),
-                           hp.node("B", issue="Issue-2", depends_on=["Issue-1"]),
-                           report=((1, "dep_cycle", "dependency cycle: Issue-1 (line 1), Issue-2 (line 2)"),)),
+        "alpha": HELD_ON_BETA,
         "beta": BETA,
     })
     assert result.inputs["alpha"].data.leaves[0].waits_on_other_site is True
@@ -954,7 +954,7 @@ def test_rerender_keeps_rows(tmp_path, monkeypatch):
     calls = force_render(monkeypatch, lambda site, n: site == "beta")
     config = tree_config(tmp_path, {
         "alpha": WAIT_ON_BETA,
-        "beta": hp.source(b"- [ ] Pour {issue: Issue-1}\n", hp.node("Pour", issue="Issue-1")),
+        "beta": GOOD_BETA,
     })
     (tmp_path / "0" / "Issue-1").mkdir()
     (tmp_path / "0" / "Issue-1" / "checklist.md").write_bytes(

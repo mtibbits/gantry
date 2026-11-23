@@ -451,12 +451,7 @@ def test_rendered_texts(tmp_path):
     assert "no built site serves this requirement" in text_of(t, br4)
     assert [text_of(t, i) for i in figures(t, "group-sum", br4)] == ["nothing to sum"]
     # No open work anywhere; leaves held out by a cycle; the singulars.
-    done = hp.source(b"- [x] Done {issue: Issue-1}\n", hp.node("Done", glyph="x", issue="Issue-1"))
-    held = hp.source(b"- [ ] A {issue: Issue-1, depends_on: [Issue-2]}\n- [ ] B {issue: Issue-2, depends_on: [Issue-1]}\n",
-                     hp.node("A", issue="Issue-1", depends_on=["Issue-2"]),
-                     hp.node("B", issue="Issue-2", depends_on=["Issue-1"]),
-                     report=((1, "dep_cycle", "dependency cycle: Issue-1 (line 1), Issue-2 (line 2)"),))
-    t, _ = built_page(tmp_path / "held", {"done": done, "held": held})
+    t, _ = built_page(tmp_path / "held", {"done": hp.DONE_SITE, "held": hp.HELD_SITE})
     assert "no open work" in text_of(t, panel_of(t, "held"))
     assert figures(t, "backlog") == []
     (hours,) = figures(t, "hours", panel_of(t, "held"))

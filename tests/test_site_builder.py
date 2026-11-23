@@ -20,7 +20,8 @@ import update_expected_leaves as ue
 from gantry import deps
 from gantry.model import ParsedValue
 from gantry.portfolio_json import ProjectInput, map_document
-from helpers_config import append_bytes, copy_samples, install_sample_document, sample_projects, write_site_tree
+from helpers_config import (ONE_SIDED, append_bytes, copy_samples, install_sample_document, one_sided_classes,
+                            sample_projects, write_site_tree)
 from helpers_links import link_dir
 from sample_roles import BUSY, NO_WBS, READABLE, SMALL, UNREADABLE
 from test_portfolio_equivalence import known
@@ -279,6 +280,11 @@ def test_agreement_covers_every_read_fixture_and_description():
     assert len(AGREEMENT) == len(set(AGREEMENT)) == 15
     assert set(AGREEMENT) == {*sp.FIXTURE_SOURCES} - {"not_utf8"} | set(hp.DESCRIBED)
     assert [name for name in AGREEMENT if known_rows(name)] == ["ids", "edges"]
+
+
+def test_one_sided_pin_matches_known_differences():
+    # write_site_tree's agreement check forgives exactly these one-sided report classes (#195).
+    assert one_sided_classes() == ONE_SIDED
 
 
 @pytest.mark.parametrize("name", AGREEMENT)
