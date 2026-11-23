@@ -712,10 +712,12 @@ know (#39): its `text` is the line devagent's reader writes about it, its
 `leaves` are empty, and these entries keep devagent's order, on a `no_plan`
 plan too. A `cross_site_cycle` entry has a null `text` and names its
 `leaves` in devagent's config order of site, then `WBS.md` order; such
-entries go in the order of their first leaf. No view reads `report` yet (the
-week view shows cycle leaves by their reason), so its shape stays
-provisional until one does (#167); a kind with another shape changes the pinned
-shape and this section in the same change.
+entries go in the order of their first leaf. The week view lists the
+capacity entries' lines ([The week view page](#the-week-view-page)); no
+view reads a `cross_site_cycle` entry yet (the week view shows cycle leaves
+by their reason), so the shape of `report` stays provisional until one
+does (#167); a kind with another shape changes the pinned shape and this
+section in the same change.
 
 A planned file, from `tests/fixtures/week_plan/binds_lanes/`, with `days`,
 `leaves`, `sites` and `notes`, and the site's `shares`, cut to their first
@@ -1088,7 +1090,8 @@ with trailing zeros dropped and an `h`: 135 minutes is "2.25 h", 120 is
 "2 h", 7 is "0.12 h". A fair-share target is an exact fraction and rounds
 the same way, so a target of 3.025 hours is "3.03 h". A share is rounded
 the same way and shown in percent ("33.33%"). A rate is written as is,
-with no exponent ("0.000001").
+with no exponent ("0.000001"). A scaling factor is rounded the same way to
+four decimals ("1.5", "0.6667").
 
 **Above the days**, in order:
 
@@ -1103,7 +1106,28 @@ with no exponent ("0.000001").
   `attention mapping: {values} operator hours per agent hour for needs 0 to 4, {source}`,
   where the source is `default` or `from the portfolio file`, then
   `the portfolio file's mapping was not used: {reason}` when it was not;
-- `capacity from: {parts}`, each part a pool's name and its capacity source;
+- `capacity from: {parts}`, each part a pool's name and its capacity source,
+  then what the plan says of devagent's capacity declaration (#39), each
+  line only when it applies:
+  - how its weekly hours were laid on the weekdays:
+    `devagent declares {total} a week; the portfolio file's weekdays after reserved blocks sum to {sum}; each day is scaled by {factor}`
+    when they were scaled by a factor other than 1, or
+    `devagent declares {total} a week; the portfolio file sets no attention_hours, so it is spread evenly over Monday to Friday`;
+  - `{weekday}: {lost} of devagent's weekly hours do not fit in the day after its reserved blocks`,
+    once for each weekday of the plan that lost hours to the day's cap,
+    Monday first;
+  - `devagent's capacity declaration is invalid; the portfolio file's capacity is used`
+    when the declaration breaks a rule, then a list of the lines devagent's
+    reader writes about it, one per violation, as written (the report's
+    `capacity_invalid` entries);
+  - a list of its unknown-key lines, as written (the report's
+    `capacity_unknown_key` entries);
+  - `devagent declares 0 operator hours per agent hour; unscored leaves run in lanes without blocks`
+    when its ratio is used and planned as rate 0, which is 0 and any ratio
+    under half a part per million; or, for a ratio that is not used, the
+    plan's reason as written;
+  - `token budget (not scheduled): {n} {unit} a week`, its effective weekly
+    token budget in plain digits, which nothing is planned with;
 - the count, `Includes {n} unestimated leaves` or `Includes 1 unestimated leaf`,
   carrying `data-unestimated` (empty when the count is 0);
 - the share-less sites, `{n} sites have no intended share set; they are planned only into capacity left after the sites with shares`
@@ -1208,8 +1232,14 @@ that day reads `no intended share set`) and each pool, where each pool's
 cell is `{charged} charged, {target} target` over the 10 days.
 
 **No plan.** When the plan's status is `no_plan`, the page shows
-`no week plan: {reason}` and the stamp, and nothing else; the index still
-links it.
+`no week plan: {reason}` and the stamp; the index still links it. When
+devagent declares no capacity that is all. Otherwise the capacity lines
+above follow the reason, by the same rule, each only when it applies:
+`capacity from: {parts}`, the note of an invalid declaration with its
+violation lines, the unknown-key lines, the ratio line and the token
+budget. No capacity is used on this page, so the note reads
+`devagent's capacity declaration is invalid` and no more. A plan with no
+days holds no scaling and no day's cap, so those lines are never here.
 
 **Errors.** When the page cannot be rendered, the build prints
 `gantry: error: cannot render week.html: <type>: <message>`; when it cannot
@@ -1218,7 +1248,8 @@ be written, `gantry: error: cannot write week.html: <reason>`. Either exits
 written. A `week.html` from an earlier build is not deleted
 ([docs/worksite-page.md](worksite-page.md#every-site-and-the-index)).
 
-The page reads the plan's file form. It does not render `report`; it shows
-cycle leaves by their reason, and #167 will read `report`. Its embedded
+The page reads the plan's file form. Of `report` it renders the lines of
+the two capacity kinds (#39) and no other entry: it shows cycle leaves by
+their reason, and #167 will read `report`. Its embedded
 data holds the plan, then, per leaf the page names, its site, key, title,
 `est:` value, own priority and model tiers.

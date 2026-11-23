@@ -98,6 +98,16 @@ def test_hours_text_whole_minutes():
     assert bad == []
 
 
+def test_decimals_rounds_once_half_up():
+    # hundredths is decimals at two places; the week view writes a scaling factor at four (#39).
+    values = (135 / 60, 2.0, 7 / 60, 3.025, 0.0, 28.625, -1.005, -0.001)
+    assert [render.hundredths(x) for x in values] == [render.decimals(x, 2) for x in values] == [
+        "2.25", "2", "0.12", "3.03", "0", "28.63", "-1.01", "0"]
+    cases = [(1.5, "1.5"), (1.01875, "1.0188"), (2 / 3, "0.6667"), (0.00005, "0.0001"), (0.00004, "0"),
+             (-0.6, "-0.6"), (3.0, "3"), (10080.0, "10080")]
+    assert [render.decimals(x, 4) for x, _ in cases] == [text for _, text in cases]
+
+
 def test_unestimated_text():
     assert render.unestimated_text("3pr") == "unestimated (3 pr)"
     assert render.unestimated_text("2.50pr") == "unestimated (2.5 pr)"

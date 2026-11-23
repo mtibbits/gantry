@@ -12,7 +12,8 @@ from gantry import planner
 from gantry.planner import PLAN_FILE, PLAN_VERSION, plan_to_json, write_plan
 from gantry.roots import mkdir_confined
 from helpers_config import copy_samples, demo_build, run_main, snapshot, written_bytes
-from test_planner import FIXTURE_NAMES, FIXTURES, built, install, plan_of, portfolio_md, reserved
+from test_planner import (CAPACITY_INSTALL, FIXTURE_NAMES, FIXTURES, PAUSED_C, RATIO, built, capacity_config,
+                          capacity_portfolio, declares, install, plan_of, portfolio_md, reserved)
 
 SHAPE = json.loads((FIXTURES / "shape-v1.json").read_bytes().decode("utf-8"))
 DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
@@ -200,9 +201,57 @@ def test_shape_accepts_unknown_unplanned_reason(tmp_path):
     assert shape_errors(document) == []
 
 
+def test_shape_holds_on_plans_made_from_a_declaration(tmp_path):
+    # A used declaration (#39) that fills every node it can at once: Monday's hours scaled and
+    # capped, a lane's day capped, a ratio, a token budget and a paused site.
+    devagent = declares(total=30, lane_hours=168, max_lanes=1, more=RATIO % 0.25, tail=PAUSED_C)
+    document = document_of(plan_of(tmp_path, CAPACITY_INSTALL, devagent=devagent,
+                                   portfolio=capacity_portfolio("one_day")))
+    capacity = document["capacity"]
+    assert (document["status"], capacity["declaration"], capacity["capacity_schema"]) == ("planned", "used", "1.0")
+    assert capacity["attention"] == {"rule": "scaled", "total_hours": 30, "weekday_sum_hours": 8.0, "factor": 3.75}
+    assert capacity["lanes"] == {"max_lanes": 1, "lane_hours_per_week": 168, "working_days": 1,
+                                 "lane_hours_per_day": 24.0, "hours_lost_to_cap": 144.0}
+    assert capacity["declared_ratio"] == {"value": 0.25, "used": True, "reason": None}
+    assert capacity["token_budget"] == {"tokens_per_week": 500000000, "binding": "tokens_per_week",
+                                        "unit": "weighted_input_token_equivalents"}
+    assert capacity["paused"] == ["c"]
+    assert [day["attention_hours_lost_to_cap"] for day in document["days"]] == [8.0] * 10
+    assert {entry["reason"] for site in document["sites"] if site["name"] == "c"
+            for entry in site["unplanned"]} == {"paused"}
+    assert "declared" in {leaf["tag"] for leaf in document["leaves"]}
+    assert shape_errors(document) == []
+    # A ratio that is not used holds its reason, and unknown keys their lines.
+    devagent = declares(more=RATIO % 30 + "max_lane = 3\n")
+    document = document_of(plan_of(tmp_path, CAPACITY_INSTALL, devagent=devagent))
+    assert document["capacity"]["declared_ratio"] == {
+        "value": 30, "used": False,
+        "reason": "devagent declares 30 operator hours per agent hour, above 24; it is not used"}
+    assert document["report"] == [{"kind": "capacity_unknown_key", "leaves": [],
+                                   "text": "capacity: warning: capacity.max_lane: unknown key (ignored)"}]
+    assert shape_errors(document) == []
+    # An invalid declaration and no plan: devagent's lines are the report, and nothing it declares is held.
+    document = document_of(plan_of(tmp_path, CAPACITY_INSTALL, devagent=capacity_config("order"),
+                                   portfolio=capacity_portfolio("no_capacity")))
+    assert (document["status"], document["capacity"]["declaration"]) == ("no_plan", "invalid")
+    assert document["capacity"] == {"declaration": "invalid", "capacity_schema": "1.0", "attention": None,
+                                    "lanes": None, "declared_ratio": None, "token_budget": None, "paused": []}
+    assert [entry["kind"] for entry in document["report"]] == ["capacity_invalid"] * 9 + ["capacity_unknown_key"] * 2
+    assert all(isinstance(entry["text"], str) and entry["leaves"] == [] for entry in document["report"])
+    assert shape_errors(document) == []
+    # A used one and no plan keeps its ratio, its budget and its paused site.
+    document = document_of(plan_of(tmp_path, CAPACITY_INSTALL, devagent=declares(more=RATIO % 0.25, tail=PAUSED_C),
+                                   config={"portfolio_file": None}))
+    capacity = document["capacity"]
+    assert (document["status"], capacity["declaration"], capacity["attention"], capacity["lanes"]) == (
+        "no_plan", "used", None, None)
+    assert capacity["declared_ratio"]["used"] and capacity["token_budget"] and capacity["paused"] == ["c"]
+    assert shape_errors(document) == []
+
+
 def test_shape_holds_a_declared_capacity(tmp_path):
-    # No plan yet holds a declared ratio, a token budget, a paused site or a report line (#39):
-    # the nodes no written document reaches are checked on one filled in by hand.
+    # Each node a declaration fills (#39), on a document filled in by hand, and what the shape
+    # refuses in each. test_shape_holds_on_plans_made_from_a_declaration checks the planner's own.
     base = _states(tmp_path)
     assert base["capacity"]["declaration"] == "not_declared" and base["report"] == []
     assert (base["capacity"]["declared_ratio"], base["capacity"]["token_budget"], base["capacity"]["paused"]) == (
@@ -237,12 +286,25 @@ def test_shape_holds_a_declared_capacity(tmp_path):
          "plan.capacity.lanes.working_days: not an integer"),
         (lambda d: d["capacity"]["lanes"].update(lane_hours_per_day=None),
          "plan.capacity.lanes.lane_hours_per_day: not a number"),
+        (lambda d: d["capacity"]["lanes"].update(lane_hours_per_week="40"),
+         "plan.capacity.lanes.lane_hours_per_week: not a number"),
+        (lambda d: d["capacity"]["lanes"].update(hours_lost_to_cap=None),
+         "plan.capacity.lanes.hours_lost_to_cap: not a number"),
+        (lambda d: d["capacity"]["lanes"].pop("lane_hours_per_week"),
+         "plan.capacity.lanes.lane_hours_per_week: missing"),
         (lambda d: d["capacity"]["declared_ratio"].update(used="no"),
          "plan.capacity.declared_ratio.used: not a boolean"),
+        (lambda d: d["capacity"]["declared_ratio"].update(value=None),
+         "plan.capacity.declared_ratio.value: not a number"),
+        (lambda d: d["capacity"]["declared_ratio"].update(reason=24),
+         "plan.capacity.declared_ratio.reason: not a string"),
+        (lambda d: d["capacity"]["declared_ratio"].pop("reason"), "plan.capacity.declared_ratio.reason: missing"),
         (lambda d: d["capacity"]["token_budget"].update(tokens_per_week=1.5),
          "plan.capacity.token_budget.tokens_per_week: not an integer"),
         (lambda d: d["capacity"]["token_budget"].update(binding=None),
          "plan.capacity.token_budget.binding: not a string"),
+        (lambda d: d["capacity"]["token_budget"].update(unit=None), "plan.capacity.token_budget.unit: not a string"),
+        (lambda d: d["capacity"]["token_budget"].pop("unit"), "plan.capacity.token_budget.unit: missing"),
         (lambda d: d["capacity"].update(paused=[1]), "plan.capacity.paused[0]: not a string"),
         (lambda d: d["days"][0].pop("attention_hours_lost_to_cap"),
          "plan.days[0].attention_hours_lost_to_cap: missing"),

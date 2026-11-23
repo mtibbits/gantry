@@ -191,6 +191,14 @@ def _ppm(rate) -> int:
     return int(rate * PPM + 0.5)
 
 
+def is_rate_0(rate) -> bool:
+    """Whether `rate` is planned as rate 0 (_ppm): under half a part per
+    million, so a leaf at it needs no block and runs in the lanes row. The
+    week view asks it of a declared ratio (#39), which the plan holds as
+    declared."""
+    return _ppm(rate) == 0
+
+
 def _hours(minutes) -> float:
     return minutes / 60
 

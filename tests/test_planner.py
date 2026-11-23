@@ -296,6 +296,14 @@ def test_ppm_rounds_once_and_clamps():
     assert [ppm(x) for x in (-1, float("nan"), None, True, "3")] == [0] * 5
 
 
+def test_is_rate_0_is_the_ppm_rounding():
+    # What the week view asks of a declared ratio (#39): whether the planner plans it as rate 0.
+    rates = (0, 1e-7, 4e-7, 5e-7, 1e-6, 0.25, 24, 30, -1, float("nan"), None)
+    assert [planner.is_rate_0(x) for x in rates] == [True, True, True, False, False, False, False, False,
+                                                     True, True, True]
+    assert all(planner.is_rate_0(x) is (planner._ppm(x) == 0) for x in rates)
+
+
 # --- what each leaf costs ---------------------------------------------------------------
 
 
