@@ -11,7 +11,7 @@
       "capacity: project.\"\\\"><svg onload=gantrypwn(4)>\".capacity.priority: out of range: 1 <= x <= 9007199254740991",
       "capacity: project.\"' onmouseover='gantrypwn(5)\".capacity.priority: out of range: 1 <= x <= 9007199254740991",
       "capacity: project.\"<!-- gantrypwn(6)\".capacity.priority: out of range: 1 <= x <= 9007199254740991",
-      "capacity: project.\"a b gantrypwn(7)\".capacity.priority: out of range: 1 <= x <= 9007199254740991",
+      "capacity: project.\"a\u2028b\u2029gantrypwn(7)\".capacity.priority: out of range: 1 <= x <= 9007199254740991",
       "capacity: project.__proto__.capacity.priority: out of range: 1 <= x <= 9007199254740991",
       "capacity: project.\"{{DATA}}\".capacity.priority: out of range: 1 <= x <= 9007199254740991",
       "capacity: project.\"&amp;lt;b&amp;gt;\".capacity.priority: out of range: 1 <= x <= 9007199254740991",
