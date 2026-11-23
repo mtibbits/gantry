@@ -135,8 +135,8 @@ Default and its Read by. Change both together. -->
 | `allocation[].from` | TOML local date; a string or a date-time is refused | required | #23, Epic #5 |
 | `allocation[].shares` | table of project name to a finite number, 0 or more; the values sum to 100 (within 0.01) | required | #23, Epic #5 |
 | `site.<project>.serves` | array of business requirement IDs, full (`life:BR-3`) or bare (`BR-3`, meaning the installation namespace) | empty | #23 |
-| `capacity.attention_hours` | table of weekday (`mon` to `sun`) to hours, each a finite number from 0 to 24; a missing day is 0 | not set | Epic #5 |
-| `capacity.agent_lanes` | integer, 0 or more: agent lanes per day | not set | Epic #5 |
+| `capacity.attention_hours` | table of weekday (`mon` to `sun`) to hours, each a finite number from 0 to 24; a missing day is 0. When the week plan uses devagent's capacity declaration, these hours less the reserved blocks give the shape of the week, and the declaration scales them to its weekly total ([week-plan.md](week-plan.md#declared-capacity-from-devagent)) | not set | Epic #5 |
+| `capacity.agent_lanes` | integer, 0 or more: agent lanes per day. When the week plan uses devagent's capacity declaration, its `max_lanes` replaces this value ([week-plan.md](week-plan.md#declared-capacity-from-devagent)) | not set | Epic #5 |
 | `capacity.reserved` | array of tables (`[[capacity.reserved]]`): blocks of attention hours that are spoken for | empty | Epic #5 |
 | `capacity.reserved[].day` | weekday, `mon` to `sun` | required | Epic #5 |
 | `capacity.reserved[].start` | time `"HH:MM"`, 00:00 to 23:59 | required | Epic #5 |
@@ -245,7 +245,7 @@ the key path where it applies. No entry holds a path.
 | `bad_allocation` | settings | an allocation's `shares` is missing or not a table, a share is not a finite number 0 or more, or the shares do not sum to 100; the allocation is not used |
 | `bad_value` | settings | any other key with the wrong type or out of range; its default, or "not set", is used |
 | `duplicate_allocation_date` | settings | a second valid allocation with the same `from`; the first is used |
-| `capacity_missing` | settings | advisory: no `attention_hours` or no `agent_lanes`, so the week planner has no capacity to plan into |
+| `capacity_missing` | settings | advisory: no `attention_hours` or no `agent_lanes`. With nothing else to plan from, the week planner has no capacity to plan into. It is not a problem when the week plan uses devagent's capacity declaration, which gives both ([week-plan.md](week-plan.md#declared-capacity-from-devagent)); this file's check reads this file alone, so the entry is reported either way |
 | `reserved_exceeds_capacity` | settings | a weekday's reserved hours are more than its attention hours |
 | `undefined_priority` | settings | a `serves` ID names no business requirement in this file |
 | `misplaced_priority` | settings | a `serves` ID is in another namespace, or is not a `BR` |

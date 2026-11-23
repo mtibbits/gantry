@@ -409,6 +409,25 @@ V1_FIELDS = {
     "plan.sites[].shareless_days[]": "date", "plan.sites[].share_note": "null|string",
     "plan.sites[].p0[].key": "string", "plan.sites[].p0[].held_by[]": "string",
     "plan.sites[].attention_hours_target": "number", "plan.sites[].lane_hours_target": "number",
+    # Added by #39, together and always written: what devagent's capacity declaration is to
+    # the plan. A reader takes a missing `capacity` as nothing declared, a missing
+    # attention_hours_lost_to_cap as 0 and a missing report `text` as null.
+    "plan.capacity.declaration": "string", "plan.capacity.capacity_schema": "null|string",
+    "plan.capacity.attention": "null|object", "plan.capacity.attention.rule": "string",
+    "plan.capacity.attention.total_hours": "null|number",
+    "plan.capacity.attention.weekday_sum_hours": "null|number",
+    "plan.capacity.attention.factor": "null|number",
+    "plan.capacity.attention.weekdays_lost_to_cap[].weekday": "string",
+    "plan.capacity.attention.weekdays_lost_to_cap[].hours": "number",
+    "plan.capacity.lanes": "null|object", "plan.capacity.lanes.max_lanes": "integer",
+    "plan.capacity.lanes.lane_hours_per_week": "null|number", "plan.capacity.lanes.working_days": "integer",
+    "plan.capacity.lanes.lane_hours_per_day": "number", "plan.capacity.lanes.hours_lost_to_cap": "number",
+    "plan.capacity.declared_ratio": "null|object", "plan.capacity.declared_ratio.value": "number",
+    "plan.capacity.declared_ratio.used": "boolean", "plan.capacity.declared_ratio.reason": "null|string",
+    "plan.capacity.token_budget": "null|object", "plan.capacity.token_budget.tokens_per_week": "integer",
+    "plan.capacity.token_budget.binding": "string", "plan.capacity.token_budget.unit": "string",
+    "plan.capacity.paused[]": "string",
+    "plan.days[].attention_hours_lost_to_cap": "number", "plan.report[].text": "null|string",
 }
 
 
@@ -429,7 +448,10 @@ def test_field_paths_give_a_nullable_object_its_own_path():
 def test_shape_file_keeps_every_v1_field():
     paths = field_paths(SHAPE["shape"])
     assert {path: paths.get(path) for path in V1_FIELDS} == V1_FIELDS
-    assert len(V1_FIELDS) == 77
+    assert len(V1_FIELDS) == 103
+    # Every field of the pinned shape is frozen here, so docs/week-plan.md names it
+    # (test_week_plan_doc_names_every_field), and an object that becomes nullable is seen.
+    assert sorted(set(paths) - set(V1_FIELDS)) == []
 
 
 # --- the write ----------------------------------------------------------------------------

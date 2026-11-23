@@ -784,3 +784,99 @@ def test_capacity_only_line_is_devagents_alone(tmp_path):
     assert ours.warnings == () and ours.violations == ()
     # The line is the only difference: the documents are the same bytes.
     assert theirs.stdout == cap.document_text(ours).encode("utf-8")
+
+
+# --- the documentation -------------------------------------------------------------
+
+FORMATS_DOC = ROOT / "docs" / "devagent-formats.md"
+CAPACITY_HEADING = "## The capacity declaration"
+KEY_TABLE_HEADER = ["Key", "Type", "Range", "Default", "What Gantry does with it"]
+# A devagent source line cite, `scripts/<file>:N`. The page's cites are lines of the floor
+# pin's release, which has no capacity reader, so this section names files, keys and rule
+# strings only (tests/test_devagent_contract.py holds every cite to the floor's CITES).
+LINE_CITE = re.compile(r"(?:scripts|templates)/[\w./-]+:[0-9]")
+
+
+def capacity_section():
+    """docs/devagent-formats.md's section on the declaration, LF whatever the checkout."""
+    from helpers_docs import markdown_text, section
+
+    part = section(markdown_text(FORMATS_DOC), CAPACITY_HEADING)
+    assert part is not None, CAPACITY_HEADING
+    return part
+
+
+def doc_default(value):
+    """A default as the section's tables write it."""
+    if value is None:
+        return "none"
+    return f"`{json.dumps(value)}`"
+
+
+def test_formats_doc_lists_every_capacity_rule():
+    part = capacity_section()
+    flat = " ".join(part.split())
+    # devagent's sixteen rule strings, each whole, in its order, as one fenced block.
+    assert cap.RULES == RULES and len(cap.RULES) == 16
+    blocks = [block.split(LF)[:-1] for block in re.findall(r"^```\n(.*?)^```$", part, re.S | re.M)]
+    assert list(cap.RULES) in blocks
+    # Each key of both tables, the schema, and the texts that are devagent's contract.
+    tag, _ = hd.read_pin("latest")
+    wanted = [
+        *SHARED_KEYS, *PROJECT_KEYS, "capacity_schema", json.dumps(cap.CAPACITY_SCHEMA), cap.TOKEN_UNIT,
+        cap.BINDING_WEEK, cap.BINDING_WINDOWS,
+        cap.VIOLATION.format(where="<where>", rule="<rule>"), cap.WARNING.format(where="<where>"),
+        # The warning that is devagent's alone.
+        "capacity: warning: project.<name>" + CAPACITY_ONLY_END.decode("utf-8"),
+        tag, "tests/devagent-latest.pin", hd.PINS["latest"][1],
+        "scripts/capacity.sh", "scripts/lib/capacity.py", "gantry/capacity.py", "tests/test_capacity.py",
+        # <where>: a bare part, and a part written as a JSON string.
+        cap.where(["capacity", "max_lanes"]), cap.where(["project", "a.b", "capacity", "paused"]),
+        cap.where(["project", "my proj", "capacity", "priority"]), "pool", "[A-Za-z0-9_-]+",
+    ]
+    assert cap.where(["project", "a.b", "capacity", "paused"]) == 'project."a.b".capacity.paused'
+    assert [name for name in wanted if f"`{name}`" not in flat] == []
+    assert LINE_CITE.search(part) is None
+    # The planted control: a cite of the kind the rest of the page carries is seen.
+    assert LINE_CITE.search("`scripts/lib/capacity.py:12`") and not LINE_CITE.search("`scripts/lib/capacity.py`: 12")
+
+
+def test_formats_doc_key_tables_match_the_rules():
+    from test_samples import md_tables
+
+    shared_table, project_table = [t for t in md_tables(capacity_section()) if t.header == KEY_TABLE_HEADER]
+    # The shared table: every key but the ratio is required. Rows are in devagent's key order.
+    assert [row[:4] for row in shared_table.rows] == [
+        [f"`{key}`", kind, f"`{rng[0]}`", "none" if key in cap.SHARED_OPTIONAL else "required"]
+        for key, (kind, rng) in cap.SHARED_RULES.items()]
+    assert cap.SHARED_OPTIONAL == ("operator_hours_per_agent_hour",)
+    # A project's table: every key is optional, with devagent's default.
+    assert [row[:4] for row in project_table.rows] == [
+        [f"`{key}`", kind, "none" if rng is None else f"`{rng[0]}`", doc_default(cap.PROJECT_DEFAULTS[key])]
+        for key, (kind, rng) in cap.PROJECT_RULES.items()]
+    assert [doc_default(cap.PROJECT_DEFAULTS[key]) for key in PROJECT_KEYS] == [
+        "`5`", "none", "`false`", "none", "none", "none"]
+    assert all(row[4] for row in shared_table.rows + project_table.rows)
+
+
+def test_capacity_missing_row_points_to_the_declaration():
+    from helpers_docs import markdown_text
+
+    (row,) = [line for line in markdown_text(ROOT / "docs" / "portfolio-file.md").split(LF)
+              if line.startswith("| `capacity_missing` |")]
+    assert "advisory" in row and "(week-plan.md#declared-capacity-from-devagent)" in row
+
+
+def test_readme_row_names_both_pins_checks():
+    from helpers_docs import markdown_text
+
+    (row,) = [line for line in markdown_text(ROOT / "README.md").split(LF) if line.startswith("| devagent |")]
+    floor, latest = hd.read_pin()[1], hd.read_pin("latest")[1]
+    assert (floor, latest) == ("3.0.0", "3.4.0")
+    # The oldest supported devagent is the floor pin's, with its checks; the capacity
+    # agreement test runs at the latest pin's.
+    assert row.startswith(f"| devagent | {floor} |")
+    for name in (f"`tests/devagent.pin` names ({floor})", f"`tests/devagent-latest.pin` names ({latest})",
+                 "(docs/devagent-formats.md#the-capacity-declaration)",
+                 "the config format is not yet tested against it"):
+        assert name in row, name

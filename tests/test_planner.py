@@ -3044,7 +3044,8 @@ def test_week_plan_doc_states_planner():
     assert len(planner.UNPLANNED_REASONS) == 9 and len(NO_PLAN) == 9
     # The planner's rules are in its section, the file's in its own.
     the_planner = " ".join(doc_section(text, "## The planner").split())
-    for topic in ("### Days and capacity", "### What each leaf costs", "### Blocks", "### A ready leaf that fits",
+    for topic in ("### Days and capacity", "### Declared capacity from devagent", "### What each leaf costs",
+                  "### Blocks", "### A ready leaf that fits",
                   "### Order within a site", "### Priority tiers", "### Merged blocks", "### How long a block runs",
                   "### Fair share between sites", "### The lanes row", "### Share-less sites",
                   "### Started in this plan", "### States",

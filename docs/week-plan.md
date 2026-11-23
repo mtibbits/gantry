@@ -183,32 +183,192 @@ priority tier and then by the portfolio file's intended shares
 `allocation_rule`: "fair share by intended shares". The
 plan is data: it is written to `week-plan.json` ([The plan file](#the-plan-file))
 and handed, as one object, to every view rendered from the build's result
-after planning. Today that is the index, which does not show it yet; a
-worksite page is rendered before the plan is made and does not receive it.
+after planning. Today the week view renders it
+([The week view page](#the-week-view-page)) and the index does not show it;
+a worksite page is rendered before the plan is made and does not receive it.
 The planner reads no file and no clock: it works from the sites the build
-read, the portfolio file's capacity ([portfolio-file.md](portfolio-file.md))
-and each leaf's rate ([Attention need](#attention-need)).
+read, the portfolio file's capacity ([portfolio-file.md](portfolio-file.md)),
+the capacity devagent's config declares
+([Declared capacity from devagent](#declared-capacity-from-devagent)) and
+each leaf's rate ([Attention need](#attention-need)).
 
 Two **pools** are divided between the sites: **operator attention hours**
-and **agent lanes**, counted in lane hours. Both come from the portfolio
-file, which the plan records as each pool's capacity source
-(`portfolio file`).
+and **agent lanes**, counted in lane hours. Both come from devagent's
+capacity declaration when the plan uses one, and from the portfolio file
+when it does not. The plan records which as each pool's capacity source:
+`devagent capacity declaration (this build machine)` or `portfolio file`.
 
 ### Days and capacity
 
 A day's attention hours are its weekday's `attention_hours` less its
-reserved blocks, never below 0. A **working day** is any day where that is
-above 0: a Saturday counts when the portfolio file gives it hours, unlike
-the index's "working day N", which counts Monday to Friday. A weekday whose
-reserved blocks take all its hours is not a working day.
+reserved blocks, never below 0. A capacity declaration the plan uses
+resizes them, or sets them when the portfolio file gives none
+([Declared capacity from devagent](#declared-capacity-from-devagent)). A
+**working day** is any day whose attention hours are above 0: a Saturday
+with attention hours counts, unlike the index's "working day N", which
+counts Monday to Friday. A weekday whose reserved blocks take all its hours
+is not a working day.
 
 The plan starts on the as-of date, if it is a working day, and otherwise on
 the next one. It covers 10 working days; the first 5 are the **planned
 week**. The as-of date counts as a whole day, so a rebuild later the same
-day gives the same plan. Each working day has `agent_lanes` lanes of 6
-agent hours. Reserved blocks' `start` times are shown, not planned around.
-An as-of date so late that the 10 working days would run past 9999-12-31
-is not supported: the build exits 1 with a Python traceback.
+day gives the same plan. Reserved blocks' `start` times are shown, not
+planned around. An as-of date so late that the 10 working days would run
+past 9999-12-31 is not supported: the build exits 1 with a Python
+traceback.
+
+Each working day has `agent_lanes` lanes. A **lane's day** is the agent
+hours one lane gives in a day, and so the most one leaf takes in a day: 6
+agent hours. A capacity declaration the plan uses gives both figures in
+their place: its `max_lanes` lanes, and a lane's day made from its
+`lane_hours_per_week`.
+
+### Declared capacity from devagent
+
+devagent's config can declare the operator's capacity for a week: a
+`[capacity]` table, and a `[project.<name>.capacity]` table for any project
+([devagent-formats.md](devagent-formats.md#the-capacity-declaration) lists
+the keys and devagent's rules for them). The full build reads both from the
+devagent config the installation names (`devagent_config`), once, after the
+site list, and plans the week from them (#39, `gantry/capacity.py`). It
+runs no devagent command. A `--site` build plans no week and does not read
+them.
+
+devagent's config is one machine's, so the declaration is the one on the
+machine that runs the build. The capacity source says so:
+`devagent capacity declaration (this build machine)`.
+
+The plan's `capacity.declaration` says what the declaration is to the plan:
+
+| `declaration` | When | The plan's capacity |
+|---|---|---|
+| `not_declared` | the config sets no `capacity`, shared or for a project | the portfolio file's |
+| `used` | it has a `[capacity]` table and breaks none of devagent's rules | the declaration's, by the rules below |
+| `invalid` | it breaks a rule; a project's capacity table with no `[capacity]` table breaks one | the portfolio file's |
+
+**What stays in the portfolio file.** A used declaration gives sizes: the
+week's attention hours, the lanes and a lane's hours. The portfolio file
+still gives the shape of the week (`attention_hours`, weekday by weekday),
+the reserved blocks, the block settings, the attention mapping and the
+intended shares. So a used declaration still needs a portfolio file whose
+settings were read: without one there is no plan
+([When there is no plan](#when-there-is-no-plan)). It does not need the
+file's `attention_hours` or its `agent_lanes`.
+
+**Attention hours, net to net.** `operator_hours_per_week` is a net figure:
+the hours a week the operator has for issue work. It is compared with the
+**net weekday sum**: the portfolio file's hours for each weekday after its
+reserved blocks, added over the week. It is never compared with the hours
+before those blocks, so no reserved block is taken out twice.
+
+- When the total and the net weekday sum differ by more than 0.01 h, each
+  weekday's net hours are multiplied by total ÷ sum. The portfolio file
+  keeps the shape of the week and devagent gives its size: net weekdays of
+  4, 5, 2, 5 and 4 h sum to 20, so a declared 30 gives a factor of 1.5 and
+  days of 6, 7.5, 3, 7.5 and 6 h.
+- When they are within 0.01 h, the factor is 1 and each day is the
+  portfolio file's.
+- When the portfolio file sets no `attention_hours` (the key is absent or
+  was rejected), there is no shape to keep, and the total is spread evenly
+  over Monday to Friday, a fifth to each day.
+
+The total is read exactly, in its decimal form (20.01 h is 1200.6 minutes),
+and the weekday figures are the planner's whole minutes
+([What each leaf costs](#what-each-leaf-costs)). Each scaled or spread day
+is rounded once, half up, to whole minutes, so the days of a week need not
+sum to the total to the minute.
+
+**The day's cap.** A day holds at most 24 hours less its reserved blocks.
+The hours of a scaled or spread day that do not fit are lost, not moved to
+another day. The plan records them on each such day
+(`attention_hours_lost_to_cap`) and by weekday
+(`capacity.attention.weekdays_lost_to_cap`), and the week view names each
+weekday. With one working day of 10 h and a 2-hour reserved block, a
+declared 30 h all goes to that day: 22 h fit and 8 h are lost. With a used
+declaration, a day's hours before reserved blocks
+(`attention_hours_declared`) are its hours after them plus those blocks.
+
+**Every weekday reserved.** When `attention_hours` gives some weekday hours
+and reserved blocks take all of every weekday's, the net weekday sum is 0
+and nothing is spread into reserved time. There is no plan, and the reason
+is "devagent declares T h a week, but the portfolio file reserves every
+weekday's attention hours". The reason is the same when `attention_hours`
+is not set and each day from Monday to Friday is reserved for its 24 hours.
+An `attention_hours` table that gives no weekday any hours is set, so
+nothing is spread over it either: the reason is then the one for a
+portfolio file with no usable attention hours. A total too small to give
+any weekday a minute has a reason of its own
+([When there is no plan](#when-there-is-no-plan)).
+
+**Lanes.** `max_lanes` replaces `agent_lanes` as the lanes of each working
+day. A lane's day is `lane_hours_per_week` divided by the week's working
+days, the weekdays left with attention hours after scaling and the cap, in
+place of 6 agent hours: 40 lane hours over 5 working days are 8 a day.
+Agents can run on other days too, but the planner plans working days only,
+so a lane's weekly hours are deliberately spread over them. A lane's day is
+rounded once, half up, to whole minutes, and is at least 1 minute and at
+most 24 hours. What the 24-hour cap cuts is recorded in the plan's
+`capacity.lanes`, as `hours_lost_to_cap`, for one lane over a week. The
+week view shows each day's lane hours left and none of the `capacity.lanes`
+figures.
+
+**The declared ratio.** `operator_hours_per_agent_hour`, when it is set, is
+every site's declared ratio, the third of
+[the four sources](#the-four-sources): a leaf's `h:` score ranks above it,
+as a measured ratio will once #40 passes one, and it ranks above the
+heuristic. The planner passes the ratio and decides no rank itself. A
+declared 0 is honoured: each leaf with no `h:` runs in the lanes row and
+needs no block, and the week view says so. A ratio above 24 is not used:
+the leaves with no `h:` stay estimated, and the plan and the week view
+carry the reason.
+
+**Paused sites.** A project whose capacity table sets `paused = true` is a
+paused site. It gets no block and no lane; each of its open leaves is
+unplanned as `paused` before any other reason, a P0 leaf included; and its
+share goes to the sites that can use it
+([Unplanned leaves](#unplanned-leaves)).
+
+**The token budget is shown, not scheduled.** The declaration's effective
+weekly token budget is the smaller of `tokens_per_week` and
+`tokens_per_window` × `windows_per_week`, that product rounded to whole
+tokens. The plan holds it with the term that sets it and its unit
+(`capacity.token_budget`), and the week view shows it on a line that starts
+"token budget (not scheduled)". Nothing is planned with it: no input gives
+a leaf a token figure, so there is no token pool.
+
+**Keys the plan does not use.** A project's `priority`, `max_lanes`,
+`reserve_operator_hours_per_week`, `reserve_tokens_per_week` and `deadline`
+are checked with the rest, so a bad value makes the declaration invalid,
+and they change nothing else in the plan. They are inputs for devagent's
+own forecast (mtibbits/devagent#744), not for Gantry's plan: its shares
+come from the portfolio file, and the week view's allocation line names its
+rule.
+
+**An invalid declaration.** A declaration that breaks any rule is not used
+at all: not its hours, its lanes, its ratio, its paused sites or its token
+budget. The plan is the one made with nothing declared, from the portfolio
+file's capacity, apart from what it says of the declaration:
+`capacity.declaration` is `invalid`, and the report leads with one
+`capacity_invalid` entry per broken rule, holding the line devagent's
+reader writes about it (`capacity: <where>: <rule>`). The week view says the
+declaration is invalid and that the portfolio file's capacity is used, and
+lists those lines. When the portfolio file then gives no attention hours or
+no lanes, the no-plan reason names the declaration, and the page still
+lists the lines.
+
+A key devagent does not know, in either table, is ignored and does not make
+the declaration invalid. The report gains a `capacity_unknown_key` entry
+holding devagent's warning line, and the week view lists it. `gantry build`
+prints no line for an entry of either kind.
+
+A devagent config that cannot be read, or is not valid TOML, is a config
+error, as it is when the site list is read from it: the build exits 1 and
+writes nothing. It is never a violation.
+
+`gantry portfolio` reads the portfolio file alone, so it still reports
+`capacity_missing` for a file with no `attention_hours` or no
+`agent_lanes`. With a used declaration the plan needs neither
+([portfolio-file.md](portfolio-file.md#the-report)).
 
 ### What each leaf costs
 
@@ -216,15 +376,19 @@ A leaf needs the midpoint of its estimate in agent hours, or the default
 unit (`default_unit_hours`) when it has no estimate; such a leaf is marked
 unestimated. A leaf in progress is charged its full midpoint, because no
 record says how much is left. Every placed leaf runs in one agent lane, so
-it takes at most 6 agent hours a day and a longer leaf continues on later
-days. Its rate charges rate × agent hours of operator attention. A leaf
-whose rate is 0 goes in the day's **lanes row** and needs no block.
+it takes at most a lane's day ([Days and capacity](#days-and-capacity)) in
+a day, and a longer leaf continues on later days. Its rate charges rate ×
+agent hours of operator attention. A leaf whose rate is 0 goes in the day's
+**lanes row** and needs no block.
 
 The planner charges whole minutes, by two rules:
 
 - every input is rounded to whole minutes once, as `int(hours * 60 + 0.5)`:
   a weekday's attention, each reserved block, `block_min_hours`, the start
-  cost and each leaf's hours (a leaf needs at least 1 minute);
+  cost and each leaf's hours (a leaf needs at least 1 minute). A capacity
+  declaration's weekly hours are not rounded themselves: each day made from
+  them is, once
+  ([Declared capacity from devagent](#declared-capacity-from-devagent));
 - a rate becomes whole parts per million once, and no fraction is
   multiplied after that. The operator minutes of some agent minutes round
   up, so a block's work plus its start cost always fits its length; the
@@ -235,9 +399,13 @@ Fair-share targets are the one exception: they are exact fractions, never
 rounded, compared with the whole-minute charges
 ([Fair share between sites](#fair-share-between-sites)).
 
-No number in the portfolio file can stop the planner. A value over 24 hours
-(a block of `1e308` hours, say) counts as 24, a lane count over 1,000,000
-counts as that, and a leaf longer than 1,000,000,000 hours is cut to it.
+No number in the portfolio file or in devagent's capacity declaration can
+stop the planner. A value over 24 hours (a block of `1e308` hours, say)
+counts as 24, a lane count over 1,000,000 counts as that, and a leaf longer
+than 1,000,000,000 hours is cut to it. A declared day, of attention or of a
+lane, is held to 24 hours too, and a declared total too small to give any
+weekday a minute gives no plan
+([When there is no plan](#when-there-is-no-plan)).
 
 ### Blocks
 
@@ -261,9 +429,10 @@ closes.
 ### A ready leaf that fits
 
 At a point in a day, a ready leaf fits when the day still has lane minutes
-free and the leaf is under its 6 agent hours that day, and, when its rate
-is above 0, either its site's block is open and the day's attention holds
-one more agent minute of it, or its site's block is not open and the
+free and the leaf has less than a lane's day
+([Days and capacity](#days-and-capacity)) placed that day, and, when its
+rate is above 0, either its site's block is open and the day's attention
+holds one more agent minute of it, or its site's block is not open and the
 attention left, less the open block's padding up to `block_min_hours`,
 holds both `block_min_hours` and the start cost plus one agent minute of
 the leaf. A block that could hold no leaf is not opened.
@@ -303,7 +472,7 @@ Each day runs in eight phases:
 
 In phases 1 to 4, each site with a ready leaf of the tier of rate above 0
 gets one block holding those leaves, in the order within a site, limited
-only by the day's attention, the lanes and each leaf's 6 agent hours. The
+only by the day's attention, the lanes and a lane's day for each leaf. The
 sites go in order of their most urgent such leaf's effective priority, ties
 to devagent's config order, fixed when the phase starts; in phase 1 every
 such leaf is P0, so config order decides. Then the sites with a ready rate-0
@@ -376,11 +545,12 @@ target less charged. Attention is charged at a block's start cost, at each
 placement's operator minutes and at its closing padding; lane minutes at
 each placement. A charge of some minutes adds to the targets of the sites
 that can use the pool, judged before the charge: a site can use attention
-while it has a ready leaf of rate above 0 under its 6 agent hours that day,
-and lanes while it has any ready leaf under its 6 agent hours. A site that
-cannot absorb a minute today accrues nothing, so the share it cannot use
+while it has a ready leaf of rate above 0 with less than a lane's day
+placed that day, and lanes while it has any ready leaf with less than a
+lane's day placed. A site that cannot absorb a minute today accrues
+nothing, so the share it cannot use
 goes to the share sites that can. A site that can absorb a little, such as
-one slow leaf still under its 6 agent hours, accrues its whole share until
+one slow leaf still short of a lane's day, accrues its whole share until
 it cannot: its target can run ahead of anything it will use, and the other
 share sites then sit over their own targets, so their blocks hand over at
 `block_default_hours` while both fit.
@@ -404,8 +574,8 @@ site's block.
 
 ### The lanes row
 
-The lanes row holds the day's rate-0 leaves, each up to its 6 agent hours
-or the lane hours left. In phases 2 and 4 they join site by site, the
+The lanes row holds the day's rate-0 leaves, each up to a lane's day or
+the lane hours left. In phases 2 and 4 they join site by site, the
 sites ordered by their most urgent rate-0 leaf of the tier, ties to config
 order. In phase 6, while lane minutes are left and a share
 site has a ready `fair_share` rate-0 leaf that fits, the share site with
@@ -434,11 +604,13 @@ keep the order within a site among themselves.
 ### States
 
 The planner reads `WBS.md` states only. A leaf blocked externally (`?`) or
-parked (`P`) is not planned. Every other open leaf is, an in-progress (`~`)
-or stuck (`!`) one included: such a leaf is tier 2, `started`, and goes
-before its site's `fair_share` work ([Priority tiers](#priority-tiers)). An
-issue parked in devagent whose leaf still reads `[~]` is planned as started
-work.
+parked (`P`) is not planned. No other state keeps an open leaf out, an
+in-progress (`~`) or stuck (`!`) one included: such a leaf is tier 2,
+`started`, and goes before its site's `fair_share` work
+([Priority tiers](#priority-tiers)). An issue parked in devagent whose leaf
+still reads `[~]` counts as started work. A leaf of any state can still be
+unplanned for another reason, such as a paused site
+([Unplanned leaves](#unplanned-leaves)).
 
 ### Dependencies within a site
 
@@ -460,9 +632,12 @@ becomes ready and is `beyond_horizon`; one whose blocker is unplanned for any
 other reason is `waits_on_unplanned`. An entry naming a site not in this
 installation leaves the leaf `waits_on_site_absent`, and one that could not be
 resolved leaves it `waits_on_unresolved`: the plan does not guess at work the
-build cannot see. The planner reads each entry's outcome as the full build
-recorded it ([worksite-page.md](worksite-page.md#foreign-entries)) and never
-resolves an entry again.
+build cannot see. Each of these reasons gives way to an earlier one
+([Unplanned leaves](#unplanned-leaves)), so a leaf of a paused site is
+`paused` whatever its entries name. The planner reads each entry's outcome
+as the full build recorded it
+([worksite-page.md](worksite-page.md#foreign-entries)) and never resolves an
+entry again.
 
 ### Local entries that name nothing
 
@@ -481,14 +656,15 @@ span two or more sites. Each is reported once in the plan's `report`, as a
 `cross_site_cycle` entry. Its leaves are unplanned as `cross_site_cycle`
 unless an earlier reason applies ([Unplanned leaves](#unplanned-leaves)): a
 blocked or parked leaf, or a leaf of a site's own cycle, keeps that reason.
-The leaves downstream of them are `waits_on_unplanned`. A site's own cycle
-stays `waits_on_cycle` and is not in `report`; a cycle across sites that
-holds one is reported whole. The planner always finishes.
+The leaves downstream of them are `waits_on_unplanned`, by the same rule. A
+site's own cycle stays `waits_on_cycle` and is not in `report`; a cycle
+across sites that holds one is reported whole. The planner always finishes.
 
 The leaves of a paused site ([Unplanned leaves](#unplanned-leaves)) are
 left out before the cycles are found. A paused leaf is in no cycle across
 sites and no `cross_site_cycle` entry names one; a leaf that waits on it,
-in what would have been a cycle or not, is `waits_on_unplanned`.
+in what would have been a cycle or not, is `waits_on_unplanned` unless an
+earlier reason applies.
 
 ### Unplanned leaves
 
@@ -533,8 +709,8 @@ Each day records the pools that ran out while a ready leaf still needed
 them, attention first:
 
 - **agent lanes**: no lane minute is left while a ready leaf with minutes
-  to place, under its 6 agent hours that day, waits for one, in a block or
-  in the lanes row;
+  to place, and less than a lane's day placed that day, waits for one, in a
+  block or in the lanes row;
 - **operator attention hours**: with a lane minute free, such a leaf of
   rate above 0 waits because its site's block stopped at the day's
   attention with work left, or because no block of its site could open.
@@ -592,10 +768,12 @@ The plan has status `no_plan` and one reason, the first that applies, when:
 The four reasons that name devagent are its capacity declaration's (#39).
 A declaration is used when it has a `[capacity]` table and breaks no rule:
 it gives the week's attention hours and the lanes, so the portfolio file
-need set neither. In a reason, T is the declared `operator_hours_per_week`
-in its shortest decimal form, never rounded (`30`, `30.5`, `0.001`), and
-"N violations" counts the lines devagent's reader writes about the rules
-the declaration breaks: "1 violation" for one.
+need set neither. In a reason, T is the declared `operator_hours_per_week`,
+never rounded, as Python writes the number it read: the shortest text that
+reads back as that number. So `30` and `0.001` read as declared, `30.50`
+reads `30.5`, and a total under 0.0001 has an exponent (`0.00001` reads
+`1e-05`). "N violations" counts the lines devagent's reader writes about
+the rules the declaration breaks: "1 violation" for one.
 
 No reason holds a path. A site counts as built when its page was rendered;
 a page that later fails to write does not change the plan. A `no_plan` plan
@@ -635,8 +813,9 @@ Hours are minutes divided by 60, and a date is `YYYY-MM-DD` text.
 | `allocation_rule` | the rule that divides a day between sites, as text |
 | `horizon_days`, `planned_week` | the 10 working days, and the first 5 of them |
 | `mapping` | the attention mapping in use: its `values`, its `source` and why the portfolio file's was `rejected`, or null |
-| `pools` | attention, then lanes: each pool's `name`, its `capacity_source` and its `days_run_out` in the planned week |
+| `pools` | attention, then lanes: each pool's `name`, its `capacity_source` (`devagent capacity declaration (this build machine)` when the plan uses the declaration, on a `no_plan` plan too, else `portfolio file`) and its `days_run_out` in the planned week |
 | `binding` | the binding `pool` and its `first_day`, both null when no pool ran out, and `text`: the pool's name or "no pool ran out" |
+| `capacity` | what devagent's capacity declaration is to the plan, and the attention and lanes planned from, below |
 | `unestimated_planned` | how many distinct unestimated leaves are placed in the 10 days |
 | `days` | one record per working day, below |
 | `leaves` | one record per placed leaf, sites in config order, then by first placement |
@@ -646,7 +825,8 @@ Hours are minutes divided by 60, and a date is `YYYY-MM-DD` text.
 
 A day holds its `date` and `weekday` (`mon` to `sun`), its
 `attention_hours_declared` and its `attention_hours` after reserved blocks,
-its `reserved` blocks (`start`, `hours`, `label`), its `lane_hours`, its
+its `reserved` blocks (`start`, `hours`, `label`), its `lane_hours` (the
+lanes times a lane's day), its
 `blocks` in order, its `lanes_row`, what was `left` of each pool
 (`attention_hours`, `lane_hours`), the pools that `ran_out` and its count
 of `unestimated` leaves. A block holds its `number`, `site`,
@@ -654,12 +834,55 @@ of `unestimated` leaves. A block holds its `number`, `site`,
 its `site`, `key`, `agent_hours` and `operator_hours`. A lanes-row entry
 holds `site`, `key` and `agent_hours`.
 
+A day's `attention_hours_declared` is its attention hours before reserved
+blocks, as planned: its `attention_hours` plus its `reserved` blocks'
+hours. With no capacity declaration used, that is the portfolio file's
+figure for the weekday. With one used, the day's `attention_hours` are its
+scaled or spread hours after the cap
+([Declared capacity from devagent](#declared-capacity-from-devagent)), so
+the sum need not be the portfolio file's figure.
+
 A day's `attention_hours_lost_to_cap` is what of devagent's weekly hours
-does not fit in the day after its reserved blocks (#39), and
+does not fit in the day after its reserved blocks (#39), 0 when all of it
+fits or the plan uses no declaration, and
 `capacity.attention.weekdays_lost_to_cap` lists the same loss by weekday,
 each with its `weekday` (`mon` to `sun`) and `hours`, Monday first and only
 the weekdays with a loss: a weekday that keeps none of its hours is no day
 of the plan, so its loss is in that list alone.
+
+`capacity` holds what devagent's capacity declaration is to the plan (#39,
+[Declared capacity from devagent](#declared-capacity-from-devagent)):
+
+- `declaration`: `not_declared`, `used` or `invalid`;
+- `capacity_schema`: the version of devagent's capacity document that this
+  Gantry mirrors, `"1.0"`, or null when `declaration` is `not_declared`;
+- `attention`: null on a `no_plan` plan, else where the days' attention
+  hours come from. Its `rule` is `portfolio_file`, `scaled` (a used
+  declaration's weekly hours laid on the portfolio file's weekdays) or
+  `even_spread` (those hours spread over Monday to Friday). It holds the
+  declared `total_hours`, the portfolio file's `weekday_sum_hours` after
+  reserved blocks and the `factor` each day was multiplied by, which is 1
+  when the two are within 0.01 h; each is null when the rule does not use
+  it. Its `weekdays_lost_to_cap` is the list above, empty when nothing is
+  lost;
+- `lanes`: null on a `no_plan` plan, else `max_lanes`, the lanes as
+  planned; `lane_hours_per_week` as declared, or null when the lanes are
+  the portfolio file's; `working_days`, the weekdays with attention hours;
+  `lane_hours_per_day`, a lane's day; and `hours_lost_to_cap`, what the
+  24-hour cap cuts from one lane over a week;
+- `declared_ratio`: null unless a used declaration sets
+  `operator_hours_per_agent_hour`, else its `value` as declared, whether it
+  is `used`, and the `reason` when it is not (null when it is);
+- `token_budget`: null unless a declaration is used, else `tokens_per_week`,
+  the effective weekly budget in whole tokens; the term that sets it, as
+  `binding` (`tokens_per_week` or `tokens_per_window_x_windows_per_week`);
+  and its `unit`;
+- `paused`: the built sites the declaration pauses, in config order; empty
+  when there is none.
+
+A `no_plan` plan holds the last three as any plan does: a used declaration's
+ratio, token budget and paused sites are recorded though nothing is
+planned.
 
 A leaf holds its `site` and `key`, its `rate`, `need`, `tag` and `basis`,
 its total `agent_hours`, whether it is `unestimated`, its `state`, its
@@ -1049,14 +1272,32 @@ Adding a field is compatible and does not change `plan_version`. So is a
 new value in an enumerated text field other than `status` (an unplanned
 reason, a capacity source, the allocation rule's text), and such a value
 may also stop being given: a reader acts only on `status`, on whether the
-binding pool is null and on the two pool names, and shows any other value
-it does not know as text. A new `status` value changes `plan_version`, and
-so does removing or renaming a field or changing its type or meaning.
+binding pool is null, on the two pool names and on the values it knows of
+`capacity.declaration`, of an attention `rule` and of a report entry's
+`kind` (#39). It shows nothing for a value of those three that it does not
+know, and any other value it does not know as text. A new `status` value
+changes `plan_version`, and so does removing or renaming a field or
+changing its type or meaning.
 A file written before a field was added lacks it: a reader takes a missing
 `report` as empty and a missing `unresolved_local` as 0, and a missing
 `notes`, `shares`, `shareless_days` or `p0` as empty and a missing
 `share_note`, `tier`, `attention_hours_target` or `lane_hours_target` as
 not given.
+
+A file written before #39 lacks `capacity`, each day's
+`attention_hours_lost_to_cap` and each report entry's `text`. A reader takes
+a missing `capacity` as nothing declared: its `declaration` as
+`not_declared`, its `declared_ratio` and `token_budget` as null, its
+`paused` as empty, and its `attention` and `lanes` as not given. It takes a
+missing `attention_hours_lost_to_cap` as 0 and a missing `text` as null.
+Those fields were added together, so a `capacity` that is present holds
+every field above, the `weekdays_lost_to_cap` of its `attention` included.
+`attention_hours_declared` keeps its meaning: with nothing declared it is
+the figure every earlier file holds.
+
+The week view reads no plan file. It renders the plan its own build made,
+which holds every field this version writes, so it reads each field
+directly and gives none a default.
 
 ### The pinned shape
 
@@ -1262,6 +1503,7 @@ written. A `week.html` from an earlier build is not deleted
 
 The page reads the plan's file form. Of `report` it renders the lines of
 the two capacity kinds (#39) and no other entry: it shows cycle leaves by
-their reason, and #167 will read `report`. Its embedded
-data holds the plan, then, per leaf the page names, its site, key, title,
-`est:` value, own priority and model tiers.
+their reason. #167 will read `report` for its cycles. The capacity entries'
+lines are on the page already, so #167 must not render them a second time.
+The page's embedded data holds the plan, then, per leaf the page names, its
+site, key, title, `est:` value, own priority and model tiers.
