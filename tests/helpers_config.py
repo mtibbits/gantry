@@ -58,7 +58,8 @@ def write_site_tree(folder, sites, tail="", **raw):
     `None` leaves the site's planning directory with no WBS.md (devagent's
     no_wbs project). Site i's planning directory is the folder `<i>` beside the
     devagent config. Each Source's document is checked against the stopgap's
-    reading of its text (_stopgap_agreement). `tail` and `raw` are as
+    reading of its text (_stopgap_agreement; meta values and devagent-only
+    report entries are not compared, see COMPARED). `tail` and `raw` are as
     write_config's.
     """
     import helpers_portfolio as hp  # hp imports copy_samples from here at load
@@ -86,6 +87,15 @@ def write_site_tree(folder, sites, tail="", **raw):
 
 # The agreement check (#195): while gantry/wbs_stopgap.py lives, a site's portfolio
 # document must read its WBS.md as the stopgap does, on these snapshot fields only.
+# What it guards: the node tree (keys, issues, outlines, titles, states), depends_on,
+# meta key order, links, held-out keys, and the report entries Gantry maps from both
+# readers (no_issue, unresolved_ref, duplicate_issue ...), one-sided only. What it does
+# NOT guard, because neither side's snapshot holds it: meta values (est, priority,
+# satisfies ...), and the entries devagent alone writes that the reader passes through as
+# shown entries (a Source's report=: issue_not_id, near_miss_line, meta_unreadable,
+# dep_cycle, unknown_meta_key ...). Those were checked once against devagent's own
+# aggregator; re-run that differential (Issue-195 analysis/census-tools/README.md) for
+# any new or changed Source.
 COMPARED = re.compile(r"nodes\[\d+\](\.(key|issue|outline|title|state|depends_on|meta))?|links|held_out"
                       r"|report\[(\d+|null), [a-z_]+\]")
 # (class, the side holding the entry): known_differences.json's one-sided entries on
@@ -122,7 +132,8 @@ def _kept(where, stopgap, document):
 
 def _stopgap_agreement(root, document, name, wbs):
     """Assert that the portfolio document at `document`, read under `root`, reads project
-    `name` as the stopgap reads `wbs`, that site's WBS.md bytes."""
+    `name` as the stopgap reads `wbs`, that site's WBS.md bytes, on the fields COMPARED
+    names (see its comment for what is not compared)."""
     import update_expected_leaves as ue
     from gantry.portfolio_json import ProjectInput, read_portfolio
     from gantry.roots import directory_roots
