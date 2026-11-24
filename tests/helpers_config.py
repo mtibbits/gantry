@@ -149,7 +149,7 @@ def _stopgap_agreement(root, document, sites, who="write_site_tree"):
         assert project.status == "read", f"{who}: site {name!r}: the document says {project.status}"
 
         def snap(data):
-            return ue.snapshot_of(ProjectInput(name, "read", None, data), (), pin="agreement", schema_version="1.1",
+            return ue.snapshot_of(ProjectInput(name, "read", None, data), (), pin="agreement", schema_version="1.2",
                                   namespaces={name})
 
         rows = [row for row in ue.diff_snapshots(snap(parse_wbs(text, name)), snap(project.data))

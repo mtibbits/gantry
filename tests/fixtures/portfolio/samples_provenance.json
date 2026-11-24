@@ -1,7 +1,7 @@
 {
-  "pin": "devagent--v3.0.0",
-  "devagent_version": "3.0.0",
-  "schema_version": "1.1",
+  "pin": "devagent--v3.4.0",
+  "devagent_version": "3.4.0",
+  "schema_version": "1.2",
   "generated_at": "2026-01-12T09:30:00Z",
   "inputs": {
     "samples/devagent/config.toml": "fe2c93f95df3db8b5b26dab95673f2ecec0c281b5227ff46b2b5e4bf9125e1b7",

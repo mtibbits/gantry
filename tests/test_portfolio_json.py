@@ -118,7 +118,7 @@ def chain(depth):
 
 
 def test_constants():
-    assert (pj.SCHEMA_ID, pj.MAJOR, pj.MINOR, pj.MAX_DEPTH) == ("devagent-portfolio", 1, 1, 64)
+    assert (pj.SCHEMA_ID, pj.MAJOR, pj.MINOR, pj.MAX_DEPTH) == ("devagent-portfolio", 1, 2, 64)
     assert pj.STATUSES == ("read", "no_wbs", "no_devdoc_dir", "unreadable")
     doc = hp.written_doc()
     assert doc["schema_version"] == f"{pj.MAJOR}.{pj.MINOR}"
@@ -142,8 +142,8 @@ def test_unknown_major_names_both_versions(tmp_path):
         error = load_error(tmp_path, doc)
         assert error.kind == "version"
         assert str(error) == (f'{doc_path(tmp_path)}: portfolio schema_version "{found}" is not supported: '
-                              "Gantry reads major 1 (schema 1.1)")
-        assert f'"{found}"' in str(error) and "schema 1.1" in str(error)
+                              "Gantry reads major 1 (schema 1.2)")
+        assert f'"{found}"' in str(error) and "schema 1.2" in str(error)
         with pytest.raises(PortfolioLoadError) as info:
             map_document(doc)
         assert info.value.kind == "version" and info.value.source == "the portfolio document"
@@ -152,7 +152,7 @@ def test_unknown_major_names_both_versions(tmp_path):
 
 def test_newer_minor_with_unknown_fields_is_read(tmp_path):
     plain = hp.read_doc(tmp_path, hp.written_doc())
-    assert isinstance(plain, PortfolioInput) and plain.schema_version == "1.1"
+    assert isinstance(plain, PortfolioInput) and plain.schema_version == "1.2"
     doc = hp.written_doc()
     doc["schema_version"] = "1.9"
     doc["later"] = {"deep": [1, {"x": None}]}
@@ -161,10 +161,27 @@ def test_newer_minor_with_unknown_fields_is_read(tmp_path):
     doc["parse_report"][0]["later"] = None
     got = hp.read_doc(tmp_path, doc)
     assert got.schema_version == "1.9"
-    assert dataclasses.replace(got, schema_version="1.1") == plain
+    assert dataclasses.replace(got, schema_version="1.2") == plain
     # An unknown field is ignored at the reader's own minor too.
-    doc["schema_version"] = "1.1"
+    doc["schema_version"] = "1.2"
     assert hp.read_doc(tmp_path, doc) == plain
+
+
+def test_models_field_is_not_read():
+    # Schema 1.2 gives every leaf a `models` object. The reader does not use it (#14 will), so a
+    # 1.1 document, which has none, and a 1.2 document with any value there read alike.
+    doc = hp.written_doc()
+    plain = map_document(doc)
+    leaves = [n for p in doc["projects"] for n in p["nodes"] if n["leaf"]]
+    assert len(leaves) == 114 and all(list(n["models"]) == ["thinking", "checking"] for n in leaves)
+    assert not any("models" in n for p in doc["projects"] for n in p["nodes"] if not n["leaf"])
+    for node in leaves:
+        node["models"] = {"thinking": "<script>", "checking": ["x"]}
+    assert map_document(doc) == plain
+    for node in leaves:
+        del node["models"]
+    doc["schema_version"] = "1.1"
+    assert dataclasses.replace(map_document(doc), schema_version="1.2") == plain
 
 
 def test_older_minor_is_read(tmp_path):
@@ -173,7 +190,7 @@ def test_older_minor_is_read(tmp_path):
     doc["schema_version"] = "1.0"
     got = hp.read_doc(tmp_path, doc)
     assert got.schema_version == "1.0"
-    assert dataclasses.replace(got, schema_version="1.1") == plain
+    assert dataclasses.replace(got, schema_version="1.2") == plain
 
 
 def test_missing_or_outside_roots_document_names_path_and_remedy(tmp_path):
@@ -408,7 +425,7 @@ SCHEMA_ROWS = (
      "nests deeper than 64 levels"),
     ("a chain 5,000 deep", _set(("projects", EMPTY, "nodes"), chain(5000)), "$.projects[1].nodes[64].parent",
      "nests deeper than 64 levels"),
-    ("shapes are checked before parent links", _both_passes, "$.parse_report[57].message", "not a string"),
+    ("shapes are checked before parent links", _both_passes, "$.parse_report[55].message", "not a string"),
 )
 
 
@@ -416,7 +433,7 @@ def test_schema_breaking_documents(tmp_path):
     assert len(SCHEMA_ROWS) == 66
     doc = hp.written_doc()
     assert (doc["projects"][IDS]["nodes"][1]["id"], doc["projects"][IDS]["nodes"][0]["id"]) == ("n13", "n12")
-    assert doc["projects"][CYCLE]["nodes"][0]["id"] == "n1" and len(doc["parse_report"]) == 58
+    assert doc["projects"][CYCLE]["nodes"][0]["id"] == "n1" and len(doc["parse_report"]) == 56
     assert ", ".join(repr(g) for g in STATE_GLYPHS) == GLYPHS
     seen = set()
     for what, change, where, problem in SCHEMA_ROWS:
@@ -488,9 +505,9 @@ def test_each_key_removed_raises_only_load_errors():
             else:
                 assert isinstance(got, PortfolioInput), (level, key)
                 read += 1
-    # The 15 read lack a field the reader does not use: a project's wbs_title, issues or rollup, a node's
-    # typed and derived fields.
-    assert (read, refused) == (15, 25)
+    # The 16 read lack a field the reader does not use: a project's wbs_title, issues or rollup, a node's
+    # typed and derived fields, or its models.
+    assert (read, refused) == (16, 25)
 
 
 def test_a_line_too_long_to_format_is_a_load_error():
@@ -518,7 +535,7 @@ def test_generated_at_is_utc(tmp_path):
     got = hp.read_doc(tmp_path, hp.written_doc())
     assert got.generated_at == datetime(2026, 1, 12, 9, 30, tzinfo=timezone.utc)
     assert got.generated_at.tzinfo is not None and got.generated_at.utcoffset() == timedelta(0)
-    assert got.schema_version == "1.1"
+    assert got.schema_version == "1.2"
     doc = hp.written_doc()
     doc["generated_at"] = "2026-01-12T09:30:00.250+00:00"
     later = map_document(doc).generated_at
@@ -810,16 +827,16 @@ def test_every_entry_has_one_disposition():
         mapped = sum(mapped_counts(got, projects).values())
         return total, mapped, total - mapped - shown, shown
 
-    # Before `edges`: 47 = 13 mapped + 29 suppressed + 5 shown.
-    assert partition(earlier) == (47, 13, 29, 5)
+    # Before `edges`: 46 = 13 mapped + 28 suppressed + 5 shown.
+    assert partition(earlier) == (46, 13, 28, 5)
     assert mapped_counts(got, earlier) == {"no_issue": 6, "duplicate_issue": 1, "skipped_line": 2, "unresolved_ref": 4}
     assert [(e.project, e.line, e.kind) for e in got.devagent_report if e.project != "edges"] == [
         ("cycle", 7, "dep_cycle"), ("fences", 17, "parser_warning"), ("nesting", 10, "unknown_meta_key"),
         ("rows", 9, "dep_cycle"), ("rows", 13, "parent_done_leaf_pending")]
-    # With `edges`: five near misses and two unresolved refs mapped; two est_unparseable, an
+    # With `edges`: four near misses and two unresolved refs mapped; two est_unparseable, an
     # issue_malformed and a meta_unreadable shown.
-    assert partition(names) == (58, 20, 29, 9)
-    assert partition(["edges"]) == (11, 7, 0, 4)
+    assert partition(names) == (56, 19, 28, 9)
+    assert partition(["edges"]) == (10, 6, 0, 4)
     # What is suppressed, by devagent's kind: each is an entry Gantry's own passes report.
     gone = {}
     kept = set(got.devagent_report)
@@ -827,9 +844,9 @@ def test_every_entry_has_one_disposition():
     for raw in doc["parse_report"]:
         if as_shown(raw) not in kept and raw["kind"] not in mapped_from:
             gone[raw["kind"]] = gone.get(raw["kind"], 0) + 1
-    assert gone == {"h_malformed": 14, "est_unparseable": 2, "dep_cycle": 2, "dep_unresolved": 17}
+    assert gone == {"h_malformed": 14, "est_unparseable": 1, "dep_cycle": 2, "dep_unresolved": 17}
     assert gone["dep_unresolved"] - mapped_counts(got, names)["unresolved_ref"] == 11  # foreign or malformed
-    assert 14 + 2 + 2 + 11 == 29
+    assert 14 + 1 + 2 + 11 == 28
 
 
 def test_mapped_entries_take_gantrys_texts():
@@ -884,11 +901,12 @@ def test_unparsed_est_appears_once(tmp_path):
     (once,) = at(est, 7, "est_unparseable")
     assert once.message == inputs.MESSAGES["est_unparseable"].format(line=7, raw="2-3d", key="Issue-5")
     assert len(at(est, 16, "est_unparseable")) == 1
+    # devagent reads `2-3d` as a time range since 3.2.0, so only line 16's entry is devagent's too.
     assert shown_at(got, "est", 7) == shown_at(got, "est", 16) == []
     # A finished leaf and a row: Gantry's pass reports neither, so devagent's entry stays.
     edges = apply(tmp_path, got, "edges")
     assert [e for e in edges.report if e.kind == "est_unparseable"] == []
-    text = 'est "2-3d" is not a time, non-time or placeholder estimate'
+    text = 'est "?3d" is not a time, non-time or placeholder estimate'
     assert shown_at(got, "edges", 8) == shown_at(got, "edges", 9) == [("est_unparseable", text)]
     nodes = nodes_by_line(project(got, "edges").data)
     assert isinstance(nodes[8], Leaf) and not nodes[8].open and isinstance(nodes[9], Row)
@@ -984,23 +1002,25 @@ def test_dep_unresolved_is_matched_to_its_entry():
     assert shown_at(got, "ids", 3) == [("dep_unresolved", no_key["message"])]
 
 
-P0_WARNING = "line 9: priority 'P0' is not P1, P2, P3 or P4; ignored"
+# The pinned parser's wording for a priority it refuses (devagent reads P0 as legal since 3.1.0).
+PRIORITY_WARNING = "line 13: priority 'P5' is not P0, P1, P2, P3 or P4; ignored"
 
 
-def test_p0_priority_warning_is_not_shown():
-    got = with_entries(entry("est", 9, "parser_warning", P0_WARNING))
+def test_priority_warning_is_not_shown():
+    got = with_entries(entry("est", 13, "parser_warning", PRIORITY_WARNING))
     est = project(got, "est").data
-    assert nodes_by_line(est)[9].priority == "P0"
-    assert at(est, 9) == [] and shown_at(got, "est", 9) == []
+    assert nodes_by_line(est)[13].meta["priority"] == "P5"
+    # Gantry's own bad_priority is the one entry on the line; devagent's warning is not shown beside it.
+    assert [e.kind for e in at(est, 13)] == ["bad_priority"] and shown_at(got, "est", 13) == []
     assert got == mapped()
     # The same warning on a node with no priority names nothing Gantry checks there: shown.
     assert "priority" not in nodes_by_line(est)[10].meta
-    moved = with_entries(entry("est", 10, "parser_warning", P0_WARNING))
-    assert shown_at(moved, "est", 10) == [("parser_warning", P0_WARNING)]
+    moved = with_entries(entry("est", 10, "parser_warning", PRIORITY_WARNING))
+    assert shown_at(moved, "est", 10) == [("parser_warning", PRIORITY_WARNING)]
     # A warning with no line, or on a line with no node, is shown too.
     for line in (None, 2):
-        loose = with_entries(entry("est", line, "parser_warning", P0_WARNING))
-        assert shown_at(loose, "est", line) == [("parser_warning", P0_WARNING)]
+        loose = with_entries(entry("est", line, "parser_warning", PRIORITY_WARNING))
+        assert shown_at(loose, "est", line) == [("parser_warning", PRIORITY_WARNING)]
 
 
 def _objective_on_brace(doc):
@@ -1114,7 +1134,7 @@ def test_warned_key_re_matches_the_pinned_parser_texts():
                        ("PRIORITY_WARNING", "NAMESPACED_WARNING", "H_WARNING"))
     assert sorted(texts) == ["H_WARNING", "NAMESPACED_WARNING", "PRIORITY_WARNING"]
     cases = (
-        (texts["PRIORITY_WARNING"].format("P0"), "priority"),
+        (texts["PRIORITY_WARNING"].format("P5"), "priority"),
         (texts["NAMESPACED_WARNING"].format("satisfies", "x"), "satisfies"),
         (texts["NAMESPACED_WARNING"].format("objective", "x"), "objective"),
         (texts["H_WARNING"].format("high"), "h"),
@@ -1126,7 +1146,7 @@ def test_warned_key_re_matches_the_pinned_parser_texts():
     # The one warning the pinned parser does print is not about a key.
     assert pj.WARNED_KEY_RE.match("wbs-parser: unclosed code fence at line 17 ignored; lines after it are parsed "
                                   "as WBS nodes") is None
-    assert texts["PRIORITY_WARNING"].format("P0") == P0_WARNING.removeprefix("line 9: ")
+    assert texts["PRIORITY_WARNING"].format("P5") == PRIORITY_WARNING.removeprefix("line 13: ")
 
 
 def test_many_unresolved_entries_cost_one_pass(monkeypatch):

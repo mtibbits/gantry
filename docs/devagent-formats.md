@@ -31,27 +31,19 @@ reads its one site's records for its rows.
 ## The pinned release
 
 Gantry depends on devagent's formats as of one release, named in
-`tests/devagent.pin`: today `devagent--v3.0.0`, whose
-`.claude-plugin/plugin.json` version is `3.0.0`, the oldest devagent the
+`tests/devagent.pin`: today `devagent--v3.4.0`, whose
+`.claude-plugin/plugin.json` version is `3.4.0`, the oldest devagent the
 README supports. Every source line cited on this page is a line of that
 release. Moving the pin is a change of its own, made with every file that
 records the pin regenerated
-([Fixtures and the contract test](#fixtures-and-the-contract-test)).
-
-A second pin, `tests/devagent-latest.pin`, names the release that holds the
-newest devagent contract Gantry mirrors: today `devagent--v3.4.0`. A test of
-a contract the first pin's release lacks runs against a checkout of this
-one; today that contract is the capacity declaration
-([The capacity declaration](#the-capacity-declaration)). It moves in the
-change that needs a newer contract, as #40 and #41 may, and it is never
-below the first pin. No tool reads it and no committed file is written at
-it, so moving it regenerates nothing. The first pin is "the pin" everywhere
-on this page; the second is always "the latest pin".
+([Fixtures and the contract test](#fixtures-and-the-contract-test)). A test
+that needs a newer devagent contract than this release adds a second pin
+for its own checkout, as gantry 75f33bc (#39) did.
 
 ## Where the records are
 
 devagent keeps an issue's records in `<planning directory>/<issue>/`
-(`scripts/lib/config.sh:446-451`), where the planning directory is the
+(`scripts/lib/config.sh:495-500`), where the planning directory is the
 site's `devdoc_dir` and `<issue>` is a leaf's `issue:` value. An **issue
 folder** may hold three records: `STUCK`, `checklist.md` and `imPlan.md`.
 
@@ -81,15 +73,19 @@ which follows a link that stays inside the roots.
 ### What only this build machine sees
 
 Gantry reads whatever this build machine's copy of the planning directory
-holds. devagent's STUCK writers commit nothing; `scripts/unstuck.sh:66` and
-`scripts/checklist-unstuck.sh:42` delete the file, and devagent's cleanup
-stages the whole planning directory (`scripts/cleanup.sh:271`), so a STUCK
-marker or checklist change reaches the planning repository only at a later
-cleanup on the machine that wrote it. A STUCK marker written on another
-machine is invisible here until then. How such records reach the build
-machine is outside Gantry. `/devagent:status` reads a STUCK marker only for
-each project's active issue, from its own machine's state
-(`scripts/status.sh:24-47`); Gantry reads every issue folder.
+holds. devagent's STUCK writers commit nothing, and `scripts/unstuck.sh:66`
+and `scripts/checklist-unstuck.sh:42` delete the file. devagent's cleanup
+stages and commits only the paths it owns: the folder of the issue it
+cleans up, and `WBS.md` when that has changed (`scripts/cleanup.sh:297`,
+`scripts/lib/devdoc-repo.sh:59-72`). So a STUCK marker or checklist change
+reaches the planning repository only at the cleanup of its own issue, on
+the machine that wrote it; the cleanup of another issue leaves it out. A
+STUCK marker written on another machine is invisible here until then, and
+devagent never commits one that is deleted before that cleanup. How such
+records reach the build machine is outside Gantry. `/devagent:status`
+reads a STUCK marker only for each project's active issue, from its own
+machine's state (`scripts/status.sh:28-51`); Gantry reads every issue
+folder.
 
 ## STUCK markers
 
@@ -171,7 +167,7 @@ A step line matches devagent's pattern
 (`scripts/lib/checklist.sh:68`); the name is that token only, so text after
 it is not part of the name. The seven glyphs are space (pending), `x` (done),
 `-` (skipped), `!` (stuck), `~` (in progress), `?` (blocked outside) and `P`
-(parked) (`scripts/lib/checklist.sh:309-314`).
+(parked) (`scripts/lib/checklist.sh:326-331`).
 
 A checklist holds one block per **revision**. The **active block** is every
 line after the last line starting `## Revision `, or the whole file with
@@ -185,7 +181,7 @@ The `Active revision:` header is not read.
   calls it the current step); `None` with `all_done` true when every step
   there is done or skipped and there is at least one.
 - `parked_step`: the first `P` step in the active block, else the first in
-  the file, else `None` (`scripts/lib/checklist.sh:365-382`, the rule
+  the file, else `None` (`scripts/lib/checklist.sh:382-399`, the rule
   devagent's resume uses at `scripts/resume.sh:53-56`); `parked` is
   `parked_step is not None`. `scripts/park.sh:63` marks the current step `P`
   (and `scripts/park.sh:68` records the park in the machine's own state,
@@ -193,7 +189,7 @@ The `Active revision:` header is not read.
 - `stuck_step`: the first `!` step, by the same rule.
 - `shows_progress`: true when any step in the whole file is `x` or `~`, the
   rule devagent's WBS update uses to set a leaf to `~`
-  (`scripts/lib/wbs-tracker.py:149`, `scripts/lib/wbs-tracker.py:178`).
+  (`scripts/lib/wbs-tracker.py:171`, `scripts/lib/wbs-tracker.py:200`).
 - `revision`: the number in the last `## Revision ` heading, or `None` with
   no heading or a number of more than nine digits.
 - `problems`: `checklist_no_steps` (no step line in the file; `all_done`
@@ -291,13 +287,13 @@ a config format, not a per-issue record, and a module of its own reads it:
 `gantry/capacity.py`, through the same confined TOML read as the site list.
 `gantry build` runs no devagent command.
 
-The tables, their rules and devagent's reader of them are in the latest
-pin's release, `devagent--v3.4.0`; the pin's release has none of them. So
-this section is stated of the latest pin's release, and it cites no source
-line: every line cited on this page is a line of the pin's release. In the
-latest pin's release `scripts/capacity.sh` is the reader's command,
-`scripts/lib/capacity.py` holds every rule, the document and the text, and
-devagent's `docs/configuration.md` states them under "Capacity".
+The tables, their rules and devagent's reader of them exist since devagent
+3.4.0, the first release that has them; the pin's release,
+`devagent--v3.4.0`, has them. There `scripts/capacity.sh` is the reader's
+command, `scripts/lib/capacity.py` holds every rule, the document and the
+text, and devagent's `docs/configuration.md` states them under "Capacity".
+This section cites no source line: the agreement test below holds Gantry
+to that reader.
 
 `gantry/capacity.py` is a port of those rules, not a paraphrase of them:
 the rule strings, the order of the lines, one line per key, which rule an
@@ -432,15 +428,15 @@ sets a `capacity`, shared or a project's, valid or not.
 `tests/test_capacity.py` holds the port to devagent's reader. For each
 fixture config under `tests/fixtures/capacity/config/`, the one with
 hostile project names included, it runs devagent's own
-`scripts/capacity.sh` from the checkout that `GANTRY_DEVAGENT_LATEST_DIR`
-names, a checkout of the release `tests/devagent-latest.pin` names, and has
-Gantry read the same file. For every fixture but one
+`scripts/capacity.sh` from the checkout that `GANTRY_DEVAGENT_DIR` names, a
+checkout of the release `tests/devagent.pin` names, and has Gantry read the
+same file. For every fixture but one
 ([The project list](#the-project-list)) it compares devagent's standard
 output with Gantry's document byte for byte, so `20` against `20.0`, the
 key order and `capacity_schema` are all seen. It compares devagent's
 violation lines and its unknown-key warnings with Gantry's, as bytes too.
 The fixtures are fictional and written by hand: none stores devagent's
-output. The test skips, warns and fails by the latest pin's rules
+output. The test skips, warns and fails by the contract test's rules
 ([Fixtures and the contract test](#fixtures-and-the-contract-test)).
 
 ### The project list
@@ -461,7 +457,7 @@ pins the difference.
 
 The STUCK and checklist fixtures under
 `tests/fixtures/devagent_records/written/` are written by devagent's own
-scripts, never by hand. `tools/devagent_record_fixtures.py` runs thirteen
+scripts, never by hand. `tools/devagent_record_fixtures.py` runs seventeen
 recipes (`checklist-init.sh`, `checklist-mark.sh`, `stuck.sh`,
 `checklist-stuck.sh`, `park.sh`, `resume.sh` and `revise.sh`) against a
 devagent checkout at the pin, each in a throwaway devagent home with one
@@ -509,11 +505,15 @@ pin and a test holds it equal to `tests/devagent.pin`:
   `known_differences.json` in that folder is kept by hand; review it against
   the new snapshots.
 
+A pin move also re-runs the build-side differential that
+`tests/helpers_config.py` names (#195), since the build-side test sources
+model devagent's report entries by hand and no gated test re-checks them.
+
 [worksite-page.md](worksite-page.md#reading-devagents-portfolio-json)
 describes the portfolio fixture, the snapshots and their tests.
 
 The writers need devagent's own toolchain: bash, awk, sed, `mktemp`, GNU
-`date -Iseconds`, GNU `chmod --reference` (`scripts/lib/log.sh:56`) and
+`date -Iseconds`, GNU `chmod --reference` (`scripts/lib/log.sh:60`) and
 `python3` 3.11 or later; the tool checks each first and exits 2 naming the
 one missing. A devagent host trust policy must not be installed on the
 machine, since the writers would consult it; the tool asks devagent's own
@@ -534,25 +534,17 @@ clones devagent at the pin and checks the tag's commit against the
 fixtures' `provenance.json`, because the test workflow has no conditional
 steps; only the Ubuntu legs run the test.
 
-A test that needs the latest pin's release reads its checkout from
-`GANTRY_DEVAGENT_LATEST_DIR` and follows the same rules under that variable
-and `tests/devagent-latest.pin`: it skips locally when the variable is unset
-or is not a devagent checkout, warns when the checkout's version differs
-from the latest pin's, fails on each of these with `CI` set, and always
-skips on Windows. Neither variable stands in for the other. Every CI leg
-clones devagent at the latest pin too. That clone is checked against no
-commit, because no committed file records one for it: the version check is
-its guard.
-
 ## What can move to the portfolio JSON
 
 Gantry has asked devagent for a per-issue stuck flag and next-step field in
 its portfolio JSON (mtibbits/devagent#725, emitted by mtibbits/devagent#726).
-Once devagent emits them and Gantry reads that JSON (#12), **whether an
-issue is STUCK** and **its next step** can come from there. The portfolio
-reader (`gantry/portfolio_json.py`) reads the document's nodes and report
-today and not its per-issue entries (`projects[].issues`); reading those is
-#12's. **The parked
-state, the STUCK marker's reason and time, whether a checklist shows
+devagent writes them, as each issue's `stuck`, `checklist`, `next_step` and
+`next_step_number` under `projects[].issues`; Gantry does not read them yet.
+Once Gantry reads that JSON (#12), **whether an
+issue is STUCK**, **the STUCK marker's reason and time** (`stuck` holds
+`step`, `reason` and `since`) and **its next step** can come from there.
+The portfolio reader (`gantry/portfolio_json.py`) reads the document's
+nodes and report today and not its per-issue entries (`projects[].issues`);
+reading those is #12's. **The parked state, whether a checklist shows
 progress, and the plan's next task** stay with this module unless devagent
 emits them too. The callers' types do not change shape when a source moves.

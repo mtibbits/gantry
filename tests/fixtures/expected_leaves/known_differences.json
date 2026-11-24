@@ -45,7 +45,7 @@
     "where": "report[2, skipped_line]",
     "stopgap": null,
     "snapshot": "WBS.md line 2: looks like a node but is not one: - [xx] two chars",
-    "why": "devagent's NEAR_MISS_RE (a list marker -, * or +, optional spaces, then an opening bracket) matches this line; the stopgap's SKIP_RE (a hyphen, one space, a bracket pair holding at most one character) does not. devagent's reading wins: the line is reported."
+    "why": "devagent's NEAR_MISS_RE (a list marker -, * or +, optional spaces or tabs, then an opening bracket, unless it opens an inline link whose text is neither empty nor one state glyph) matches this line; the stopgap's SKIP_RE (a hyphen, one space, a bracket pair holding at most one character) does not. devagent's reading wins: the line is reported."
   },
   {
     "set": "fixtures",
@@ -53,7 +53,7 @@
     "where": "report[3, skipped_line]",
     "stopgap": null,
     "snapshot": "WBS.md line 3: looks like a node but is not one: -[x] no space",
-    "why": "devagent's NEAR_MISS_RE (a list marker -, * or +, optional spaces, then an opening bracket) matches this line; the stopgap's SKIP_RE (a hyphen, one space, a bracket pair holding at most one character) does not. devagent's reading wins: the line is reported."
+    "why": "devagent's NEAR_MISS_RE (a list marker -, * or +, optional spaces or tabs, then an opening bracket, unless it opens an inline link whose text is neither empty nor one state glyph) matches this line; the stopgap's SKIP_RE (a hyphen, one space, a bracket pair holding at most one character) does not. devagent's reading wins: the line is reported."
   },
   {
     "set": "fixtures",
@@ -61,7 +61,7 @@
     "where": "report[4, skipped_line]",
     "stopgap": null,
     "snapshot": "WBS.md line 4: looks like a node but is not one: * [ ] star",
-    "why": "devagent's NEAR_MISS_RE (a list marker -, * or +, optional spaces, then an opening bracket) matches this line; the stopgap's SKIP_RE (a hyphen, one space, a bracket pair holding at most one character) does not. devagent's reading wins: the line is reported."
+    "why": "devagent's NEAR_MISS_RE (a list marker -, * or +, optional spaces or tabs, then an opening bracket, unless it opens an inline link whose text is neither empty nor one state glyph) matches this line; the stopgap's SKIP_RE (a hyphen, one space, a bracket pair holding at most one character) does not. devagent's reading wins: the line is reported."
   },
   {
     "set": "fixtures",
@@ -69,15 +69,7 @@
     "where": "report[5, skipped_line]",
     "stopgap": null,
     "snapshot": "WBS.md line 5: looks like a node but is not one: + [ ] plus",
-    "why": "devagent's NEAR_MISS_RE (a list marker -, * or +, optional spaces, then an opening bracket) matches this line; the stopgap's SKIP_RE (a hyphen, one space, a bracket pair holding at most one character) does not. devagent's reading wins: the line is reported."
-  },
-  {
-    "set": "fixtures",
-    "site": "edges",
-    "where": "report[6, skipped_line]",
-    "stopgap": null,
-    "snapshot": "WBS.md line 6: looks like a node but is not one: - [See the design](docs/design.md)",
-    "why": "devagent's NEAR_MISS_RE (a list marker -, * or +, optional spaces, then an opening bracket) matches this line; the stopgap's SKIP_RE (a hyphen, one space, a bracket pair holding at most one character) does not. devagent's reading wins: the line is reported."
+    "why": "devagent's NEAR_MISS_RE (a list marker -, * or +, optional spaces or tabs, then an opening bracket, unless it opens an inline link whose text is neither empty nor one state glyph) matches this line; the stopgap's SKIP_RE (a hyphen, one space, a bracket pair holding at most one character) does not. devagent's reading wins: the line is reported."
   },
   {
     "set": "fixtures",

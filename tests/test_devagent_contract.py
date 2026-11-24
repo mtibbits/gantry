@@ -182,7 +182,7 @@ WORKFLOW = ROOT / ".github" / "workflows" / "test.yml"
 # Every devagent source line docs/devagent-formats.md cites, at the pin:
 # (path, first line, last line, a text that must still sit in that range).
 CITES = (
-    ("scripts/lib/config.sh", 446, 451, '"${devdoc%/}" "$issue"'),
+    ("scripts/lib/config.sh", 495, 500, '"${devdoc%/}" "$issue"'),
     ("scripts/stuck.sh", 41, 41, "local cur cur_name last_good last_good_name"),
     ("scripts/stuck.sh", 55, 55, 'if [[ -n "$last_good" ]]; then'),
     ("scripts/stuck.sh", 59, 59, 'checklist_mark "$checklist" "$cur" "!"'),
@@ -191,21 +191,22 @@ CITES = (
     ("scripts/checklist-stuck.sh", 72, 77, "Created:     $(date -Iseconds)"),
     ("scripts/unstuck.sh", 66, 66, 'rm -f "$issue_dir/STUCK"'),
     ("scripts/checklist-unstuck.sh", 42, 42, 'rm -f "$issue_dir/STUCK"'),
-    ("scripts/cleanup.sh", 271, 271, "add -A -- ."),
+    ("scripts/cleanup.sh", 297, 297, 'add -A -- "${DEVDOC_OWNED[@]}"'),
+    ("scripts/lib/devdoc-repo.sh", 59, 72, 'DEVDOC_OWNED+=(":(top,literal)$rel")'),
     ("scripts/lib/checklist.sh", 68, 68,
      r"'^- \[(.)\][[:space:]]+([0-9]+)\.[[:space:]]+([A-Za-z][A-Za-z0-9_-]*)'"),
     ("scripts/lib/checklist.sh", 77, 79, "/^## Revision / { last = NR }"),
     ("scripts/lib/checklist.sh", 133, 155, '"$glyph" != "x" && "$glyph" != "-"'),
-    ("scripts/lib/checklist.sh", 309, 314, "' '|x|-|'!'|'~'|'?'|P) return 0 ;;"),
-    ("scripts/lib/checklist.sh", 365, 382, "if (ln[i] > blk)"),
+    ("scripts/lib/checklist.sh", 326, 331, "' '|x|-|'!'|'~'|'?'|P) return 0 ;;"),
+    ("scripts/lib/checklist.sh", 382, 399, "if (ln[i] > blk)"),
     ("scripts/park.sh", 63, 63, 'checklist_mark "$checklist" "$cur" "P"'),
     ("scripts/park.sh", 68, 68, 'state_add_parked "$project" "$issue"'),
     ("scripts/resume.sh", 53, 56, 'checklist_find_glyph_line "$checklist" P'),
     ("scripts/lib/log.sh", 17, 19, "message must be a single line"),
-    ("scripts/lib/log.sh", 56, 56, "chmod --reference="),
-    ("scripts/lib/wbs-tracker.py", 149, 149, 'PROGRESS_GLYPHS = {"x", "~"}'),
-    ("scripts/lib/wbs-tracker.py", 178, 178, "if any(g in PROGRESS_GLYPHS for g in glyphs):"),
-    ("scripts/status.sh", 24, 47, 'state_get "$project" active_issue'),
+    ("scripts/lib/log.sh", 60, 60, "chmod --reference="),
+    ("scripts/lib/wbs-tracker.py", 171, 171, 'PROGRESS_GLYPHS = {"x", "~"}'),
+    ("scripts/lib/wbs-tracker.py", 200, 200, "if any(g in PROGRESS_GLYPHS for g in glyphs):"),
+    ("scripts/status.sh", 28, 51, 'state_get "$project" active_issue'),
     ("templates/imPlan_template.md", 1, 2, "(context:/model:)"),
     ("templates/imPlan_template.md", 30, 33, "## Tasks"),
 )
@@ -234,7 +235,7 @@ def test_changed_fixture_fails_naming_fixture_script_and_line(tmp_path):
     target.write_bytes(changed)
     diffs = fx.compare(kept, made)
     line = data.split(b"\n").index(b"- [P]  2. draft") + 1
-    assert diffs == [f"Issue-12/checklist.md: written by park.sh at devagent 3.0.0: first differing line {line}: "
+    assert diffs == [f"Issue-12/checklist.md: written by park.sh at devagent 3.4.0: first differing line {line}: "
                      f"fixture '- [ ]  2. draft', devagent '- [P]  2. draft'"]
     assert diffs.compared == len(committed_record_files())
     # A timestamp is masked on both sides: changing only its digits is no difference.
@@ -250,7 +251,7 @@ def test_changed_fixture_fails_naming_fixture_script_and_line(tmp_path):
     (kept / "Issue-77").mkdir()
     (kept / "Issue-77" / "STUCK").write_bytes(b"Step:        2 draft\n")
     assert fx.compare(kept, made) == [
-        "Issue-13/STUCK: not written by stuck.sh at devagent 3.0.0",
+        "Issue-13/STUCK: not written by stuck.sh at devagent 3.4.0",
         "Issue-77/STUCK: committed but written by no recipe",
     ]
 
@@ -280,7 +281,7 @@ def workflow_steps(text):
 
 
 def fetch_order_problems(text):
-    """Why the workflow does not fetch devagent at each pin before pytest, or []."""
+    """Why the workflow does not fetch devagent at the pin before pytest, or []."""
     lines = workflow_steps(text)
     problems = []
     try:
@@ -297,14 +298,6 @@ def fetch_order_problems(text):
     check = [i for i, line in enumerate(lines) if line.startswith('test "$got" = "$want"') and "exit 1" in line]
     if not want or not check or not env or max(want[0], check[0]) > env[0]:
         problems.append("no check of the clone's commit against provenance.json before GANTRY_DEVAGENT_DIR")
-    # The latest pin (#39): cloned and named, with no commit to check (nothing committed is written at it).
-    latest_file, latest_variable = hd.PINS["latest"]
-    clone = [i for i, line in enumerate(lines) if line.startswith("git clone ") and f"tests/{latest_file}" in line]
-    env = [i for i, line in enumerate(lines) if f"{latest_variable}=" in line and "$GITHUB_ENV" in line]
-    if not clone or clone[0] > pytest_at:
-        problems.append("no git clone of the latest pinned tag before pytest")
-    if not env or env[0] > pytest_at:
-        problems.append(f"{latest_variable} is not written to $GITHUB_ENV before pytest")
     if any("devagent--v" in line for line in lines):
         problems.append("a literal devagent tag in the workflow")
     return problems
@@ -315,14 +308,9 @@ def test_workflow_fetches_devagent_before_pytest():
     assert fetch_order_problems(text) == []
     commit = json.loads((WRITTEN / "Issue-6" / "provenance.json").read_bytes().decode("utf-8"))["devagent_commit"]
     assert "provenance.json" in text and commit not in text
-    # Planted control: the floor's clone line gone, its comment kept.
+    # Planted control: the clone line gone, its comment kept.
     lines = text.split("\n")
-
-    def is_clone(line, pin_file):
-        return line.strip().startswith("git clone ") and f"tests/{pin_file}" in line
-
-    assert len([line for line in lines if line.strip().startswith("git clone ")]) == 2
-    kept = [line for line in lines if not is_clone(line, "devagent.pin")]
+    kept = [line for line in lines if not line.strip().startswith("git clone ")]
     assert len(kept) == len(lines) - 1
     planted = "\n".join(kept)
     assert "tests/devagent.pin" in planted
@@ -334,28 +322,6 @@ def test_workflow_fetches_devagent_before_pytest():
     assert "provenance.json" in planted
     assert fetch_order_problems(planted) == [
         "no check of the clone's commit against provenance.json before GANTRY_DEVAGENT_DIR"]
-    # Planted control: the latest pin's clone line gone, its comment kept.
-    kept = [line for line in lines if not is_clone(line, "devagent-latest.pin")]
-    assert len(kept) == len(lines) - 1
-    planted = "\n".join(kept)
-    assert "tests/devagent-latest.pin" in planted
-    assert fetch_order_problems(planted) == ["no git clone of the latest pinned tag before pytest"]
-    # Planted control: the latest checkout cloned but never named, the comment naming the variable kept.
-    kept = [line for line in lines if "GANTRY_DEVAGENT_LATEST_DIR=" not in line]
-    assert len(kept) == len(lines) - 1
-    planted = "\n".join(kept)
-    assert "GANTRY_DEVAGENT_LATEST_DIR" in planted
-    assert fetch_order_problems(planted) == ["GANTRY_DEVAGENT_LATEST_DIR is not written to $GITHUB_ENV before pytest"]
-    # Planted control: pytest moved above the latest pin's two lines, which a presence check would pass.
-    at = next(i for i, line in enumerate(lines) if is_clone(line, "devagent-latest.pin"))
-    run = next(line for line in lines if line.strip() == "- run: python -m pytest -q -rs")
-    moved = [line for line in lines if line != run]
-    moved.insert(at, run)
-    assert fetch_order_problems("\n".join(moved)) == [
-        "no git clone of the latest pinned tag before pytest",
-        "GANTRY_DEVAGENT_LATEST_DIR is not written to $GITHUB_ENV before pytest"]
-    # The latest pin's checkout is not checked against a commit (D14): one comparison, the floor's.
-    assert len([line for line in lines if "rev-parse" in line]) == 1
 
 
 def test_every_fixture_names_the_same_devagent_commit():
@@ -379,6 +345,8 @@ def test_doc_names_the_pin_and_every_cite():
     text = DOC.read_bytes().decode("utf-8")
     tag, _ = hd.read_pin()
     assert tag in text
+    # One pin: the page names no other devagent release tag.
+    assert set(re.findall(r"devagent--v[0-9]+\.[0-9]+\.[0-9]+", text)) == {tag}
     for path, first, last, _ in CITES:
         cite = f"{path}:{first}" if first == last else f"{path}:{first}-{last}"
         assert cite in text, cite
@@ -455,7 +423,7 @@ def migrate_schemes(checkout):
 def test_checklist_templates_match_phase_table():
     checkout = hd.require_devagent()
     files = sorted(p.name for p in (checkout / "templates").glob("checklist-*.md")) + ["revision_block.md"]
-    assert len(files) == 6 and sorted(files) == sorted(TEMPLATE_STEPS)
+    assert len(files) == 7 and sorted(files) == sorted(TEMPLATE_STEPS)
     for name in files:
         steps = read_checklist((checkout / "templates" / name).read_bytes().decode("utf-8")).steps
         assert steps == read_checklist(TEMPLATE_STEPS[name]).steps, name
@@ -494,116 +462,3 @@ def test_samples_flag_names_the_samples_root(tmp_path, capsys):
     assert "--samples names the samples root, the folder that holds gantry.sample.toml" in err
     assert str(tmp_path) not in err
     assert not any((tmp_path / "harbor").iterdir())
-
-
-# --- the latest pin, its gate and its doc (#39) -----------------------------------------------
-
-LATEST_VARIABLE = "GANTRY_DEVAGENT_LATEST_DIR"
-
-
-def version_key(version):
-    """A release version as integers, so 3.10.0 is above 3.4.0."""
-    return tuple(int(part) for part in version.split("."))
-
-
-def test_latest_pin_is_one_release_tag():
-    assert hd.PINS == {"floor": ("devagent.pin", "GANTRY_DEVAGENT_DIR"),
-                       "latest": ("devagent-latest.pin", LATEST_VARIABLE)}
-    data = (ROOT / "tests" / "devagent-latest.pin").read_bytes()
-    assert data == b"devagent--v3.4.0\n"
-    assert data.endswith(b"\n") and data.count(b"\n") == 1 and b"\r" not in data
-    assert hd.read_pin("latest") == ("devagent--v3.4.0", "3.4.0")
-    # The floor is read as before, with or without its name.
-    assert hd.read_pin("floor") == hd.read_pin() != hd.read_pin("latest")
-    # The latest pin is never below the floor, compared as numbers: text order puts 3.10.0 under 3.4.0.
-    assert version_key(hd.read_pin("latest")[1]) >= version_key(hd.read_pin()[1])
-    assert version_key("3.10.0") == (3, 10, 0) > (3, 4, 0) == version_key("3.4.0")
-    assert "3.10.0" < "3.4.0"
-
-
-def test_tool_reads_either_pin_file(tmp_path, monkeypatch):
-    # One reader for both files; every tool calls it bare and stays on the floor pin.
-    assert fx.read_pin() == hd.read_pin()[0] == (ROOT / "tests" / "devagent.pin").read_bytes().decode("ascii").strip()
-    assert fx.read_pin(ROOT / "tests" / "devagent-latest.pin") == "devagent--v3.4.0"
-    # The default file is looked up at call time, not bound when the function was made.
-    planted = tmp_path / "planted.pin"
-    planted.write_bytes(b"devagent--v7.8.9\n")
-    monkeypatch.setattr(fx, "PIN", planted)
-    assert fx.read_pin() == "devagent--v7.8.9"
-    assert hd.read_pin() == ("devagent--v7.8.9", "7.8.9")
-    assert hd.read_pin("latest") == ("devagent--v3.4.0", "3.4.0")
-    # A malformed pin is refused by its own file name.
-    planted.write_bytes(b"v7.8.9\n")
-    with pytest.raises(ValueError, match=r"^tests/devagent\.pin is not a devagent release tag: 'v7\.8\.9'$"):
-        hd.read_pin()
-
-
-def test_gate_latest_pin(tmp_path, recwarn):
-    tag, version = hd.read_pin("latest")
-    _, floor_version = hd.read_pin()
-    assert version != floor_version
-    # Unset: skipped locally, failed under CI, naming the latest pin's variable and tag.
-    want = f"{LATEST_VARIABLE} is not set; the devagent contract test needs a devagent checkout at {tag}"
-    for env in ({}, {LATEST_VARIABLE: ""}):
-        with pytest.raises(pytest.skip.Exception) as info:
-            hd.require_devagent(env=env, os_name="posix", pin="latest")
-        assert str(info.value.msg) == want
-    with pytest.raises(pytest.fail.Exception) as info:
-        hd.require_devagent(env={"CI": "true"}, os_name="posix", pin="latest")
-    assert str(info.value.msg) == want + hd.CI_SUFFIX
-    # The floor's variable alone does not satisfy it, whatever it holds.
-    matching = fake_checkout(tmp_path / "latest", version)
-    floor = fake_checkout(tmp_path / "floor", floor_version)
-    for other in (matching, floor):
-        with pytest.raises(pytest.skip.Exception) as info:
-            hd.require_devagent(env={"GANTRY_DEVAGENT_DIR": str(other)}, os_name="posix", pin="latest")
-        assert str(info.value.msg) == want
-        assert hd.devagent_status({"GANTRY_DEVAGENT_DIR": str(other)}, "posix", pin="latest") == (None, want, None)
-    # Nor does the latest variable satisfy the floor's gate.
-    with pytest.raises(pytest.skip.Exception) as info:
-        hd.require_devagent(env={LATEST_VARIABLE: str(matching)}, os_name="posix")
-    assert str(info.value.msg) == hd.reason_unset(hd.read_pin()[0])
-    # No checkout there: the text names the latest variable, never the path.
-    empty = tmp_path / "empty"
-    empty.mkdir()
-    not_checkout = f"{LATEST_VARIABLE} is not a devagent checkout (no .claude-plugin/plugin.json version)"
-    with pytest.raises(pytest.skip.Exception) as info:
-        hd.require_devagent(env={LATEST_VARIABLE: str(empty)}, os_name="posix", pin="latest")
-    assert str(info.value.msg) == not_checkout
-    with pytest.raises(pytest.fail.Exception) as info:
-        hd.require_devagent(env={LATEST_VARIABLE: str(empty), "CI": "1"}, os_name="posix", pin="latest")
-    assert str(info.value.msg) == not_checkout + hd.CI_SUFFIX
-    # A checkout at the floor's version: warned locally, failed under CI, naming the latest pin's file.
-    env = {LATEST_VARIABLE: str(floor), "GANTRY_DEVAGENT_DIR": str(floor)}
-    mismatch = f"{LATEST_VARIABLE} holds devagent {floor_version}; tests/devagent-latest.pin names {tag} ({version})"
-    assert len(recwarn) == 0
-    with pytest.warns(UserWarning) as caught:
-        assert hd.require_devagent(env=env, os_name="posix", pin="latest") == floor
-    assert [str(w.message) for w in caught] == [mismatch]
-    with pytest.raises(pytest.fail.Exception) as info:
-        hd.require_devagent(env={**env, "CI": "true"}, os_name="posix", pin="latest")
-    assert str(info.value.msg) == mismatch + hd.CI_SUFFIX
-    assert str(floor) not in mismatch
-    # Windows skips with the toolchain reason, under CI and with a matching checkout too.
-    env = {LATEST_VARIABLE: str(matching), "CI": "true"}
-    with pytest.raises(pytest.skip.Exception) as info:
-        hd.require_devagent(env=env, os_name="nt", pin="latest")
-    assert str(info.value.msg) == hd.TOOLCHAIN == "needs devagent's own toolchain (bash and GNU coreutils)"
-    # A matching checkout is returned, with no warning.
-    assert hd.require_devagent(env=env, os_name="posix", pin="latest") == matching
-    assert hd.devagent_status({LATEST_VARIABLE: str(matching)}, "posix", pin="latest") == (matching, None, None)
-    assert len(recwarn) == 0
-    # pin is keyword-only on require_devagent: its positional form is (env, os_name), as helpers_portfolio calls it.
-    with pytest.raises(TypeError):
-        hd.require_devagent(env, "posix", "latest")
-    # The floor's names keep their values and meaning.
-    assert hd.VARIABLE == "GANTRY_DEVAGENT_DIR" == hd.PINS["floor"][1]
-    assert hd.NOT_CHECKOUT == "GANTRY_DEVAGENT_DIR is not a devagent checkout (no .claude-plugin/plugin.json version)"
-
-
-def test_doc_names_both_pins():
-    text = DOC.read_bytes().decode("utf-8")
-    for pin, (file, variable) in hd.PINS.items():
-        tag, _ = hd.read_pin(pin)
-        for name in (f"`{tag}`", f"`tests/{file}`", f"`{variable}`"):
-            assert name in text, (pin, name)

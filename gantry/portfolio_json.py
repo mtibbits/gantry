@@ -43,9 +43,10 @@ from gantry.priority import is_valid
 from gantry.roots import OutsideRoots, read_bytes_confined
 
 SCHEMA_ID = "devagent-portfolio"
-# The schema this reader was written against. Another major is refused; any
-# minor of this major is read, and a field the reader does not use is ignored.
-MAJOR, MINOR = 1, 1
+# The schema the pinned devagent release writes (tests/devagent.pin). Another
+# major is refused; any minor of this major is read, and a field the reader
+# does not use is ignored: 1.2's `models` is one (#14 reads it).
+MAJOR, MINOR = 1, 2
 MAX_DEPTH = 64  # the deepest a node may nest
 # The deepest the JSON text may nest, counted before decoding: since Python 3.14
 # the decoder's own limit is the C stack, so its verdict differs by host and

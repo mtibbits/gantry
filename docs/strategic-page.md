@@ -279,7 +279,11 @@ how many started with a pending glyph.
 The parked rule is read per leaf, from
 `<history directory>/<issue>/checklist.md` at the planning repository's
 `HEAD`: a leaf whose checklist is absent at `HEAD` is not parked and shows
-no progress, and only that leaf is affected. A leaf is read only when its
+no progress, and only that leaf is affected. devagent commits an issue's
+checklist to the planning repository only at that issue's own cleanup
+([devagent-formats.md](devagent-formats.md#what-only-this-build-machine-sees)),
+so an issue still in flight usually has no checklist at `HEAD` and counts by
+its glyph alone. A leaf is read only when its
 issue id matches `[A-Za-z0-9][A-Za-z0-9_.-]*`; any other id (or none) is
 never turned into a path, and counts by its glyph alone. The build lists the
 committed checklists with one `git ls-tree` per site, the **`ls-tree`

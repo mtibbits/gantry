@@ -100,6 +100,21 @@ TEMPLATE_STEPS = {
 - [ ] 20. mergemr
 - [ ] 24. cleanup
 """,
+    "checklist-starter.md": """\
+- [ ]  0. pull
+- [ ]  2. draft
+- [ ]  8. branch
+- [ ]  9. implement
+- [ ] 11. document
+- [ ] 12. commit
+- [ ] 14. draftmr
+- [ ] 15. review
+- [ ] 17. preship
+- [ ] 18. ship
+- [-] 19. mergetoall
+- [ ] 20. mergemr
+- [ ] 24. cleanup
+""",
     "revision_block.md": """\
 - [ ]  2. draft
 - [ ]  4. scope
@@ -309,11 +324,12 @@ TEMPLATE_ROWS = {
     "checklist-oneshot.md": ((C, A, A, N, A), (D, D, D, N, D)),
     "checklist-research.md": ((C, N, A, N, A), (D, N, D, N, D)),
     "checklist-docs-only.md": ((C, N, A, A, A), (D, N, D, D, D)),
+    "checklist-starter.md": ((C, A, A, A, A), (D, D, D, D, D)),
 }
 
 
 def test_templates_fresh_and_done():
-    assert sorted(TEMPLATE_ROWS) == sorted(TEMPLATE_STEPS) and len(TEMPLATE_STEPS) == 6
+    assert sorted(TEMPLATE_ROWS) == sorted(TEMPLATE_STEPS) and len(TEMPLATE_STEPS) == 7
     for name, (fresh, all_done) in TEMPLATE_ROWS.items():
         assert row(HEADER + TEMPLATE_STEPS[name]) == phases.PhaseRow(fresh, None), name
         assert row(HEADER + done(TEMPLATE_STEPS[name])) == phases.PhaseRow(all_done, None), name

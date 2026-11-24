@@ -183,7 +183,7 @@ def test_roles_name_config_projects():
 # --- WBS sites ----------------------------------------------------------------
 
 # The first two patterns copy devagent's _BULLET_RE and _META_BLOCK_RE
-# (scripts/lib/wbs-parser.py:103-108); the rest is this check's own grammar.
+# (scripts/lib/wbs-parser.py); the rest is this check's own grammar.
 NODE_RE = re.compile(r"^(?P<indent>\s*)- \[(?P<glyph>[ x\-!~?P])\]\s+(?P<rest>.+)$")
 META_RE = re.compile(r"\s*\{(?P<body>[^{}]*)\}\s*$")
 META_ITEM_RE = re.compile(r"(?P<key>[a-z_]+):\s*(?P<val>\[[^\]]*\]|[^,]*)")

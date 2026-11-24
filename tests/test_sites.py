@@ -111,7 +111,7 @@ def test_control_character_names_print_escaped(tmp_path, capsys):
         '[project]\n"g\\u001bh" = 1\n',
     )
 
-    def listed(doc):  # as devagent v3.0.0 lists them: "c\nd" as c, and no g\x1bh (not a table)
+    def listed(doc):  # as devagent v3.4.0 lists them: "c\nd" as c, and no g\x1bh (not a table)
         for name in ("a\tb", "c", "e\x1bf"):
             doc = hp.append_not_read(doc, name, "no_devdoc_dir", hp.UNSET_REASON)
         return doc

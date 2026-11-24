@@ -1,6 +1,6 @@
 {
   "schema": "devagent-portfolio",
-  "schema_version": "1.1",
+  "schema_version": "1.2",
   "generated_at": "2026-01-12T09:30:00Z",
   "projects": [
     {
@@ -66,7 +66,11 @@
           "h": null,
           "depends_on": [],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n3",
@@ -95,7 +99,11 @@
           "h": null,
           "depends_on": [],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n4",
@@ -125,7 +133,11 @@
           "h": null,
           "depends_on": [],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n5",
@@ -167,7 +179,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n6",
@@ -197,7 +213,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n7",
@@ -239,7 +259,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n8",
@@ -269,7 +293,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n9",
@@ -298,7 +326,11 @@
           "h": null,
           "depends_on": [],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n10",
@@ -357,7 +389,11 @@
           "h": null,
           "depends_on": [],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n12",
@@ -386,7 +422,11 @@
           "h": null,
           "depends_on": [],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n13",
@@ -428,7 +468,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n14",
@@ -458,7 +502,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n15",
@@ -487,7 +535,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n16",
@@ -517,7 +569,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n17",
@@ -566,7 +622,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         }
       ],
       "issues": [
@@ -860,7 +920,11 @@
           "h": null,
           "depends_on": [],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n20",
@@ -890,7 +954,11 @@
           "h": null,
           "depends_on": [],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n21",
@@ -920,7 +988,11 @@
           "h": null,
           "depends_on": [],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n22",
@@ -950,7 +1022,11 @@
           "h": null,
           "depends_on": [],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n23",
@@ -990,7 +1066,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n24",
@@ -1078,7 +1158,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": true
+          "ready_via_parent_row": true,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n26",
@@ -1127,7 +1211,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n27",
@@ -1156,7 +1244,11 @@
           "h": null,
           "depends_on": [],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n28",
@@ -1195,7 +1287,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         }
       ],
       "issues": [
@@ -1379,7 +1475,11 @@
           "h": null,
           "depends_on": [],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n31",
@@ -1408,7 +1508,11 @@
           "h": null,
           "depends_on": [],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n32",
@@ -1453,7 +1557,11 @@
             }
           ],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n33",
@@ -1502,7 +1610,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n34",
@@ -1543,7 +1655,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n35",
@@ -1600,7 +1716,11 @@
           "h": null,
           "depends_on": [],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n37",
@@ -1641,7 +1761,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n38",
@@ -1691,7 +1815,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         }
       ],
       "issues": [
@@ -1896,7 +2024,11 @@
           "h": null,
           "depends_on": [],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n41",
@@ -1925,7 +2057,11 @@
           "h": null,
           "depends_on": [],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n42",
@@ -1957,7 +2093,11 @@
           "h": null,
           "depends_on": [],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n43",
@@ -1986,7 +2126,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n44",
@@ -2015,7 +2159,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n45",
@@ -2074,7 +2222,11 @@
           "h": null,
           "depends_on": [],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n47",
@@ -2115,7 +2267,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n48",
@@ -2165,7 +2321,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n49",
@@ -2209,7 +2369,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n50",
@@ -2261,7 +2425,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n51",
@@ -2299,7 +2467,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n52",
@@ -2332,7 +2504,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         }
       ],
       "issues": [

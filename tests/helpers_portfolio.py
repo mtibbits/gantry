@@ -152,7 +152,7 @@ def document(*projects, report=()) -> dict:
     entries = [entry for p in projects for entry in auto_report(p)]
     entries += [{"project": p, "source_line": line, "kind": kind, "message": message}
                 for p, line, kind, message in report]
-    return {"schema": "devagent-portfolio", "schema_version": "1.1", "generated_at": sp.FIXED_TIME,
+    return {"schema": "devagent-portfolio", "schema_version": "1.2", "generated_at": sp.FIXED_TIME,
             "projects": list(projects), "parse_report": entries}
 
 
@@ -275,7 +275,7 @@ def append_nodes(doc, project_name, *nodes) -> dict:
 # A build-side test writes a WBS.md and, beside it, the portfolio document #12's build
 # will read. A Source carries both: the bytes, and the nodes devagent reads from them.
 
-# devagent v3.0.0 scripts/lib/portfolio.py: REASON_NO_WBS, and REASON_UNREADABLE with _err_detail's
+# devagent v3.4.0 scripts/lib/portfolio.py: REASON_NO_WBS, and REASON_UNREADABLE with _err_detail's
 # UnicodeDecodeError form (over the whole file).
 NO_WBS_REASON = "the devdoc dir has no WBS.md"
 UNREADABLE_REASON = "WBS.md could not be read: UnicodeDecodeError: {reason} at byte {start}"

@@ -204,7 +204,7 @@ def test_other_whitespace_before_bracket_or_quote_is_plain(body, key, value):
     assert meta_value(split_meta(body)[key]) == value
 
 
-# devagent's _META_BLOCK_RE (scripts/lib/wbs-parser.py:108), kept here only as
+# devagent's _META_BLOCK_RE (scripts/lib/wbs-parser.py), kept here only as
 # the oracle for split_title_meta.
 DEVAGENT_META_RE = re.compile(r"\s*\{(?P<body>[^{}]*)\}\s*$")
 

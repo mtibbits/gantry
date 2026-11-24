@@ -158,11 +158,6 @@ not pass through a finished leaf or a foreign entry. Compute it over the
 leaves a page schedules:
 `effective([l for l in s.leaves if l.open and l.key not in s.held_out], s.links)`.
 
-devagent 3.1.0 is the first devagent release whose `wbs order` ranks `P0`
-above `P1`. devagent 3.0.0 counts `P0` as P3, so with it a site with an open
-P0 leaf can order some leaves differently from Gantry, and the page does not
-say so.
-
 ### Cycles
 
 A dependency cycle among open leaves is reported `cycle` once, at its first
@@ -191,7 +186,7 @@ in this table's order.
 | `bad_priority` | a node's `priority:` is not `P0`–`P4` | treats it as P3 and lists the value |
 | `cycle` | open leaves depend on each other in a loop | lists the members |
 | `waits_on_cycle` | an open leaf is in, or waits on, a cycle | shows the leaf as held out, with no effective priority |
-| `skipped_line` | `- [X] text`, `- [] text`, `- [ ]`, `- [ ] ` or `- [x]text`: a node-shaped line that is not a node (`- [xx] text`, `-[x] text`, `* [ ] text` and a link item with two or more characters of text are not reported; `- [1](url)` is). Once the build reads devagent's portfolio JSON (#12), devagent's rule decides instead. At the release `tests/devagent.pin` names, `- [xx] text`, `-[x] text`, `* [ ] text`, `+ [ ] text` and every link item are reported, and a `- [X] text` line indented with no-break spaces is not ([Reading devagent's portfolio JSON](#reading-devagents-portfolio-json); `tests/fixtures/expected_leaves/known_differences.json` lists each difference) | lists the line |
+| `skipped_line` | `- [X] text`, `- [] text`, `- [ ]`, `- [ ] ` or `- [x]text`: a node-shaped line that is not a node (`- [xx] text`, `-[x] text`, `* [ ] text` and a link item with two or more characters of text are not reported; `- [1](url)` is). Once the build reads devagent's portfolio JSON (#12), devagent's rule decides instead. At the release `tests/devagent.pin` names, devagent's rule is a list marker `-`, `*` or `+` after any spaces or tabs, optional spaces or tabs, then an opening bracket, unless it opens an inline link whose text is neither empty nor one state glyph. So `- [xx] text`, `-[x] text`, `* [ ] text` and `+ [ ] text` are reported, and a link item whose text is neither empty nor one state glyph (`- [1](url)` included) and a `- [X] text` line indented with no-break spaces are not ([Reading devagent's portfolio JSON](#reading-devagents-portfolio-json); `tests/fixtures/expected_leaves/known_differences.json` lists each difference the fixtures hold) | lists the line |
 | `no_nodes` | the file has no node lines | shows an empty site |
 | `site_unreadable` | `WBS.md` cannot be opened, read or decoded as UTF-8 | shows the site as unreadable, with the reason |
 | `no_estimates_file` | the site has no estimates file, or its `estimates` key is `false` | reads hours and tiers from `est:` and the default unit only |
@@ -211,7 +206,7 @@ in this table's order.
 ## Reading devagent's portfolio JSON
 
 devagent writes one JSON document over every configured project's `WBS.md`
-(`/devagent:portfolio`, its `scripts/portfolio.sh`; schema 1.1 at the release
+(`/devagent:portfolio`, its `scripts/portfolio.sh`; schema 1.2 at the release
 `tests/devagent.pin` names). `gantry/portfolio_json.py` reads that document
 into the parsed data the sections above describe. `gantry build` does not
 use it yet: the build still reads each `WBS.md` itself, and #12 switches it.
@@ -250,7 +245,7 @@ starts with the path, and its `kind` is one of four:
 | `unreadable` | the file is outside the configured roots | that it is outside them, with no remedy until #12 gives the document a config key |
 | `unreadable` | any other failed read | the system's reason |
 | `not_json` | the bytes are not UTF-8, or not JSON: a syntax error, `NaN` or `Infinity`, a number that is too long, or nesting deeper than 100 levels (counted by the reader, so every Python version and host agrees) | the cause, in one fixed text each, and to run the aggregator again |
-| `version` | `schema_version` names another major than 1 | both versions: the document's, and `major 1 (schema 1.1)` |
+| `version` | `schema_version` names another major than 1 | both versions: the document's, and `major 1 (schema 1.2)` |
 | `schema` | the document breaks a rule below | the place, such as `$.projects[0].nodes[2].source_line`, and the first problem |
 
 Any minor of major 1 is read, older or newer, and a field the reader does
@@ -280,8 +275,8 @@ every other node by its outline position, with `~<line>` and
 `key_collision` when that position equals an `issue:` id.
 
 The reader takes each node's `meta` from the document. It does not read the
-typed `satisfies`, `h`, `depends_on` and `est` fields that schema 1.1 also
-carries: Gantry keeps its own reading of `priority:` (P0 included),
+typed `satisfies`, `h`, `depends_on` and `est` fields that schema 1.2 also
+carries, nor its `models` field (#14): Gantry keeps its own reading of `priority:` (P0 included),
 `depends_on`, `est:`, `h:`, `satisfies:` and `objective:`.
 
 devagent has already parsed each `meta` value into a string or a list of
@@ -324,8 +319,8 @@ The `parser_warning` rule is a defence. At the release `tests/devagent.pin`
 names, devagent emits no warning about `priority`, `satisfies:` or
 `objective:`, and reports a bad `h:` only as `h_malformed`; its one parser
 warning is about a code fence that never closes. The rule keeps a later
-release from showing a P0 leaf as a problem, since Gantry reads P0 as a
-legal priority and checks the other keys itself.
+release from showing, as devagent's, a problem with one of these keys that
+Gantry's own checks already report.
 
 Gantry's own entries about the reader's nodes are unchanged: `key_collision`,
 `bad_priority`, `no_nodes`, `malformed_ref`, `cycle` and `waits_on_cycle`
@@ -377,14 +372,16 @@ the pinned release writes. When the sample devagent config or a sample
 `WBS.md` changes, a test there fails and names the command that regenerates
 it; other changes under `samples/` reach only the gated byte check.
 
-`known_differences.json` is kept by hand. Today it holds fourteen entries.
+`known_differences.json` is kept by hand. Today it holds thirteen entries.
 On the sample sites the one difference is a report text; across both
 sets, no link or held-out key differs. devagent words an
 unreadable `WBS.md`, and a near-miss line, in its own text. And the two
 readers disagree on which lines are near misses: at the pinned release,
 devagent's reader reports
-`- [xx] text`, `-[x] text`, `* [ ] text`, `+ [ ] text` and every link item,
-and does not report a `- [X] text` line indented with no-break spaces.
+`- [xx] text`, `-[x] text`, `* [ ] text` and `+ [ ] text`,
+and does not report a link item with one character of text that is not a
+state glyph, such as `- [1](url)`, which Gantry's reader reports, nor a
+`- [X] text` line indented with no-break spaces.
 devagent's reading wins, so the `skipped_line` row of
 [The report](#the-report) changes when #12 switches the build. Two more
 shapes, in the fixture's `edges` text, change a leaf. A list `issue:` gives
@@ -454,9 +451,11 @@ whenever it has one. Each leaf's details name the source of its hours.
 
 ### The `est:` classes
 
-A stopgap for mtibbits/devagent#737; #13 deletes these rules. The value is
-read as devagent reads metadata (quotes stripped; a list is unparseable),
-and the classes are tried in this order, each a full match:
+A stopgap for mtibbits/devagent#737; #13 deletes these rules. Every
+supported devagent reads a range such as `2-3d` as time (since 3.2.0), so
+until #13 Gantry and devagent disagree on it. The value is read as devagent
+reads metadata (quotes stripped; a list is unparseable), and the classes
+are tried in this order, each a full match:
 
 | Class | Pattern | Meaning |
 |---|---|---|
@@ -689,8 +688,8 @@ shows one cell of each look beside its word (`done`, `current`, `stuck`,
 `parked`, `blocked outside`, `ahead`, `not in this workflow`, `unknown`),
 and states the build-machine limit:
 `The row shows this build machine's copy of each checklist, which may lag an issue running on another machine.`
-Checklist changes usually reach the planning repository only at devagent's
-cleanup, on the machine that made them
+A checklist's changes usually reach the planning repository only at
+devagent's cleanup of its own issue, on the machine that made them
 ([devagent-formats.md](devagent-formats.md)).
 
 ### The schedule
