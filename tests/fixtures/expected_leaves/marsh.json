@@ -1,6 +1,6 @@
 {
-  "pin": "devagent--v3.0.0",
-  "schema_version": "1.1",
+  "pin": "devagent--v3.4.0",
+  "schema_version": "1.2",
   "site": "marsh",
   "status": "unreadable",
   "reason": "WBS.md could not be read: UnicodeDecodeError: invalid continuation byte at byte 88",

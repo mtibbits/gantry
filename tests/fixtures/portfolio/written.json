@@ -1,6 +1,6 @@
 {
   "schema": "devagent-portfolio",
-  "schema_version": "1.1",
+  "schema_version": "1.2",
   "generated_at": "2026-01-12T09:30:00Z",
   "projects": [
     {
@@ -47,7 +47,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n2",
@@ -87,7 +91,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n3",
@@ -136,7 +144,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n4",
@@ -177,7 +189,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n5",
@@ -206,7 +222,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n6",
@@ -246,7 +266,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n7",
@@ -286,7 +310,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n8",
@@ -315,7 +343,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         }
       ],
       "issues": [
@@ -552,7 +584,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n10",
@@ -581,7 +617,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n11",
@@ -610,7 +650,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         }
       ],
       "issues": [
@@ -764,7 +808,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n14",
@@ -794,7 +842,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n15",
@@ -821,7 +873,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n16",
@@ -848,7 +904,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n17",
@@ -877,7 +937,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n18",
@@ -915,7 +979,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n19",
@@ -971,7 +1039,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         }
       ],
       "issues": [
@@ -1174,7 +1246,11 @@
           "h": null,
           "depends_on": [],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n23",
@@ -1203,7 +1279,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n24",
@@ -1232,7 +1312,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n25",
@@ -1261,7 +1345,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n26",
@@ -1317,7 +1405,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n28",
@@ -1352,7 +1444,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n29",
@@ -1379,7 +1475,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         }
       ],
       "issues": [
@@ -1581,7 +1681,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n32",
@@ -1621,7 +1725,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n33",
@@ -1669,7 +1777,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n34",
@@ -1709,7 +1821,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n35",
@@ -1738,7 +1854,11 @@
           "h": null,
           "depends_on": [],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n36",
@@ -1778,7 +1898,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n37",
@@ -1817,7 +1941,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n38",
@@ -1886,7 +2014,11 @@
           "h": null,
           "depends_on": [],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n40",
@@ -1934,7 +2066,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n41",
@@ -1974,7 +2110,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n42",
@@ -2015,7 +2155,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n43",
@@ -2063,7 +2207,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n44",
@@ -2090,7 +2238,11 @@
           "h": null,
           "depends_on": [],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n45",
@@ -2130,7 +2282,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n46",
@@ -2159,7 +2315,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         }
       ],
       "issues": [
@@ -2404,7 +2564,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n48",
@@ -2445,7 +2609,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n49",
@@ -2486,7 +2654,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n50",
@@ -2516,7 +2688,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n51",
@@ -2556,7 +2732,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n52",
@@ -2597,7 +2777,11 @@
             }
           ],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n53",
@@ -2627,7 +2811,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n54",
@@ -2668,7 +2856,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         }
       ],
       "issues": [
@@ -2842,7 +3034,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n56",
@@ -2898,7 +3094,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n57",
@@ -2962,7 +3162,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n58",
@@ -3011,7 +3215,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         }
       ],
       "issues": [
@@ -3176,7 +3384,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n61",
@@ -3205,7 +3417,11 @@
           "h": null,
           "depends_on": [],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n62",
@@ -3286,7 +3502,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": true
+          "ready_via_parent_row": true,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n64",
@@ -3315,7 +3535,11 @@
           "h": null,
           "depends_on": [],
           "ready": false,
-          "ready_via_parent_row": true
+          "ready_via_parent_row": true,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n65",
@@ -3384,7 +3608,11 @@
           "h": null,
           "depends_on": [],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n67",
@@ -3424,7 +3652,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": true
+          "ready_via_parent_row": true,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n68",
@@ -3482,7 +3714,11 @@
           "h": null,
           "depends_on": [],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n70",
@@ -3551,7 +3787,11 @@
           "h": null,
           "depends_on": [],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n72",
@@ -3591,7 +3831,11 @@
             }
           ],
           "ready": true,
-          "ready_via_parent_row": true
+          "ready_via_parent_row": true,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         }
       ],
       "issues": [
@@ -3825,7 +4069,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n74",
@@ -3865,7 +4113,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n75",
@@ -3905,7 +4157,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n76",
@@ -3934,7 +4190,11 @@
           "h": null,
           "depends_on": [],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n77",
@@ -3974,7 +4234,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n78",
@@ -4003,7 +4267,11 @@
           "h": null,
           "depends_on": [],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n79",
@@ -4043,7 +4311,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         }
       ],
       "issues": [
@@ -4238,7 +4510,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n82",
@@ -4268,7 +4544,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n83",
@@ -4298,7 +4578,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n84",
@@ -4317,9 +4601,9 @@
           "meta_unknown_keys": [],
           "est": {
             "raw": "2-3d",
-            "class": "unparseable",
-            "low_hours": null,
-            "high_hours": null,
+            "class": "time",
+            "low_hours": 16,
+            "high_hours": 24,
             "quantity": null,
             "unit": null,
             "src": null
@@ -4328,7 +4612,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n85",
@@ -4357,7 +4645,11 @@
           "h": null,
           "depends_on": [],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n86",
@@ -4398,7 +4690,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n87",
@@ -4427,7 +4723,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n88",
@@ -4457,7 +4757,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n89",
@@ -4487,7 +4791,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n90",
@@ -4517,7 +4825,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n91",
@@ -4547,7 +4859,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n92",
@@ -4606,7 +4922,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n94",
@@ -4636,7 +4956,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n95",
@@ -4666,7 +4990,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n96",
@@ -4696,7 +5024,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n97",
@@ -4726,7 +5058,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n98",
@@ -4755,7 +5091,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n99",
@@ -4796,7 +5136,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n100",
@@ -4837,7 +5181,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n101",
@@ -4878,7 +5226,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         }
       ],
       "issues": [
@@ -5107,9 +5459,9 @@
         "by_state": {
           "pending": {
             "leaves": 19,
-            "estimated": 6,
+            "estimated": 7,
             "estimated_derived": 0,
-            "unestimated": 13
+            "unestimated": 12
           },
           "done": {
             "leaves": 1,
@@ -5150,11 +5502,11 @@
         },
         "remaining": {
           "leaves": 19,
-          "estimated": 6,
+          "estimated": 7,
           "estimated_derived": 0,
-          "unestimated": 13,
-          "low_hours": 30,
-          "high_hours": 30,
+          "unestimated": 12,
+          "low_hours": 46,
+          "high_hours": 54,
           "non_time": {
             "pr": 50.5,
             "H": 3
@@ -5225,7 +5577,11 @@
           "h": 3,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n104",
@@ -5255,7 +5611,11 @@
           "h": 3,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n105",
@@ -5285,7 +5645,11 @@
           "h": 3,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n106",
@@ -5315,7 +5679,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n107",
@@ -5345,7 +5713,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n108",
@@ -5375,7 +5747,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n109",
@@ -5405,7 +5781,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n110",
@@ -5435,7 +5815,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n111",
@@ -5466,7 +5850,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n112",
@@ -5496,7 +5884,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n113",
@@ -5526,7 +5918,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n114",
@@ -5556,7 +5952,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n115",
@@ -5586,7 +5986,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n116",
@@ -5619,7 +6023,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n117",
@@ -5651,7 +6059,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n118",
@@ -5710,7 +6122,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n120",
@@ -5740,7 +6156,11 @@
           "h": null,
           "depends_on": [],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n121",
@@ -5770,7 +6190,11 @@
           "h": null,
           "depends_on": [],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n122",
@@ -5799,7 +6223,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         }
       ],
       "issues": [
@@ -6088,11 +6516,11 @@
           "issue": "Issue-5",
           "meta": {
             "issue": "Issue-5",
-            "est": "2-3d"
+            "est": "?3d"
           },
           "meta_unknown_keys": [],
           "est": {
-            "raw": "2-3d",
+            "raw": "?3d",
             "class": "unparseable",
             "low_hours": null,
             "high_hours": null,
@@ -6104,7 +6532,11 @@
           "h": null,
           "depends_on": [],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n124",
@@ -6118,11 +6550,11 @@
           "issue": "Issue-6",
           "meta": {
             "issue": "Issue-6",
-            "est": "2-3d"
+            "est": "?3d"
           },
           "meta_unknown_keys": [],
           "est": {
-            "raw": "2-3d",
+            "raw": "?3d",
             "class": "unparseable",
             "low_hours": null,
             "high_hours": null,
@@ -6163,7 +6595,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n126",
@@ -6211,7 +6647,11 @@
             }
           ],
           "ready": false,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n127",
@@ -6242,7 +6682,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n128",
@@ -6272,7 +6716,11 @@
           "h": 3,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n129",
@@ -6305,7 +6753,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         },
         {
           "id": "n130",
@@ -6335,7 +6787,11 @@
           "h": null,
           "depends_on": [],
           "ready": true,
-          "ready_via_parent_row": false
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
         }
       ],
       "issues": [
@@ -6650,12 +7106,6 @@
     },
     {
       "project": "est",
-      "source_line": 7,
-      "kind": "est_unparseable",
-      "message": "est \"2-3d\" is not a time, non-time or placeholder estimate"
-    },
-    {
-      "project": "est",
       "source_line": 16,
       "kind": "est_unparseable",
       "message": "est \"?3d\" is not a time, non-time or placeholder estimate"
@@ -6776,21 +7226,15 @@
     },
     {
       "project": "edges",
-      "source_line": 6,
-      "kind": "near_miss_line",
-      "message": "looks like a node but is not one: - [See the design](docs/design.md)"
-    },
-    {
-      "project": "edges",
       "source_line": 8,
       "kind": "est_unparseable",
-      "message": "est \"2-3d\" is not a time, non-time or placeholder estimate"
+      "message": "est \"?3d\" is not a time, non-time or placeholder estimate"
     },
     {
       "project": "edges",
       "source_line": 9,
       "kind": "est_unparseable",
-      "message": "est \"2-3d\" is not a time, non-time or placeholder estimate"
+      "message": "est \"?3d\" is not a time, non-time or placeholder estimate"
     },
     {
       "project": "edges",

@@ -1,13 +1,13 @@
 """devagent's declared capacity (#39): the reader and its rules.
 
 gantry/capacity.py ports the rules of devagent's shipped reader
-(scripts/lib/capacity.py at the release tests/devagent-latest.pin names).
+(scripts/lib/capacity.py at the release tests/devagent.pin names).
 Every config fixture is a fictional devagent config declaring projects a, b
 and c; fixtures/capacity/expected.json holds each one's violation and warning
 lines, written by hand: no fixture stores devagent output.
 
 The agreement tests run devagent's own scripts/capacity.sh, from a checkout at
-that release (GANTRY_DEVAGENT_LATEST_DIR, tests/helpers_devagent.py), on every
+that release (GANTRY_DEVAGENT_DIR, tests/helpers_devagent.py), on every
 config fixture and compare it with the port: they skip on Windows and locally
 without the variable, and fail under CI without it.
 """
@@ -645,7 +645,7 @@ def test_a_declaration_is_frozen():
 
 # --- agreement with devagent's reader ----------------------------------------------
 #
-# devagent's own scripts/capacity.sh, from the checkout at the latest pin, reads
+# devagent's own scripts/capacity.sh, from the checkout at the pin, reads
 # each config fixture as its home's config.toml, and Gantry's reader reads the
 # same file. Everything devagent prints is compared as bytes.
 
@@ -729,7 +729,7 @@ def test_agreement_set():
 
 @pytest.mark.parametrize("name", AGREES)
 def test_reader_agrees_with_devagent(name, tmp_path):
-    checkout = hd.require_devagent(pin="latest")
+    checkout = hd.require_devagent()
     config = devagent_home(tmp_path, name)
     theirs = devagent_reads(checkout, tmp_path)
     ours = gantry_reads(config)
@@ -756,7 +756,7 @@ def test_dotted_name_difference_is_pinned(tmp_path):
     # devagent's project list leaves out a name with a dot, so its reader never
     # sees the table; Gantry reads every [project] table. The difference is on
     # purpose, and the pull request for #39 records it.
-    checkout = hd.require_devagent(pin="latest")
+    checkout = hd.require_devagent()
     config = devagent_home(tmp_path, "dotted")
     theirs = devagent_reads(checkout, tmp_path)
     assert (theirs.code, theirs.lines) == (0, [])
@@ -774,7 +774,7 @@ def test_dotted_name_difference_is_pinned(tmp_path):
 
 
 def test_capacity_only_line_is_devagents_alone(tmp_path):
-    checkout = hd.require_devagent(pin="latest")
+    checkout = hd.require_devagent()
     config = devagent_home(tmp_path, "capacity_only")
     theirs = devagent_reads(checkout, tmp_path)
     assert theirs.code == 0
@@ -821,14 +821,14 @@ def test_formats_doc_lists_every_capacity_rule():
     blocks = [block.split(LF)[:-1] for block in re.findall(r"^```\n(.*?)^```$", part, re.S | re.M)]
     assert list(cap.RULES) in blocks
     # Each key of both tables, the schema, and the texts that are devagent's contract.
-    tag, _ = hd.read_pin("latest")
+    tag, _ = hd.read_pin()
     wanted = [
         *SHARED_KEYS, *PROJECT_KEYS, "capacity_schema", json.dumps(cap.CAPACITY_SCHEMA), cap.TOKEN_UNIT,
         cap.BINDING_WEEK, cap.BINDING_WINDOWS,
         cap.VIOLATION.format(where="<where>", rule="<rule>"), cap.WARNING.format(where="<where>"),
         # The warning that is devagent's alone.
         "capacity: warning: project.<name>" + CAPACITY_ONLY_END.decode("utf-8"),
-        tag, "tests/devagent-latest.pin", hd.PINS["latest"][1],
+        tag, "tests/devagent.pin", hd.VARIABLE,
         "scripts/capacity.sh", "scripts/lib/capacity.py", "gantry/capacity.py", "tests/test_capacity.py",
         # <where>: a bare part, and a part written as a JSON string.
         cap.where(["capacity", "max_lanes"]), cap.where(["project", "a.b", "capacity", "paused"]),
@@ -870,15 +870,15 @@ def test_capacity_missing_row_points_to_the_declaration():
     assert "(strategic-page.md#the-report-panel)" in row
 
 
-def test_readme_row_names_both_pins_checks():
+def test_readme_row_names_the_pin_and_its_checks():
     from helpers_docs import markdown_text
 
     (row,) = [line for line in markdown_text(ROOT / "README.md").split(LF) if line.startswith("| devagent |")]
-    floor, latest = hd.read_pin()[1], hd.read_pin("latest")[1]
-    # The oldest supported devagent is the floor pin's, with its checks; the capacity
-    # agreement test runs at the latest pin's.
+    floor = hd.read_pin()[1]
+    # The oldest supported devagent is the pin's, with its checks; the capacity
+    # agreement test runs at the same release.
     assert row.startswith(f"| devagent | {floor} |")
-    for name in (f"`tests/devagent.pin` names ({floor})", f"`tests/devagent-latest.pin` names ({latest})",
+    for name in (f"`tests/devagent.pin` names ({floor})",
                  "(docs/devagent-formats.md#the-capacity-declaration)",
                  "the config format is not yet tested against it"):
         assert name in row, name

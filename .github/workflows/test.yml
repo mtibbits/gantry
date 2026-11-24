@@ -40,14 +40,6 @@ jobs:
           got="$(git -C "$RUNNER_TEMP/devagent" rev-parse HEAD)"
           test "$got" = "$want" || { echo "$(cat tests/devagent.pin) is at $got; the fixtures were written at $want"; exit 1; }
           echo "GANTRY_DEVAGENT_DIR=$RUNNER_TEMP/devagent" >> "$GITHUB_ENV"
-      # devagent at the latest pinned release (tests/devagent-latest.pin), for
-      # tests of a devagent contract the release above lacks (#39), named by
-      # GANTRY_DEVAGENT_LATEST_DIR. Nothing committed is written at it, so
-      # there is no commit to check: the test gate checks the clone's version.
-      - shell: bash
-        run: |
-          git clone -q --depth 1 --branch "$(cat tests/devagent-latest.pin)" https://github.com/mtibbits/devagent "$RUNNER_TEMP/devagent-latest"
-          echo "GANTRY_DEVAGENT_LATEST_DIR=$RUNNER_TEMP/devagent-latest" >> "$GITHUB_ENV"
       - run: python -m pytest -q -rs
       # The console script, unconditionally: the matching test skips when
       # gantry is not on PATH, and a skip is never the only evidence.

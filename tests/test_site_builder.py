@@ -290,7 +290,7 @@ def known_rows(name):
 
 
 def alpha_snapshot(data):
-    return ue.snapshot_of(ProjectInput("alpha", "read", None, data), (), pin=hd.read_pin()[0], schema_version="1.1",
+    return ue.snapshot_of(ProjectInput("alpha", "read", None, data), (), pin=hd.read_pin()[0], schema_version="1.2",
                           namespaces=frozenset({"alpha"}))
 
 

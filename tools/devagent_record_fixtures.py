@@ -168,9 +168,8 @@ def fix_timestamps(name, data, token=None):
     return b"\n".join(lines)
 
 
-def read_pin(path=None):
-    """The tag a pin file names: `path`, or tests/devagent.pin (PIN, looked up at call time)."""
-    return (PIN if path is None else Path(path)).read_bytes().decode("ascii").rstrip("\n")
+def read_pin():
+    return PIN.read_bytes().decode("ascii").rstrip("\n")
 
 
 def checkout_version(devagent):

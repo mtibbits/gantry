@@ -36,7 +36,7 @@ from test_samples import ROOT, SAMPLES, git_work_tree, needs_git
 MARSH_REASON = "WBS.md could not be read: UnicodeDecodeError: invalid continuation byte at byte 88"
 # The fixture's totals, as the pinned aggregator wrote them.
 FIXTURE_NODES = 130
-FIXTURE_ENTRIES = 58
+FIXTURE_ENTRIES = 56
 # The 13 sources the stopgap's tests already read; `edges` is this issue's own.
 EARLIER_SOURCES = 13
 
@@ -236,7 +236,7 @@ def test_fixtures_mode_writes_or_checks(tmp_path, monkeypatch, capsys):
     checkout = fake_checkout(tmp_path / "da", version)
     monkeypatch.setattr(sp, "WRITTEN", tmp_path / "fx" / "written.json")
     monkeypatch.setattr(sp, "PROVENANCE", tmp_path / "fx" / "provenance.json")
-    document = (json.dumps({"schema_version": "1.1", "generated_at": sp.FIXED_TIME, "projects": [],
+    document = (json.dumps({"schema_version": "1.2", "generated_at": sp.FIXED_TIME, "projects": [],
                             "parse_report": []}) + "\n").encode("utf-8")
     monkeypatch.setattr(sp, "fixture_document", lambda devagent: document)
     monkeypatch.setattr(sp, "SAMPLES_WRITTEN", tmp_path / "fx" / "samples.json")
@@ -288,9 +288,9 @@ def test_written_fixture_shape():
     assert len(doc["projects"]) == 14
     assert sum(len(p["nodes"]) for p in doc["projects"]) == FIXTURE_NODES
     assert len(doc["parse_report"]) == FIXTURE_ENTRIES
-    # Before `edges` the 13 earlier sources gave 122 nodes and 47 entries.
+    # Before `edges` the 13 earlier sources gave 122 nodes and 46 entries.
     assert sum(len(p["nodes"]) for p in doc["projects"] if p["project"] != "edges") == 122
-    assert sum(e["project"] != "edges" for e in doc["parse_report"]) == 47
+    assert sum(e["project"] != "edges" for e in doc["parse_report"]) == 46
     assert doc["generated_at"] == sp.FIXED_TIME == "2026-01-12T09:30:00Z"
     by_name = {p["project"]: p for p in doc["projects"]}
     assert by_name["not_utf8"]["status"] == "unreadable"
@@ -390,7 +390,7 @@ def stopgap_snapshot(site, path, namespaces):
     data = read_wbs(directory_roots([path.parent]), path, site)
     unreadable = [e.message for e in data.report if e.kind == "site_unreadable"]
     wrapped = ProjectInput(site, "unreadable" if unreadable else "read", unreadable[0] if unreadable else None, data)
-    return ue.snapshot_of(wrapped, (), pin=hd.read_pin()[0], schema_version="1.1", namespaces=namespaces)
+    return ue.snapshot_of(wrapped, (), pin=hd.read_pin()[0], schema_version="1.2", namespaces=namespaces)
 
 
 def differences(which, sites, source_of, namespaces, fixture):
@@ -418,7 +418,7 @@ def test_snapshot_set_is_the_sample_config():
     for name, fixture in [(s, False) for s in sample_projects()] + [(n, True) for n in sp.FIXTURE_SOURCES]:
         snapshot = committed(name, fixture)
         assert list(snapshot) == SNAPSHOT_KEYS, name
-        assert (snapshot["pin"], snapshot["site"], snapshot["schema_version"]) == (tag, name, "1.1")
+        assert (snapshot["pin"], snapshot["site"], snapshot["schema_version"]) == (tag, name, "1.2")
         assert all(list(node) == NODE_KEYS for node in snapshot["nodes"]), name
         assert [n["line"] for n in snapshot["nodes"]] == sorted(n["line"] for n in snapshot["nodes"])
         raw = ((ue.FIXTURE_OUT if fixture else ue.OUT) / f"{name}.json").read_bytes()
@@ -501,12 +501,12 @@ def test_reader_matches_the_stopgap_on_the_written_fixture():
         ("not_utf8", "report[null, site_unreadable]"), ("edges", "nodes[13].h"),
         ("edges", "report[2, skipped_line]"), ("edges", "report[3, skipped_line]"),
         ("edges", "report[4, skipped_line]"), ("edges", "report[5, skipped_line]"),
-        ("edges", "report[6, skipped_line]"), ("edges", "report[7, skipped_line]"),
+        ("edges", "report[7, skipped_line]"),
         ("edges", "report[12, no_issue]"), ("edges", "report[14, bad_priority]"),
         ("edges", "report[15, bad_priority]")]
     # Where the two readers disagree on which lines are near misses, devagent's reading wins.
     edges = {e["where"]: e for e in known("fixtures") if e["site"] == "edges"}
-    for line in (2, 3, 4, 5, 6):
+    for line in (2, 3, 4, 5):
         only_devagent = edges[f"report[{line}, skipped_line]"]
         assert only_devagent["stopgap"] is None and only_devagent["snapshot"].startswith(f"WBS.md line {line}: ")
     assert edges["report[7, skipped_line]"]["snapshot"] is None and edges["report[7, skipped_line]"]["stopgap"]
@@ -726,7 +726,7 @@ def test_doc_states_the_reader_rules(capsys):
     assert not parses(shlex.split("python3 tools/update_expected_leaves.py --fixtures"))
     capsys.readouterr()
     # The doc's count of known differences is the list's.
-    assert len(known("samples")) + len(known("fixtures")) == 14 and "Today it holds fourteen entries" in flat
+    assert len(known("samples")) + len(known("fixtures")) == 13 and "Today it holds thirteen entries" in flat
     # The skipped_line row says how devagent's reader differs.
     (row,) = [line for line in lines if line.startswith("| `skipped_line` |")]
     assert "known_differences.json" in row and "#12" in row

@@ -2,7 +2,7 @@
 tables of the devagent config (#39).
 
 A port of the rules of devagent's shipped reader, `scripts/lib/capacity.py` at
-devagent--v3.4.0 (the release tests/devagent-latest.pin names): the rule
+devagent--v3.4.0 (the release tests/devagent.pin names): the rule
 strings, their order, one line per key, which rule an invalid value switches
 off, the pool sums and the token rounding are devagent's, and `document_text`
 is the document its `scripts/capacity.sh` prints. Gantry runs no devagent

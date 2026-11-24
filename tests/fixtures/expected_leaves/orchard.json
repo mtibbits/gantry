@@ -1,6 +1,6 @@
 {
-  "pin": "devagent--v3.0.0",
-  "schema_version": "1.1",
+  "pin": "devagent--v3.4.0",
+  "schema_version": "1.2",
   "site": "orchard",
   "status": "read",
   "reason": null,

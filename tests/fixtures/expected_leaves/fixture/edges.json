@@ -1,6 +1,6 @@
 {
-  "pin": "devagent--v3.0.0",
-  "schema_version": "1.1",
+  "pin": "devagent--v3.4.0",
+  "schema_version": "1.2",
   "site": "edges",
   "status": "read",
   "reason": null,
@@ -20,7 +20,7 @@
       "parent": null,
       "meta": {
         "issue": "Issue-5",
-        "est": "2-3d"
+        "est": "?3d"
       },
       "depends_on": [],
       "rank": 3,
@@ -50,7 +50,7 @@
       "parent": null,
       "meta": {
         "issue": "Issue-6",
-        "est": "2-3d"
+        "est": "?3d"
       },
       "depends_on": [],
       "rank": null,
@@ -286,11 +286,6 @@
       "WBS.md line 5: looks like a node but is not one: + [ ] plus"
     ],
     [
-      6,
-      "skipped_line",
-      "WBS.md line 6: looks like a node but is not one: - [See the design](docs/design.md)"
-    ],
-    [
       11,
       "unresolved_ref",
       "WBS.md line 11: depends_on entry 'Zeta-9' names no issue: id in this file"
@@ -315,12 +310,12 @@
     [
       8,
       "est_unparseable",
-      "est \"2-3d\" is not a time, non-time or placeholder estimate"
+      "est \"?3d\" is not a time, non-time or placeholder estimate"
     ],
     [
       9,
       "est_unparseable",
-      "est \"2-3d\" is not a time, non-time or placeholder estimate"
+      "est \"?3d\" is not a time, non-time or placeholder estimate"
     ],
     [
       12,
