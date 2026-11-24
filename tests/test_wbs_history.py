@@ -16,6 +16,7 @@ from pathlib import Path, PurePath
 
 import pytest
 
+import helpers_portfolio as hp
 from gantry import roots as roots_module
 from gantry import wbs_history
 from gantry.roots import directory_roots
@@ -431,9 +432,23 @@ def wbs(a=" ", b=" ", note=""):
     return f"# Plan\n- [ ] Epic\n  - [{a}] A {{issue: Issue-1}}\n  - [{b}] B {{issue: Issue-2}}{note}\n"
 
 
+META_UNREADABLE = "a '{...}' block that is not at the end of the line, or holds a brace, is item text, not metadata"
+
+
+def wbs_source(a=" ", b=" ", note="", newline="\n"):
+    """wbs(a, b, note) with `newline` line ends, as an hp.Source (#195). A plain-text
+    note after B's block makes the block item text, as devagent reads it."""
+    text = wbs(a, b, note).replace("\n", newline).encode()
+    if note:
+        last, report = hp.node(f"B {{issue: Issue-2}}{note}", glyph=b), ((4, "meta_unreadable", META_UNREADABLE),)
+    else:
+        last, report = hp.node("B", glyph=b, issue="Issue-2"), ()
+    return hp.source(text, hp.node("Epic", hp.node("A", glyph=a, issue="Issue-1"), last), start=2, report=report)
+
+
 def answer(tmp_path, history, *, as_of=AS_OF, weeks=4, cache=None, planning=None, sites=("harbor",)):
     """last_state_change for each site, every site's `history` naming `history`."""
-    planning = wbs().encode() if planning is None else planning
+    planning = wbs_source() if planning is None else planning
     config, roots, found = site_config(tmp_path / "inst", {s: planning for s in sites},
                                        history={s: history for s in sites})
     cache = HistoryCache() if cache is None else cache
@@ -549,7 +564,7 @@ def test_each_version_is_read_once_per_build(tmp_path, monkeypatch, git_ready):
     assert len(versions) == len(set(versions)), versions
     assert len(blobs) == len(set(blobs)), blobs
     before = len(calls)
-    config, roots, found = site_config(tmp_path / "again", {"harbor": wbs().encode()}, history={"harbor": repo})
+    config, roots, found = site_config(tmp_path / "again", {"harbor": wbs_source()}, history={"harbor": repo})
     again = wbs_history.last_state_change(roots, found["harbor"], config, AS_OF, 4, cache)
     assert again.date == date(2026, 1, 10)
     assert resolved_versions(calls[before:]) == [] and blob_reads(calls[before:]) == []
@@ -683,7 +698,7 @@ NO_DATA_CASES = {
 def test_no_data_cases_never_raise(tmp_path, monkeypatch, case, git_ready):
     make, expected = NO_DATA_CASES[case]
     history, before = make(tmp_path, monkeypatch)
-    config, roots, found = site_config(tmp_path / "inst", {"harbor": wbs().encode()}, history={"harbor": history})
+    config, roots, found = site_config(tmp_path / "inst", {"harbor": wbs_source()}, history={"harbor": history})
     given = spy_repository(monkeypatch)
     if before is not None:
         before()
@@ -695,7 +710,7 @@ def test_no_data_cases_never_raise(tmp_path, monkeypatch, case, git_ready):
 
 
 def test_site_without_planning_directory_never_raises(tmp_path, git_ready):
-    config, roots, _ = site_config(tmp_path / "inst", {"harbor": wbs().encode()})
+    config, roots, _ = site_config(tmp_path / "inst", {"harbor": wbs_source()})
     for site in (SiteEntry("harbor", None, "no devdoc_dir"), SiteEntry("nul", PurePath("a\x00b"), None),
                  SiteEntry("unlisted", tmp_path / "nope", None)):
         got = wbs_history.last_state_change(roots, site, config, AS_OF, 4, HistoryCache())
@@ -884,20 +899,20 @@ def test_committed_paths_git_failure_is_no_data(tmp_path, git_ready):
     assert got.git is True
 
 
-def _uncommitted_site(tmp_path, planning_bytes):
+def _uncommitted_site(tmp_path, planning):
     repo = make_repo(tmp_path / "plans")
     commit(repo, "WBS.md", wbs(), "2025-11-01")
     commit(repo, "WBS.md", wbs("x"), "2026-01-05")
-    return repo, answer(tmp_path, repo, planning=planning_bytes)
+    return repo, answer(tmp_path, repo, planning=planning)
 
 
 def test_uncommitted_true_when_working_tree_differs(tmp_path, git_ready):
-    _, got = _uncommitted_site(tmp_path, wbs("x", "x").encode())
+    _, got = _uncommitted_site(tmp_path, wbs_source("x", "x"))
     assert (got.no_data, got.uncommitted, got.uncommitted_reason) == (None, True, None)
 
 
 def test_uncommitted_false_when_it_matches(tmp_path, git_ready):
-    _, got = _uncommitted_site(tmp_path, wbs("x").encode())
+    _, got = _uncommitted_site(tmp_path, wbs_source("x"))
     assert (got.no_data, got.uncommitted, got.uncommitted_reason) == (None, False, None)
 
 
@@ -921,7 +936,7 @@ def test_uncommitted_check_writes_nothing(tmp_path, monkeypatch, git_ready):
     commit(repo, "WBS.md", wbs(), "2026-01-05")
     before = _store(repo)
     calls = spy_git(monkeypatch)
-    got = answer(tmp_path, repo, planning=wbs("x", "x", " new text").encode())
+    got = answer(tmp_path, repo, planning=wbs_source("x", "x", " new text"))
     assert got.uncommitted is True
     assert _store(repo) == before
     hashes = [a for a, _, _ in calls if a[0] == "hash-object"]
@@ -950,7 +965,7 @@ def test_crlf_blob_under_autocrlf_reads_uncommitted(tmp_path, git_ready):
     crlf = wbs("x").replace("\n", "\r\n")
     commit(repo, "WBS.md", crlf, "2025-11-01")
     git(repo, "config", "core.autocrlf", "true")
-    got = answer(tmp_path, repo, planning=crlf.encode())
+    got = answer(tmp_path, repo, planning=wbs_source("x", newline="\r\n"))
     assert (got.no_data, got.uncommitted, got.uncommitted_reason) == (None, True, None)
 
 
@@ -1021,7 +1036,7 @@ def test_git_warning_does_not_turn_absent_into_failure(tmp_path, git_ready):
 def test_without_git_everything_reads_git_not_found(tmp_path, monkeypatch):
     planning = tmp_path / "plans"
     planning.mkdir()
-    config, roots, found = site_config(tmp_path / "inst", {"harbor": b"x\n"}, history={"harbor": planning})
+    config, roots, found = site_config(tmp_path / "inst", {"harbor": hp.source(b"x\n")}, history={"harbor": planning})
     empty = tmp_path / "empty"
     empty.mkdir()
     monkeypatch.setenv("PATH", str(empty))
@@ -1131,8 +1146,9 @@ def test_crlf_copy_is_not_uncommitted(tmp_path, monkeypatch, built_sample_histor
     copies = {}
     for site in HISTORY_SITES:
         source = (SAMPLES / site / "WBS.md").read_bytes()
-        copies[site] = source.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
-        assert copies[site] != source, site
+        crlf = source.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+        assert crlf != source, site
+        copies[site] = hp.sample_source(site, crlf)
     out = SAMPLES / "history" / "out"
     config, roots, found = site_config(tmp_path / "inst", copies, history={s: out / s for s in HISTORY_SITES})
     cache = HistoryCache()
@@ -1141,7 +1157,7 @@ def test_crlf_copy_is_not_uncommitted(tmp_path, monkeypatch, built_sample_histor
     # The control, under the same home: with no info/attributes, a CRLF copy is a change.
     repo = make_repo(tmp_path / "plain")
     commit(repo, "WBS.md", wbs(), "2026-01-05")
-    assert answer(tmp_path / "control", repo, planning=wbs().replace("\n", "\r\n").encode()).uncommitted is True
+    assert answer(tmp_path / "control", repo, planning=wbs_source(newline="\r\n")).uncommitted is True
 
 
 def test_sample_wbs_eol_attr_is_lf(git_ready):

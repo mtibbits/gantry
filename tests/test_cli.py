@@ -10,6 +10,7 @@ import tomllib
 
 import pytest
 
+import helpers_portfolio as hp
 from gantry import build, cli, stamp
 from gantry.build import MARKER_FILE, marker_bytes
 from gantry.cli import main
@@ -34,8 +35,6 @@ from page_safety import assert_page_safe
 from sample_roles import BUSY, NO_WBS, NOT_BUILT, READABLE, SMALL, UNREADABLE
 from test_portfolio_file import EVERY_FIXTURE
 from test_samples import ROOT
-
-FIXTURES = ROOT / "tests" / "fixtures" / "wbs"
 
 
 def run_module(*args, cwd=ROOT):
@@ -150,8 +149,8 @@ def test_main_in_process_builds_sample_sites(tmp_path, capsys):
 
 
 def test_write_site_tree_builds_sites(tmp_path, capsys):
-    page = (FIXTURES / "page.md").read_bytes()
-    empty = (FIXTURES / "empty.md").read_bytes()
+    page = hp.fixture_source("page")
+    empty = hp.fixture_source("empty")
     config = write_site_tree(tmp_path, {"alpha": page, "beta": empty})
     assert main(["build", "--config", str(config)]) == 0
     out = tmp_path / "out"
@@ -162,6 +161,17 @@ def test_write_site_tree_builds_sites(tmp_path, capsys):
         "fires: 0; sources not fully read: 2"]  # no fires_list; beta has no node line
     assert "14 open leaves" in (out / "index.html").read_bytes().decode("utf-8")
     assert NO_LEAVES in (out / "sites" / "beta.html").read_bytes().decode("utf-8")
+    # The agreement check (#195): a document that reads the text otherwise fails the write.
+    with pytest.raises(AssertionError, match=r"nodes\[1\]\.state"):
+        write_site_tree(tmp_path / "bad", {"a": hp.source(b"- [x] A {issue: Issue-1}\n",
+                                                          hp.node("A", issue="Issue-1"))})
+    with pytest.raises(AssertionError, match=r"nodes\[1\]\.meta"):
+        write_site_tree(tmp_path / "nometa", {"a": hp.source(b"- [ ] A {issue: Issue-1, est: 3h}\n",
+                                                             hp.node("A", issue="Issue-1"))})
+    write_site_tree(tmp_path / "edges", {"alpha": hp.fixture_source("edges")})  # all three exempt directions
+    write_site_tree(tmp_path / "unreadable", {"alpha": hp.fixture_source("not_utf8")})
+    doc = hp.read_doc(tmp_path / "unreadable", (tmp_path / "unreadable" / "portfolio.json").read_bytes())
+    assert [p.status for p in doc.projects] == ["unreadable"]
 
 
 # --- build --output-dir and its completion marker (#35) -------------------------
@@ -354,7 +364,7 @@ def test_site_unreadable_writes_no_page(tmp_path, capsys):
 
 
 def test_site_no_nodes_writes_page(tmp_path, capsys):
-    config = write_site_tree(tmp_path, {"alpha": (FIXTURES / "empty.md").read_bytes()})
+    config = write_site_tree(tmp_path, {"alpha": hp.fixture_source("empty")})
     code, out, err = site_build(capsys, config, "alpha")
     page = tmp_path / "out" / "sites" / "alpha.html"
     assert (code, out, err) == (0, f"{page}\n", "")
@@ -362,7 +372,7 @@ def test_site_no_nodes_writes_page(tmp_path, capsys):
 
 
 def test_site_invalid_name_exits_1(tmp_path, capsys):
-    config = write_site_tree(tmp_path, {"bad\tname": (FIXTURES / "page.md").read_bytes()})
+    config = write_site_tree(tmp_path, {"bad\tname": hp.fixture_source("page")})
     code, out, err = site_build(capsys, config, "bad\tname")
     assert (code, out) == (1, "")
     assert err == "gantry: error: --site bad\\tname: cannot build: name does not match [A-Za-z0-9][A-Za-z0-9_.-]*\n"
@@ -370,7 +380,7 @@ def test_site_invalid_name_exits_1(tmp_path, capsys):
 
 
 def test_site_creates_sites_folder(tmp_path, capsys):
-    config = write_site_tree(tmp_path, {"alpha": (FIXTURES / "page.md").read_bytes()}, output_dir='"deep/out"')
+    config = write_site_tree(tmp_path, {"alpha": hp.fixture_source("page")}, output_dir='"deep/out"')
     assert not (tmp_path / "deep").exists()
     code, out, _ = site_build(capsys, config, "alpha")
     page = tmp_path / "deep" / "out" / "sites" / "alpha.html"
@@ -380,7 +390,7 @@ def test_site_creates_sites_folder(tmp_path, capsys):
 
 
 def test_site_output_unwritable(tmp_path, capsys):
-    config = write_site_tree(tmp_path, {"alpha": (FIXTURES / "page.md").read_bytes()})
+    config = write_site_tree(tmp_path, {"alpha": hp.fixture_source("page")})
     (tmp_path / "out").write_bytes(b"a file, not a folder")
     code, out, err = site_build(capsys, config, "alpha")
     assert (code, out) == (1, "")
@@ -395,7 +405,7 @@ def test_site_output_unwritable(tmp_path, capsys):
 
 
 def test_site_render_error_leaves_no_page(tmp_path, capsys, monkeypatch):
-    config = write_site_tree(tmp_path, {"alpha": (FIXTURES / "page.md").read_bytes()})
+    config = write_site_tree(tmp_path, {"alpha": hp.fixture_source("page")})
     assert site_build(capsys, config, "alpha")[0] == 0
     page = tmp_path / "out" / "sites" / "alpha.html"
     before = page.read_bytes()
@@ -666,7 +676,7 @@ def test_launcher_dash_leading_config_is_a_value(tmp_path):
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX file modes only")
 def test_site_page_mode_follows_umask(tmp_path, capsys):
-    config = write_site_tree(tmp_path, {"alpha": (FIXTURES / "page.md").read_bytes()})
+    config = write_site_tree(tmp_path, {"alpha": hp.fixture_source("page")})
     old = os.umask(0o022)
     try:
         assert site_build(capsys, config, "alpha")[0] == 0
@@ -682,7 +692,7 @@ UNTRACEABLE = '[site.life]\nrequirements = "l.md"\n[site."bad name"]\nrequiremen
 
 
 def _untraceable_tree(tmp_path, tail=""):
-    page = (FIXTURES / "page.md").read_bytes()
+    page = hp.fixture_source("page")
     return write_site_tree(tmp_path, {"life": page, "bad name": page, "alpha": page}, tail=tail)
 
 
@@ -731,7 +741,7 @@ def test_build_site_mode_prints_trace_warnings(tmp_path, capsys):
 
 def test_trace_warning_escapes_name(tmp_path, capsys):
     tail = '[site."a\\tb"]\nrequirements = "x.md"\n'
-    config = write_site_tree(tmp_path, {"a\tb": (FIXTURES / "page.md").read_bytes()}, tail=tail)
+    config = write_site_tree(tmp_path, {"a\tb": hp.fixture_source("page")}, tail=tail)
     # The one site cannot be built, so no page is written.
     assert main(["build", "--config", str(config)]) == 1
     err = capsys.readouterr().err

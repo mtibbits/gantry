@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 import gantry.config as cfg
+import helpers_portfolio as hp
 from gantry import requirements as req
 from gantry.portfolio_file import read_portfolio_file
 from gantry.requirements import (
@@ -1078,7 +1079,7 @@ def test_cycle_reported_once_at_its_earliest_member():
 
 
 def _trace(tmp_path, names, tail):
-    tree = write_site_tree(tmp_path, {name: b"# x\n" for name in names}, tail=tail)
+    tree = write_site_tree(tmp_path, {name: hp.source(b"# x\n") for name in names}, tail=tail)
     c = cfg.load_config(tree)
     return c, in_trace_sites(c, load_sites(c)[0])
 

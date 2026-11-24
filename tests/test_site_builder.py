@@ -8,6 +8,7 @@ map_document. These tests pin the builder to what devagent writes.
 """
 
 import json
+import os
 import re
 
 import pytest
@@ -20,7 +21,9 @@ import update_expected_leaves as ue
 from gantry import deps
 from gantry.model import ParsedValue
 from gantry.portfolio_json import ProjectInput, map_document
-from helpers_config import append_bytes, copy_samples, sample_projects
+from helpers_config import (ONE_SIDED, append_bytes, copy_samples, install_sample_document, one_sided_classes,
+                            sample_projects, write_site_tree)
+from helpers_links import link_dir, symlink
 from sample_roles import BUSY, NO_WBS, READABLE, SMALL, UNREADABLE
 from test_portfolio_equivalence import known
 from test_samples import ROOT
@@ -57,6 +60,16 @@ def test_site_numbers_nests_and_names():
     assert not data.leaves[2].open
     assert [entry.line for entry in kinds(data, "no_issue")] == [3]
     assert [entry.kind for entry in data.report] == ["no_issue"]
+    # site_document (#195): ids unique across the document, bytes only, a Source's report under the site name.
+    doc = hp.site_document({"a": hp.source(b"- [ ] A {issue: Issue-1}\n", hp.node("A", issue="Issue-1")),
+                            "b": hp.source(b"- [ ] E\n  - [ ] F\n", hp.node("E", hp.node("F")))})
+    ids = [n["id"] for p in doc["projects"] for n in p["nodes"]]
+    assert ids == ["n1", "n2", "n3"]
+    assert [n["parent"] for n in doc["projects"][1]["nodes"]] == [None, "n2"]
+    with pytest.raises(TypeError):
+        hp.source("x")
+    near = hp.site_document({"a": hp.source(b"", report=((3, "near_miss_line", "m"),))})
+    assert [(e["project"], e["source_line"], e["kind"]) for e in near["parse_report"]] == [("a", 3, "near_miss_line")]
 
 
 def test_site_meta_is_parsed_and_ordered():
@@ -82,6 +95,20 @@ def test_site_reports_local_unresolved_and_duplicates():
     assert mapped.devagent_report == ()
     assert kinds(mapped.projects[0].data, "unresolved_ref") == []
     assert kinds(mapped.projects[0].data, "duplicate_issue") == []
+    # site_document (#195) resolves foreign entries against the whole document, as devagent does
+    # (scripts/lib/portfolio.py at the pin, the dep_unresolved branches); a Source never carries them.
+    wait = b"- [ ] A {issue: Issue-1, depends_on: [b:Issue-1, b:Issue-9, c:Issue-1, n:Issue-1]}\n"
+    doc = hp.site_document({
+        "a": hp.source(wait, hp.node("A", issue="Issue-1", depends_on=["b:Issue-1", "b:Issue-9", "c:Issue-1", "n:Issue-1"])),
+        "b": hp.source(b"- [ ] B {issue: Issue-1}\n", hp.node("B", issue="Issue-1")), "n": None})
+    assert [(e["project"], e["source_line"], e["message"]) for e in doc["parse_report"]] == [
+        ("a", 1, "depends_on 'b:Issue-9' matches no issue in project 'b'"),
+        ("a", 1, "depends_on 'c:Issue-1' names project 'c', which is not configured"),
+        ("a", 1, "depends_on 'n:Issue-1' names project 'n', whose WBS was not read (no_wbs)")]
+    foreign = (1, "dep_unresolved", "depends_on 'c:Issue-1' names project 'c', which is not configured")
+    with pytest.raises(ValueError, match="site_document"):
+        hp.source(wait, report=(foreign,))
+    assert not [e for e in hp.fixture_source("page").report if "names project" in e[2]]
 
 
 def test_explicit_lines_and_bad_order():
@@ -111,6 +138,14 @@ def test_fixture_doc_narrows_and_renames():
         hp.site_of(hp.written_doc(), "not_utf8")
     with pytest.raises(ValueError):
         hp.site_of(hp.written_doc())
+    # fixture_source (#195): written.json's nodes and its entries of the kinds auto_report does not write.
+    refs = hp.fixture_source("refs")
+    assert refs.text == (ROOT / sp.FIXTURE_SOURCES["refs"]).read_bytes()
+    from_source = hp.site_of(hp.site_document({"alpha": refs}))
+    assert [n.key for n in (*from_source.leaves, *from_source.rows)] == [
+        n.key for n in (*hp.fixture_site("refs").leaves, *hp.fixture_site("refs").rows)]
+    assert refs.report and not {kind for _, kind, _ in refs.report} & set(hp.AUTO_KINDS) - {"dep_unresolved"}
+    assert all(not hp.auto_entry({"project": "refs", "kind": k, "message": m}, "refs") for _, k, m in refs.report)
 
 
 def test_drop_lines():
@@ -139,6 +174,47 @@ def test_described_fixtures_are_in_line():
         data = hp.described_site(name)
         lines = [n.line for n in (*data.leaves, *data.rows)]
         assert min(lines) == start, name
+
+
+def test_write_site_tree_refuses_bytes(tmp_path):
+    # #195: every site carries its portfolio document, so bare WBS.md bytes are refused before anything is written.
+    with pytest.raises(TypeError, match=r"hp\.source"):
+        write_site_tree(tmp_path, {"alpha": b"- [ ] A\n"})
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_copy_samples_installs_the_committed_document(tmp_path):
+    copy = copy_samples(tmp_path / "a")
+    assert copy.joinpath(sp.OUT, *sp.DOCUMENT).read_bytes() == sp.SAMPLES_WRITTEN.read_bytes()
+    bare = copy_samples(tmp_path / "b", document=False)
+    assert not (bare / "devagent" / "out").exists()
+    # The writer refuses a link at each folder it makes or writes into, and writes nothing through it.
+    for linked in (("out",), ("out", "portfolio")):
+        elsewhere = tmp_path / ("elsewhere-" + "-".join(linked))
+        elsewhere.mkdir()
+        bare = copy_samples(tmp_path / ("linked-" + "-".join(linked)), document=False)
+        bare.joinpath("devagent", *linked[:-1]).mkdir(parents=True, exist_ok=True)
+        link_dir(elsewhere, bare.joinpath("devagent", *linked))
+        with pytest.raises(sp.Refused, match="link"):
+            install_sample_document(bare)
+        assert list(elsewhere.iterdir()) == []
+    bare = copy_samples(tmp_path / "linked-devagent", document=False)
+    elsewhere = tmp_path / "elsewhere-devagent"
+    bare.joinpath("devagent").rename(elsewhere)
+    link_dir(elsewhere, bare / "devagent")
+    with pytest.raises(sp.Refused, match="link"):
+        install_sample_document(bare)
+    assert not (elsewhere / "out").exists()
+    if os.name != "nt":  # a file symlink needs a privilege on Windows; the folder legs above use junctions there
+        bare = copy_samples(tmp_path / "linked-file", document=False)
+        target = bare.joinpath(sp.OUT, *sp.DOCUMENT)
+        target.parent.mkdir(parents=True)
+        outside = tmp_path / "outside.json"
+        outside.write_bytes(b"")
+        symlink(outside, target)
+        with pytest.raises(sp.Refused, match="link"):
+            install_sample_document(bare)
+        assert outside.read_bytes() == b""
 
 
 # --- the committed sample document (Task 3) ---------------------------------------------------
@@ -196,6 +272,12 @@ def test_sample_site_reads_each_readable_sample():
         assert hp.sample_site(name).leaves, name
     with pytest.raises(ValueError, match=NO_WBS):
         hp.sample_site(NO_WBS)
+    # sample_source (#195): the sample's bytes, or a copy of them, carrying the sample's own reading.
+    whole = {name: hp.sample_source(name) for name in sample_projects() if name != NO_WBS}
+    assert whole[SMALL].text == (ROOT / "samples" / SMALL / "WBS.md").read_bytes()
+    doc = hp.site_document({**whole, NO_WBS: None})
+    assert ue.snapshots(map_document(doc), "x") == ue.snapshots(map_document(hp.sample_doc()), "x")
+    assert hp.sample_source(SMALL, b"x").text == b"x"
 
 
 # --- agreement with the stopgap (Task 5; #12 deletes it) ---------------------------------------
@@ -216,6 +298,8 @@ def test_agreement_covers_every_read_fixture_and_description():
     assert len(AGREEMENT) == len(set(AGREEMENT)) == 15
     assert set(AGREEMENT) == {*sp.FIXTURE_SOURCES} - {"not_utf8"} | set(hp.DESCRIBED)
     assert [name for name in AGREEMENT if known_rows(name)] == ["ids", "edges"]
+    # write_site_tree's agreement check forgives exactly these one-sided report classes (#195).
+    assert one_sided_classes() == ONE_SIDED
 
 
 @pytest.mark.parametrize("name", AGREEMENT)
@@ -252,7 +336,7 @@ def test_append_nodes_keeps_foreign_and_malformed_unresolved():
         hp.append_nodes(doc, "beta", hp.node("Late"))
 
 
-def test_append_nodes():
+def test_append_nodes(tmp_path):
     doc = hp.narrow(hp.sample_doc(), SMALL)
     before = sp.dumps(doc)
     nodes = doc["projects"][0]["nodes"]
@@ -268,3 +352,48 @@ def test_append_nodes():
     assert (late.line, late.open) == (last + 1, False)
     assert [entry.line for entry in kinds(data, "no_issue")] == [
         entry.line for entry in kinds(hp.sample_site(SMALL), "no_issue")] + [last + 2]
+    # append_project (#195): one read project more, its ids from the document's highest + 1.
+    one = hp.site_document({"a": hp.source(b"- [ ] A {issue: Issue-1}\n", hp.node("A", issue="Issue-1"))})
+    two = hp.append_project(one, "b", hp.source(b"- [ ] B\n", hp.node("B")))
+    assert [p["project"] for p in two["projects"]] == ["a", "b"]
+    assert [n["id"] for n in two["projects"][1]["nodes"]] == ["n2"]
+    assert [(e["project"], e["kind"]) for e in two["parse_report"]] == [("b", "leaf_no_issue")]
+    # rewrite_document (#195): a samples copy's document, changed where it lies; a change that changes nothing fails.
+    copy = copy_samples(tmp_path)
+    append_bytes(copy / SMALL / "WBS.md", "- [ ] Later {issue: Issue-98}\n")
+    hp.rewrite_document(copy, lambda d: hp.append_nodes(d, SMALL, hp.node("Later", issue="Issue-98")))
+    written = json.loads(copy.joinpath(sp.OUT, *sp.DOCUMENT).read_bytes().decode("utf-8"))
+    assert "Issue-98" in [leaf.key for leaf in hp.site_of(written, SMALL).leaves]
+    with pytest.raises(AssertionError):
+        hp.rewrite_document(copy, lambda d: d)
+
+    def done(d):  # the document says a node is done that the copy's WBS.md still has open
+        nodes = next(p for p in d["projects"] if p["project"] == SMALL)["nodes"]
+        next(n for n in nodes if n["state"] == "pending").update(state="done", glyph="x")
+        return d
+
+    with pytest.raises(AssertionError, match=r"\.state"):
+        hp.rewrite_document(copy, done)
+    # A project appended to the document answers the foreign entries that named it.
+    waits = hp.site_document({"a": hp.source(b"- [ ] A {issue: Issue-1, depends_on: [c:Issue-1]}\n",
+                                             hp.node("A", issue="Issue-1", depends_on=["c:Issue-1"]))})
+    assert [e["kind"] for e in waits["parse_report"]] == ["dep_unresolved"]
+    answered = hp.append_project(waits, "c", hp.source(b"- [ ] C {issue: Issue-1}\n", hp.node("C", issue="Issue-1")))
+    assert answered["parse_report"] == []
+    # A project devagent lists but does not read, appended; it answers no foreign entry.
+    unread = hp.append_not_read(waits, "c", "no_devdoc_dir", hp.ABSENT_REASON)
+    assert [(p.name, p.status, p.reason) for p in map_document(unread).projects][1:] == [
+        ("c", "no_devdoc_dir", "the devdoc dir does not exist")]
+    assert [e["message"] for e in unread["parse_report"]] == [
+        "depends_on 'c:Issue-1' names project 'c', whose WBS was not read (no_devdoc_dir)"]
+
+
+def test_site_document_not_read_reason_is_devagents():
+    # The not-read projects site_document writes are devagent's own, as the aggregator wrote them in samples.json.
+    doc = hp.site_document({"x": None, "m": hp.source((ROOT / "samples" / UNREADABLE / "WBS.md").read_bytes())})
+    written = {p["project"]: p for p in hp.sample_doc()["projects"]}
+    made = {p["project"]: p for p in doc["projects"]}
+    for mine, theirs in (("x", NO_WBS), ("m", UNREADABLE)):
+        assert (made[mine]["status"], made[mine]["status_reason"]) == (
+            written[theirs]["status"], written[theirs]["status_reason"]), mine
+        assert made[mine]["nodes"] == written[theirs]["nodes"] == [], mine

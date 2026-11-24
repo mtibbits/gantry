@@ -455,7 +455,7 @@ def test_wrong_slot_refused(fn, slot, value):
 # --- the samples ----------------------------------------------------------------
 
 
-def test_demo_inputs():
+def test_demo_inputs(real_sample_document):
     from gantry.build import site_data
     from gantry.config import load_config
     from gantry.inputs import apply_inputs

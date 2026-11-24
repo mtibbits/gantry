@@ -5,8 +5,10 @@ import contract).
 """
 
 import io
+import json
 import os
 import posixpath
+import re
 import shutil
 from contextlib import redirect_stderr, redirect_stdout
 from html.parser import HTMLParser
@@ -48,13 +50,21 @@ def sample_projects():
 
 
 def write_site_tree(folder, sites, tail="", **raw):
-    """Write a devagent config naming `sites`, each site's WBS.md and a config.
+    """Write a devagent config naming `sites`, each site's WBS.md, the portfolio
+    document beside the devagent config, and a config.
 
-    `sites` maps a site name to its WBS.md bytes, in order; `None` leaves the
-    site's planning directory with no WBS.md. Site i's planning directory is
-    the folder `<i>` beside the devagent config. `tail` and `raw` are as
+    `sites` maps a site name to an hp.Source, in order: its text is the site's
+    WBS.md and its nodes are devagent's reading of it in portfolio.json (#195);
+    `None` leaves the site's planning directory with no WBS.md (devagent's
+    no_wbs project). Site i's planning directory is the folder `<i>` beside the
+    devagent config. Each Source's document is checked against the stopgap's
+    reading of its text (_stopgap_agreement; meta values and devagent-only
+    report entries are not compared, see COMPARED). `tail` and `raw` are as
     write_config's.
     """
+    import helpers_portfolio as hp  # hp imports copy_samples from here at load
+
+    document = hp.site_document(sites)  # refuses a site that is not a Source, before anything is written
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
     tables = []
@@ -62,10 +72,93 @@ def write_site_tree(folder, sites, tail="", **raw):
         planning = folder / str(index)
         planning.mkdir()
         if wbs is not None:
-            (planning / "WBS.md").write_bytes(wbs)
+            (planning / "WBS.md").write_bytes(wbs.text)
         tables.append(f'[project.{toml_key(name)}]\ndevdoc_dir = "{index}"\n')
     (folder / "devagent.toml").write_bytes("\n".join(tables).encode("utf-8"))
+    (folder / "portfolio.json").write_bytes(hp.sp.dumps(document))
+    _stopgap_agreement(folder, folder / "portfolio.json",
+                       {name: wbs.text for name, wbs in sites.items() if wbs is not None})
     return _write_toml(folder / "gantry.toml", tail, raw)
+
+
+# The agreement check (#195): while gantry/wbs_stopgap.py lives, a site's portfolio
+# document must read its WBS.md as the stopgap does, on these snapshot fields only.
+# What it guards: the node tree (keys, issues, outlines, titles, states), depends_on,
+# meta key order, links, held-out keys, and the report entries Gantry maps from both
+# readers (no_issue, unresolved_ref, duplicate_issue ...), one-sided only. What it does
+# NOT guard, because neither side's snapshot holds it: meta values (est, priority,
+# satisfies ...), and the entries devagent alone writes that the reader passes through as
+# shown entries (a Source's report=: issue_not_id, near_miss_line, meta_unreadable,
+# dep_cycle, unknown_meta_key ...). Those were checked once against devagent's own
+# aggregator; re-run that differential (its scripts and run line are in #195's pull
+# request) for any new or changed Source.
+COMPARED = re.compile(r"nodes\[\d+\](\.(key|issue|outline|title|state|depends_on|meta))?|links|held_out"
+                      r"|report\[(\d+|null), [a-z_]+\]")
+# (class, the side holding the entry): known_differences.json's one-sided entries on
+# COMPARED fields, pinned so a new entry cannot widen the check unseen.
+ONE_SIDED = {("report[*, skipped_line]", "stopgap"), ("report[*, skipped_line]", "document"),
+             ("report[*, no_issue]", "stopgap")}
+
+
+def _row_class(where):
+    return re.sub(r"\[(\d+|null)", "[*", where, count=1)
+
+
+def _holder(document):
+    return "stopgap" if document is None else "document"
+
+
+def one_sided_classes():
+    """ONE_SIDED derived from known_differences.json: its entries on COMPARED fields with one side null."""
+    import update_expected_leaves as ue
+
+    entries = json.loads(ue.KNOWN.read_bytes().decode("utf-8"))
+    return {(_row_class(e["where"]), _holder(e["snapshot"])) for e in entries
+            if COMPARED.fullmatch(e["where"]) and (e["stopgap"] is None) != (e["snapshot"] is None)}
+
+
+def _kept(where, stopgap, document):
+    """Whether a diff_snapshots row counts: meta only by key order, a report entry only when one side lacks it."""
+    if where.endswith(".meta"):
+        return list(stopgap or {}) != list(document or {})
+    if where.startswith("report["):
+        return (stopgap is None) != (document is None)
+    return True
+
+
+def _stopgap_agreement(root, document, sites, who="write_site_tree"):
+    """Assert that the portfolio document at `document`, read under `root`, reads each project
+    of `sites` ({name: that site's WBS.md bytes}) as the stopgap reads those bytes, on the
+    fields COMPARED names (see its comment for what is not compared); `who` heads a failure. The pin of ONE_SIDED
+    against known_differences.json is test_site_builder's."""
+    import update_expected_leaves as ue
+    from gantry.portfolio_json import ProjectInput, read_portfolio
+    from gantry.roots import directory_roots
+    from gantry.wbs_stopgap import parse_wbs
+
+    projects = read_portfolio(directory_roots([root]), document).projects
+    for name, wbs in sites.items():
+        found = [p for p in projects if p.name == name]
+        assert len(found) == 1, f"{who}: site {name!r}: the portfolio document holds {len(found)} such projects"
+        (project,) = found
+        try:
+            text = wbs.decode("utf-8")
+        except UnicodeDecodeError:
+            assert project.status == "unreadable", f"{who}: site {name!r}: not UTF-8 but {project.status}"
+            continue
+        assert project.status == "read", f"{who}: site {name!r}: the document says {project.status}"
+
+        def snap(data):
+            return ue.snapshot_of(ProjectInput(name, "read", None, data), (), pin="agreement", schema_version="1.1",
+                                  namespaces={name})
+
+        rows = [row for row in ue.diff_snapshots(snap(parse_wbs(text, name)), snap(project.data))
+                if COMPARED.fullmatch(row[0]) and _kept(*row)]
+        remaining = [row for row in rows
+                     if not (row[0].startswith("report[") and (_row_class(row[0]), _holder(row[2])) in ONE_SIDED)]
+        if remaining:
+            raise AssertionError(f"{who}: site {name!r}: the portfolio document disagrees with the "
+                                 f"stopgap's reading: {remaining}")
 
 
 def toml_key(name):
@@ -80,10 +173,36 @@ def roots_around(*paths):
     return directory_roots([os.path.dirname(os.path.abspath(p)) for p in paths])
 
 
-def copy_samples(tmp_path):
+def copy_samples(tmp_path, document=True):
+    """A copy of samples/ at <tmp_path>/samples, every folder named out left behind.
+
+    With `document` (#195) the copy holds the committed sample document where
+    devagent's aggregator writes it (install_sample_document). A caller that
+    runs the aggregator on the copy passes document=False: sp.make_sample
+    refuses to delete an out/ it cannot prove git ignores.
+    """
     copy = tmp_path / "samples"
     shutil.copytree(SAMPLES, copy, ignore=shutil.ignore_patterns("out"))
+    if document:
+        install_sample_document(copy)
     return copy
+
+
+def install_sample_document(samples):
+    """Write tests/fixtures/portfolio/samples.json to <samples>/devagent/out/portfolio/portfolio.json,
+    the aggregator's path in a samples folder (#195); the path. A link at any folder on the way
+    or at the file raises sp.Refused, before anything is written."""
+    import sample_portfolio as sp
+    from helpers_links import is_link
+
+    home = Path(samples) / "devagent"
+    target = home.joinpath("out", *sp.DOCUMENT)
+    for path in (home, home / "out", target.parent, target):
+        if os.path.lexists(path) and is_link(path):
+            raise sp.Refused(f"{path.relative_to(samples).as_posix()} is a link; the sample document is not written")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(sp.SAMPLES_WRITTEN.read_bytes())
+    return target
 
 
 def append_bytes(path, text):

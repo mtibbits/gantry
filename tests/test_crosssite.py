@@ -66,10 +66,14 @@ def test_leaf_defaults_unresolved():
 FOREIGN_KINDS = {"foreign_site_absent", "foreign_unresolved"}
 
 
+# alpha's leaf waiting on beta:Issue-1.
+WAIT_ON_BETA = hp.source(b"- [ ] Wait {issue: Issue-1, depends_on: [beta:Issue-1]}\n",
+                         hp.node("Wait", issue="Issue-1", depends_on=["beta:Issue-1"]))
+
+
 def read_tree(tmp_path, sites):
-    """(sites, inputs, reasons) for a synthetic tree; `sites` maps a name to its WBS.md text."""
-    raw = {name: (text.encode("utf-8") if isinstance(text, str) else text) for name, text in sites.items()}
-    config = load_config(write_site_tree(tmp_path, raw))
+    """(sites, inputs, reasons) for a synthetic tree; `sites` maps a name to its WBS.md as an hp.Source (or None)."""
+    config = load_config(write_site_tree(tmp_path, sites))
     roots = config_roots(config)
     entries, _ = site_list(config, roots)
     inputs, reasons = read_sites(config, entries, roots=roots)
@@ -90,8 +94,8 @@ def foreign_report(resolved, site):
 
 def test_open_leaf_outcome(tmp_path):
     resolved, foreign = resolve_tree(tmp_path, {
-        "alpha": "- [ ] Wait {issue: Issue-1, depends_on: [beta:Issue-1]}\n",
-        "beta": "- [ ] Pour the base {issue: Issue-1}\n",
+        "alpha": WAIT_ON_BETA,
+        "beta": hp.source(b"- [ ] Pour the base {issue: Issue-1}\n", hp.node("Pour the base", issue="Issue-1")),
     })
     (o,) = foreign["alpha"]
     assert (o.status, o.target_key, o.title, o.href) == ("open", "Issue-1", "Pour the base", "beta.html#leaf-Issue-1")
@@ -106,8 +110,9 @@ def test_open_leaf_outcome(tmp_path):
 
 def test_finished_target_satisfied(tmp_path):
     resolved, foreign = resolve_tree(tmp_path, {
-        "alpha": "- [ ] Wait {issue: Issue-1, depends_on: [beta:Issue-1]}\n",
-        "beta": "- [x] Pour the base {issue: Issue-1}\n",
+        "alpha": WAIT_ON_BETA,
+        "beta": hp.source(b"- [x] Pour the base {issue: Issue-1}\n",
+                          hp.node("Pour the base", glyph="x", issue="Issue-1")),
     })
     (o,) = foreign["alpha"]
     assert (o.status, o.target_key, o.href, o.reason) == ("satisfied", "Issue-1", None, None)
@@ -116,27 +121,34 @@ def test_finished_target_satisfied(tmp_path):
     assert foreign_report(resolved, "alpha") == []
 
 
-ROW_BETA = ("- [ ] The yard {{issue: Issue-2}}\n"
-            "  - [{0}] Clear {{issue: Issue-3}}\n"
-            "  - [{1}] Fence {{issue: Issue-4}}\n"
-            "  - [{1}] Gate {{issue: Issue-5}}\n")
+def row_beta(clear, rest):
+    """beta's row Issue-2 over Clear (glyph `clear`), Fence and Gate (glyph `rest`)."""
+    text = (f"- [ ] The yard {{issue: Issue-2}}\n"
+            f"  - [{clear}] Clear {{issue: Issue-3}}\n"
+            f"  - [{rest}] Fence {{issue: Issue-4}}\n"
+            f"  - [{rest}] Gate {{issue: Issue-5}}\n")
+    return hp.source(text.encode(), hp.node("The yard", hp.node("Clear", glyph=clear, issue="Issue-3"),
+                                            hp.node("Fence", glyph=rest, issue="Issue-4"),
+                                            hp.node("Gate", glyph=rest, issue="Issue-5"), issue="Issue-2"))
 
 
 def test_row_target_first_open_leaf(tmp_path):
-    alpha = "- [ ] Wait {issue: Issue-1, depends_on: [beta:Issue-2]}\n"
-    _, foreign = resolve_tree(tmp_path / "open", {"alpha": alpha, "beta": ROW_BETA.format("x", " ")})
+    alpha = hp.source(b"- [ ] Wait {issue: Issue-1, depends_on: [beta:Issue-2]}\n",
+                      hp.node("Wait", issue="Issue-1", depends_on=["beta:Issue-2"]))
+    _, foreign = resolve_tree(tmp_path / "open", {"alpha": alpha, "beta": row_beta("x", " ")})
     (o,) = foreign["alpha"]
     assert (o.status, o.target_is_row, o.target_key, o.title, o.href) == (
         "open", True, "Issue-2", "The yard", "beta.html#leaf-Issue-4")
-    _, foreign = resolve_tree(tmp_path / "done", {"alpha": alpha, "beta": ROW_BETA.format("x", "x")})
+    _, foreign = resolve_tree(tmp_path / "done", {"alpha": alpha, "beta": row_beta("x", "x")})
     (o,) = foreign["alpha"]
     assert (o.status, o.target_is_row, o.href) == ("satisfied", True, None)
 
 
 def test_absent_and_case(tmp_path):
     resolved, foreign = resolve_tree(tmp_path, {
-        "alpha": "- [ ] Wait {issue: Issue-1, depends_on: [gamma:Issue-1, Beta:Issue-1]}\n",
-        "beta": "- [ ] Pour {issue: Issue-1}\n",
+        "alpha": hp.source(b"- [ ] Wait {issue: Issue-1, depends_on: [gamma:Issue-1, Beta:Issue-1]}\n",
+                           hp.node("Wait", issue="Issue-1", depends_on=["gamma:Issue-1", "Beta:Issue-1"])),
+        "beta": GOOD_BETA,
     })
     assert [(o.raw, o.status) for o in foreign["alpha"]] == [("gamma:Issue-1", "absent"), ("Beta:Issue-1", "absent")]
     report = foreign_report(resolved, "alpha")
@@ -145,26 +157,28 @@ def test_absent_and_case(tmp_path):
     assert not any(e.kind == "unresolved_ref" for e in resolved["alpha"].data.report)
 
 
-GOOD_BETA = "- [ ] Pour {issue: Issue-1}\n"
+GOOD_BETA = hp.source(b"- [ ] Pour {issue: Issue-1}\n", hp.node("Pour", issue="Issue-1"))
 NOT_UTF8 = b"- [ ] Pour {issue: Issue-1}\n\xff\n"
 BAD_BYTE = NOT_UTF8.index(b"\xff")  # outside the f-string: 3.11 forbids backslashes in its expressions
 UNRESOLVED = {
     "no_wbs": ({"beta": None}, "beta:Issue-1",
                NOT_BUILT.format(site="beta", reason="no WBS.md in the planning directory")),
-    "not_utf8": ({"beta": NOT_UTF8}, "beta:Issue-1",
+    "not_utf8": ({"beta": hp.source(NOT_UTF8)}, "beta:Issue-1",
                  NOT_BUILT.format(site="beta", reason=f"WBS.md is not valid UTF-8 at byte {BAD_BYTE}")),
     "clash": ({"beta": GOOD_BETA, "Beta": GOOD_BETA}, "Beta:Issue-1",
               NOT_BUILT.format(site="Beta", reason=CLASH.format(earlier="beta"))),
     "no_issue": ({"beta": GOOD_BETA}, "beta:Issue-9", NO_ISSUE.format(site="beta", issue="Issue-9")),
-    "outline": ({"beta": "- [ ] Row\n  - [ ] Keyless\n"}, "beta:1.1", NO_ISSUE.format(site="beta", issue="1.1")),
+    "outline": ({"beta": hp.source(b"- [ ] Row\n  - [ ] Keyless\n", hp.node("Row", hp.node("Keyless")))}, "beta:1.1",
+                NO_ISSUE.format(site="beta", issue="1.1")),
 }
 
 
 @pytest.mark.parametrize("case", UNRESOLVED)
 def test_unresolved_reasons(tmp_path, case):
     others, entry, reason = UNRESOLVED[case]
-    resolved, foreign = resolve_tree(tmp_path, {
-        "alpha": f"- [ ] Wait {{issue: Issue-1, depends_on: [{entry}]}}\n", **others})
+    alpha = hp.source(f"- [ ] Wait {{issue: Issue-1, depends_on: [{entry}]}}\n".encode(),
+                      hp.node("Wait", issue="Issue-1", depends_on=[entry]))
+    resolved, foreign = resolve_tree(tmp_path, {"alpha": alpha, **others})
     (o,) = foreign["alpha"]
     assert (o.status, o.reason, o.href) == ("unresolved", reason, None)
     assert reason and not reason.endswith(": ")
@@ -175,11 +189,13 @@ def test_unresolved_reasons(tmp_path, case):
 
 
 def test_row_source_each_open_leaf_report_once(tmp_path):
-    resolved, foreign = resolve_tree(tmp_path, {"alpha": (
-        "- [ ] Row {depends_on: [ferry:Issue-1]}\n"
-        "  - [ ] A {issue: Issue-1}\n"
-        "  - [ ] B {issue: Issue-2}\n"
-        "  - [x] C {issue: Issue-3}\n")})
+    alpha = hp.source(b"- [ ] Row {depends_on: [ferry:Issue-1]}\n"
+                      b"  - [ ] A {issue: Issue-1}\n"
+                      b"  - [ ] B {issue: Issue-2}\n"
+                      b"  - [x] C {issue: Issue-3}\n",
+                      hp.node("Row", hp.node("A", issue="Issue-1"), hp.node("B", issue="Issue-2"),
+                              hp.node("C", glyph="x", issue="Issue-3"), depends_on=["ferry:Issue-1"]))
+    resolved, foreign = resolve_tree(tmp_path, {"alpha": alpha})
     (o,) = foreign["alpha"]
     assert (o.source_key, o.source_is_row, o.status) == ("1", True, "absent")
     assert [leaf(resolved, "alpha", k).waits_on_other_site for k in ("Issue-1", "Issue-2", "Issue-3")] == [
@@ -190,8 +206,10 @@ def test_row_source_each_open_leaf_report_once(tmp_path):
 
 def test_duplicate_target_one_box(tmp_path):
     resolved, foreign = resolve_tree(tmp_path, {
-        "alpha": ("- [ ] Row {depends_on: [beta:Issue-1]}\n"
-                  "  - [ ] A {issue: Issue-1, depends_on: [beta:Issue-1, beta:Issue-1]}\n"),
+        "alpha": hp.source(("- [ ] Row {depends_on: [beta:Issue-1]}\n"
+                            "  - [ ] A {issue: Issue-1, depends_on: [beta:Issue-1, beta:Issue-1]}\n").encode(),
+                           hp.node("Row", hp.node("A", issue="Issue-1", depends_on=["beta:Issue-1", "beta:Issue-1"]),
+                                   depends_on=["beta:Issue-1"])),
         "beta": GOOD_BETA,
     })
     assert len(foreign["alpha"]) == 3
@@ -199,17 +217,26 @@ def test_duplicate_target_one_box(tmp_path):
 
 
 def test_finished_source_checked_not_flagged(tmp_path):
-    resolved, foreign = resolve_tree(tmp_path, {"alpha": "- [x] Done {issue: Issue-1, depends_on: [ferry:Issue-1]}\n"})
+    alpha = hp.source(b"- [x] Done {issue: Issue-1, depends_on: [ferry:Issue-1]}\n",
+                      hp.node("Done", glyph="x", issue="Issue-1", depends_on=["ferry:Issue-1"]))
+    resolved, foreign = resolve_tree(tmp_path, {"alpha": alpha})
     assert [o.status for o in foreign["alpha"]] == ["absent"]
     w = leaf(resolved, "alpha", "Issue-1")
     assert (w.waits_on_other_site, w.foreign_targets) == (False, None)
     assert [e.kind for e in foreign_report(resolved, "alpha")] == ["foreign_site_absent"]
 
 
+# A cycle holds out A, which also waits on beta:Issue-1.
+HELD_ON_BETA = hp.source(("- [ ] A {issue: Issue-1, depends_on: [Issue-2, beta:Issue-1]}\n"
+                          "- [ ] B {issue: Issue-2, depends_on: [Issue-1]}\n").encode(),
+                         hp.node("A", issue="Issue-1", depends_on=["Issue-2", "beta:Issue-1"]),
+                         hp.node("B", issue="Issue-2", depends_on=["Issue-1"]),
+                         report=((1, "dep_cycle", "dependency cycle: Issue-1 (line 1), Issue-2 (line 2)"),))
+
+
 def test_held_out_leaf_flagged(tmp_path):
     resolved, _ = resolve_tree(tmp_path, {
-        "alpha": ("- [ ] A {issue: Issue-1, depends_on: [Issue-2, beta:Issue-1]}\n"
-                  "- [ ] B {issue: Issue-2, depends_on: [Issue-1]}\n"),
+        "alpha": HELD_ON_BETA,
         "beta": GOOD_BETA,
     })
     assert "Issue-1" in resolved["alpha"].data.held_out
@@ -219,22 +246,27 @@ def test_held_out_leaf_flagged(tmp_path):
 
 
 def test_own_prefix_is_local(tmp_path):
-    resolved, foreign = resolve_tree(tmp_path, {"alpha": (
-        "- [ ] One {issue: Issue-1}\n"
-        "- [ ] Two {issue: Issue-2, depends_on: [alpha:Issue-1]}\n")})
+    alpha = hp.source(b"- [ ] One {issue: Issue-1}\n- [ ] Two {issue: Issue-2, depends_on: [alpha:Issue-1]}\n",
+                      hp.node("One", issue="Issue-1"), hp.node("Two", issue="Issue-2", depends_on=["alpha:Issue-1"]))
+    resolved, foreign = resolve_tree(tmp_path, {"alpha": alpha})
     assert resolved["alpha"].data.links == (("Issue-1", "Issue-2"),)
     assert foreign["alpha"] == ()
     assert foreign_report(resolved, "alpha") == []
 
 
 MIXED = {
-    "alpha": ("- [ ] Wait {issue: Issue-1, depends_on: "
-              "[beta:Issue-1, beta:Issue-3, gamma:Issue-1, beta:Issue-9, beta:Issue-2]}\n"
-              "- [ ] Local {issue: Issue-7, depends_on: [Issue-404]}\n"),
-    "beta": ("- [ ] Pour {issue: Issue-1}\n"
-             "- [ ] The yard {issue: Issue-2}\n"
-             "  - [x] Clear {issue: Issue-3}\n"
-             "  - [ ] Fence {issue: Issue-4}\n"),
+    "alpha": hp.source(("- [ ] Wait {issue: Issue-1, depends_on: "
+                        "[beta:Issue-1, beta:Issue-3, gamma:Issue-1, beta:Issue-9, beta:Issue-2]}\n"
+                        "- [ ] Local {issue: Issue-7, depends_on: [Issue-404]}\n").encode(),
+                       hp.node("Wait", issue="Issue-1", depends_on=["beta:Issue-1", "beta:Issue-3", "gamma:Issue-1",
+                                                                    "beta:Issue-9", "beta:Issue-2"]),
+                       hp.node("Local", issue="Issue-7", depends_on=["Issue-404"])),
+    "beta": hp.source(("- [ ] Pour {issue: Issue-1}\n"
+                       "- [ ] The yard {issue: Issue-2}\n"
+                       "  - [x] Clear {issue: Issue-3}\n"
+                       "  - [ ] Fence {issue: Issue-4}\n").encode(), hp.node("Pour", issue="Issue-1"),
+                      hp.node("The yard", hp.node("Clear", glyph="x", issue="Issue-3"),
+                              hp.node("Fence", issue="Issue-4"), issue="Issue-2")),
 }
 
 
@@ -272,8 +304,7 @@ def test_pure(tmp_path):
 
 
 def tree_config(tmp_path, sites):
-    raw = {name: text.encode("utf-8") for name, text in sites.items()}
-    return load_config(write_site_tree(tmp_path, raw))
+    return load_config(write_site_tree(tmp_path, sites))
 
 
 def force_render(monkeypatch, fail, why="forced"):
@@ -299,8 +330,8 @@ def force_render(monkeypatch, fail, why="forced"):
 def test_render_failure_reresolves(tmp_path, monkeypatch):
     calls = force_render(monkeypatch, lambda site, n: site == "beta")
     result = build_all(tree_config(tmp_path, {
-        "alpha": "- [ ] Wait {issue: Issue-1, depends_on: [beta:Issue-1]}\n",
-        "beta": "- [ ] Pour {issue: Issue-1}\n",
+        "alpha": WAIT_ON_BETA,
+        "beta": GOOD_BETA,
     }))
     (o,) = result.foreign["alpha"]
     assert (o.status, o.reason) == ("unresolved", "beta is not built: render error: ValueError: forced")
@@ -313,9 +344,11 @@ def test_render_failure_reresolves(tmp_path, monkeypatch):
 
 def test_render_failure_chain_bounded(tmp_path, monkeypatch):
     sites = {
-        "alpha": "- [ ] A {issue: Issue-1, depends_on: [beta:Issue-1]}\n",
-        "beta": "- [ ] B {issue: Issue-1, depends_on: [gamma:Issue-1]}\n",
-        "gamma": "- [ ] C {issue: Issue-1}\n",
+        "alpha": hp.source(b"- [ ] A {issue: Issue-1, depends_on: [beta:Issue-1]}\n",
+                           hp.node("A", issue="Issue-1", depends_on=["beta:Issue-1"])),
+        "beta": hp.source(b"- [ ] B {issue: Issue-1, depends_on: [gamma:Issue-1]}\n",
+                          hp.node("B", issue="Issue-1", depends_on=["gamma:Issue-1"])),
+        "gamma": hp.source(b"- [ ] C {issue: Issue-1}\n", hp.node("C", issue="Issue-1")),
     }
     calls = force_render(monkeypatch, lambda site, n: site == "gamma" or (site == "beta" and n == 2))
     result = build_all(tree_config(tmp_path, sites))
@@ -333,8 +366,9 @@ def test_render_failure_chain_bounded(tmp_path, monkeypatch):
 def test_site_mode_keeps_text(tmp_path):
     entries = ["beta:Issue-1", "ferry:Issue-1", "beta:Issue-9"]
     config = write_site_tree(tmp_path, {
-        "alpha": ("- [ ] Wait {issue: Issue-1, depends_on: [%s]}\n" % ", ".join(entries)).encode(),
-        "beta": b"- [ ] Pour {issue: Issue-1}\n",
+        "alpha": hp.source(("- [ ] Wait {issue: Issue-1, depends_on: [%s]}\n" % ", ".join(entries)).encode(),
+                           hp.node("Wait", issue="Issue-1", depends_on=entries)),
+        "beta": GOOD_BETA,
     })
     code, _, err = run_main("--config", str(config), "--site", "alpha")
     assert code == 0, err
@@ -348,7 +382,7 @@ def test_site_mode_keeps_text(tmp_path):
 
 # --- the page (Task 4) ---------------------------------------------------------------
 
-BETA = "- [ ] Pour the base {issue: Issue-1}\n"
+BETA = hp.source(b"- [ ] Pour the base {issue: Issue-1}\n", hp.node("Pour the base", issue="Issue-1"))
 
 
 def full_build(tmp_path, sites):
@@ -374,7 +408,10 @@ def box_texts(t):
 
 def test_box_drawn_and_linked(tmp_path):
     result = full_build(tmp_path, {
-        "alpha": "- [ ] Lay the deck {issue: Issue-1, depends_on: [beta:Issue-1]}\n- [ ] Rest {issue: Issue-2}\n",
+        "alpha": hp.source(b"- [ ] Lay the deck {issue: Issue-1, depends_on: [beta:Issue-1]}\n"
+                           b"- [ ] Rest {issue: Issue-2}\n",
+                           hp.node("Lay the deck", issue="Issue-1", depends_on=["beta:Issue-1"]),
+                           hp.node("Rest", issue="Issue-2")),
         "beta": BETA,
     })
     t = tree(result.pages["alpha"])
@@ -392,7 +429,8 @@ def test_box_drawn_and_linked(tmp_path):
 
 def test_unlinked_box_has_no_href(tmp_path):
     result = full_build(tmp_path, {
-        "alpha": "- [ ] Lay {issue: Issue-1, depends_on: [ferry:Issue-1, beta:Issue-9]}\n",
+        "alpha": hp.source(b"- [ ] Lay {issue: Issue-1, depends_on: [ferry:Issue-1, beta:Issue-9]}\n",
+                           hp.node("Lay", issue="Issue-1", depends_on=["ferry:Issue-1", "beta:Issue-9"])),
         "beta": BETA,
     })
     t = tree(result.pages["alpha"])
@@ -404,7 +442,8 @@ def test_unlinked_box_has_no_href(tmp_path):
     assert page_links(result.pages["alpha"]) == []
 
 
-FOREIGN_ONLY = {"alpha": "- [ ] Lay the deck {issue: Issue-1, depends_on: [beta:Issue-1]}\n", "beta": BETA}
+FOREIGN_ONLY = {"alpha": hp.source(b"- [ ] Lay the deck {issue: Issue-1, depends_on: [beta:Issue-1]}\n",
+                                   hp.node("Lay the deck", issue="Issue-1", depends_on=["beta:Issue-1"])), "beta": BETA}
 
 
 def test_foreign_only_first_column_empty_network(tmp_path):
@@ -436,8 +475,7 @@ def test_no_foreign_no_boxes(tmp_path):
 
 def test_held_out_flagged_not_drawn(tmp_path):
     result = full_build(tmp_path, {
-        "alpha": ("- [ ] A {issue: Issue-1, depends_on: [Issue-2, beta:Issue-1]}\n"
-                  "- [ ] B {issue: Issue-2, depends_on: [Issue-1]}\n"),
+        "alpha": HELD_ON_BETA,
         "beta": BETA,
     })
     assert result.inputs["alpha"].data.leaves[0].waits_on_other_site is True
@@ -453,9 +491,11 @@ def test_foreign_only_anchor_once(tmp_path):
 
 def test_boxes_stack_in_column(tmp_path):
     result = full_build(tmp_path, {
-        "alpha": ("- [ ] Lane\n"
-                  "  - [ ] A {issue: Issue-1, depends_on: [beta:Issue-1, ferry:Issue-2]}\n"
-                  "  - [ ] B {issue: Issue-2, depends_on: [beta:Issue-9]}\n"),
+        "alpha": hp.source(("- [ ] Lane\n"
+                            "  - [ ] A {issue: Issue-1, depends_on: [beta:Issue-1, ferry:Issue-2]}\n"
+                            "  - [ ] B {issue: Issue-2, depends_on: [beta:Issue-9]}\n").encode(),
+                           hp.node("Lane", hp.node("A", issue="Issue-1", depends_on=["beta:Issue-1", "ferry:Issue-2"]),
+                                   hp.node("B", issue="Issue-2", depends_on=["beta:Issue-9"]))),
         "beta": BETA,
     })
     t = tree(result.pages["alpha"])
@@ -731,6 +771,16 @@ def strip_foreign(copy):
 
         path.write_bytes(re.sub(r"depends_on: \[([^\]]*)\]", keep, text).encode("utf-8"))
 
+    def strip(doc):  # the same edit in devagent's reading (#195): foreign entries leave each depends_on list
+        for project in doc["projects"]:
+            for n in project["nodes"]:
+                if "depends_on" in n["meta"]:
+                    n["meta"]["depends_on"] = [e for e in meta_values(n["meta"]["depends_on"])
+                                               if classify(e, project["project"]).kind != "foreign"]
+        return hp.refresh_foreign(doc)
+
+    hp.rewrite_document(copy, strip)
+
 
 def stripped_build(tmp_path):
     copy = copy_samples(tmp_path)
@@ -903,8 +953,8 @@ def test_rerender_keeps_rows(tmp_path, monkeypatch):
     # alpha waits on beta; beta fails once, so alpha's page is re-rendered (#173).
     calls = force_render(monkeypatch, lambda site, n: site == "beta")
     config = tree_config(tmp_path, {
-        "alpha": "- [ ] Wait {issue: Issue-1, depends_on: [beta:Issue-1]}\n",
-        "beta": "- [ ] Pour {issue: Issue-1}\n",
+        "alpha": WAIT_ON_BETA,
+        "beta": GOOD_BETA,
     })
     (tmp_path / "0" / "Issue-1").mkdir()
     (tmp_path / "0" / "Issue-1" / "checklist.md").write_bytes(

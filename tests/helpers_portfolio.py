@@ -20,6 +20,8 @@ from it: conftest's `node` fixture would clash.
 
 import copy
 import functools
+import json
+from dataclasses import dataclass
 from pathlib import Path
 
 import helpers_devagent as hd
@@ -27,7 +29,7 @@ import sample_portfolio as sp
 from gantry import deps
 from gantry.model import STATE_GLYPHS
 from gantry.portfolio_json import map_document
-from helpers_config import copy_samples
+from helpers_config import _stopgap_agreement, copy_samples
 
 DOC_NAME = "portfolio.json"
 
@@ -44,7 +46,7 @@ def build_sample_document(tmp, env=None, os_name=None):
     nothing is copied without a checkout.
     """
     checkout = hd.require_devagent(env, os_name)
-    copy = copy_samples(Path(tmp))
+    copy = copy_samples(Path(tmp), document=False)  # make_sample refuses an out/ git does not ignore
     return sp.make_sample(checkout, copy), copy
 
 
@@ -102,11 +104,15 @@ def project(name, *nodes, start=1) -> dict:
     return {"project": name, "status": "read", "status_reason": None, "nodes": made}
 
 
+def _dep_entries(node):
+    """`node`'s depends_on entries: a non-empty str as one, a list as is, anything else as none."""
+    value = node["meta"].get("depends_on")
+    return [value] if isinstance(value, str) and value else value if isinstance(value, list) else []
+
+
 def _local_deps(node, project_name):
     """(entry, ref) for each depends_on entry of `node` that `project_name` calls local."""
-    value = node["meta"].get("depends_on")
-    entries = [value] if isinstance(value, str) and value else value if isinstance(value, list) else []
-    for entry in entries:
+    for entry in _dep_entries(node):
         ref = deps.classify(entry, project_name)
         if ref.kind == "local":
             yield entry, ref
@@ -255,15 +261,228 @@ def append_nodes(doc, project_name, *nodes) -> dict:
     if proj is None:
         raise ValueError(f"the document holds no project {project_name!r}")
     last = max((n["source_line"] for n in proj["nodes"]), default=0)
-    used = [int(n["id"][1:]) for p in out["projects"] for n in p["nodes"] if n["id"][1:].isdigit()]
     added = project(project_name, *nodes, start=last + 1)["nodes"]
-    ids = {n["id"]: f"n{max(used, default=0) + i}" for i, n in enumerate(added, start=1)}
+    ids = {n["id"]: f"n{i}" for i, n in enumerate(added, start=_highest_id(out) + 1)}
     for n in added:
         n["id"], n["parent"] = ids[n["id"]], ids.get(n["parent"])
     proj["nodes"] += added
 
     out["parse_report"] = [e for e in out["parse_report"] if not auto_entry(e, project_name)] + auto_report(proj)
     return out
+
+
+# --- document-carrying sources (#195) ---------------------------------------------------------
+# A build-side test writes a WBS.md and, beside it, the portfolio document #12's build
+# will read. A Source carries both: the bytes, and the nodes devagent reads from them.
+
+# devagent v3.0.0 scripts/lib/portfolio.py: REASON_NO_WBS, and REASON_UNREADABLE with _err_detail's
+# UnicodeDecodeError form (over the whole file).
+NO_WBS_REASON = "the devdoc dir has no WBS.md"
+UNREADABLE_REASON = "WBS.md could not be read: UnicodeDecodeError: {reason} at byte {start}"
+# The no_devdoc_dir reasons (REASON_UNSET, REASON_ABSENT), for a samples copy whose config a test edits.
+UNSET_REASON = "no devdoc dir is configured"
+ABSENT_REASON = "the devdoc dir does not exist"
+
+
+@dataclass(frozen=True)
+class Source:
+    text: bytes  # the WBS.md bytes write_site_tree writes
+    nodes: tuple  # numbered node dicts, project()'s shape; ids are made again per document
+    report: tuple  # (line, kind, message): entries of kinds auto_report does not write
+
+
+def _decode_error(text):
+    try:
+        text.decode("utf-8")
+    except UnicodeDecodeError as e:
+        return e
+    return None
+
+
+def source(text, *nodes, start=1, report=()) -> Source:
+    """A WBS.md text and devagent's reading of it: `nodes` as project() numbers
+    them from `start`, and `report`'s (line, kind, message) entries of kinds
+    auto_report does not write (near_miss_line, issue_not_id ...). A foreign
+    depends_on entry's dep_unresolved is not one of them: site_document
+    resolves it against the document the site is in."""
+    if not isinstance(text, bytes):
+        raise TypeError(f"source: the text is {type(text).__name__}, not bytes")
+    made = tuple(project("_", *nodes, start=start)["nodes"])
+    if made and _decode_error(text) is not None:
+        raise ValueError("source: a WBS.md that is not UTF-8 is unreadable, so it has no nodes")
+    report = tuple(tuple(entry) for entry in report)
+    for _, kind, message in report:
+        if _foreign_unresolved(kind, message):
+            raise ValueError(f"source: site_document resolves foreign depends_on entries itself: {message!r}")
+    return Source(text, made, report)
+
+
+def fixture_source(name) -> Source:
+    """A FIXTURE_SOURCES text: its bytes, written.json's nodes of project `name`,
+    and that project's entries auto_report does not write (classified under `name`),
+    less its foreign dep_unresolved entries (site_document resolves those)."""
+    return _written_source(sp.WRITTEN, name, (sp.ROOT / sp.FIXTURE_SOURCES[name]).read_bytes())
+
+
+def _written_source(path, name, text) -> Source:
+    """`text` with project `name`'s nodes in the committed document at `path`, and its entries
+    that are neither auto_report's nor a foreign dep_unresolved."""
+    doc = _parsed(path)
+    (proj,) = [p for p in doc["projects"] if p["project"] == name]
+    report = tuple((e["source_line"], e["kind"], e["message"]) for e in doc["parse_report"]
+                   if e["project"] == name and not auto_entry(e, name)
+                   and not _foreign_unresolved(e["kind"], e["message"]))
+    return Source(text, tuple(copy.deepcopy(proj["nodes"])), report)
+
+
+# devagent's dep_unresolved texts for a foreign entry (scripts/lib/portfolio.py at the pin); they
+# depend on the other projects of the document, not on the site's own text.
+NOT_CONFIGURED = "depends_on '{raw}' names project '{target}', which is not configured"
+NOT_READ = "depends_on '{raw}' names project '{target}', whose WBS was not read ({status})"
+NO_SUCH_ISSUE = "depends_on '{raw}' matches no issue in project '{target}'"
+
+
+def _foreign_unresolved(kind, message):
+    return kind == "dep_unresolved" and ("' names project '" in message or "' matches no issue in project '" in message)
+
+
+def foreign_report(projects) -> list[dict]:
+    """devagent's dep_unresolved entries of the foreign depends_on entries of `projects`'
+    read nodes, in document order: by the branches devagent takes (not configured, not
+    read, no such issue)."""
+    by_name, issues = {}, {}
+    for p in projects:
+        by_name.setdefault(p["project"], p)
+        if p["status"] == "read":
+            issues.setdefault(p["project"], set()).update(n["issue"] for n in p["nodes"] if n["issue"] is not None)
+    out = []
+    for p in projects:
+        name = p["project"]
+        for n in p["nodes"]:
+            for entry in _dep_entries(n):
+                ref = deps.classify(entry, name)
+                if ref.kind != "foreign":
+                    continue
+                target = by_name.get(ref.site)
+                if target is None:
+                    message = NOT_CONFIGURED.format(raw=entry, target=ref.site)
+                elif target["status"] != "read":
+                    message = NOT_READ.format(raw=entry, target=ref.site, status=target["status"])
+                elif ref.issue in issues.get(ref.site, ()):
+                    continue
+                else:
+                    message = NO_SUCH_ISSUE.format(raw=entry, target=ref.site)
+                out.append({"project": name, "source_line": n["source_line"], "kind": "dep_unresolved",
+                            "message": message})
+    return out
+
+
+def sample_source(site, text=None) -> Source:
+    """A read sample site as samples.json holds it: `text` (default: its WBS.md bytes,
+    else a copy of them such as CRLF line ends) with the sample's nodes, and its
+    entries that are neither auto_report's nor a foreign dep_unresolved."""
+    if text is None:
+        text = (sp.SAMPLES / site / "WBS.md").read_bytes()
+    return _written_source(sp.SAMPLES_WRITTEN, site, text)
+
+
+# A site whose one leaf is done, and one whose two leaves are held out by a cycle: no open work anywhere.
+DONE_SITE = source(b"- [x] Done {issue: Issue-1}\n", node("Done", glyph="x", issue="Issue-1"))
+HELD_SITE = source(b"- [ ] A {issue: Issue-1, depends_on: [Issue-2]}\n- [ ] B {issue: Issue-2, depends_on: [Issue-1]}\n",
+                   node("A", issue="Issue-1", depends_on=["Issue-2"]),
+                   node("B", issue="Issue-2", depends_on=["Issue-1"]),
+                   report=((1, "dep_cycle", "dependency cycle: Issue-1 (line 1), Issue-2 (line 2)"),))
+
+
+def _not_read(name, status, reason):
+    return {"project": name, "status": status, "status_reason": reason, "nodes": []}
+
+
+def _highest_id(doc):
+    return max((int(n["id"][1:]) for p in doc["projects"] for n in p["nodes"] if n["id"][1:].isdigit()), default=0)
+
+
+def _project_of(name, source, first):
+    """(project, report rows) for `source` as project `name`, node ids n<first>, n<first + 1> ..."""
+    if not isinstance(source, Source):
+        raise TypeError(f"site {name!r}: {type(source).__name__} is not a Source; pass hp.source(text, *nodes) "
+                        "or hp.fixture_source(a FIXTURE_SOURCES key), so the site carries its portfolio document")
+    error = _decode_error(source.text)
+    if error is not None:
+        return _not_read(name, "unreadable", UNREADABLE_REASON.format(reason=error.reason, start=error.start)), []
+    ids = {n["id"]: f"n{i}" for i, n in enumerate(source.nodes, start=first)}
+    nodes = [{**copy.deepcopy(n), "id": ids[n["id"]], "parent": ids.get(n["parent"])} for n in source.nodes]
+    return {"project": name, "status": "read", "status_reason": None, "nodes": nodes}, \
+        [(name, *entry) for entry in source.report]
+
+
+def site_document(sites) -> dict:
+    """The portfolio document over `sites`, {name: Source | None} in config order:
+    None is devagent's no_wbs project, a text that is not UTF-8 its unreadable
+    one, any other Source a read project; ids n<N> are unique across the document."""
+    projects, report = [], []
+    for name, value in sites.items():
+        if value is None:
+            projects.append(_not_read(name, "no_wbs", NO_WBS_REASON))
+            continue
+        made, rows = _project_of(name, value, 1 + sum(len(p["nodes"]) for p in projects))
+        projects.append(made)
+        report += rows
+    doc = document(*projects, report=report)
+    doc["parse_report"] += foreign_report(projects)
+    return doc
+
+
+def append_project(doc, name, source) -> dict:
+    """A copy of `doc` with one more project `name` of `source`, after the others;
+    its ids continue from the document's highest n<N>. Every project's foreign
+    dep_unresolved entries are resolved again, since the new project can answer them."""
+    out = copy.deepcopy(doc)
+    made, rows = _project_of(name, source, _highest_id(out) + 1)
+    out["projects"].append(made)
+    out["parse_report"] += auto_report(made) + [
+        {"project": p, "source_line": line, "kind": kind, "message": message} for p, line, kind, message in rows]
+    return refresh_foreign(out)
+
+
+def rewrite_document(copy, fn):
+    """Replace the portfolio document in the samples copy `copy` with fn(the parsed document),
+    for a test that edits the copy's WBS.md or config (#195); an edit that changes nothing fails.
+    Each read project of the new document is then checked against its WBS.md in the copy, as
+    write_site_tree checks its sites."""
+    import tomllib
+
+    copy = Path(copy)
+    path = copy.joinpath(sp.OUT, *sp.DOCUMENT)
+    before = path.read_bytes()
+    new = fn(json.loads(before.decode("utf-8")))
+    assert new is not None, "rewrite_document: fn returned None"
+    after = sp.dumps(new)
+    assert after != before, "rewrite_document: the document did not change"
+    path.write_bytes(after)
+    home = copy / "devagent"
+    try:
+        tables = tomllib.loads((home / "config.toml").read_bytes().decode("utf-8"))["project"]
+        _stopgap_agreement(copy, path, {p["project"]: (home / tables[p["project"]]["devdoc_dir"] / "WBS.md").read_bytes()
+                                        for p in new["projects"] if p["status"] == "read"}, who="rewrite_document")
+    except BaseException:
+        path.write_bytes(before)  # the check reads the written file; a failed rewrite leaves the old document
+        raise
+
+
+def append_not_read(doc, name, status, reason) -> dict:
+    """A copy of `doc` with a project `name` devagent lists but does not read (`status`, `reason`)
+    after the others, its foreign dep_unresolved entries resolved again."""
+    out = copy.deepcopy(doc)
+    out["projects"].append(_not_read(name, status, reason))
+    return refresh_foreign(out)
+
+
+def refresh_foreign(doc) -> dict:
+    """`doc` with its foreign dep_unresolved entries resolved again over its projects as they now are."""
+    kept = [e for e in doc["parse_report"] if not _foreign_unresolved(e["kind"], e["message"])]
+    doc["parse_report"] = kept + foreign_report(doc["projects"])
+    return doc
 
 
 # Two WBS texts written.json does not hold, described node by node: (source, first line, nodes).

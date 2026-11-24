@@ -9,6 +9,7 @@ from datetime import date, datetime, timezone
 
 import pytest
 
+import helpers_portfolio as hp
 from gantry import build
 from gantry.build import CLASH, build_all, working_day
 from gantry.config import load_config
@@ -33,7 +34,6 @@ from sample_roles import BUSY, NO_WBS, OWN_UNIT, READABLE, SMALL, UNESTIMATED, U
 from test_samples import ROOT
 from test_week_page import placed_nodes
 
-FIXTURES = ROOT / "tests" / "fixtures" / "wbs"
 
 # --- anchors and hrefs ------------------------------------------------------------
 
@@ -125,7 +125,7 @@ def test_reads_all_before_rendering(tmp_path, monkeypatch):
 
 
 def page_tree(tmp_path, names):
-    page = (FIXTURES / "page.md").read_bytes()
+    page = hp.fixture_source("page")
     return load_config(write_site_tree(tmp_path, {name: page for name in names}))
 
 
@@ -238,7 +238,7 @@ def test_all_fail_writes_index_exit_1(tmp_path):
 
 
 def test_case_clash_cli(tmp_path):
-    page = (FIXTURES / "page.md").read_bytes()
+    page = hp.fixture_source("page")
     config = write_site_tree(tmp_path, {"alpha": page, "Alpha": page})
     code, stdout, stderr = run_main("--config", str(config))
     assert code == 0, stderr
@@ -249,7 +249,7 @@ def test_case_clash_cli(tmp_path):
 
 
 def test_site_on_case_clash_exits_1(tmp_path):
-    page = (FIXTURES / "page.md").read_bytes()
+    page = hp.fixture_source("page")
     config = write_site_tree(tmp_path, {"alpha": page, "Alpha": page})
     code, stdout, stderr = run_main("--config", str(config), "--site", "Alpha")
     assert (code, stdout) == (1, "")
@@ -266,7 +266,7 @@ def test_site_writes_one_page_no_index(tmp_path, monkeypatch):
 
 
 def test_site_unconfigured_exits_1(tmp_path):
-    config = write_site_tree(tmp_path, {"alpha": (FIXTURES / "page.md").read_bytes()})
+    config = write_site_tree(tmp_path, {"alpha": hp.fixture_source("page")})
     code, out, err = run_main("--config", str(config), "--site", "nowhere")
     assert (code, out) == (1, "")
     assert err == f"gantry: error: --site nowhere: no such site in {tmp_path / 'devagent.toml'}\n"
@@ -285,7 +285,7 @@ def test_full_build_deletes_nothing(tmp_path, monkeypatch):
 
 
 def test_unwritable_output_exits_1(tmp_path):
-    config = write_site_tree(tmp_path, {"alpha": (FIXTURES / "page.md").read_bytes()})
+    config = write_site_tree(tmp_path, {"alpha": hp.fixture_source("page")})
     (tmp_path / "out").write_bytes(b"a file, not a folder")
     code, stdout, stderr = run_main("--config", str(config))
     # build_all returned, so the fires line prints though nothing was written (#32).
@@ -297,7 +297,7 @@ def test_unwritable_output_exits_1(tmp_path):
 
 
 def test_page_write_error_lists_site(tmp_path):
-    page = (FIXTURES / "page.md").read_bytes()
+    page = hp.fixture_source("page")
     config = write_site_tree(tmp_path, {"alpha": page, "beta": page})
     (tmp_path / "out" / "sites" / "beta.html").mkdir(parents=True)
     code, stdout, stderr = run_main("--config", str(config))
@@ -330,7 +330,7 @@ def test_page_write_error_lists_site(tmp_path):
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX file modes only")
 def test_index_mode_follows_umask(tmp_path):
-    config = write_site_tree(tmp_path, {"alpha": (FIXTURES / "page.md").read_bytes()})
+    config = write_site_tree(tmp_path, {"alpha": hp.fixture_source("page")})
     old = os.umask(0o022)
     try:
         assert run_main("--config", str(config))[0] == 0
@@ -342,9 +342,12 @@ def test_index_mode_follows_umask(tmp_path):
 def test_added_project_appears(tmp_path, monkeypatch):
     copy = copy_samples(tmp_path)
     before = (copy / "gantry.sample.toml").read_bytes()
+    dunes = hp.source(b"# Dunes\n\n- [ ] Plant the grass {issue: Issue-1}\n", hp.node("Plant the grass", issue="Issue-1"),
+                      start=3)
     (copy / "dunes").mkdir()
-    (copy / "dunes" / "WBS.md").write_bytes(b"# Dunes\n\n- [ ] Plant the grass {issue: Issue-1}\n")
+    (copy / "dunes" / "WBS.md").write_bytes(dunes.text)
     append_bytes(copy / "devagent" / "config.toml", '\n[project.dunes]\ndevdoc_dir = "../dunes"\n')
+    hp.rewrite_document(copy, lambda doc: hp.append_project(doc, "dunes", dunes))
     code, out, _, _ = demo_build(tmp_path, monkeypatch, copy=copy)
     assert code == 0
     assert "sites/dunes.html" in page_links((out / "index.html").read_bytes().decode("utf-8"))
@@ -382,8 +385,11 @@ def test_every_link_lands(tmp_path, monkeypatch):
 
 def test_encoded_key_anchor_and_href_land(tmp_path):
     hostile = "a b<c>&\u00e9"
-    wbs = f"- [x] Done {{issue: {hostile}}}\n- [ ] Open {{issue: x y}}\n".encode("utf-8")
-    other = (FIXTURES / "page.md").read_bytes()
+    wbs = hp.source(f"- [x] Done {{issue: {hostile}}}\n- [ ] Open {{issue: x y}}\n".encode("utf-8"),
+                    hp.node("Done", glyph="x", issue=hostile), hp.node("Open", issue="x y"),
+                    report=((1, "issue_not_id", f"issue '{hostile}' is not an issue id; its issue dir is not read"),
+                            (2, "issue_not_id", "issue 'x y' is not an issue id; its issue dir is not read")))
+    other = hp.fixture_source("page")
     config = write_site_tree(tmp_path, {"alpha": wbs, "other": other})
     code, _, stderr = run_main("--config", str(config))
     assert code == 0, stderr
@@ -508,7 +514,7 @@ def test_site_mode_parse_error_is_one_line(tmp_path, monkeypatch):
         raise RuntimeError("parser broke")
 
     monkeypatch.setattr(build, "read_wbs", read_wbs)
-    config = write_site_tree(tmp_path, {"alpha": (FIXTURES / "page.md").read_bytes()})
+    config = write_site_tree(tmp_path, {"alpha": hp.fixture_source("page")})
     code, stdout, stderr = run_main("--config", str(config), "--site", "alpha")
     assert (code, stdout) == (1, "")
     assert stderr.endswith("gantry: error: --site alpha: cannot build: render error: RuntimeError: parser broke\n")
@@ -521,7 +527,7 @@ def test_site_mode_parse_error_is_one_line(tmp_path, monkeypatch):
     ("12h", 2, date(2026, 1, 21)),  # exactly two days
 ])
 def test_finish_day_is_the_day_the_plan_ends_in(tmp_path, est, day, when):
-    wbs = f"- [ ] A {{issue: Issue-1, est: {est}}}\n".encode("utf-8")
+    wbs = hp.source(f"- [ ] A {{issue: Issue-1, est: {est}}}\n".encode("utf-8"), hp.node("A", issue="Issue-1", est=est))
     config = load_config(write_site_tree(tmp_path, {"alpha": wbs}, as_of="2026-01-20"))
     (summary,) = build_all(config).summaries
     assert (summary.finish_day, summary.finish_date) == (day, when)
@@ -940,12 +946,7 @@ DEMO_FIRES_LINE = "fires: 8; sources not fully read: 1"
 
 def fires_install(tmp_path, name="samples", fires_list=None):
     """A samples copy under tmp_path/name, its fires_list repointed when given."""
-    import shutil
-
-    from helpers_config import SAMPLES
-
-    copy = tmp_path / name / "samples"
-    shutil.copytree(SAMPLES, copy, ignore=shutil.ignore_patterns("out"))
+    copy = copy_samples(tmp_path / name)
     if fires_list is not None:
         config = copy / "gantry.sample.toml"
         text = config.read_bytes().decode("utf-8")
@@ -1600,11 +1601,14 @@ def test_strategic_reads_history_once_per_built_site(tmp_path, monkeypatch):
     assert len({id(c[3]) for c in calls}) == 1  # one cache for the build
 
 
+DOING_A = hp.source(b"# A\n\n- [~] Doing {issue: Issue-1}\n", hp.node("Doing", glyph="~", issue="Issue-1"), start=3)
+TODO_B = hp.source(b"# B\n\n- [ ] Todo {issue: Issue-2}\n", hp.node("Todo", issue="Issue-2"), start=3)
+
+
 def test_build_without_git(tmp_path, monkeypatch):
     empty = tmp_path / "empty-path"
     empty.mkdir()
-    config_path = write_site_tree(tmp_path / "tree", {"a": b"# A\n\n- [~] Doing {issue: Issue-1}\n",
-                                                      "b": b"# B\n\n- [ ] Todo {issue: Issue-2}\n"})
+    config_path = write_site_tree(tmp_path / "tree", {"a": DOING_A, "b": TODO_B})
     models = spy_attach(monkeypatch)
     monkeypatch.setenv("PATH", str(empty))
     result, _, error = build.write_all(build_all(load_config(config_path)))
@@ -1629,7 +1633,7 @@ def test_build_with_shallow_or_failed_history(tmp_path, monkeypatch, no_data):
 
     monkeypatch.setattr(wbs_history, "last_state_change", answer)
     models = spy_attach(monkeypatch)
-    config_path = write_site_tree(tmp_path / "tree", {"a": b"# A\n\n- [~] Doing {issue: Issue-1}\n"})
+    config_path = write_site_tree(tmp_path / "tree", {"a": DOING_A})
     result, _, error = build.write_all(build_all(load_config(config_path)))
     assert error is None and result.strategic_error is None
     assert models[0].panels["a"].thieves.neglect.text == f"no data: {no_data}"
@@ -1645,7 +1649,7 @@ def test_history_read_that_raises_is_no_data(tmp_path, monkeypatch):
 
     monkeypatch.setattr(wbs_history, "last_state_change", boom)
     models = spy_attach(monkeypatch)
-    config_path = write_site_tree(tmp_path / "tree", {"a": b"# A\n\n- [~] Doing {issue: Issue-1}\n"})
+    config_path = write_site_tree(tmp_path / "tree", {"a": DOING_A})
     result, _, error = build.write_all(build_all(load_config(config_path)))
     assert error is None and result.strategic_error is None
     assert models[0].panels["a"].thieves.neglect.text == "no data: history read failed: RuntimeError"
@@ -1654,8 +1658,7 @@ def test_history_read_that_raises_is_no_data(tmp_path, monkeypatch):
 def test_build_prints_failed_thieves(tmp_path, monkeypatch):
     from gantry import thieves
 
-    config_path = write_site_tree(tmp_path / "tree", {"a": b"# A\n\n- [~] Doing {issue: Issue-1}\n",
-                                                      "b": b"# B\n\n- [ ] Todo {issue: Issue-2}\n"})
+    config_path = write_site_tree(tmp_path / "tree", {"a": DOING_A, "b": TODO_B})
     code, _, before = run_main("--config", str(config_path))
     real = thieves.wip_thief
 

@@ -16,6 +16,7 @@ from pathlib import Path, PurePath
 import pytest
 
 import helpers_links
+import helpers_portfolio as hp
 from gantry.roots import (
     NUL_MESSAGE,
     PACKAGE_KEY,
@@ -464,7 +465,7 @@ def _with_history(tmp_path, history):
     """A site tree whose harbor site sets `history` to the given path (#28)."""
     from helpers_config import write_site_tree
 
-    return write_site_tree(tmp_path / "inst", {"harbor": b"- [ ] A\n"},
+    return write_site_tree(tmp_path / "inst", {"harbor": hp.source(b"- [ ] A\n", hp.node("A"))},
                            tail=f"\n[site.harbor]\nhistory = {literal(history)}\n")
 
 
@@ -940,9 +941,10 @@ def test_a_missing_sample_dir_is_never_sample_mode(tmp_path, monkeypatch):
 
 _AS_OF = date(2026, 1, 20)
 _WBS = "# Plan\n- [ ] Epic\n  - [ ] A {issue: Issue-1}\n"
+_WBS_SOURCE = hp.source(_WBS.encode(), hp.node("Epic", hp.node("A", issue="Issue-1")), start=2)
 
 
-def _history_site(tmp_path, wbs=_WBS.encode()):
+def _history_site(tmp_path, wbs=_WBS_SOURCE):
     """(config, roots, the harbor site, its history repository): one commit of WBS.md."""
     from helpers_history import commit, make_repo, site_config
 
@@ -1005,7 +1007,7 @@ def test_history_naming_the_gantry_root_is_own_repository(tmp_path, monkeypatch,
     from gantry import wbs_history
     from helpers_history import site_config, spy_git
 
-    config, roots, sites = site_config(tmp_path / "inst", {"harbor": _WBS.encode()},
+    config, roots, sites = site_config(tmp_path / "inst", {"harbor": _WBS_SOURCE},
                                        history={"harbor": Path(str(gantry_root()))})
     calls = spy_git(monkeypatch)
     got = wbs_history.last_state_change(roots, sites["harbor"], config, _AS_OF, 4, wbs_history.HistoryCache())

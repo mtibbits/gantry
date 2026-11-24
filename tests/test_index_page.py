@@ -11,6 +11,7 @@ from datetime import date
 from pathlib import Path
 
 from commit_check import path_form_hits
+import helpers_portfolio as hp
 from gantry.build import build_all, write_all
 from gantry.config import load_config
 from gantry.render import Markup
@@ -40,8 +41,6 @@ from page_script.harness import open_page
 from sample_roles import BUSY, NO_WBS, OWN_UNIT, READABLE, SMALL, UNESTIMATED, UNREADABLE
 from test_samples import ROOT
 from test_worksite_page import by_id, find, text_of, tree
-
-FIXTURES = ROOT / "tests" / "fixtures" / "wbs"
 
 
 def site_lines(t):
@@ -92,9 +91,7 @@ def test_site_line_fields(tmp_path):
 
 
 def test_no_finish_line(tmp_path):
-    done = b"- [x] Done {issue: Issue-1}\n"
-    held = b"- [ ] A {issue: Issue-1, depends_on: [Issue-2]}\n- [ ] B {issue: Issue-2, depends_on: [Issue-1]}\n"
-    result = build_all(load_config(write_site_tree(tmp_path, {"done": done, "held": held})))
+    result = build_all(load_config(write_site_tree(tmp_path, {"done": hp.DONE_SITE, "held": hp.HELD_SITE})))
     t = tree(render_index(result))
     summaries = {s.name: s for s in result.summaries}
     assert summaries["held"].open_leaves == 2
@@ -271,7 +268,7 @@ def test_index_lines_with_no_open_work(tmp_path):
 
 
 def test_warnings_listed_at_top(tmp_path):
-    page = (FIXTURES / "page.md").read_bytes()
+    page = hp.fixture_source("page")
     tail = '[site.ghost]\n[site.life]\nrequirements = "l.md"\n'
     result = build_all(load_config(write_site_tree(tmp_path, {"life": page, "alpha": page}, tail=tail)))
     assert [w.key for w in result.warnings] == ["site.ghost", "site.life.requirements"]
@@ -315,7 +312,7 @@ def test_index_doc_states_texts():
 
 
 def test_index_hostile(node, tmp_path, monkeypatch):
-    page = (FIXTURES / "page.md").read_bytes()
+    page = hp.fixture_source("page")
     tail = f"[site.{toml_key(HOSTILE[0])}]\n"
     config = load_config(write_site_tree(tmp_path, {"alpha": page, HOSTILE[3]: page, "beta": page}, tail=tail))
     render_model = worksite.render_model

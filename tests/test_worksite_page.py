@@ -1072,7 +1072,7 @@ def inputs_page(site):
     return inputs, render_page(site, inputs.data, default_unit_hours=config.default_unit_hours, inputs=inputs)
 
 
-def test_non_time_sample_site():
+def test_non_time_sample_site(real_sample_document):
     inputs, page = inputs_page(OWN_UNIT)
     assert "Not in any hour figure: 13 pt (2 leaves)" in visible_text(page)
     assert (inputs.totals.hours, inputs.totals.unestimated_count) == (90, 5)
@@ -1086,7 +1086,7 @@ def test_non_time_sample_site():
     assert "6 open leaves have no priority and count as P3" in m["panel"]
 
 
-def test_model_tier_sample_site():
+def test_model_tier_sample_site(real_sample_document):
     inputs, page = inputs_page(BUSY)
     found = find_estimates_file(SAMPLE_ROOTS, SiteEntry(BUSY, SAMPLES / BUSY, None), SimpleNamespace(sites={}))
     rows = read_estimates_file(SAMPLE_ROOTS, found.path, BUSY, found.name).rows
@@ -1110,7 +1110,7 @@ def test_model_tier_sample_site():
     assert not [e for e in inputs.data.report if e.kind == "no_model_tiers"]
 
 
-def test_p0_sample_site(node, tmp_path):
+def test_p0_sample_site(node, tmp_path, real_sample_document):
     inputs, page = inputs_page(UNESTIMATED)
     m = model_with(inputs, UNESTIMATED)
     assert by_key(m)["Issue-8"]["wave_full"] is True
@@ -1118,7 +1118,7 @@ def test_p0_sample_site(node, tmp_path):
         assert keys_of(live.query("#gantt circle.pr-p0")) == {"Issue-8"}
 
 
-def test_every_sample_page_labelled():
+def test_every_sample_page_labelled(real_sample_document):
     for site in sorted(READABLE):
         inputs, page = inputs_page(site)
         assert_page_safe(page, [])

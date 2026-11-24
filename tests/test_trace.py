@@ -52,7 +52,7 @@ def tree(tmp_path, sites, portfolio=None, br=None, tail="", **raw):
     if portfolio is not None:
         (tmp_path / "portfolio.md").write_bytes(("# P\n\n## Business requirements\n\n" + portfolio).encode("utf-8"))
         raw.setdefault("portfolio_file", '"portfolio.md"')
-    return write_site_tree(tmp_path, {name: b"# x\n" for name in sites}, tail="".join(tables) + tail, **raw)
+    return write_site_tree(tmp_path, {name: hp.source(b"# x\n") for name in sites}, tail="".join(tables) + tail, **raw)
 
 
 def catalog(config_path) -> Catalog:

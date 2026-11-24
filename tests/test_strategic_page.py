@@ -7,6 +7,7 @@ import subprocess
 import sys
 
 from commit_check import path_form_hits
+import helpers_portfolio as hp
 from gantry.build import build_all, write_all
 from gantry.config import load_config
 from gantry.portfolio_file import format_entry
@@ -328,6 +329,7 @@ def test_not_built_name_is_shown_escaped(tmp_path):
     """A not-built project's name is printed as on stderr: a tab in it is escaped (I4)."""
     copy = samples(tmp_path)
     append_bytes(copy / "devagent" / "config.toml", '\n[project."bad\\tname"]\ndevdoc_dir = "../ghost"\n')
+    hp.rewrite_document(copy, lambda doc: hp.append_not_read(doc, "bad\tname", "no_devdoc_dir", hp.ABSENT_REASON))
     text, _ = page(copy)
     t = tree(text)
     assert "bad\\tname" in [name for name, _ in panels(t)]
@@ -351,6 +353,7 @@ def test_strategic_hostile(tmp_path):
     replace_bytes(copy / "portfolio.md", "- BR-3: Bring in a full harvest each autumn.\n",
                   f"- BR-3: Bring in a full harvest each autumn.\n- BR-4: {HOSTILE[0]}\n")
     append_bytes(copy / "devagent" / "config.toml", f'\n[project.{toml_key(HOSTILE[3])}]\ndevdoc_dir = "../ghost"\n')
+    hp.rewrite_document(copy, lambda doc: hp.append_not_read(doc, HOSTILE[3], "no_devdoc_dir", hp.ABSENT_REASON))
     planted_values = [HOSTILE[0], HOSTILE[3], HOSTILE[7], HOSTILE[10]]
     try:
         (copy / OWN_UNIT / ODD_ESTIMATES).write_bytes(ESTIMATES_ROW.encode("utf-8"))
@@ -397,7 +400,8 @@ def built_page(tmp_path, sites, tail=""):
 
 def test_pct_half_up(tmp_path):
     assert (pct(12.5), pct(30.66), pct(0), pct(99.5)) == ("13%", "31%", "0%", "100%")
-    t, _ = built_page(tmp_path, {"a": b"- [ ] Only {issue: Issue-1, est: 130.25h}\n"})
+    t, _ = built_page(tmp_path, {"a": hp.source(b"- [ ] Only {issue: Issue-1, est: 130.25h}\n",
+                                                hp.node("Only", issue="Issue-1", est="130.25h"))})
     (hours,) = figures(t, "hours")
     assert text_of(t, hours) == "1 open leaf, 130.3 h"
 
@@ -447,14 +451,13 @@ def test_rendered_texts(tmp_path):
     assert "no built site serves this requirement" in text_of(t, br4)
     assert [text_of(t, i) for i in figures(t, "group-sum", br4)] == ["nothing to sum"]
     # No open work anywhere; leaves held out by a cycle; the singulars.
-    done = b"- [x] Done {issue: Issue-1}\n"
-    held = b"- [ ] A {issue: Issue-1, depends_on: [Issue-2]}\n- [ ] B {issue: Issue-2, depends_on: [Issue-1]}\n"
-    t, _ = built_page(tmp_path / "held", {"done": done, "held": held})
+    t, _ = built_page(tmp_path / "held", {"done": hp.DONE_SITE, "held": hp.HELD_SITE})
     assert "no open work" in text_of(t, panel_of(t, "held"))
     assert figures(t, "backlog") == []
     (hours,) = figures(t, "hours", panel_of(t, "held"))
     assert text_of(t, hours) == "2 open leaves, 0 h; 2 held out by a cycle, not in hours"
-    t, _ = built_page(tmp_path / "one", {"a": b"- [ ] Only {issue: Issue-1, est: 3pt}\n"})
+    t, _ = built_page(tmp_path / "one", {"a": hp.source(b"- [ ] Only {issue: Issue-1, est: 3pt}\n",
+                                                        hp.node("Only", issue="Issue-1", est="3pt"))})
     li = panel_of(t, "a")
     (hours,) = figures(t, "hours", li)
     assert text_of(t, hours) == "1 open leaf, 6 h, includes 1 unestimated leaf"
