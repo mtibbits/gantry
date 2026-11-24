@@ -287,12 +287,13 @@ a config format, not a per-issue record, and a module of its own reads it:
 `gantry/capacity.py`, through the same confined TOML read as the site list.
 `gantry build` runs no devagent command.
 
-The tables, their rules and devagent's reader of them are in the pin's
-release, `devagent--v3.4.0`, the first that has them. There
-`scripts/capacity.sh` is the reader's command, `scripts/lib/capacity.py`
-holds every rule, the document and the text, and devagent's
-`docs/configuration.md` states them under "Capacity". This section cites
-no source line: the agreement test below holds Gantry to that reader.
+The tables, their rules and devagent's reader of them exist since devagent
+3.4.0, the first release that has them; the pin's release,
+`devagent--v3.4.0`, has them. There `scripts/capacity.sh` is the reader's
+command, `scripts/lib/capacity.py` holds every rule, the document and the
+text, and devagent's `docs/configuration.md` states them under "Capacity".
+This section cites no source line: the agreement test below holds Gantry
+to that reader.
 
 `gantry/capacity.py` is a port of those rules, not a paraphrase of them:
 the rule strings, the order of the lines, one line per key, which rule an
@@ -538,8 +539,8 @@ steps; only the Ubuntu legs run the test.
 Gantry has asked devagent for a per-issue stuck flag and next-step field in
 its portfolio JSON (mtibbits/devagent#725, emitted by mtibbits/devagent#726).
 devagent writes them, as each issue's `stuck`, `checklist`, `next_step` and
-`next_step_number` under `projects[].issues`. Once Gantry reads that JSON
-(#12), **whether an
+`next_step_number` under `projects[].issues`; Gantry does not read them yet.
+Once Gantry reads that JSON (#12), **whether an
 issue is STUCK** and **its next step** can come from there. The portfolio
 reader (`gantry/portfolio_json.py`) reads the document's nodes and report
 today and not its per-issue entries (`projects[].issues`); reading those is
