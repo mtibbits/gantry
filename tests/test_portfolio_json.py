@@ -170,8 +170,8 @@ def test_newer_minor_with_unknown_fields_is_read(tmp_path):
 def test_models_field_is_not_read():
     # Schema 1.2 gives every leaf a `models` object. The reader does not use it (#14 will), so a
     # 1.1 document, which has none, and a 1.2 document with any value there read alike.
-    plain = map_document(hp.written_doc())
     doc = hp.written_doc()
+    plain = map_document(doc)
     leaves = [n for p in doc["projects"] for n in p["nodes"] if n["leaf"]]
     assert len(leaves) == 114 and all(list(n["models"]) == ["thinking", "checking"] for n in leaves)
     assert not any("models" in n for p in doc["projects"] for n in p["nodes"] if not n["leaf"])
@@ -505,8 +505,8 @@ def test_each_key_removed_raises_only_load_errors():
             else:
                 assert isinstance(got, PortfolioInput), (level, key)
                 read += 1
-    # The 15 read lack a field the reader does not use: a project's wbs_title, issues or rollup, a node's
-    # typed and derived fields.
+    # The 16 read lack a field the reader does not use: a project's wbs_title, issues or rollup, a node's
+    # typed and derived fields, or its models.
     assert (read, refused) == (16, 25)
 
 

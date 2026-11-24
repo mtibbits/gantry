@@ -874,11 +874,10 @@ def test_readme_row_names_the_pin_and_its_checks():
     from helpers_docs import markdown_text
 
     (row,) = [line for line in markdown_text(ROOT / "README.md").split(LF) if line.startswith("| devagent |")]
-    floor = hd.read_pin()[1]
-    # The oldest supported devagent is the pin's, with its checks; the capacity
-    # agreement test runs at the same release.
-    assert row.startswith(f"| devagent | {floor} |")
-    for name in (f"`tests/devagent.pin` names ({floor})",
+    version = hd.read_pin()[1]
+    # The oldest supported devagent is the pin's, with its checks.
+    assert row.startswith(f"| devagent | {version} |")
+    for name in (f"`tests/devagent.pin` names ({version})",
                  "(docs/devagent-formats.md#the-capacity-declaration)",
                  "the config format is not yet tested against it"):
         assert name in row, name

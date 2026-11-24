@@ -82,9 +82,10 @@ reaches the planning repository only at the cleanup of its own issue, on
 the machine that wrote it; the cleanup of another issue leaves it out. A
 STUCK marker written on another machine is invisible here until then, and
 devagent never commits one that is deleted before that cleanup. How such
-records reach the build machine is outside Gantry. `/devagent:status` reads a STUCK marker only for
-each project's active issue, from its own machine's state
-(`scripts/status.sh:28-51`); Gantry reads every issue folder.
+records reach the build machine is outside Gantry. `/devagent:status`
+reads a STUCK marker only for each project's active issue, from its own
+machine's state (`scripts/status.sh:28-51`); Gantry reads every issue
+folder.
 
 ## STUCK markers
 
@@ -286,9 +287,9 @@ a config format, not a per-issue record, and a module of its own reads it:
 `gantry/capacity.py`, through the same confined TOML read as the site list.
 `gantry build` runs no devagent command.
 
-The tables, their rules and devagent's reader of them exist since devagent
-3.4.0, the first release that has them; the pin's release,
-`devagent--v3.4.0`, has them. There `scripts/capacity.sh` is the reader's command, `scripts/lib/capacity.py`
+The tables, their rules and devagent's reader of them are in the pin's
+release, `devagent--v3.4.0`, the first that has them. There
+`scripts/capacity.sh` is the reader's command, `scripts/lib/capacity.py`
 holds every rule, the document and the text, and devagent's
 `docs/configuration.md` states them under "Capacity". This section cites
 no source line: the agreement test below holds Gantry to that reader.
@@ -500,12 +501,12 @@ pin and a test holds it equal to `tests/devagent.pin`:
 - `tests/fixtures/expected_leaves/`: the six sample snapshots and the 14
   under `fixture/` (`tools/update_expected_leaves.py`). Run it after the
   line above, since the fixture snapshots are read from `written.json`.
+  `known_differences.json` in that folder is kept by hand; review it against
+  the new snapshots.
 
 A pin move also re-runs the build-side differential that
 `tests/helpers_config.py` names (#195), since the build-side test sources
 model devagent's report entries by hand and no gated test re-checks them.
-  `known_differences.json` in that folder is kept by hand; review it against
-  the new snapshots.
 
 [worksite-page.md](worksite-page.md#reading-devagents-portfolio-json)
 describes the portfolio fixture, the snapshots and their tests.
@@ -537,8 +538,8 @@ steps; only the Ubuntu legs run the test.
 Gantry has asked devagent for a per-issue stuck flag and next-step field in
 its portfolio JSON (mtibbits/devagent#725, emitted by mtibbits/devagent#726).
 devagent writes them, as each issue's `stuck`, `checklist`, `next_step` and
-`next_step_number` under `projects[].issues`; Gantry does not read them yet.
-Once Gantry reads that JSON (#12), **whether an
+`next_step_number` under `projects[].issues`. Once Gantry reads that JSON
+(#12), **whether an
 issue is STUCK** and **its next step** can come from there. The portfolio
 reader (`gantry/portfolio_json.py`) reads the document's nodes and report
 today and not its per-issue entries (`projects[].issues`); reading those is
