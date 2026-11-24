@@ -541,10 +541,10 @@ its portfolio JSON (mtibbits/devagent#725, emitted by mtibbits/devagent#726).
 devagent writes them, as each issue's `stuck`, `checklist`, `next_step` and
 `next_step_number` under `projects[].issues`; Gantry does not read them yet.
 Once Gantry reads that JSON (#12), **whether an
-issue is STUCK** and **its next step** can come from there. The portfolio
-reader (`gantry/portfolio_json.py`) reads the document's nodes and report
-today and not its per-issue entries (`projects[].issues`); reading those is
-#12's. **The parked
-state, the STUCK marker's reason and time, whether a checklist shows
+issue is STUCK**, **the STUCK marker's reason and time** (`stuck` holds
+`step`, `reason` and `since`) and **its next step** can come from there.
+The portfolio reader (`gantry/portfolio_json.py`) reads the document's
+nodes and report today and not its per-issue entries (`projects[].issues`);
+reading those is #12's. **The parked state, whether a checklist shows
 progress, and the plan's next task** stay with this module unless devagent
 emits them too. The callers' types do not change shape when a source moves.
