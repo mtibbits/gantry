@@ -707,8 +707,11 @@ class _Settings:
                             tuple(mapping) if mapping is not None else None)
         for key in ("attention_hours", "agent_lanes"):
             if getattr(capacity, key) is None:
+                # True with or without devagent's capacity declaration (#39): a used one
+                # gives the attention hours and the lanes, and this check reads this file alone.
                 self.add("capacity_missing", p + (key,),
-                         f"no capacity.{key}, so the week planner has no capacity to plan into")
+                         f"no capacity.{key}, so the week planner has no capacity to plan into "
+                         "unless devagent's capacity declaration is used")
         if hours is not None:
             self.exceeds(hours, reserved)
         return capacity

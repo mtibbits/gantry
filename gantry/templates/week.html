@@ -29,7 +29,10 @@ h3 { font-size: .9rem; font-weight: 600; margin: .25rem 0; }
 a { color: var(--link); }
 ul { padding-left: 1.25rem; margin: .25rem 0; }
 #lines p, #lines li { margin: .2rem 0; }
-#lines .rule, #lines .mapping, #lines .capacity, #notes li { color: var(--muted); font-size: .9rem; }
+#lines .rule, #lines .mapping, #notes li { color: var(--muted); font-size: .9rem; }
+/* What the plan says of its capacity (#39): above the days, and under the reason on the no-plan page. */
+.capacity, #capacity-violations li, #capacity-warnings li { color: var(--muted); font-size: .9rem; margin: .2rem 0; }
+.capacity.invalid { color: var(--ink); font-weight: 600; }
 #days { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: .75rem; margin: 1rem 0; }
 .day { border: 1px solid var(--rule); border-radius: 4px; padding: .5rem .6rem; overflow-wrap: anywhere; }
 .day[data-today] { border-color: var(--today); }

@@ -193,8 +193,11 @@ The devagent contract test, and the portfolio tests that run devagent's
 aggregator (`tests/test_portfolio_equivalence.py`), need a devagent checkout
 at the release named in `tests/devagent.pin`, given by
 `GANTRY_DEVAGENT_DIR`, and devagent's own toolchain (bash and GNU
-coreutils). They follow the same rule: without the checkout they skip,
-except under `CI`, where they fail. On Windows they always skip. See
+coreutils). A test of a devagent contract that release lacks needs a second
+checkout, at the release named in `tests/devagent-latest.pin`, given by
+`GANTRY_DEVAGENT_LATEST_DIR`. They follow the same rule: without the
+checkout they skip, except under `CI`, where they fail. On Windows they
+always skip. See
 [docs/devagent-formats.md](docs/devagent-formats.md#fixtures-and-the-contract-test)
 and
 [docs/worksite-page.md](docs/worksite-page.md#reading-devagents-portfolio-json).
@@ -456,7 +459,7 @@ will be read when the maintainer can. Security reports go through
 | git | 2.45 | Latest: on every change, the git on the CI runners, Ubuntu and Windows, which may trail git's latest release; each release records the git it ran on. Oldest: stated from git's release notes, not yet tested: 2.45 is the oldest git that honours `GIT_NO_LAZY_FETCH` (see [Your data stays private](#your-data-stays-private)). |
 | Claude Code | Not yet stated | At every release: the plugin check under [Checks every release runs](#checks-every-release-runs), on the latest release. |
 | bash | Not yet stated | `/gantry:build` runs its launcher with bash. On every change: the launcher's tests, with the bash on the Ubuntu CI runner. At every release: the plugin check, with the bash Claude Code uses there. |
-| devagent | 3.0.0 | Gantry reads the `WBS.md` files, config and records devagent writes. Latest: the maintainer's own installation runs the latest devagent release. Oldest: on every change, on the Ubuntu CI runners, the contract test runs devagent's own record writers at the release `tests/devagent.pin` names (3.0.0) and compares their output with Gantry's fixtures ([devagent-formats.md](docs/devagent-formats.md#fixtures-and-the-contract-test)), and the portfolio tests run its aggregator over Gantry's `WBS.md` fixtures and samples and compare what Gantry reads from its portfolio JSON with committed snapshots ([worksite-page.md](docs/worksite-page.md#reading-devagents-portfolio-json)); the config format is not yet tested against it. |
+| devagent | 3.0.0 | Gantry reads the `WBS.md` files, config and records devagent writes. Latest: the maintainer's own installation runs the latest devagent release. Oldest: on every change, on the Ubuntu CI runners, the contract test runs devagent's own record writers at the release `tests/devagent.pin` names (3.0.0) and compares their output with Gantry's fixtures ([devagent-formats.md](docs/devagent-formats.md#fixtures-and-the-contract-test)), and the portfolio tests run its aggregator over Gantry's `WBS.md` fixtures and samples and compare what Gantry reads from its portfolio JSON with committed snapshots ([worksite-page.md](docs/worksite-page.md#reading-devagents-portfolio-json)); the config format is not yet tested against it. The capacity declaration in that config, which the oldest supported release does not have, is tested at a newer one: on every change, on the Ubuntu CI runners, the agreement test runs devagent's own capacity reader at the release `tests/devagent-latest.pin` names (3.4.0) on Gantry's config fixtures and compares what it prints with what Gantry reads from the same files ([devagent-formats.md](docs/devagent-formats.md#the-capacity-declaration)). |
 
 Until a tool's oldest version is stated, only its latest release is
 supported. That moves with each upstream release and is not a break.

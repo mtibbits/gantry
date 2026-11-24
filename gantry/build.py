@@ -6,7 +6,8 @@ them), traces each site it read and widens the traces to the installation
 (#21), then renders each
 traced site, each step per site in its own `try`, and returns one
 BuildResult that every view reads, with the week plan (#61) made from the
-built sites, the portfolio file the trace's catalog read and its report
+built sites and devagent's capacity declaration (#39, read once from the
+devagent config), the portfolio file the trace's catalog read and its report
 entries (#23). It writes nothing; write_all writes the pages, the week view
 (week.html, #38), the strategic page (#23) and the index, and the command
 line writes the plan file. A site that cannot
@@ -26,6 +27,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from gantry import strategic, thieves, wbs_history
 from gantry.attention import check_h
+from gantry.capacity import read_declared_capacity
 from gantry.config import Config, error_reason
 from gantry.crosssite import resolve_foreign
 from gantry.devagent_records import NOT_READ, SiteRecords, read_site_records
@@ -343,6 +345,11 @@ def build_all(config, *, now=None, samples=None) -> BuildResult:
     site, then plan the week and collect the fires from the same records;
     write nothing.
 
+    The week is planned from devagent's capacity declaration (#39), read
+    once, after the site list, from the same devagent config; a `--site`
+    build plans no week and does not read it. ConfigError propagates from
+    that read as from the site list's.
+
     A trace fault stops only its site, which counts as not read. After a
     trace or render failure, the pages that wait on or link to the failed
     site are re-resolved and re-rendered (rerender_failed). A write failure
@@ -351,6 +358,10 @@ def build_all(config, *, now=None, samples=None) -> BuildResult:
     """
     roots = config_roots(config)
     sites, warnings = site_list(config, roots)
+    # devagent's capacity declaration, once per run (#39): the week plan is
+    # made from it. It is in the devagent config the site list was just read
+    # from, so a file that cannot be read again is a ConfigError, as there.
+    capacity = read_declared_capacity(roots, config.devagent_config)
     # Every requirements file and the portfolio file, once per run (#20); a
     # file that cannot be read is a report entry, never an exception.
     catalog = load_catalog(roots, config, sites)
@@ -377,7 +388,7 @@ def build_all(config, *, now=None, samples=None) -> BuildResult:
                          portfolio=catalog.portfolio, page_models=models, records=records)
     result = replace(result, portfolio_entries=_portfolio_entries(result))
     # The plan is made from the rendered sites: a worksite page does not get it.
-    result = replace(result, plan=plan_week(result, result.portfolio, config))
+    result = replace(result, plan=plan_week(result, result.portfolio, config, capacity=capacity))
     return collect_build_fires(result, config, sites, now)
 
 

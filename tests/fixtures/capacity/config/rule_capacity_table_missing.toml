@@ -1,0 +1,14 @@
+# A fictional devagent config for the capacity reader's tests (#39).
+# Breaks one rule: a has a capacity table and there is no [capacity] table.
+
+[project.a]
+devdoc_dir = "a"
+
+[project.a.capacity]
+priority = 2
+
+[project.b]
+devdoc_dir = "b"
+
+[project.c]
+devdoc_dir = "c"

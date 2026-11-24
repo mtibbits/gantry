@@ -7,7 +7,8 @@ slack class and workflow phase row (`phases`, `phases_why`, #173) from
 result.page_models, which sites have pages, and the not-built reasons. A
 placement is drawn as the worksite network's leaf box, by the one rule in
 gantry/views/leafbox.py (#170), with the same phase row. It computes no planning
-value and never changes the plan. All 10 days are rendered here; the page
+value and never changes the plan; to choose the declared-ratio-0 line (#39)
+it asks planner.is_rate_0 whether the plan's declared ratio plans as rate 0. All 10 days are rendered here; the page
 script only shows or hides days and lists. docs/week-plan.md describes the page.
 """
 
@@ -17,7 +18,8 @@ from fractions import Fraction
 
 from gantry import phases, planner, render
 from gantry.links import leaf_href
-from gantry.render import Markup, embed_json, esc, fill, hours_text, hundredths, unestimated_text
+from gantry.portfolio_file import WEEKDAYS
+from gantry.render import Markup, decimals, embed_json, esc, fill, hours_text, hundredths, unestimated_text
 from gantry.sites import shown
 from gantry.views import leafbox
 from gantry.views.worksite import DOT, _count_line, _script
@@ -27,6 +29,7 @@ TITLE = "Week view"
 LINK = (TITLE, PAGE)
 
 WEEKDAY_NAMES = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+WEEKDAY_OF = dict(zip(WEEKDAYS, WEEKDAY_NAMES))  # the plan's weekday, "mon" to "sun", to its name
 DAY_HEAD = "{weekday} {date}"
 TODAY = "today"
 NOT_WORKING = "the as-of date {as_of} is not a working day; the plan starts {weekday} {date}"
@@ -51,6 +54,17 @@ MAPPING = "attention mapping: {values} operator hours per agent hour for needs 0
 MAPPING_SOURCES = {"default": "default", "portfolio_file": "from the portfolio file"}
 MAPPING_REJECTED = "the portfolio file's mapping was not used: {reason}"
 CAPACITY = "capacity from: {parts}"  # each "{name}: {capacity_source}", joined by "; "
+# What the plan says of devagent's capacity declaration (#39), after CAPACITY (_capacity_notes).
+SCALED = ("devagent declares {total} a week; the portfolio file's weekdays after reserved blocks sum to {sum}; "
+          "each day is scaled by {factor}")
+EVEN_SPREAD = ("devagent declares {total} a week; the portfolio file sets no attention_hours, so it is spread "
+               "evenly over Monday to Friday")
+DAY_CAPPED = "{weekday}: {lost} of devagent's weekly hours do not fit in the day after its reserved blocks"
+INVALID = "devagent's capacity declaration is invalid; the portfolio file's capacity is used"  # with a plan
+INVALID_NO_PLAN = "devagent's capacity declaration is invalid"  # on the no-plan page: no capacity is used
+# For a declared ratio the planner plans as rate 0 (planner.is_rate_0), which 0 itself is.
+RATIO_ZERO = "devagent declares 0 operator hours per agent hour; unscored leaves run in lanes without blocks"
+TOKENS = "token budget (not scheduled): {n} {unit} a week"
 COUNT = "Includes {n} unestimated leaves"
 COUNT_ONE = "Includes 1 unestimated leaf"
 SHARELESS = ("{n} sites have no intended share set; they are planned only into capacity left after the sites "
@@ -66,7 +80,8 @@ BEYOND_ONE = "1 leaf beyond the 10 days"
 BEYOND_BUTTON = "show or hide"
 DAYS_BUTTONS = (("5", "5 days"), ("10", "10 days"))
 NOTHING_UNPLANNED = "no unplanned leaves"
-REASON_TEXTS = {"blocked_externally": "blocked externally", "parked": "parked",
+REASON_TEXTS = {"paused": "paused in devagent's capacity declaration",
+                "blocked_externally": "blocked externally", "parked": "parked",
                 "waits_on_cycle": "waits on a cycle", "cross_site_cycle": "part of a cycle across sites",
                 "waits_on_site_absent": "waits on a site not in this installation",
                 "waits_on_unresolved": "waits on a reference that could not be resolved",
@@ -103,6 +118,11 @@ def rate_text(r) -> str:
 def share_text(share) -> str:
     """A share in percent, rounded as hours are: "50%", "33.33%"."""
     return hundredths(share) + "%"
+
+
+def factor_text(factor) -> str:
+    """A scaling factor, rounded as hours are but to four decimals: "1.5", "0.6667"."""
+    return decimals(factor, 4)
 
 
 def _named(fmt, text, **kw):
@@ -285,6 +305,63 @@ def _day(page, day, conts):
             f'{"".join(head)}{"".join(body)}</section>')
 
 
+def _capacity_notes(plan) -> str:
+    """What the plan says of the capacity it was made from (#39): the lines
+    above the days, and the lines under the reason on the no-plan page; ""
+    when none applies. In order, each only when it applies:
+
+    - each pool's capacity source, on the no-plan page only when devagent's
+      declaration is used: with no plan no other capacity is, so the page
+      of a plan with nothing declared is unchanged and that of an invalid
+      declaration names no source;
+    - how devagent's weekly hours were laid on the weekdays, when they were
+      scaled by a factor other than 1 or spread evenly;
+    - one line per weekday that lost hours to its day's cap, in the plan's
+      order (Monday first), a weekday that is no day of the plan included;
+    - an invalid declaration's note, then devagent's violation lines;
+    - devagent's unknown-key lines;
+    - the declared ratio, when the planner plans it as rate 0 or refused it;
+    - the token budget.
+
+    A no_plan plan holds no attention record, so the no-plan page never
+    has the second or the third."""
+    capacity, planned = plan.capacity, plan.status == "planned"
+    out = []
+    if planned or capacity["declaration"] == planner.USED:
+        parts = "; ".join(f"{p['name']}: {p['capacity_source']}" for p in plan.pools)
+        out.append(_p("capacity", CAPACITY.format(parts=parts)))
+    attention = capacity["attention"]
+    if attention is not None:
+        if attention["rule"] == planner.RULE_EVEN_SPREAD:
+            out.append(_p("capacity", EVEN_SPREAD.format(total=hours_text(attention["total_hours"]))))
+        elif attention["rule"] == planner.RULE_SCALED and attention["factor"] != 1:
+            out.append(_p("capacity", SCALED.format(total=hours_text(attention["total_hours"]),
+                                                    sum=hours_text(attention["weekday_sum_hours"]),
+                                                    factor=factor_text(attention["factor"]))))
+        for entry in attention["weekdays_lost_to_cap"]:
+            weekday = entry["weekday"]
+            if isinstance(weekday, str):
+                weekday = WEEKDAY_OF.get(weekday, weekday)  # one the page does not know: as the plan has it
+            out.append(_p("capacity", DAY_CAPPED.format(weekday=weekday, lost=hours_text(entry["hours"]))))
+    if capacity["declaration"] == planner.INVALID:
+        out.append(_p("capacity invalid", INVALID if planned else INVALID_NO_PLAN))
+    for name, kind in (("capacity-violations", planner.CAPACITY_INVALID),
+                       ("capacity-warnings", planner.CAPACITY_UNKNOWN_KEY)):
+        items = "".join(f"<li>{esc(entry['text'])}</li>" for entry in plan.report if entry["kind"] == kind)
+        if items:
+            out.append(f'<ul id="{name}">{items}</ul>')
+    ratio = capacity["declared_ratio"]
+    if ratio is not None:
+        if ratio["used"] and planner.is_rate_0(ratio["value"]):
+            out.append(_p("capacity", RATIO_ZERO))
+        elif not ratio["used"] and ratio["reason"] is not None:
+            out.append(_p("capacity", ratio["reason"]))
+    budget = capacity["token_budget"]
+    if budget is not None:
+        out.append(_p("capacity", TOKENS.format(n=budget["tokens_per_week"], unit=budget["unit"])))
+    return "".join(out)
+
+
 def _lines(page):
     plan = page.plan
     out = []
@@ -302,8 +379,7 @@ def _lines(page):
                                             source=MAPPING_SOURCES.get(mapping["source"], mapping["source"]))))
     if mapping["rejected"] is not None:
         out.append(_p("mapping", MAPPING_REJECTED.format(reason=mapping["rejected"])))
-    out.append(_p("capacity", CAPACITY.format(parts="; ".join(f"{p['name']}: {p['capacity_source']}"
-                                                              for p in plan.pools))))
+    out.append(_capacity_notes(plan))
     n = plan.unestimated_planned
     count = _count_line(n, COUNT, COUNT_ONE) if n else ""
     out.append(f'<p data-unestimated="{esc(n)}">{esc(count)}</p>')
@@ -394,7 +470,7 @@ def _not_built(result):
 def _body(page):
     plan = page.plan
     if plan.status != "planned":
-        return f'<p id="no-plan">{esc(NO_PLAN.format(reason=plan.reason))}</p>'
+        return f'<p id="no-plan">{esc(NO_PLAN.format(reason=plan.reason))}</p>{_capacity_notes(plan)}'
     placements = _placements(plan)
     conts = _conts(plan, page.records, placements)
     days = "".join(_day(page, day, conts) for day in plan.days)

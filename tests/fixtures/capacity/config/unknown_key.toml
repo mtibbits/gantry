@@ -1,0 +1,25 @@
+# A fictional devagent config for the capacity reader's tests (#39).
+# Two unknown keys, one in [capacity] and one in a project's table: each is a
+# warning, and the rest of the declaration is used.
+
+[capacity]
+operator_hours_per_week = 20
+lane_hours_per_week = 40
+max_lanes = 3
+tokens_per_week = 500000000
+tokens_per_window = 60000000
+windows_per_week = 10
+max_lane = 3
+
+[project.a]
+devdoc_dir = "a"
+
+[project.a.capacity]
+priorty = 2
+max_lanes = 2
+
+[project.b]
+devdoc_dir = "b"
+
+[project.c]
+devdoc_dir = "c"

@@ -8,27 +8,33 @@ import copy
 import functools
 import json
 import re
+import tomllib
 from dataclasses import asdict
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from gantry import render
+from gantry import planner, render
 from gantry.build import build_all
+from gantry.capacity import read_declared_capacity, resolve_capacity
 from gantry.config import load_config
 from gantry.model import Models
-from gantry.planner import ALLOCATION_RULE, NO_PLAN, PLAN_VERSION, UNPLANNED_REASONS, WeekPlan
+from gantry.planner import ALLOCATION_RULE, NO_PLAN, PLAN_VERSION, UNPLANNED_REASONS, WeekPlan, plan_week
 from gantry.links import leaf_href
 from gantry.render import (MODEL_CLASSES, MODEL_FALLBACK, SLACK_CLASSES, STATE_CLASSES, STATE_FALLBACK,
                            WEEK_CLASSES)
 from gantry.views import leafbox, week
 from gantry.views.week import render_week
-from helpers_config import sample_build
+from helpers_config import copy_samples, demo_build, sample_build, written_bytes
 from page_safety import HOSTILE, RULES, assert_no_external_resources, assert_page_safe
 from page_script.harness import Planted, open_page
 from test_plan_file import shape_errors
-from test_planner import FIXTURE_NAMES, FIXTURES, NO_PLAN_CASES, install, leaf, portfolio_md, wbs_md
+from test_planner import (CAPACITY_DEP, CAPACITY_INSTALL, CAPACITY_NO_PLAN_CASES, DELETE, EXPECTED_LINES,
+                          FIXTURE_NAMES, FIXTURES, MISSING_TOTAL, NO_DECLARATION, NO_PLAN_CASES, PAUSED_C,
+                          RATIO, SHARES, built, capacity_config, capacity_portfolio, declares, install, leaf,
+                          portfolio_md, reserved, wbs_md)
+from test_planner import invalid as invalid_config
 from test_worksite_page import find, text_of, tree, visible_text
 
 STAMP = "built 2026-01-19 09:00"
@@ -38,11 +44,11 @@ ATTENTION, LANES = "operator attention hours", "agent lanes"
 NEW_ATTRS = ("data-beyond", "data-block", "data-day", "data-figure", "data-lanes", "data-leaf", "data-site",
              "data-source", "data-state", "data-tag", "data-tier", "data-today", "data-unplanned")
 # Classes that name a part of the page, never a record value.
-STRUCTURAL = frozenset({"wrap", "label", "stamp", "not-working", "rule", "mapping", "capacity", "shareless", "day", "later",
-                        "today", "hours", "reserved", "none", "block", "lanes", "left", "leaf", "title", "unest",
-                        "state", "tier", "need", "basis", "cont", "site-unplanned", "beyond-list", "reason", "held",
-                        "p0-leaf", "gone", "top", "key", "meta", "prio", "ttl", "tl", "facts", "bands",
-                        "band", "lane-site", "sw", "xsite",
+STRUCTURAL = frozenset({"wrap", "label", "stamp", "not-working", "rule", "mapping", "capacity", "invalid", "shareless",
+                        "day", "later", "today", "hours", "reserved", "none", "block", "lanes", "left", "leaf", "title",
+                        "unest", "state", "tier", "need", "basis", "cont", "site-unplanned", "beyond-list", "reason",
+                        "held", "p0-leaf", "gone", "top", "key", "meta", "prio", "ttl", "tl", "facts", "bands", "band",
+                        "lane-site", "sw", "xsite",
                         # The workflow phase row (#173).
                         "phases", "ph-svg", "ph-row", "ph-cell", "ph-box", "ph-mark", "ph-t", "ph-done", "ph-current",
                         "ph-stuck", "ph-parked", "ph-blocked", "ph-ahead", "ph-none", "ph-unknown"})
@@ -58,6 +64,19 @@ def pools(attention_out=(), lanes_out=()):
             {"name": LANES, "capacity_source": "portfolio file", "days_run_out": list(lanes_out)}]
 
 
+def capacity_record(planned=True, **fields):
+    """A plan's `capacity` object when devagent declares nothing: one lane, as
+    day() has it, and no `attention` or `lanes` on a no_plan plan."""
+    record = copy.deepcopy(NO_DECLARATION)
+    if planned:
+        record["attention"] = {"rule": "portfolio_file", "total_hours": None, "weekday_sum_hours": None,
+                               "factor": None, "weekdays_lost_to_cap": []}
+        record["lanes"] = {"max_lanes": 1, "lane_hours_per_week": None, "working_days": 5,
+                           "lane_hours_per_day": 6.0, "hours_lost_to_cap": 0.0}
+    record.update(fields)
+    return record
+
+
 def make_plan(**fields) -> WeekPlan:
     """A planned WeekPlan with a 10-day horizon from Monday 2026-01-19; `days`
     holds only the days a test sets. The plan file's pinned shape holds."""
@@ -67,6 +86,7 @@ def make_plan(**fields) -> WeekPlan:
         "planned_week": HORIZON[:5],
         "mapping": {"values": [0.0, 0.1, 0.25, 0.5, 1.0], "source": "default", "rejected": None},
         "pools": pools(), "binding": {"pool": None, "first_day": None, "text": "no pool ran out"},
+        "capacity": capacity_record(planned=fields.get("status", "planned") == "planned"),
         "days": [], "leaves": [], "sites": [], "report": [], "notes": [],
     }
     base.update(fields)
@@ -77,6 +97,7 @@ def make_plan(**fields) -> WeekPlan:
 
 def day(date, blocks=(), lanes_row=(), reserved=(), attention=8.0, left=(1.0, 2.0), weekday="mon"):
     return {"date": date, "weekday": weekday, "attention_hours_declared": attention, "attention_hours": attention,
+            "attention_hours_lost_to_cap": 0.0,
             "reserved": list(reserved), "lane_hours": 6.0, "blocks": list(blocks), "lanes_row": list(lanes_row),
             "left": {"attention_hours": left[0], "lane_hours": left[1]}, "ran_out": [], "unestimated": 0}
 
@@ -972,6 +993,10 @@ def test_beyond_horizon_count():
     words = [i for i in with_attr(t, "data-unplanned") if attr(t, i, "data-unplanned") != "beyond_horizon"]
     assert [attr(t, i, "data-unplanned") for i in words] == others
     assert [texts(t, "span", ["reason"], i) for i in words] == [[week.REASON_TEXTS[r]] for r in others]
+    # A paused site's leaves read so (#39): the reason is known to the page, with its own class.
+    assert others[0] == "paused" and len(others) == 8
+    assert texts(t, "span", ["reason"], words[0]) == ["paused in devagent's capacity declaration"]
+    assert "why-paused" in t.elements[words[0]]["classes"]
     assert all(attr(t, find(t, "a", within=i)[0], "href").startswith("sites/alpha.html#leaf-") for i in words)
 
 
@@ -1076,7 +1101,11 @@ def test_no_plan_pages(tmp_path, key, case, changes):
 
 def test_no_plan_cases_cover_every_reason():
     assert len(NO_PLAN_CASES) == 15
-    assert {key for key, _, _ in NO_PLAN_CASES} == set(NO_PLAN)
+    # The four reasons a devagent capacity declaration adds (#39) are CAPACITY_NO_PLAN_CASES', on
+    # their own installation: test_capacity_no_plan_pages has their pages.
+    assert len({key for key, _, _ in NO_PLAN_CASES}) == 5
+    assert {key for key, _, _ in NO_PLAN_CASES} | {key for key, _, _, _ in CAPACITY_NO_PLAN_CASES} == set(NO_PLAN)
+    assert len(NO_PLAN) == 9
 
 
 # --- safety, attributes and invariants -----------------------------------------------------------
@@ -1325,6 +1354,466 @@ def test_week_hostile_no_plan(node, tmp_path):
         assert page.planted_nodes([HOSTILE[5]]) == Planted([], [], [])
 
 
+# --- devagent's declared capacity (#39): the notes ----------------------------------------------
+
+DEVAGENT = "devagent capacity declaration (this build machine)"
+FROM_FILE = "capacity from: operator attention hours: portfolio file; agent lanes: portfolio file"
+FROM_DEVAGENT = f"capacity from: operator attention hours: {DEVAGENT}; agent lanes: {DEVAGENT}"
+SCALED_NOTE = ("devagent declares {total} a week; the portfolio file's weekdays after reserved blocks sum to {sum}; "
+               "each day is scaled by {factor}")
+CAPPED_NOTE = "{weekday}: {lost} of devagent's weekly hours do not fit in the day after its reserved blocks"
+INVALID_NOTE = "devagent's capacity declaration is invalid; the portfolio file's capacity is used"
+INVALID_NO_PLAN_NOTE = "devagent's capacity declaration is invalid"
+RATIO_ZERO_NOTE = "devagent declares 0 operator hours per agent hour; unscored leaves run in lanes without blocks"
+# The token keys of declares(), on every page of a declaration made by it and used.
+TOKENS_NOTE = "token budget (not scheduled): 500000000 weighted_input_token_equivalents a week"
+NO_PORTFOLIO = {"config": {"portfolio_file": None}}
+
+
+def capacity_build(tmp_path, devagent, declaration="used", base=CAPACITY_INSTALL, **changes):
+    """(plan, its page) of capacity/install, or of `base`, with `devagent` as
+    its devagent config's text. The plan is plan_week's, with the declaration
+    passed to it directly as the reader reads it, and `declaration` is what
+    the plan must say it is."""
+    result, portfolio, config = built(install(tmp_path, base, devagent=devagent, **changes))
+    capacity = read_declared_capacity(result.roots, config.devagent_config)
+    plan = plan_week(result, portfolio, config, capacity=capacity)
+    assert plan.capacity["declaration"] == declaration
+    return plan, render_week(plan, result, result.stamp)
+
+
+def unscaled():
+    """A portfolio file whose weekdays sum to the 20 h declares() declares: no day is scaled."""
+    return capacity_portfolio("shape_20h")
+
+
+def capacity_notes(t):
+    """The capacity notes' paragraphs, in page order."""
+    return texts(t, "p", ["capacity"])
+
+
+def list_lines(t, name):
+    """The lines of the list with the id `name`; None when the page has no such list."""
+    found = with_attr(t, "id", name)
+    assert len(found) <= 1
+    return texts(t, "li", within=found[0]) if found else None
+
+
+def test_capacity_source_lines(tmp_path):
+    plan, html = capacity_build(tmp_path, declares(), portfolio=unscaled())
+    assert plan.status == "planned" and capacity_notes(tree(html)) == [FROM_DEVAGENT, TOKENS_NOTE]
+    # Nothing declared: the one line, as before.
+    plan, html = capacity_build(tmp_path, capacity_config("not_declared"), "not_declared")
+    assert plan.status == "planned" and capacity_notes(tree(html)) == [FROM_FILE]
+    # An invalid declaration is not the source.
+    plan, html = capacity_build(tmp_path, invalid_config(), "invalid")
+    assert plan.status == "planned" and capacity_notes(tree(html))[0] == FROM_FILE
+    # The no-plan page has the line only when the declaration is used: with no plan no other
+    # capacity is used, so a page that named the portfolio file as the source would be wrong.
+    plan, html = capacity_build(tmp_path, declares(), **NO_PORTFOLIO)
+    assert plan.status == "no_plan" and capacity_notes(tree(html))[0] == FROM_DEVAGENT
+    assert visible_text(html).count("capacity from:") == 1
+    plan, html = capacity_build(tmp_path, invalid_config(), "invalid", **NO_PORTFOLIO)
+    assert plan.status == "no_plan" and capacity_notes(tree(html)) == [INVALID_NO_PLAN_NOTE]
+    assert [pool["capacity_source"] for pool in plan.pools] == ["portfolio file"] * 2
+    assert "capacity from:" not in visible_text(html)
+    plan, html = capacity_build(tmp_path, capacity_config("not_declared"), "not_declared", **NO_PORTFOLIO)
+    assert "capacity from:" not in visible_text(html)
+    t = tree(html)
+    assert plan.status == "no_plan" and capacity_notes(t) == [] and week._capacity_notes(plan) == ""
+    # With nothing declared the no-plan page is the reason and the stamp, as it was before #39.
+    main = one(t, "class", "wrap")
+    assert [(t.elements[i]["tag"], t.elements[i]["attrs"]) for i in children(t, main)] == [
+        ("p", {"class": "label stamp"}), ("h1", {}), ("p", {"id": "no-plan"})]
+
+
+def test_scaling_note(tmp_path):
+    plan, html = capacity_build(tmp_path, declares(total=30), portfolio=unscaled())
+    assert plan.capacity["attention"] == {"rule": "scaled", "total_hours": 30, "weekday_sum_hours": 20.0,
+                                          "factor": 1.5, "weekdays_lost_to_cap": []}
+    assert capacity_notes(tree(html)) == [
+        FROM_DEVAGENT,
+        "devagent declares 30 h a week; the portfolio file's weekdays after reserved blocks sum to 20 h; "
+        "each day is scaled by 1.5",
+        TOKENS_NOTE]
+    # Hours as the page writes hours, the factor to four decimals: 20.375 h over 20 h is 1.01875.
+    _, html = capacity_build(tmp_path, declares(total=20.375), portfolio=unscaled())
+    assert capacity_notes(tree(html))[1] == SCALED_NOTE.format(total="20.38 h", sum="20 h", factor="1.0188")
+    # Scaled down: the installation's own weekdays sum to 30 h.
+    _, html = capacity_build(tmp_path, declares())
+    assert capacity_notes(tree(html)) == [
+        FROM_DEVAGENT, SCALED_NOTE.format(total="20 h", sum="30 h", factor="0.6667"), TOKENS_NOTE]
+
+
+def test_factor_text():
+    cases = [(1.5, "1.5"), (1.01875, "1.0188"), (2 / 3, "0.6667"), (3.75, "3.75"), (1.001, "1.001"), (0.999, "0.999"),
+             (10080.0, "10080"), (2.0, "2")]
+    assert [week.factor_text(factor) for factor, _ in cases] == [text for _, text in cases]
+    # No scaled plan reads "scaled by 1" or "by 0". A factor other than 1 is more than 0.6 of a
+    # minute off the weekday sum (planner.SCALING_TOLERANCE), which is at most seven 24-hour days;
+    # and a day planned from a factor keeps at least half a minute of its 24 hours.
+    nearest = float(planner.SCALING_TOLERANCE) / (7 * planner.DAY_MINUTES)
+    assert [week.factor_text(1 + nearest), week.factor_text(1 - nearest)] == ["1.0001", "0.9999"]
+    assert week.factor_text(0.5 / planner.DAY_MINUTES) == "0.0003"
+
+
+def test_no_scaling_note_at_factor_1(tmp_path):
+    # 20.01 h is within the tolerance of the weekdays' 20 h: the rule is `scaled` and the factor 1.
+    for total in (20, 20.01):
+        plan, html = capacity_build(tmp_path, declares(total=total), portfolio=unscaled())
+        assert (plan.capacity["attention"]["rule"], plan.capacity["attention"]["factor"]) == ("scaled", 1), total
+        assert capacity_notes(tree(html)) == [FROM_DEVAGENT, TOKENS_NOTE], total
+
+
+def test_even_spread_note(tmp_path):
+    plan, html = capacity_build(tmp_path, declares(total=30), portfolio=capacity_portfolio("no_hours"))
+    assert plan.capacity["attention"] == {"rule": "even_spread", "total_hours": 30, "weekday_sum_hours": None,
+                                          "factor": None, "weekdays_lost_to_cap": []}
+    assert capacity_notes(tree(html)) == [
+        FROM_DEVAGENT,
+        "devagent declares 30 h a week; the portfolio file sets no attention_hours, so it is spread evenly over "
+        "Monday to Friday",
+        TOKENS_NOTE]
+
+
+def test_cap_note(tmp_path):
+    # one_day's Monday keeps 22 of its 30 h after its 2 reserved hours.
+    plan, html = capacity_build(tmp_path, declares(total=30), portfolio=capacity_portfolio("one_day"))
+    assert [(day["weekday"], day["attention_hours_lost_to_cap"]) for day in plan.days] == [("mon", 8)] * 10
+    # Ten Mondays, one line.
+    assert capacity_notes(tree(html)) == [
+        FROM_DEVAGENT, SCALED_NOTE.format(total="30 h", sum="8 h", factor="3.75"),
+        "Monday: 8 h of devagent's weekly hours do not fit in the day after its reserved blocks", TOKENS_NOTE]
+    # One line per weekday with a loss, Monday first whatever day the plan starts on: 168 h
+    # spread evenly are 33.6 h a day, 9.6 more than a day holds.
+    plan, html = capacity_build(tmp_path, declares(total=168), portfolio=capacity_portfolio("no_hours"),
+                                config={"as_of": "2026-01-21"})
+    assert [day["weekday"] for day in plan.days[:5]] == ["wed", "thu", "fri", "mon", "tue"]
+    assert capacity_notes(tree(html))[2:-1] == [
+        CAPPED_NOTE.format(weekday=name, lost="9.6 h")
+        for name in ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday")]
+    # Only a weekday with a loss: of a Tuesday's 6 h, 4 fit after 20 reserved hours.
+    spread = portfolio_md(attention="", lanes=2, tail=reserved("tue", 20) + SHARES)
+    plan, html = capacity_build(tmp_path, declares(total=30), portfolio=spread)
+    assert plan.capacity["attention"]["rule"] == "even_spread"
+    assert capacity_notes(tree(html))[2:-1] == [
+        "Tuesday: 2 h of devagent's weekly hours do not fit in the day after its reserved blocks"]
+    # A weekday that keeps none of its hours is no day of the plan, and is named all the same: a
+    # Tuesday reserved for its 24 hours loses the 6 h spread onto it.
+    spread = portfolio_md(attention="", lanes=2, tail=reserved("tue", 24) + SHARES)
+    plan, html = capacity_build(tmp_path, declares(total=30), portfolio=spread)
+    assert "tue" not in {day["weekday"] for day in plan.days}
+    assert {day["attention_hours_lost_to_cap"] for day in plan.days} == {0}
+    t = tree(html)
+    assert capacity_notes(t) == [
+        FROM_DEVAGENT,
+        "devagent declares 30 h a week; the portfolio file sets no attention_hours, so it is spread evenly over "
+        "Monday to Friday",
+        "Tuesday: 6 h of devagent's weekly hours do not fit in the day after its reserved blocks", TOKENS_NOTE]
+    assert not any(text.startswith("Tuesday ") for text in texts(t, "h2"))
+    # The lines are the attention record's list as the plan holds it, in its order, and a weekday
+    # the page does not know is written as it stands.
+    record = {"rule": "portfolio_file", "total_hours": None, "weekday_sum_hours": None, "factor": None,
+              "weekdays_lost_to_cap": [{"weekday": "sun", "hours": 1.5}, {"weekday": "sat", "hours": 0.25},
+                                       {"weekday": "caturday", "hours": 2}]}
+    plan = make_plan(capacity=capacity_record(attention=record))
+    assert capacity_notes(tree(render_week(plan, make_result(), STAMP)))[1:] == [
+        CAPPED_NOTE.format(weekday=name, lost=lost)
+        for name, lost in (("Sunday", "1.5 h"), ("Saturday", "0.25 h"), ("caturday", "2 h"))]
+
+
+def next_sibling(t, i):
+    """The element that follows `i` under its parent, or None."""
+    siblings = children(t, t.elements[i]["parent"])
+    at = siblings.index(i)
+    return siblings[at + 1] if at + 1 < len(siblings) else None
+
+
+def test_invalid_note_lists_each_violation(tmp_path):
+    plan, html = capacity_build(tmp_path, capacity_config("order"), "invalid")
+    t = tree(html)
+    lines = EXPECTED_LINES["order"]["violations"]
+    assert plan.status == "planned" and len(lines) == 9
+    assert capacity_notes(t) == [FROM_FILE, INVALID_NOTE]
+    assert list_lines(t, "capacity-violations") == lines
+    # The list is under the note, above the days.
+    (note,) = find(t, "p", ["capacity", "invalid"])
+    assert text_of(t, note) == INVALID_NOTE and next_sibling(t, note) == one(t, "id", "capacity-violations")
+    assert t.elements[note]["parent"] == one(t, "id", "lines")
+    # One violation, one line.
+    _, html = capacity_build(tmp_path, invalid_config(), "invalid")
+    t = tree(html)
+    assert capacity_notes(t) == [FROM_FILE, INVALID_NOTE] and list_lines(t, "capacity-violations") == [MISSING_TOTAL]
+    # A used declaration has neither the note nor the list.
+    _, html = capacity_build(tmp_path, declares())
+    t = tree(html)
+    assert find(t, "p", ["invalid"]) == [] and list_lines(t, "capacity-violations") is None
+
+
+def test_unknown_key_warnings_listed(tmp_path):
+    plan, html = capacity_build(tmp_path, capacity_config("unknown_key"), portfolio=unscaled())
+    t = tree(html)
+    assert plan.status == "planned"
+    assert list_lines(t, "capacity-warnings") == [
+        "capacity: warning: capacity.max_lane: unknown key (ignored)",
+        "capacity: warning: project.a.capacity.priorty: unknown key (ignored)"]
+    # The rest of the declaration is used, and the page says so.
+    assert capacity_notes(t) == [FROM_DEVAGENT, TOKENS_NOTE] and list_lines(t, "capacity-violations") is None
+    assert next_sibling(t, find(t, "p", ["capacity"])[0]) == one(t, "id", "capacity-warnings")
+    # Beside violations: each violation, then each unknown key.
+    _, html = capacity_build(tmp_path, capacity_config("order"), "invalid")
+    t = tree(html)
+    assert list_lines(t, "capacity-warnings") == EXPECTED_LINES["order"]["warnings"]
+    assert len(list_lines(t, "capacity-warnings")) == 2
+    assert next_sibling(t, one(t, "id", "capacity-violations")) == one(t, "id", "capacity-warnings")
+    # No unknown key, no list.
+    _, html = capacity_build(tmp_path, declares())
+    assert list_lines(tree(html), "capacity-warnings") is None
+
+
+def test_ratio_zero_line(tmp_path):
+    def ratio_notes(devagent):
+        plan, html = capacity_build(tmp_path, devagent, portfolio=unscaled())
+        found = capacity_notes(tree(html))
+        assert plan.status == "planned" and (found[0], found[-1]) == (FROM_DEVAGENT, TOKENS_NOTE)
+        return plan.capacity["declared_ratio"], found[1:-1]
+
+    assert ratio_notes(capacity_config("ratio_zero")) == ({"value": 0, "used": True, "reason": None},
+                                                         [RATIO_ZERO_NOTE])
+    # The line is for the rate the planner plans, in whole parts per million: 1e-7 is rate 0.
+    assert ratio_notes(declares(more=RATIO % "1e-7")) == ({"value": 1e-7, "used": True, "reason": None},
+                                                          [RATIO_ZERO_NOTE])
+    assert ratio_notes(declares(more=RATIO % "1e-6")) == ({"value": 1e-6, "used": True, "reason": None}, [])
+    # A ratio above 0, and none at all: no line.
+    assert ratio_notes(capacity_config("ratio")) == ({"value": 0.25, "used": True, "reason": None}, [])
+    assert ratio_notes(declares()) == (None, [])
+
+
+def test_ratio_refused_line(tmp_path):
+    plan, html = capacity_build(tmp_path, capacity_config("ratio_above_max"), portfolio=unscaled())
+    refused = "devagent declares 30 operator hours per agent hour, above 24; it is not used"
+    assert plan.capacity["declared_ratio"] == {"value": 30, "used": False, "reason": refused}
+    assert capacity_notes(tree(html)) == [FROM_DEVAGENT, refused, TOKENS_NOTE]
+    # The line is the plan's reason as written, whatever it says; a ratio that is not used is
+    # never the rate-0 line, and one with no reason has no line.
+    def constructed(reason):
+        plan = make_plan(capacity=capacity_record(declaration="used", capacity_schema="1.0", declared_ratio={
+            "value": 0, "used": False, "reason": reason}))
+        return capacity_notes(tree(render_week(plan, make_result(), STAMP)))
+
+    assert constructed("not used: a reason of a later version") == [FROM_FILE, "not used: a reason of a later version"]
+    assert constructed(None) == [FROM_FILE]
+
+
+def test_token_budget_line(tmp_path):
+    def budget_notes(devagent):
+        plan, html = capacity_build(tmp_path, devagent, portfolio=unscaled())
+        found = capacity_notes(tree(html))
+        assert plan.status == "planned" and found[0] == FROM_DEVAGENT
+        return found[1:]
+
+    # full.toml: 60000000 tokens a window over 4.1 windows.
+    assert budget_notes(capacity_config("full")) == [
+        "token budget (not scheduled): 246000000 weighted_input_token_equivalents a week"]
+    assert budget_notes(declares()) == [TOKENS_NOTE]
+    # 0 is a budget, and the largest is written in plain digits.
+    assert budget_notes(declares(tokens=(500000000, 1, 0.1))) == [
+        "token budget (not scheduled): 0 weighted_input_token_equivalents a week"]
+    assert budget_notes(declares(tokens=(2**53 - 1, 2**53 - 1, 33.6))) == [
+        "token budget (not scheduled): 9007199254740991 weighted_input_token_equivalents a week"]
+    # A declaration that is not used has none (test_capacity_source_lines: nothing declared).
+    _, html = capacity_build(tmp_path, invalid_config(), "invalid")
+    assert capacity_notes(tree(html)) == [FROM_FILE, INVALID_NOTE]
+
+
+def test_paused_leaves_under_unplanned(tmp_path):
+    plan, html = capacity_build(tmp_path, declares(tail=PAUSED_C), base=CAPACITY_DEP)
+    t = tree(html)
+    assert plan.status == "planned" and plan.capacity["paused"] == ["c"]
+    lines = with_attr(t, "data-unplanned", within=site_box(t, "c"))
+    assert [(attr(t, i, "data-unplanned"), attr(t, i, "data-leaf")) for i in lines] == [
+        ("paused", f"Issue-{n}") for n in range(1, 8)]
+    assert all(t.elements[i]["classes"] == ["why-paused"] for i in lines)
+    assert [texts(t, "span", ["reason"], i) for i in lines] == [["paused in devagent's capacity declaration"]] * 7
+    assert all(attr(t, find(t, "a", within=i)[0], "href").startswith("sites/c.html#leaf-") for i in lines)
+    # Nothing of c is in a day, and no other site's leaf is paused.
+    assert with_attr(t, "data-site", "c", one(t, "id", "days")) == []
+    assert len(with_attr(t, "data-unplanned", "paused")) == 7 and len(find(t, classes=["why-paused"])) == 7
+    assert with_attr(t, "data-site", "a", one(t, "id", "days"))
+
+
+def test_every_site_paused_page(tmp_path):
+    every = "".join(f"\n[project.{name}.capacity]\npaused = true\n" for name in "abc")
+    plan, html = capacity_build(tmp_path, declares(tail=every), portfolio=unscaled())
+    assert plan.status == "planned" and plan.capacity["paused"] == ["a", "b", "c"]
+    assert_page_safe(html, [])
+    t = tree(html)
+    # Ten days, and nothing in them.
+    days = one(t, "id", "days")
+    assert len(with_attr(t, "data-day")) == 10
+    assert with_attr(t, "data-block") == [] and with_attr(t, "data-lanes") == [] and leaf_lines(t) == []
+    assert texts(t, "p", ["none"], days) == ["no block planned"] * 10
+    assert text_of(t, one(t, "data-figure", "binding")) == "no pool ran out in the planned week"
+    # Every open leaf is under its site's unplanned leaves, paused.
+    lines = with_attr(t, "data-unplanned")
+    assert [(attr(t, i, "data-site"), attr(t, i, "data-leaf"), attr(t, i, "data-unplanned")) for i in lines] == [
+        (name, key, "paused") for name in "abc" for key in ("Issue-1", "Issue-2")]
+    assert all(t.elements[i]["classes"] == ["why-paused"] for i in lines)
+    assert with_attr(t, "data-beyond") == [] and texts(t, "p", ["none"], one(t, "id", "unplanned")) == []
+    assert capacity_notes(t) == [FROM_DEVAGENT, TOKENS_NOTE]
+    assert [row[0] for row in site_rows(t)] == ["a", "b", "c"]
+
+
+def test_no_plan_page_shows_capacity_notes(tmp_path):
+    # An invalid declaration, and a portfolio file with no attention hours to fall back on.
+    plan, html = capacity_build(tmp_path, capacity_config("order"), "invalid",
+                                portfolio=capacity_portfolio("no_capacity"))
+    t = tree(html)
+    assert plan.status == "no_plan"
+    reason = one(t, "id", "no-plan")
+    assert text_of(t, reason) == ("no week plan: devagent's capacity declaration is invalid (9 violations), and "
+                                  "the portfolio file declares no attention hours")
+    assert capacity_notes(t) == [INVALID_NO_PLAN_NOTE]
+    assert list_lines(t, "capacity-violations") == EXPECTED_LINES["order"]["violations"]
+    assert list_lines(t, "capacity-warnings") == EXPECTED_LINES["order"]["warnings"]
+    assert len(list_lines(t, "capacity-violations")) == 9 and len(list_lines(t, "capacity-warnings")) == 2
+    # Under the reason, in the planned page's order; the page is still the no-plan page.
+    (note,) = find(t, "p", ["capacity", "invalid"])
+    assert [next_sibling(t, reason), next_sibling(t, note), next_sibling(t, one(t, "id", "capacity-violations"))] == [
+        note, one(t, "id", "capacity-violations"), one(t, "id", "capacity-warnings")]
+    assert with_attr(t, "id", "lines") == [] and with_attr(t, "data-day") == [] and with_attr(t, "id", "legend") == []
+    assert len(texts(t, "p", ["stamp"])) == 1
+    # A used declaration and no portfolio file: its token budget, its unknown keys and its ratio.
+    plan, html = capacity_build(tmp_path, capacity_config("full"), **NO_PORTFOLIO)
+    assert (plan.status, plan.reason) == ("no_plan", NO_PLAN["no_portfolio"])
+    assert capacity_notes(tree(html)) == [
+        FROM_DEVAGENT, "token budget (not scheduled): 246000000 weighted_input_token_equivalents a week"]
+    _, html = capacity_build(tmp_path, capacity_config("unknown_key"), **NO_PORTFOLIO)
+    t = tree(html)
+    assert capacity_notes(t) == [FROM_DEVAGENT, TOKENS_NOTE] and list_lines(t, "capacity-violations") is None
+    assert list_lines(t, "capacity-warnings") == EXPECTED_LINES["unknown_key"]["warnings"]
+    plan, html = capacity_build(tmp_path, capacity_config("ratio_above_max"), **NO_PORTFOLIO)
+    assert capacity_notes(tree(html)) == [FROM_DEVAGENT, plan.capacity["declared_ratio"]["reason"], TOKENS_NOTE]
+    assert plan.capacity["declared_ratio"]["reason"].endswith("above 24; it is not used")
+    _, html = capacity_build(tmp_path, capacity_config("ratio_zero"), **NO_PORTFOLIO)
+    assert capacity_notes(tree(html)) == [FROM_DEVAGENT, RATIO_ZERO_NOTE, TOKENS_NOTE]
+    # A plan the declaration itself rules out: the same notes under its reason.
+    plan, html = capacity_build(tmp_path, declares(total=0.001), portfolio=unscaled())
+    t = tree(html)
+    assert text_of(t, one(t, "id", "no-plan")) == ("no week plan: devagent declares 0.001 h a week, under one "
+                                                   "minute on every working day")
+    assert capacity_notes(t) == [FROM_DEVAGENT, TOKENS_NOTE]
+
+
+@pytest.mark.parametrize(("key", "changes"), [("no_portfolio", NO_PORTFOLIO),
+                                              ("settings_not_read", {"portfolio": DELETE})])
+def test_no_plan_page_invalid_wording(tmp_path, key, changes):
+    plan, html = capacity_build(tmp_path, invalid_config(), "invalid", **changes)
+    assert (plan.status, plan.reason) == ("no_plan", NO_PLAN[key])
+    t = tree(html)
+    # No capacity is used on a page with no plan: the note stops at "is invalid", and no line
+    # says where capacity comes from.
+    assert capacity_notes(t) == ["devagent's capacity declaration is invalid"]
+    assert list_lines(t, "capacity-violations") == [MISSING_TOTAL] and list_lines(t, "capacity-warnings") is None
+    text = visible_text(html)
+    assert "is used" not in text and "capacity from:" not in text
+    # Premise: planned, the same declaration's page says both.
+    _, planned = capacity_build(tmp_path, invalid_config(), "invalid")
+    assert "; the portfolio file's capacity is used" in visible_text(planned)
+    assert capacity_notes(tree(planned))[0] == FROM_FILE
+
+
+@pytest.mark.parametrize(("key", "case", "fill", "changes"), CAPACITY_NO_PLAN_CASES,
+                         ids=[f"{k}: {c}" for k, c, _, _ in CAPACITY_NO_PLAN_CASES])
+def test_capacity_no_plan_pages(tmp_path, key, case, fill, changes):
+    # The page of a build: build_all reads the declaration, and the page is of the plan it made.
+    result, page = fixture_build(tmp_path, CAPACITY_INSTALL, **changes)
+    reason = NO_PLAN[key].format(**fill)
+    assert (result.plan.status, result.plan.reason) == ("no_plan", reason)
+    t = tree(page)
+    assert text_of(t, one(t, "id", "no-plan")) == "no week plan: " + reason
+    assert texts(t, "p", ["stamp"]) == [result.stamp]
+    for name in ("data-day", "data-figure", "data-unestimated"):
+        assert with_attr(t, name) == [], name
+    assert with_attr(t, "id", "lines") == [] and with_attr(t, "id", "per-site") == []
+    assert with_attr(t, "id", "legend") == []
+    # Under the reason, the declaration's notes: devagent's lines as its reader has them.
+    declared = resolve_capacity(tomllib.loads(changes["devagent"]))
+    if key.startswith("invalid_"):
+        count = len(declared.violations)
+        assert fill["count"] == ("1 violation" if count == 1 else f"{count} violations")
+        assert capacity_notes(t) == [INVALID_NO_PLAN_NOTE]
+        assert list_lines(t, "capacity-violations") == list(declared.violations)
+        assert "capacity from:" not in visible_text(page)
+    else:
+        assert declared.usable and capacity_notes(t) == [FROM_DEVAGENT, TOKENS_NOTE]
+        assert list_lines(t, "capacity-violations") is None
+    assert list_lines(t, "capacity-warnings") == (list(declared.warnings) or None)
+    assert_page_safe(page, [])
+
+
+def test_week_hostile_capacity_lines(node, tmp_path):
+    # capacity/config/hostile.toml: one project per HOSTILE string, each with a violation that names it.
+    lines = EXPECTED_LINES["hostile"]["violations"]
+    assert len(lines) == len(HOSTILE) and all(planted in line for planted, line in zip(HOSTILE, lines))
+    for status, changes in (("planned", {}), ("no_plan", NO_PORTFOLIO)):
+        plan, html = capacity_build(tmp_path, capacity_config("hostile"), "invalid", **changes)
+        assert plan.status == status
+        assert [entry["text"] for entry in plan.report] == lines
+        assert_page_safe(html, HOSTILE)
+        assert_no_external_resources(html)
+        t = tree(html)
+        # Each line once, as text.
+        assert list_lines(t, "capacity-violations") == lines
+        assert [visible_text(html).count(line) for line in lines] == [1] * len(lines), status
+        assert {c for el in t.elements for c in el["classes"]} <= ALLOWED_CLASSES
+        with open_page(write(tmp_path, html, f"{status}.html")) as page:
+            assert page.planted_nodes(HOSTILE) == Planted([], [], []), status
+
+
+def test_week_hostile_capacity_fields(node, tmp_path):
+    """Every text the capacity notes read from a plan, planted by hand: the
+    pools' sources, a weekday of the attention record, the refused ratio's
+    reason, the token unit and a line of each report kind. A no-plan page
+    has no attention record, and with an invalid declaration no source
+    line: there the pools' sources are in the page's data and not shown."""
+    h = HOSTILE
+    fields = {
+        "pools": [{"name": ATTENTION, "capacity_source": h[0], "days_run_out": []},
+                  {"name": LANES, "capacity_source": h[1], "days_run_out": []}],
+        "report": [{"kind": "capacity_invalid", "leaves": [], "text": h[5]},
+                   {"kind": "capacity_unknown_key", "leaves": [], "text": h[6]}],
+    }
+    record = {"capacity_schema": "1.0", "declared_ratio": {"value": 30, "used": False, "reason": h[2]},
+              "token_budget": {"tokens_per_week": 7, "binding": "tokens_per_week", "unit": h[4]}}
+    lost = {"rule": "portfolio_file", "total_hours": None, "weekday_sum_hours": None, "factor": None,
+            "weekdays_lost_to_cap": [{"weekday": h[3], "hours": 2}]}
+    no_plan = {"status": "no_plan", "reason": "no reason", "horizon_days": [], "planned_week": []}
+    source = f"capacity from: {ATTENTION}: {h[0]}; {LANES}: {h[1]}"
+    ratio_and_budget = [h[2], f"token budget (not scheduled): 7 {h[4]} a week"]
+    in_every_page = [h[0], h[1], h[2], h[4], h[5], h[6]]
+    # (the page, its plan, what it holds, its notes, what it holds and does not show)
+    pages = [
+        ("planned", make_plan(capacity=capacity_record(declaration="invalid", attention=lost, **record), **fields),
+         [*in_every_page, h[3]],
+         [source, CAPPED_NOTE.format(weekday=h[3], lost="2 h"), INVALID_NOTE, *ratio_and_budget], []),
+        ("no_plan_invalid",
+         make_plan(capacity=capacity_record(planned=False, declaration="invalid", **record), **no_plan, **fields),
+         in_every_page, [INVALID_NO_PLAN_NOTE, *ratio_and_budget], [h[0], h[1]]),
+        ("no_plan_used",
+         make_plan(capacity=capacity_record(planned=False, declaration="used", **record), **no_plan, **fields),
+         in_every_page, [source, *ratio_and_budget], []),
+    ]
+    for name, plan, planted, expected, not_shown in pages:
+        html = render_week(plan, make_result(), STAMP)
+        assert_page_safe(html, planted)
+        t = tree(html)
+        assert capacity_notes(t) == expected, name
+        assert (list_lines(t, "capacity-violations"), list_lines(t, "capacity-warnings")) == ([h[5]], [h[6]])
+        with open_page(write(tmp_path, html, f"{name}.html")) as page:
+            assert page.planted_nodes(planted) == Planted([], [], not_shown), name
+
+
 # --- the demo build (AC 12) --------------------------------------------------------------------
 
 
@@ -1337,6 +1826,78 @@ def test_demo_week_page_byte_identical(tmp_path, monkeypatch):
         assert code == 0, stderr
         pages.append((out / "week.html").read_bytes())
     assert pages[0] == pages[1]
+
+
+SAMPLE_CAPACITY = {"operator_hours_per_week": 18, "lane_hours_per_week": 36, "max_lanes": 2,
+                   "tokens_per_week": 500000000, "tokens_per_window": 60000000, "windows_per_week": 10}
+
+
+def without_table(text, name):
+    """A TOML text with its `[name]` table cut: the header's line and every line up to the next table's."""
+    lines = text.splitlines(keepends=True)
+    start = lines.index(f"[{name}]\n")
+    end = next(i for i in range(start + 1, len(lines)) if lines[i].startswith("["))
+    return "".join(lines[:start] + lines[end:])
+
+
+def shown_texts(html):
+    """The page's visible texts in page order, white space between elements left out."""
+    return [text for text in tree(html).visible if text.strip()]
+
+
+def test_demo_blocks_unchanged_by_sample_capacity(tmp_path, monkeypatch):
+    # Premise: the committed sample devagent config declares the capacity below, with no ratio
+    # and nothing paused, and the second copy differs from it by that table alone.
+    copies = {"declared": copy_samples(tmp_path / "declared"), "bare": copy_samples(tmp_path / "bare")}
+    path = copies["bare"] / "devagent" / "config.toml"
+    text = path.read_bytes().decode("utf-8")
+    path.write_bytes(without_table(text, "capacity").encode("utf-8"))
+    whole, rest = tomllib.loads(text), tomllib.loads(path.read_bytes().decode("utf-8"))
+    assert whole["capacity"] == SAMPLE_CAPACITY
+    assert all(type(whole["capacity"][key]) is int for key in SAMPLE_CAPACITY)
+    assert not any("capacity" in project for project in whole["project"].values())
+    assert rest == {key: value for key, value in whole.items() if key != "capacity"}
+
+    files, said = {}, {}
+    for name, folder in copies.items():
+        code, out, stdout, stderr = demo_build(tmp_path, monkeypatch, copy=folder)
+        assert code == 0, stderr
+        files[name] = written_bytes(out)
+        # What the build printed, without the copy's own folder.
+        said[name] = (stdout.replace(str(folder), ""), stderr.replace(str(folder), ""))
+    declared, bare = files["declared"], files["bare"]
+    plans = [json.loads(found["week-plan.json"].decode("utf-8")) for found in (declared, bare)]
+    assert [plan["capacity"]["declaration"] for plan in plans] == ["used", "not_declared"]
+    assert [plan["status"] for plan in plans] == ["planned", "planned"]
+    # The blocks, the leaves and the sites are the ones planned from the portfolio file alone.
+    for key in ("days", "leaves", "sites"):
+        assert plans[0][key] == plans[1][key], key
+    assert {key for key in plans[0] if plans[0][key] != plans[1][key]} == {"capacity", "pools"}
+    # Why: 18 h a week is the sum of the portfolio file's weekdays after reserved blocks, so no
+    # day is scaled, and 36 lane hours over its 6 working days are the 6 h day of a lane.
+    capacity = plans[0]["capacity"]
+    assert capacity["attention"] == {"rule": "scaled", "total_hours": 18, "weekday_sum_hours": 18.0,
+                                     "factor": 1.0, "weekdays_lost_to_cap": []}
+    assert capacity["lanes"] == {"max_lanes": 2, "lane_hours_per_week": 36, "working_days": 6,
+                                 "lane_hours_per_day": 6.0, "hours_lost_to_cap": 0.0}
+    assert capacity["lanes"] == plans[1]["capacity"]["lanes"] | {"lane_hours_per_week": 36}
+    assert plans[1]["capacity"]["attention"]["rule"] == "portfolio_file"
+    assert (capacity["declared_ratio"], capacity["paused"], plans[0]["report"]) == (None, [], [])
+    # min(500000000, 60000000 x 10): the week's own figure binds.
+    assert capacity["token_budget"] == {"tokens_per_week": 500000000, "binding": "tokens_per_week",
+                                        "unit": "weighted_input_token_equivalents"}
+    assert [[pool["capacity_source"] for pool in plan["pools"]] for plan in plans] == [[DEVAGENT] * 2,
+                                                                                         ["portfolio file"] * 2]
+
+    # The week pages' visible texts differ in the capacity-source line and the token-budget line,
+    # and in nothing else; every other file is the same, and so is what the build prints.
+    with_table, without = (shown_texts(found["week.html"].decode("utf-8")) for found in (declared, bare))
+    at = with_table.index(FROM_DEVAGENT)
+    assert with_table[at:at + 2] == [FROM_DEVAGENT, TOKENS_NOTE] and without[at] == FROM_FILE
+    assert with_table[:at] + [FROM_FILE] + with_table[at + 2:] == without
+    assert sorted(declared) == sorted(bare)
+    assert {name for name in declared if declared[name] != bare[name]} == {"week.html", "week-plan.json"}
+    assert said["declared"] == said["bare"]
 
 
 # --- the docs (AC 17) ---------------------------------------------------------------------

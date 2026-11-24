@@ -1,0 +1,116 @@
+{
+  "binding_tie": {"violations": [], "warnings": []},
+  "capacity_only": {"violations": [], "warnings": []},
+  "dotted": {"violations": [], "warnings": []},
+  "full": {"violations": [], "warnings": []},
+  "hostile": {
+    "violations": [
+      "capacity: project.\"<script>gantrypwn(1)</script>\".capacity.priority: out of range: 1 <= x <= 9007199254740991",
+      "capacity: project.\"</script><script>gantrypwn(2)</script>\".capacity.priority: out of range: 1 <= x <= 9007199254740991",
+      "capacity: project.\"<img src=x onerror=gantrypwn(3)>\".capacity.priority: out of range: 1 <= x <= 9007199254740991",
+      "capacity: project.\"\\\"><svg onload=gantrypwn(4)>\".capacity.priority: out of range: 1 <= x <= 9007199254740991",
+      "capacity: project.\"' onmouseover='gantrypwn(5)\".capacity.priority: out of range: 1 <= x <= 9007199254740991",
+      "capacity: project.\"<!-- gantrypwn(6)\".capacity.priority: out of range: 1 <= x <= 9007199254740991",
+      "capacity: project.\"a\u2028b\u2029gantrypwn(7)\".capacity.priority: out of range: 1 <= x <= 9007199254740991",
+      "capacity: project.__proto__.capacity.priority: out of range: 1 <= x <= 9007199254740991",
+      "capacity: project.\"{{DATA}}\".capacity.priority: out of range: 1 <= x <= 9007199254740991",
+      "capacity: project.\"&amp;lt;b&amp;gt;\".capacity.priority: out of range: 1 <= x <= 9007199254740991",
+      "capacity: project.\"</title></style></textarea><script>gantrypwn(8)</script>\".capacity.priority: out of range: 1 <= x <= 9007199254740991"
+    ],
+    "warnings": []
+  },
+  "not_declared": {"violations": [], "warnings": []},
+  "order": {
+    "violations": [
+      "capacity: capacity.lane_hours_per_week: out of range: 0 < x <= 168",
+      "capacity: capacity.max_lanes: wrong type: expected integer",
+      "capacity: capacity.tokens_per_week: wrong type: expected integer",
+      "capacity: capacity.tokens_per_window: missing required key",
+      "capacity: capacity.windows_per_week: out of range: 0 < x <= 33.6",
+      "capacity: project.b.capacity.priority: out of range: 1 <= x <= 9007199254740991",
+      "capacity: project.b.capacity.max_lanes: out of range: 1 <= x <= 9007199254740991",
+      "capacity: project.a.capacity.deadline: not a calendar date",
+      "capacity: pool: reserve_operator_hours_per_week sum exceeds capacity.operator_hours_per_week"
+    ],
+    "warnings": [
+      "capacity: warning: capacity.max_lane: unknown key (ignored)",
+      "capacity: warning: project.b.capacity.priorty: unknown key (ignored)"
+    ]
+  },
+  "paused": {"violations": [], "warnings": []},
+  "per_project_keys": {"violations": [], "warnings": []},
+  "ratio": {"violations": [], "warnings": []},
+  "ratio_above_max": {"violations": [], "warnings": []},
+  "ratio_zero": {"violations": [], "warnings": []},
+  "rule_capacity_table_missing": {
+    "violations": ["capacity: project.a.capacity: [capacity] table missing"],
+    "warnings": []
+  },
+  "rule_exceeds_max_lanes": {
+    "violations": ["capacity: project.a.capacity.max_lanes: exceeds capacity.max_lanes"],
+    "warnings": []
+  },
+  "rule_missing_required_key": {
+    "violations": ["capacity: capacity.operator_hours_per_week: missing required key"],
+    "warnings": []
+  },
+  "rule_not_a_calendar_date": {
+    "violations": ["capacity: project.a.capacity.deadline: not a calendar date"],
+    "warnings": []
+  },
+  "rule_out_of_range_count": {
+    "violations": ["capacity: capacity.max_lanes: out of range: 1 <= x <= 9007199254740991"],
+    "warnings": []
+  },
+  "rule_out_of_range_hours": {
+    "violations": ["capacity: capacity.lane_hours_per_week: out of range: 0 < x <= 168"],
+    "warnings": []
+  },
+  "rule_out_of_range_nonneg": {
+    "violations": ["capacity: capacity.operator_hours_per_agent_hour: out of range: 0 <= x <= 9007199254740991"],
+    "warnings": []
+  },
+  "rule_out_of_range_tokens": {
+    "violations": ["capacity: capacity.tokens_per_week: out of range: 0 < x <= 9007199254740991"],
+    "warnings": []
+  },
+  "rule_out_of_range_windows": {
+    "violations": ["capacity: capacity.windows_per_week: out of range: 0 < x <= 33.6"],
+    "warnings": []
+  },
+  "rule_pool_operator_hours": {
+    "violations": ["capacity: pool: reserve_operator_hours_per_week sum exceeds capacity.operator_hours_per_week"],
+    "warnings": []
+  },
+  "rule_pool_tokens": {
+    "violations": ["capacity: pool: reserve_tokens_per_week sum exceeds the effective weekly token budget"],
+    "warnings": []
+  },
+  "rule_wrong_type_boolean": {
+    "violations": ["capacity: project.a.capacity.paused: wrong type: expected boolean"],
+    "warnings": []
+  },
+  "rule_wrong_type_date": {
+    "violations": ["capacity: project.a.capacity.deadline: wrong type: expected date"],
+    "warnings": []
+  },
+  "rule_wrong_type_integer": {
+    "violations": ["capacity: capacity.max_lanes: wrong type: expected integer"],
+    "warnings": []
+  },
+  "rule_wrong_type_number": {
+    "violations": ["capacity: capacity.operator_hours_per_week: wrong type: expected number"],
+    "warnings": []
+  },
+  "rule_wrong_type_table": {
+    "violations": ["capacity: project.a.capacity: wrong type: expected table"],
+    "warnings": []
+  },
+  "unknown_key": {
+    "violations": [],
+    "warnings": [
+      "capacity: warning: capacity.max_lane: unknown key (ignored)",
+      "capacity: warning: project.a.capacity.priorty: unknown key (ignored)"
+    ]
+  }
+}

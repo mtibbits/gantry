@@ -1,0 +1,11 @@
+# A fictional devagent config for the week planner's tests of a paused site (#39).
+# It declares no capacity: a test writes the config it plans from, with the same three projects.
+
+[project.a]
+devdoc_dir = "a"
+
+[project.b]
+devdoc_dir = "b"
+
+[project.c]
+devdoc_dir = "c"

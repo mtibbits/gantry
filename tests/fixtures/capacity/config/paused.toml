@@ -1,0 +1,25 @@
+# A fictional devagent config for the capacity reader's tests (#39).
+# c is paused. Its reservations exceed both pools, so the declaration is valid
+# only because a paused project leaves the pool sums.
+
+[capacity]
+operator_hours_per_week = 20
+lane_hours_per_week = 40
+max_lanes = 3
+tokens_per_week = 500000000
+tokens_per_window = 60000000
+windows_per_week = 10
+
+[project.a]
+devdoc_dir = "a"
+
+[project.b]
+devdoc_dir = "b"
+
+[project.c]
+devdoc_dir = "c"
+
+[project.c.capacity]
+paused = true
+reserve_operator_hours_per_week = 25
+reserve_tokens_per_week = 600000000

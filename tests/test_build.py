@@ -1,10 +1,11 @@
 """The full build: anchors and hrefs, reading and rendering every site, and
 writing the pages and the index (#11)."""
 
+import json
 import os
 import re
 from pathlib import Path
-from datetime import date
+from datetime import date, datetime, timezone
 
 import pytest
 
@@ -25,6 +26,7 @@ from helpers_config import (
     sample_projects,
     snapshot,
     write_site_tree,
+    written_bytes,
 )
 from page_safety import HOSTILE, assert_no_external_resources, assert_page_safe
 from sample_roles import BUSY, NO_WBS, OWN_UNIT, READABLE, SMALL, UNESTIMATED, UNREADABLE
@@ -411,6 +413,7 @@ def test_demo_pages_load_nothing_external(tmp_path, monkeypatch):
 
 STDERR_FORMS = (
     "gantry: warning: site <name> is not built: <reason>",
+    "gantry: warning: devagent's capacity declaration is invalid (<count>); it is not used",
     "gantry: error: cannot write <index path>: <reason>",
     "gantry: error: cannot write week-plan.json: <reason>",
     "gantry: error: cannot render week.html: <type>: <message>",
@@ -1666,3 +1669,174 @@ def test_build_prints_failed_thieves(tmp_path, monkeypatch):
     assert again == code
     added = [line for line in after.splitlines() if line not in before.splitlines()]
     assert added == ["gantry: warning: site b: thieves not derived: RuntimeError"]
+
+
+# --- devagent's declared capacity (#39) ----------------------------------------------------------
+
+
+def capacity_install(tmp_path, **changes):
+    """A copy of tests/fixtures/capacity/install (sites a, b and c), with test_planner's install changes."""
+    from test_planner import CAPACITY_INSTALL, install
+
+    return install(tmp_path, CAPACITY_INSTALL, **changes)
+
+
+def test_build_passes_declared_capacity(tmp_path, monkeypatch):
+    from gantry import capacity
+    from gantry.planner import CAPACITY_SOURCE, CAPACITY_SOURCE_DEVAGENT
+    from test_planner import capacity_config, declares, plan_from
+
+    # The demo: the sample devagent config declares capacity, and the build plans from it,
+    # not from the default.
+    plan = sample_build(tmp_path / "demo").plan
+    assert (plan.status, plan.capacity["declaration"]) == ("planned", "used")
+    assert [pool["capacity_source"] for pool in plan.pools] == [CAPACITY_SOURCE_DEVAGENT] * 2
+    assert CAPACITY_SOURCE_DEVAGENT != CAPACITY_SOURCE
+
+    # Whatever the config declares, the build's plan is the planner's of the reader's result.
+    for devagent, declaration in ((declares(), "used"), (capacity_config("not_declared"), "not_declared"),
+                                  (capacity_config("order"), "invalid")):
+        copy = capacity_install(tmp_path, devagent=devagent)
+        plan = build_all(load_config(copy / "gantry.toml")).plan
+        assert (plan.status, plan.capacity["declaration"]) == ("planned", declaration)
+        assert plan == plan_from(copy)
+    assert [entry["kind"] for entry in plan.report] == ["capacity_invalid"] * 9 + ["capacity_unknown_key"] * 2
+
+    # A full build reads the declaration once and hands the planner what it read.
+    copy = capacity_install(tmp_path, devagent=declares())
+    read = spy_on(monkeypatch, capacity, "resolve_capacity")
+    passed = []
+    spy_on(monkeypatch, build, "plan_week", before=lambda *args, **kw: passed.append(kw.get("capacity")))
+    result = build_all(load_config(copy / "gantry.toml"))
+    assert len(read) == 1 and len(passed) == 1 and passed[0] is read[0][1]
+    assert passed[0].usable and result.plan.capacity["declaration"] == "used"
+    # The command line's full build too, and its plan file holds it.
+    del read[:], passed[:]
+    code, _, stderr = run_main("--config", str(copy / "gantry.toml"))
+    assert code == 0, stderr
+    assert len(read) == 1 and len(passed) == 1 and passed[0] is read[0][1]
+    document = json.loads((copy / "out" / "week-plan.json").read_bytes().decode("utf-8"))
+    assert document["capacity"]["declaration"] == "used"
+    assert [pool["capacity_source"] for pool in document["pools"]] == [CAPACITY_SOURCE_DEVAGENT] * 2
+    # A --site build plans no week: it reads no declaration.
+    del read[:], passed[:]
+    code, _, stderr = run_main("--config", str(copy / "gantry.toml"), "--site", "a")
+    assert code == 0, stderr
+    assert read == [] and passed == []
+
+
+def test_invalid_declaration_warns(tmp_path):
+    # An invalid declaration is not used, its pauses included, so the full build says so on
+    # stderr; the exit code is unchanged. A used one prints no capacity line.
+    from gantry.cli import CAPACITY_INVALID_LINE
+    from test_planner import PAUSED_C, capacity_config, declares
+
+    def build_lines(devagent):
+        copy = capacity_install(tmp_path, devagent=devagent)
+        code, _, stderr = run_main("--config", str(copy / "gantry.toml"))
+        assert code == 0, stderr
+        document = json.loads((copy / "out" / "week-plan.json").read_bytes().decode("utf-8"))
+        return [line for line in stderr.splitlines() if "capacity declaration" in line], document["capacity"]
+
+    lines, capacity = build_lines(declares(tail=PAUSED_C))
+    assert (lines, capacity["declaration"], capacity["paused"]) == ([], "used", ["c"])
+    # One broken rule anywhere drops the whole declaration: c is no longer paused.
+    lines, capacity = build_lines(declares(total=0, tail=PAUSED_C))
+    assert (capacity["declaration"], capacity["paused"]) == ("invalid", [])
+    assert lines == [CAPACITY_INVALID_LINE.format(count="1 violation")]
+    lines, capacity = build_lines(capacity_config("order"))
+    assert lines == [CAPACITY_INVALID_LINE.format(count="9 violations")]
+    assert lines[0] == "gantry: warning: devagent's capacity declaration is invalid (9 violations); it is not used"
+
+
+def test_capacity_read_failure_stops_the_build(tmp_path, monkeypatch):
+    # The devagent config is read again for the declaration. One that can no longer be read is
+    # the ConfigError the site list's own read of it is: the build stops and writes nothing. It
+    # is never a capacity violation, and never a plan made as if nothing were declared.
+    from gantry import cli
+    from gantry.config import ConfigError
+    from test_planner import declares
+
+    copy = capacity_install(tmp_path, devagent=declares())
+    devagent = copy / "devagent.toml"
+    text = devagent.read_bytes()
+
+    def gone(_):
+        devagent.unlink()
+
+    spy_on(monkeypatch, build, "site_list", after=gone)
+    config = load_config(copy / "gantry.toml")
+    with pytest.raises(ConfigError) as refused:
+        build_all(config)
+    assert str(refused.value).startswith(f"{config.devagent_config}: cannot read the devagent config: ")
+    assert not devagent.exists()
+    devagent.write_bytes(text)
+    code, stdout, stderr = run_main("--config", str(copy / "gantry.toml"))
+    assert (code, stdout) == (1, "")
+    (line,) = stderr.splitlines()
+    assert line.startswith(f"gantry: error: {config.devagent_config}: cannot read the devagent config: ")
+    assert not devagent.exists() and not (copy / "out").exists()
+    # A --site build reads no declaration, so the same loss after its site list does not stop it.
+    devagent.write_bytes(text)
+    spy_on(monkeypatch, cli, "site_list", after=gone)
+    code, _, stderr = run_main("--config", str(copy / "gantry.toml"), "--site", "a")
+    assert code == 0, stderr
+    assert not devagent.exists() and sorted(written_bytes(copy / "out")) == ["sites/a.html"]
+
+
+def test_capacity_missing_line_is_true_beside_a_declared_plan(tmp_path):
+    # The portfolio file sets no attention_hours, so its own check reports capacity_missing, and a
+    # full build lists that line on the strategic page. devagent's declaration is used, so the same
+    # build plans the week: what the line says of the planner must be true beside that plan.
+    from test_planner import capacity_portfolio, declares
+    from test_worksite_page import by_id, find, text_of, tree
+
+    copy = capacity_install(tmp_path, devagent=declares(total=30), portfolio=capacity_portfolio("no_hours"))
+    code, _, stderr = run_main("--config", str(copy / "gantry.toml"))
+    assert code == 0, stderr
+    document = json.loads((copy / "out" / "week-plan.json").read_bytes().decode("utf-8"))
+    assert (document["status"], document["capacity"]["attention"]["rule"]) == ("planned", "even_spread")
+    t = tree((copy / "out" / "strategic.html").read_bytes().decode("utf-8"))
+    lines = [text_of(t, li) for li in find(t, "li", within=by_id(t, "report"))]
+    missing = [line for line in lines if "capacity_missing" in line]
+    assert missing == [
+        "settings: line 18: capacity_missing (advisory): capacity.attention_hours: no capacity.attention_hours, so "
+        "the week planner has no capacity to plan into unless devagent's capacity declaration is used"]
+    # Nothing declared, the same file gives no plan, and the same line is as true.
+    bare = capacity_install(tmp_path, portfolio=capacity_portfolio("no_hours"))
+    code, _, stderr = run_main("--config", str(bare / "gantry.toml"))
+    assert code == 0, stderr
+    document = json.loads((bare / "out" / "week-plan.json").read_bytes().decode("utf-8"))
+    assert (document["status"], document["capacity"]["declaration"]) == ("no_plan", "not_declared")
+    t = tree((bare / "out" / "strategic.html").read_bytes().decode("utf-8"))
+    assert [line for line in (text_of(t, li) for li in find(t, "li", within=by_id(t, "report")))
+            if "capacity_missing" in line] == missing
+
+
+def test_declared_plan_writes_byte_identical_files(tmp_path, monkeypatch):
+    from gantry import cli
+    from test_planner import PAUSED_C, RATIO, declares
+
+    # A used declaration that leaves a mark wherever one can: hours scaled onto the portfolio
+    # file's weekdays, a ratio, an unknown key, a paused site and a token budget.
+    devagent = declares(more=RATIO % 0.25 + "max_lane = 3\n", tail=PAUSED_C)
+    # The stamp holds the build's minute, so both builds read one clock.
+    now = datetime(2026, 1, 19, 9, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(cli, "build_all", lambda config: build_all(config, now=now))
+    runs = []
+    for _ in range(2):
+        copy = capacity_install(tmp_path, devagent=devagent)
+        code, _, stderr = run_main("--config", str(copy / "gantry.toml"))
+        assert code == 0, stderr
+        runs.append(written_bytes(copy / "out"))
+    document = json.loads(runs[0]["week-plan.json"].decode("utf-8"))
+    assert document["capacity"]["declaration"] == "used"
+    assert document["status"] == "planned" and document["capacity"]["attention"]["rule"] == "scaled"
+    assert document["capacity"]["attention"]["factor"] != 1 and document["capacity"]["paused"] == ["c"]
+    assert document["capacity"]["declared_ratio"]["used"] and document["capacity"]["token_budget"] is not None
+    assert [entry["kind"] for entry in document["report"]] == ["capacity_unknown_key"]
+    assert sorted(runs[0]) == ["index.html", "sites/a.html", "sites/b.html", "sites/c.html", "strategic.html",
+                               "week-plan.json", "week.html"]
+    assert runs[0] == runs[1]
+    assert b"built 2026-01-19 09:00 UTC" in runs[0]["week.html"]
+    assert all(str(tmp_path).encode("utf-8") not in data for data in runs[0].values())

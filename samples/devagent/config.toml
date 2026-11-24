@@ -4,6 +4,17 @@
 [defaults]
 checklist_template = "standard"
 
+# devagent's capacity declaration, which the week plan is made from (#39).
+# The figures are made up, and chosen to leave the demo's blocks as
+# ../portfolio.md alone gives them (../README.md says how).
+[capacity]
+operator_hours_per_week = 18
+lane_hours_per_week = 36
+max_lanes = 2
+tokens_per_week = 500000000
+tokens_per_window = 60000000
+windows_per_week = 10
+
 [project.harbor]
 devdoc_dir = "../harbor"
 default_baseline = "origin/main"

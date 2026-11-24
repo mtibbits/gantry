@@ -9,6 +9,10 @@ them. This page lists every format it depends on, the devagent source lines
 each mirrors, what it does with each malformed case, and how a contract test
 notices when devagent's writers change shape.
 
+One format on this page is not a per-issue record: the capacity declaration
+in devagent's config, which a module of its own reads for the week plan
+([The capacity declaration](#the-capacity-declaration)).
+
 **A planning directory is private data.** The records in this repository
 (`samples/<site>/Issue-N/`, `tests/fixtures/devagent_records/` and the week
 view fixture's issue folders) are fictional, or template step rows (names
@@ -33,6 +37,16 @@ README supports. Every source line cited on this page is a line of that
 release. Moving the pin is a change of its own, made with every file that
 records the pin regenerated
 ([Fixtures and the contract test](#fixtures-and-the-contract-test)).
+
+A second pin, `tests/devagent-latest.pin`, names the release that holds the
+newest devagent contract Gantry mirrors: today `devagent--v3.4.0`. A test of
+a contract the first pin's release lacks runs against a checkout of this
+one; today that contract is the capacity declaration
+([The capacity declaration](#the-capacity-declaration)). It moves in the
+change that needs a newer contract, as #40 and #41 may, and it is never
+below the first pin. No tool reads it and no committed file is written at
+it, so moving it regenerates nothing. The first pin is "the pin" everywhere
+on this page; the second is always "the latest pin".
 
 ## Where the records are
 
@@ -267,6 +281,182 @@ holds a path:
 | it cannot be listed, or is outside the roots | `planning directory cannot be listed: <error>` |
 | a link that is not a link to a file inside the roots (in `skipped`) | `is a link` |
 
+## The capacity declaration
+
+devagent's config may declare the operator's capacity for a week
+(mtibbits/devagent#743): a shared `[capacity]` table and, for any project,
+a `[project.<name>.capacity]` table. Gantry plans the week from it
+([week-plan.md](week-plan.md#declared-capacity-from-devagent), #39). It is
+a config format, not a per-issue record, and a module of its own reads it:
+`gantry/capacity.py`, through the same confined TOML read as the site list.
+`gantry build` runs no devagent command.
+
+The tables, their rules and devagent's reader of them are in the latest
+pin's release, `devagent--v3.4.0`; the pin's release has none of them. So
+this section is stated of the latest pin's release, and it cites no source
+line: every line cited on this page is a line of the pin's release. In the
+latest pin's release `scripts/capacity.sh` is the reader's command,
+`scripts/lib/capacity.py` holds every rule, the document and the text, and
+devagent's `docs/configuration.md` states them under "Capacity".
+
+`gantry/capacity.py` is a port of those rules, not a paraphrase of them:
+the rule strings, the order of the lines, one line per key, which rule an
+invalid value switches off, the pool sums and the token rounding are
+devagent's. A change there follows a change in devagent, never the
+reverse.
+
+### The keys
+
+In `[capacity]`, every key but `operator_hours_per_agent_hour` is required:
+
+| Key | Type | Range | Default | What Gantry does with it |
+|---|---|---|---|---|
+| `operator_hours_per_week` | number | `0 < x <= 168` | required | the week's attention hours, laid on the portfolio file's weekdays |
+| `lane_hours_per_week` | number | `0 < x <= 168` | required | a lane's day: these hours over the week's working days |
+| `max_lanes` | integer | `1 <= x <= 9007199254740991` | required | the lanes of each working day |
+| `tokens_per_week` | integer | `0 < x <= 9007199254740991` | required | the token budget, with the two keys below: shown, never scheduled |
+| `tokens_per_window` | integer | `0 < x <= 9007199254740991` | required | the token budget |
+| `windows_per_week` | number | `0 < x <= 33.6` | required | the token budget |
+| `operator_hours_per_agent_hour` | number | `0 <= x <= 9007199254740991` | none | every site's declared ratio; one above 24 is not used |
+
+In `[project.<name>.capacity]`, every key is optional:
+
+| Key | Type | Range | Default | What Gantry does with it |
+|---|---|---|---|---|
+| `priority` | integer | `1 <= x <= 9007199254740991` | `5` | checks it; the plan does not use it |
+| `max_lanes` | integer | `1 <= x <= 9007199254740991` | none | checks it, against `capacity.max_lanes` too; the plan does not use it |
+| `paused` | boolean | none | `false` | `true` pauses the site: none of its leaves is planned |
+| `deadline` | date | none | none | checks it; the plan does not use it |
+| `reserve_operator_hours_per_week` | number | `0 <= x <= 9007199254740991` | none | checks it, and its sum over the unpaused projects; the plan does not use it |
+| `reserve_tokens_per_week` | integer | `0 <= x <= 9007199254740991` | none | checks it, and its sum over the unpaused projects; the plan does not use it |
+
+`integer` is a TOML integer: `3.0` and `true` are wrong types. `number` is a
+TOML integer or float, never a boolean, and one that is not finite (`nan`,
+`inf`) is out of range. `date` is a TOML local date, or a string that is
+exactly `YYYY-MM-DD` in ASCII digits and names a real day; a date-time is a
+wrong type. Where a number has no upper bound of its own, the bound is
+2^53 − 1, which is 9007199254740991.
+
+### The lines
+
+A broken rule is one line, `capacity: <where>: <rule>`, and one such line
+makes the whole declaration invalid: Gantry then uses nothing it declares.
+`<rule>` is one of sixteen strings. They are devagent's contract, and Gantry
+writes them as devagent does:
+
+```
+missing required key
+wrong type: expected number
+wrong type: expected integer
+wrong type: expected boolean
+wrong type: expected date
+wrong type: expected table
+out of range: 0 < x <= 168
+out of range: 1 <= x <= 9007199254740991
+out of range: 0 < x <= 9007199254740991
+out of range: 0 < x <= 33.6
+out of range: 0 <= x <= 9007199254740991
+not a calendar date
+exceeds capacity.max_lanes
+[capacity] table missing
+reserve_operator_hours_per_week sum exceeds capacity.operator_hours_per_week
+reserve_tokens_per_week sum exceeds the effective weekly token budget
+```
+
+- A required key that is absent is `missing required key`.
+- A value of the wrong type is `wrong type: expected` and its key's type. A
+  `capacity` that is not a table, shared or a project's, expects `table`.
+- A number outside its key's range is `out of range:` and that range.
+- A `deadline` string that names no real day is `not a calendar date`.
+- A project's `max_lanes` above the shared one is
+  `exceeds capacity.max_lanes`, whether or not the project is paused.
+- A project's capacity table in a config with no `[capacity]` table is
+  `[capacity] table missing`.
+- The last two are the pool rules, and their `<where>` is `pool`. The
+  hours rule: the unpaused projects' reserved operator hours add up to more
+  than `operator_hours_per_week` plus 1e-9. That fixed tolerance takes up
+  binary rounding, so reservations that fill the hours exactly pass. The
+  token rule is strict: their reserved tokens, whole numbers, add up to
+  more than the effective weekly token budget.
+
+The lines come in devagent's order: the shared table's keys in the order
+above, then each project in file order with its keys in the order above,
+then `pool`. A key gets at most one line, and a pool rule runs only when
+every value it reads is valid.
+
+`<where>` is the dotted path of the key, such as `capacity.max_lanes`. A
+part that matches `[A-Za-z0-9_-]+` in full is written bare. Any other part
+is written as a JSON string, its non-ASCII characters kept as they are:
+`project."my proj".capacity.priority`, `project."a.b".capacity.paused`. So
+a name that holds a line feed stays on one line in Gantry's own lines
+(devagent's reader does not read such a project; see the project list
+below). A line reaches the week
+view as plain text, through the page's safe render path.
+
+### Warnings
+
+A key devagent does not know is a warning, not a violation:
+`capacity: warning: <where>: unknown key (ignored)`. Gantry mirrors it. The
+key is ignored, the declaration stays valid, and the line is a
+`capacity_unknown_key` entry of the plan's report. Warnings follow the
+violations: the unknown keys of `[capacity]` in file order, then each
+project's.
+
+devagent's reader writes one more warning, which Gantry does not mirror:
+`capacity: warning: project.<name>: only key is capacity (misspelled project name?)`.
+Such a project has no `devdoc_dir`, so Gantry already lists it as a site it
+cannot build (#7), and adds no line of its own.
+
+### The document and `capacity_schema`
+
+For a config that breaks no rule, devagent's reader prints a JSON document.
+With a violation it prints none. The document's `capacity_schema` is
+`"1.0"`, and that is the version Gantry's port implements. It has six
+fields: `capacity_schema`; `declared`, whether the config has a
+`[capacity]` table; `token_unit`, which is
+`weighted_input_token_equivalents`; `shared`; `effective_tokens_per_week`;
+and `projects`. The effective weekly token budget is the smaller of
+`tokens_per_week` and `tokens_per_window` × `windows_per_week`, that
+product rounded half up to whole tokens. Its `binding` names the term that
+sets it: `tokens_per_week`, on a tie too, or
+`tokens_per_window_x_windows_per_week`.
+
+Gantry never reads that document: it reads the config. It can write the
+same document from its own reading (`document_text` in
+`gantry/capacity.py`), which is how the two readers are compared. The plan
+records the schema as its `capacity.capacity_schema` whenever the config
+sets a `capacity`, shared or a project's, valid or not.
+
+### The agreement test
+
+`tests/test_capacity.py` holds the port to devagent's reader. For each
+fixture config under `tests/fixtures/capacity/config/`, the one with
+hostile project names included, it runs devagent's own
+`scripts/capacity.sh` from the checkout that `GANTRY_DEVAGENT_LATEST_DIR`
+names, a checkout of the release `tests/devagent-latest.pin` names, and has
+Gantry read the same file. For every fixture but one
+([The project list](#the-project-list)) it compares devagent's standard
+output with Gantry's document byte for byte, so `20` against `20.0`, the
+key order and `capacity_schema` are all seen. It compares devagent's
+violation lines and its unknown-key warnings with Gantry's, as bytes too.
+The fixtures are fictional and written by hand: none stores devagent's
+output. The test skips, warns and fails by the latest pin's rules
+([Fixtures and the contract test](#fixtures-and-the-contract-test)).
+
+### The project list
+
+One fixture, with a project named `a.b`, is read differently on purpose.
+Gantry takes the projects from the config itself: every key of `[project]`
+whose value is a table, in file order, whatever its name. devagent's reader
+takes them from devagent's own project list, which holds only a name it
+prints as one `project.<name>` line: it leaves out a name with a dot or a
+line feed in it, and the empty name, so such a project's capacity table gets
+no line from devagent and no place in its document. Gantry reads it like any other.
+`[project."a.b".capacity]` with `paused = true` pauses the site `a.b` in
+Gantry's plan, and a broken rule in that table makes the declaration
+invalid for Gantry, though devagent's reader accepts the config. A test
+pins the difference.
+
 ## Fixtures and the contract test
 
 The STUCK and checklist fixtures under
@@ -343,6 +533,16 @@ each of these fails the run. On Windows it always skips with the reason
 clones devagent at the pin and checks the tag's commit against the
 fixtures' `provenance.json`, because the test workflow has no conditional
 steps; only the Ubuntu legs run the test.
+
+A test that needs the latest pin's release reads its checkout from
+`GANTRY_DEVAGENT_LATEST_DIR` and follows the same rules under that variable
+and `tests/devagent-latest.pin`: it skips locally when the variable is unset
+or is not a devagent checkout, warns when the checkout's version differs
+from the latest pin's, fails on each of these with `CI` set, and always
+skips on Windows. Neither variable stands in for the other. Every CI leg
+clones devagent at the latest pin too. That clone is checked against no
+commit, because no committed file records one for it: the version check is
+its guard.
 
 ## What can move to the portfolio JSON
 

@@ -9,10 +9,24 @@ public tools (in prose, in the `samples/devagent/` folder name and in
 ## Layout
 
 - `devagent/config.toml`: a fictional devagent config. It has a
-  `[defaults]` table and one `[project.<site>]` table per site, each with
-  an `issue_source` subtable. Every path in it is relative to the file's
-  own folder, so `devdoc_dir = "../harbor"` means `samples/harbor/`, and
-  no path leads outside `samples/`.
+  `[defaults]` table, a `[capacity]` table and one `[project.<site>]`
+  table per site, each with an `issue_source` subtable. Every path in it is
+  relative to the file's own folder, so `devdoc_dir = "../harbor"` means
+  `samples/harbor/`, and no path leads outside `samples/`.
+- The `[capacity]` table of `devagent/config.toml` is devagent's capacity
+  declaration (#39), which `gantry build` plans the demo week from
+  ([the rules](../docs/week-plan.md)). Its figures are made up, and chosen
+  so the demo's blocks are the ones `portfolio.md` alone gives:
+  `operator_hours_per_week = 18` is the sum of the portfolio file's
+  weekdays after its reserved block (4 + 4 + 2 + 4 + 3 + 1), so no day is
+  scaled; `lane_hours_per_week = 36` over those six working days is the 6
+  hours a lane has in a day when nothing is declared; and `max_lanes = 2`
+  is the file's `agent_lanes`. It sets no `operator_hours_per_agent_hour`,
+  and no project has a capacity table, so no site is paused. The token keys
+  give a weekly budget of 500000000 (the smaller of `tokens_per_week` and
+  60000000 a window over 10 windows), which the week view shows and nothing
+  schedules. So the demo's week view differs from one with nothing declared
+  in two lines: where its capacity comes from, and the token budget.
 - `devagent/out/`: devagent's portfolio JSON over these samples
   (`portfolio/portfolio.json`) and the devagent home it is written from.
   `tools/sample_portfolio.py` writes it with a devagent checkout; it is
@@ -161,6 +175,14 @@ outside pytest adds `<repo>/tests` to `sys.path` first.
   marsh override (`samples/marsh/WBS.md -text`). No line below the
   override may match `samples/marsh/WBS.md`. The sample check fails
   otherwise, on every platform.
+- The capacity rule: the `[capacity]` table of `devagent/config.toml` is
+  kept in step with `portfolio.md`, so a change to the portfolio file's
+  `attention_hours`, reserved blocks or `agent_lanes` reviews the table in
+  the same change: a test in `tests/test_week_page.py` fails when the table
+  changes the demo's blocks. A change to `devagent/config.toml` regenerates
+  `tests/fixtures/portfolio/samples_provenance.json` with a devagent
+  checkout at the release `tests/devagent.pin` names
+  (`python3 tools/sample_portfolio.py --fixtures --devagent <checkout>`).
 - Reserved folder names: no site may be named `devagent`, `out`,
   `history`, `actuals` or `forecast`.
 - The history rule: the newest version of each site's sample history is

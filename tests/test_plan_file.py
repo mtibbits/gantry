@@ -12,7 +12,8 @@ from gantry import planner
 from gantry.planner import PLAN_FILE, PLAN_VERSION, plan_to_json, write_plan
 from gantry.roots import mkdir_confined
 from helpers_config import copy_samples, demo_build, run_main, snapshot, written_bytes
-from test_planner import FIXTURE_NAMES, FIXTURES, built, install, plan_of, portfolio_md, reserved
+from test_planner import (CAPACITY_INSTALL, FIXTURE_NAMES, FIXTURES, PAUSED_C, RATIO, built, capacity_config,
+                          capacity_portfolio, declares, install, plan_of, portfolio_md, reserved)
 
 SHAPE = json.loads((FIXTURES / "shape-v1.json").read_bytes().decode("utf-8"))
 DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
@@ -200,6 +201,138 @@ def test_shape_accepts_unknown_unplanned_reason(tmp_path):
     assert shape_errors(document) == []
 
 
+def test_shape_holds_on_plans_made_from_a_declaration(tmp_path):
+    # A used declaration (#39) that fills every node it can at once: Monday's hours scaled and
+    # capped, a lane's day capped, a ratio, a token budget and a paused site.
+    devagent = declares(total=30, lane_hours=168, max_lanes=1, more=RATIO % 0.25, tail=PAUSED_C)
+    document = document_of(plan_of(tmp_path, CAPACITY_INSTALL, devagent=devagent,
+                                   portfolio=capacity_portfolio("one_day")))
+    capacity = document["capacity"]
+    assert (document["status"], capacity["declaration"], capacity["capacity_schema"]) == ("planned", "used", "1.0")
+    assert capacity["attention"] == {"rule": "scaled", "total_hours": 30, "weekday_sum_hours": 8.0, "factor": 3.75,
+                                     "weekdays_lost_to_cap": [{"weekday": "mon", "hours": 8.0}]}
+    assert capacity["lanes"] == {"max_lanes": 1, "lane_hours_per_week": 168, "working_days": 1,
+                                 "lane_hours_per_day": 24.0, "hours_lost_to_cap": 144.0}
+    assert capacity["declared_ratio"] == {"value": 0.25, "used": True, "reason": None}
+    assert capacity["token_budget"] == {"tokens_per_week": 500000000, "binding": "tokens_per_week",
+                                        "unit": "weighted_input_token_equivalents"}
+    assert capacity["paused"] == ["c"]
+    assert [day["attention_hours_lost_to_cap"] for day in document["days"]] == [8.0] * 10
+    assert {entry["reason"] for site in document["sites"] if site["name"] == "c"
+            for entry in site["unplanned"]} == {"paused"}
+    assert "declared" in {leaf["tag"] for leaf in document["leaves"]}
+    assert shape_errors(document) == []
+    # A ratio that is not used holds its reason, and unknown keys their lines.
+    devagent = declares(more=RATIO % 30 + "max_lane = 3\n")
+    document = document_of(plan_of(tmp_path, CAPACITY_INSTALL, devagent=devagent))
+    assert (document["status"], document["capacity"]["declaration"]) == ("planned", "used")
+    assert document["capacity"]["declared_ratio"] == {
+        "value": 30, "used": False,
+        "reason": "devagent declares 30 operator hours per agent hour, above 24; it is not used"}
+    assert document["report"] == [{"kind": "capacity_unknown_key", "leaves": [],
+                                   "text": "capacity: warning: capacity.max_lane: unknown key (ignored)"}]
+    assert shape_errors(document) == []
+    # An invalid declaration and no plan: devagent's lines are the report, and nothing it declares is held.
+    document = document_of(plan_of(tmp_path, CAPACITY_INSTALL, devagent=capacity_config("order"),
+                                   portfolio=capacity_portfolio("no_capacity")))
+    assert (document["status"], document["capacity"]["declaration"]) == ("no_plan", "invalid")
+    assert document["capacity"] == {"declaration": "invalid", "capacity_schema": "1.0", "attention": None,
+                                    "lanes": None, "declared_ratio": None, "token_budget": None, "paused": []}
+    assert [entry["kind"] for entry in document["report"]] == ["capacity_invalid"] * 9 + ["capacity_unknown_key"] * 2
+    assert all(isinstance(entry["text"], str) and entry["leaves"] == [] for entry in document["report"])
+    assert shape_errors(document) == []
+    # A used one and no plan keeps its ratio, its budget and its paused site.
+    document = document_of(plan_of(tmp_path, CAPACITY_INSTALL, devagent=declares(more=RATIO % 0.25, tail=PAUSED_C),
+                                   config={"portfolio_file": None}))
+    capacity = document["capacity"]
+    assert (document["status"], capacity["declaration"], capacity["attention"], capacity["lanes"]) == (
+        "no_plan", "used", None, None)
+    assert capacity["declared_ratio"]["used"] and capacity["token_budget"] and capacity["paused"] == ["c"]
+    assert shape_errors(document) == []
+
+
+def test_shape_holds_a_declared_capacity(tmp_path):
+    # Each node a declaration fills (#39), on a document filled in by hand, and what the shape
+    # refuses in each. test_shape_holds_on_plans_made_from_a_declaration checks the planner's own.
+    base = _states(tmp_path)
+    assert base["capacity"]["declaration"] == "not_declared" and base["report"] == []
+    assert (base["capacity"]["declared_ratio"], base["capacity"]["token_budget"], base["capacity"]["paused"]) == (
+        None, None, [])
+    base["capacity"] |= {
+        "declaration": "used", "capacity_schema": "1.0",
+        "attention": {"rule": "scaled", "total_hours": 30, "weekday_sum_hours": 20.0, "factor": 1.5,
+                      "weekdays_lost_to_cap": [{"weekday": "tue", "hours": 6}]},
+        "declared_ratio": {"value": 30, "used": False, "reason": "above 24"},
+        "token_budget": {"tokens_per_week": 246000000, "binding": "tokens_per_week",
+                         "unit": "weighted_input_token_equivalents"},
+        "paused": ["b"],
+    }
+    base["capacity"]["lanes"] |= {"lane_hours_per_week": 0.001, "hours_lost_to_cap": 144}
+    base["days"][0]["attention_hours_lost_to_cap"] = 8
+    base["report"] = [{"kind": "capacity_unknown_key", "leaves": [], "text": "capacity: warning"},
+                      {"kind": "cross_site_cycle", "leaves": [{"site": "a", "key": "Issue-1"}], "text": None}]
+    assert shape_errors(base) == []
+
+    used = copy.deepcopy(base)
+    used["capacity"]["declared_ratio"] = {"value": 0.25, "used": True, "reason": None}
+    assert shape_errors(used) == []
+
+    for change, error in [
+        (lambda d: d.pop("capacity"), "plan.capacity: missing"),
+        (lambda d: d["capacity"].pop("paused"), "plan.capacity.paused: missing"),
+        (lambda d: d["capacity"].update(declaration=None), "plan.capacity.declaration: not a string"),
+        (lambda d: d["capacity"].update(capacity_schema=1.0), "plan.capacity.capacity_schema: not a string"),
+        (lambda d: d["capacity"]["attention"].pop("factor"), "plan.capacity.attention.factor: missing"),
+        (lambda d: d["capacity"]["attention"].update(rule=None), "plan.capacity.attention.rule: not a string"),
+        (lambda d: d["capacity"]["attention"].pop("weekdays_lost_to_cap"),
+         "plan.capacity.attention.weekdays_lost_to_cap: missing"),
+        (lambda d: d["capacity"]["attention"].update(weekdays_lost_to_cap=None),
+         "plan.capacity.attention.weekdays_lost_to_cap: not an array"),
+        (lambda d: d["capacity"]["attention"]["weekdays_lost_to_cap"][0].update(weekday=1),
+         "plan.capacity.attention.weekdays_lost_to_cap[0].weekday: not a string"),
+        (lambda d: d["capacity"]["attention"]["weekdays_lost_to_cap"][0].update(hours="6"),
+         "plan.capacity.attention.weekdays_lost_to_cap[0].hours: not a number"),
+        (lambda d: d["capacity"]["attention"]["weekdays_lost_to_cap"][0].pop("hours"),
+         "plan.capacity.attention.weekdays_lost_to_cap[0].hours: missing"),
+        (lambda d: d["capacity"]["attention"]["weekdays_lost_to_cap"][0].update(date="2026-01-20"),
+         "plan.capacity.attention.weekdays_lost_to_cap[0].date: not in the pinned shape"),
+        (lambda d: d["capacity"]["lanes"].update(max_lanes=2.5), "plan.capacity.lanes.max_lanes: not an integer"),
+        (lambda d: d["capacity"]["lanes"].update(working_days=None),
+         "plan.capacity.lanes.working_days: not an integer"),
+        (lambda d: d["capacity"]["lanes"].update(lane_hours_per_day=None),
+         "plan.capacity.lanes.lane_hours_per_day: not a number"),
+        (lambda d: d["capacity"]["lanes"].update(lane_hours_per_week="40"),
+         "plan.capacity.lanes.lane_hours_per_week: not a number"),
+        (lambda d: d["capacity"]["lanes"].update(hours_lost_to_cap=None),
+         "plan.capacity.lanes.hours_lost_to_cap: not a number"),
+        (lambda d: d["capacity"]["lanes"].pop("lane_hours_per_week"),
+         "plan.capacity.lanes.lane_hours_per_week: missing"),
+        (lambda d: d["capacity"]["declared_ratio"].update(used="no"),
+         "plan.capacity.declared_ratio.used: not a boolean"),
+        (lambda d: d["capacity"]["declared_ratio"].update(value=None),
+         "plan.capacity.declared_ratio.value: not a number"),
+        (lambda d: d["capacity"]["declared_ratio"].update(reason=24),
+         "plan.capacity.declared_ratio.reason: not a string"),
+        (lambda d: d["capacity"]["declared_ratio"].pop("reason"), "plan.capacity.declared_ratio.reason: missing"),
+        (lambda d: d["capacity"]["token_budget"].update(tokens_per_week=1.5),
+         "plan.capacity.token_budget.tokens_per_week: not an integer"),
+        (lambda d: d["capacity"]["token_budget"].update(binding=None),
+         "plan.capacity.token_budget.binding: not a string"),
+        (lambda d: d["capacity"]["token_budget"].update(unit=None), "plan.capacity.token_budget.unit: not a string"),
+        (lambda d: d["capacity"]["token_budget"].pop("unit"), "plan.capacity.token_budget.unit: missing"),
+        (lambda d: d["capacity"].update(paused=[1]), "plan.capacity.paused[0]: not a string"),
+        (lambda d: d["days"][0].pop("attention_hours_lost_to_cap"),
+         "plan.days[0].attention_hours_lost_to_cap: missing"),
+        (lambda d: d["days"][0].update(attention_hours_lost_to_cap=None),
+         "plan.days[0].attention_hours_lost_to_cap: not a number"),
+        (lambda d: d["report"][1].pop("text"), "plan.report[1].text: missing"),
+        (lambda d: d["report"][0].update(text=3), "plan.report[0].text: not a string"),
+    ]:
+        changed = copy.deepcopy(base)
+        change(changed)
+        assert shape_errors(changed) == [error]
+
+
 def test_shape_file_matches_plan_version():
     assert SHAPE["plan_version"] == PLAN_VERSION
     assert SHAPE["status_values"] == ["planned", "no_plan"]
@@ -207,11 +340,19 @@ def test_shape_file_matches_plan_version():
 
 
 def field_paths(node, path="plan"):
-    """Every field path of a shape node, with its scalar type where it has one."""
+    """Every field path of a shape node, with its scalar type where it has one.
+
+    A value that may be null is `null|<type>`. An object or an array that may
+    be null is a path of its own, `null|object` or `null|array`, and each
+    field under it keeps its own type: null marks the one field that may be."""
     if isinstance(node, str):
         return {path: node}
-    if isinstance(node, list):
-        return {key: f"null|{kind}" for key, kind in field_paths(node[1], path).items()}
+    if isinstance(node, list):  # ["null", <node>]
+        inner = node[1]
+        if isinstance(inner, str):
+            return {path: f"null|{inner}"}
+        (kind, _), = inner.items()
+        return {path: f"null|{kind}"} | field_paths(inner, path)
     (kind, inner), = node.items()
     if kind == "array":
         return field_paths(inner, path + "[]")
@@ -268,13 +409,49 @@ V1_FIELDS = {
     "plan.sites[].shareless_days[]": "date", "plan.sites[].share_note": "null|string",
     "plan.sites[].p0[].key": "string", "plan.sites[].p0[].held_by[]": "string",
     "plan.sites[].attention_hours_target": "number", "plan.sites[].lane_hours_target": "number",
+    # Added by #39, together and always written: what devagent's capacity declaration is to
+    # the plan. A reader takes a missing `capacity` as nothing declared, a missing
+    # attention_hours_lost_to_cap as 0 and a missing report `text` as null.
+    "plan.capacity.declaration": "string", "plan.capacity.capacity_schema": "null|string",
+    "plan.capacity.attention": "null|object", "plan.capacity.attention.rule": "string",
+    "plan.capacity.attention.total_hours": "null|number",
+    "plan.capacity.attention.weekday_sum_hours": "null|number",
+    "plan.capacity.attention.factor": "null|number",
+    "plan.capacity.attention.weekdays_lost_to_cap[].weekday": "string",
+    "plan.capacity.attention.weekdays_lost_to_cap[].hours": "number",
+    "plan.capacity.lanes": "null|object", "plan.capacity.lanes.max_lanes": "integer",
+    "plan.capacity.lanes.lane_hours_per_week": "null|number", "plan.capacity.lanes.working_days": "integer",
+    "plan.capacity.lanes.lane_hours_per_day": "number", "plan.capacity.lanes.hours_lost_to_cap": "number",
+    "plan.capacity.declared_ratio": "null|object", "plan.capacity.declared_ratio.value": "number",
+    "plan.capacity.declared_ratio.used": "boolean", "plan.capacity.declared_ratio.reason": "null|string",
+    "plan.capacity.token_budget": "null|object", "plan.capacity.token_budget.tokens_per_week": "integer",
+    "plan.capacity.token_budget.binding": "string", "plan.capacity.token_budget.unit": "string",
+    "plan.capacity.paused[]": "string",
+    "plan.days[].attention_hours_lost_to_cap": "number", "plan.report[].text": "null|string",
 }
+
+
+def test_field_paths_give_a_nullable_object_its_own_path():
+    node = {"object": {
+        "a": ["null", {"object": {"b": "string", "c": ["null", "number"],
+                                  "d": {"array": {"object": {"e": "date"}}}}}],
+        "f": ["null", "string"],
+        "g": ["null", {"array": "integer"}],
+        "h": {"object": {"i": "boolean"}},
+    }}
+    assert field_paths(node) == {
+        "plan.a": "null|object", "plan.a.b": "string", "plan.a.c": "null|number", "plan.a.d[].e": "date",
+        "plan.f": "null|string", "plan.g": "null|array", "plan.g[]": "integer", "plan.h.i": "boolean",
+    }
 
 
 def test_shape_file_keeps_every_v1_field():
     paths = field_paths(SHAPE["shape"])
     assert {path: paths.get(path) for path in V1_FIELDS} == V1_FIELDS
-    assert len(V1_FIELDS) == 77
+    assert len(V1_FIELDS) == 103
+    # Every field of the pinned shape is frozen here, so docs/week-plan.md names it
+    # (test_week_plan_doc_names_every_field), and an object that becomes nullable is seen.
+    assert sorted(set(paths) - set(V1_FIELDS)) == []
 
 
 # --- the write ----------------------------------------------------------------------------

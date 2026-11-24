@@ -1,0 +1,39 @@
+# A fictional devagent config for the capacity reader's tests (#39).
+# Several violations and two unknown keys, written out of rule order. The lines
+# come out in rule order, one per key: the shared keys in their table order,
+# then each project in file order (b before a) with its keys in their table
+# order, then the pool; the warnings follow, in file order.
+# - capacity.tokens_per_week is the wrong type and below its range: one line.
+# - capacity.tokens_per_window is absent.
+# - capacity.max_lanes is invalid, so a's cap of 9 gets no "exceeds" line.
+# - no token budget can be worked out, so the token pool rule does not run.
+# - b and a reserve 30 of the 20 operator hours: the hours pool rule runs.
+
+[capacity]
+max_lane = 3
+windows_per_week = 0
+tokens_per_week = -1.5
+max_lanes = "three"
+lane_hours_per_week = 0
+operator_hours_per_week = 20
+
+[project.b]
+devdoc_dir = "b"
+
+[project.b.capacity]
+priorty = 2
+reserve_operator_hours_per_week = 15
+max_lanes = 0
+priority = 0
+
+[project.a]
+devdoc_dir = "a"
+
+[project.a.capacity]
+reserve_tokens_per_week = 600000000
+reserve_operator_hours_per_week = 15
+deadline = "2026-02-30"
+max_lanes = 9
+
+[project.c]
+devdoc_dir = "c"

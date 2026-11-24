@@ -75,7 +75,7 @@ from gantry.build import (
 )
 from gantry.config import ConfigError, error_reason, load_config
 from gantry.fires_list import entry_age, fires_reference, read_fires_list, still_a_fire
-from gantry.planner import PLAN_FILE, plan_to_json, write_plan
+from gantry.planner import CAPACITY_INVALID, INVALID, PLAN_FILE, plan_to_json, write_plan
 from gantry.portfolio_file import PORTFOLIO_LABEL, SECTIONS, format_entry, read_portfolio_file, report_entries
 from gantry.roots import OutsideRoots
 from gantry.sites import config_roots, shown
@@ -85,6 +85,9 @@ from gantry.trace import counts_line, load_catalog
 # The full build's last stdout line (#32): how many fires, and how many sources
 # were not fully read. It names no fire; docs/daily-screen.md#fires states it.
 FIRES_LINE = "fires: {n}; sources not fully read: {m}"
+# An invalid devagent capacity declaration (#39) is not used, its pauses included; {count} is
+# "1 violation" or "N violations".
+CAPACITY_INVALID_LINE = "gantry: warning: devagent's capacity declaration is invalid ({count}); it is not used"
 
 
 def _parser():
@@ -281,6 +284,10 @@ def _build_all(config, *, marker=False):
     for name, kind in result.thieves_failed.items():
         # One site's thieves that could not be derived read "no data" on its panel; the exit code is unchanged (#29).
         print(f"gantry: warning: site {shown(name)}: {thieves.THIEVES_FAILED.format(type=kind)}", file=sys.stderr)
+    if result.plan.capacity["declaration"] == INVALID:
+        count = sum(1 for entry in result.plan.report if entry["kind"] == CAPACITY_INVALID)
+        print(CAPACITY_INVALID_LINE.format(count="1 violation" if count == 1 else f"{count} violations"),
+              file=sys.stderr)
     if result.week_error is not None:
         print(f"gantry: error: {_flagged(result.week_error, marker)}", file=sys.stderr)
     if plan_error is not None:

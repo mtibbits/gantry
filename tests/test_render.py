@@ -98,6 +98,16 @@ def test_hours_text_whole_minutes():
     assert bad == []
 
 
+def test_decimals_rounds_once_half_up():
+    # hundredths is decimals at two places; the week view writes a scaling factor at four (#39).
+    values = (135 / 60, 2.0, 7 / 60, 3.025, 0.0, 28.625, -1.005, -0.001)
+    assert [render.hundredths(x) for x in values] == [render.decimals(x, 2) for x in values] == [
+        "2.25", "2", "0.12", "3.03", "0", "28.63", "-1.01", "0"]
+    cases = [(1.5, "1.5"), (1.01875, "1.0188"), (2 / 3, "0.6667"), (0.00005, "0.0001"), (0.00004, "0"),
+             (-0.6, "-0.6"), (3.0, "3"), (10080.0, "10080")]
+    assert [render.decimals(x, 4) for x, _ in cases] == [text for _, text in cases]
+
+
 def test_unestimated_text():
     assert render.unestimated_text("3pr") == "unestimated (3 pr)"
     assert render.unestimated_text("2.50pr") == "unestimated (2.5 pr)"
@@ -112,14 +122,17 @@ def test_week_class_tables():
                                   "declared": "tag-declared", "estimated": "tag-estimated"}
     assert render.TIER_CLASSES == {"p0": "tier-p0", "started": "tier-started", "fair_share": "tier-fair"}
     assert render.REASON_CLASSES == {
+        "paused": "why-paused",
         "blocked_externally": "why-blocked", "parked": "why-parked", "waits_on_cycle": "why-cycle",
         "cross_site_cycle": "why-cross-cycle", "waits_on_site_absent": "why-site-absent",
         "waits_on_unresolved": "why-unresolved", "waits_on_unplanned": "why-waits", "beyond_horizon": "why-beyond",
     }
-    assert set(render.REASON_CLASSES) == set(planner.UNPLANNED_REASONS)
+    # One class per reason, in the planner's order (#39 put paused first).
+    assert tuple(render.REASON_CLASSES) == planner.UNPLANNED_REASONS
     assert render.tag_class("measured") == "tag-measured"
     assert render.tier_class("fair_share") == "tier-fair"
     assert render.reason_class("parked") == "why-parked"
+    assert render.reason_class("paused") == "why-paused"
     for value in ("unknown", None, ["p0"], 3):
         assert render.tag_class(value) == "tag-other"
         assert render.tier_class(value) == "tier-other"

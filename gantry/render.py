@@ -120,8 +120,9 @@ TAG_CLASSES = {"scored": "tag-scored", "measured": "tag-measured", "declared": "
 TAG_FALLBACK = "tag-other"
 TIER_CLASSES = {"p0": "tier-p0", "started": "tier-started", "fair_share": "tier-fair"}
 TIER_FALLBACK = "tier-other"
-# One per planner.UNPLANNED_REASONS (a test pins the keys); no planner import.
+# One per planner.UNPLANNED_REASONS, in its order (a test pins the keys); no planner import.
 REASON_CLASSES = {
+    "paused": "why-paused",
     "blocked_externally": "why-blocked", "parked": "why-parked", "waits_on_cycle": "why-cycle",
     "cross_site_cycle": "why-cross-cycle", "waits_on_site_absent": "why-site-absent",
     "waits_on_unresolved": "why-unresolved", "waits_on_unplanned": "why-waits", "beyond_horizon": "why-beyond",
@@ -149,13 +150,19 @@ def num(x) -> str:
     return text[:-2] if text.endswith(".0") else text
 
 
-def hundredths(x) -> str:
-    """x rounded once, half up, to two decimals from its shortest decimal form,
-    trailing zeros dropped: 2.25, 2, 3.03."""
+def decimals(x, places) -> str:
+    """x rounded once, half up, to `places` decimals (1 or more) from its
+    shortest decimal form, trailing zeros dropped: at two, 2.25, 2, 3.03."""
     exact = Fraction(repr(float(x)))
-    cents = math.floor(abs(exact) * 100 + Fraction(1, 2))
-    sign = "-" if exact < 0 and cents else ""
-    return (sign + f"{cents // 100}.{cents % 100:02d}").rstrip("0").rstrip(".")
+    scale = 10 ** places
+    units = math.floor(abs(exact) * scale + Fraction(1, 2))
+    sign = "-" if exact < 0 and units else ""
+    return (sign + f"{units // scale}.{units % scale:0{places}d}").rstrip("0").rstrip(".")
+
+
+def hundredths(x) -> str:
+    """x rounded to two decimals (decimals): 2.25, 2, 3.03."""
+    return decimals(x, 2)
 
 
 def hours_text(hours) -> str:

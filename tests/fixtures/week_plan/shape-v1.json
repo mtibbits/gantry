@@ -25,11 +25,44 @@
       "first_day": ["null", "date"],
       "text": "string"
     }},
+    "capacity": {"object": {
+      "declaration": "string",
+      "capacity_schema": ["null", "string"],
+      "attention": ["null", {"object": {
+        "rule": "string",
+        "total_hours": ["null", "number"],
+        "weekday_sum_hours": ["null", "number"],
+        "factor": ["null", "number"],
+        "weekdays_lost_to_cap": {"array": {"object": {
+          "weekday": "string",
+          "hours": "number"
+        }}}
+      }}],
+      "lanes": ["null", {"object": {
+        "max_lanes": "integer",
+        "lane_hours_per_week": ["null", "number"],
+        "working_days": "integer",
+        "lane_hours_per_day": "number",
+        "hours_lost_to_cap": "number"
+      }}],
+      "declared_ratio": ["null", {"object": {
+        "value": "number",
+        "used": "boolean",
+        "reason": ["null", "string"]
+      }}],
+      "token_budget": ["null", {"object": {
+        "tokens_per_week": "integer",
+        "binding": "string",
+        "unit": "string"
+      }}],
+      "paused": {"array": "string"}
+    }},
     "days": {"array": {"object": {
       "date": "date",
       "weekday": "string",
       "attention_hours_declared": "number",
       "attention_hours": "number",
+      "attention_hours_lost_to_cap": "number",
       "reserved": {"array": {"object": {
         "start": "string",
         "hours": "number",
@@ -105,7 +138,8 @@
       "leaves": {"array": {"object": {
         "site": "string",
         "key": "string"
-      }}}
+      }}},
+      "text": ["null", "string"]
     }}},
     "notes": {"array": {"object": {
       "kind": "string",

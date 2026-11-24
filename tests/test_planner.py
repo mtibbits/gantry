@@ -1,20 +1,25 @@
 """The week planner: gantry/planner.py (#61)."""
 
 import itertools
+import json
 import re
 import shutil
+import time
 import tomllib
 from datetime import date
 from fractions import Fraction
+from pathlib import Path
 
 import pytest
 
 from gantry import planner, schedule
 from gantry.build import build_all
+from gantry.capacity import read_declared_capacity, resolve_capacity
 from gantry.config import load_config
 from gantry.planner import NO_PLAN, plan_week
 from gantry.portfolio_file import intended_shares, read_portfolio_file
 from helpers_config import run_main, sample_build
+from test_capacity import CONFIGS, EXPECTED as EXPECTED_LINES, FIXTURES as CAPACITY
 from test_samples import ROOT
 
 FIXTURES = ROOT / "tests" / "fixtures" / "week_plan"
@@ -27,18 +32,22 @@ DELETE = object()  # plan_of: remove the file instead of writing it
 _copies = itertools.count()
 
 
-def install(tmp_path, base, wbs=None, portfolio=None, config=None):
+def install(tmp_path, base, wbs=None, portfolio=None, config=None, devagent=None):
     """A copy of fixture `base` with the named files rewritten: the copy's folder.
 
-    `wbs` maps a site to its WBS.md text; `portfolio` is the portfolio file's
-    text; `config` maps a top-level config key to its raw TOML literal (None
-    drops the key). DELETE removes a file.
+    `base` names an installation under tests/fixtures/week_plan/, or is the
+    path of one elsewhere. `wbs` maps a site to its WBS.md text; `portfolio`
+    is the portfolio file's text; `devagent` is the devagent config's text;
+    `config` maps a top-level config key to its raw TOML literal (None drops
+    the key). DELETE removes a file.
     """
-    copy = tmp_path / f"{base}-{next(_copies)}"
+    copy = tmp_path / f"{Path(base).name}-{next(_copies)}"
     shutil.copytree(FIXTURES / base, copy)
     files = {copy / site / "WBS.md": text for site, text in (wbs or {}).items()}
     if portfolio is not None:
         files[copy / "portfolio.md"] = portfolio
+    if devagent is not None:
+        files[copy / "devagent.toml"] = devagent
     for path, text in files.items():
         if text is DELETE:
             path.unlink()
@@ -70,8 +79,16 @@ def with_portfolio(result):
                                        br_namespace=result.config.requirements.br_namespace), result.config
 
 
-def plan_of(tmp_path, base, wbs=None, portfolio=None, config=None):
-    return plan_week(*built(install(tmp_path, base, wbs, portfolio, config)))
+def plan_from(copy):
+    """The week plan of an installation, with devagent's capacity declaration
+    as the copy's devagent config holds it (#39)."""
+    result, portfolio, config = built(copy)
+    return plan_week(result, portfolio, config,
+                     capacity=read_declared_capacity(result.roots, config.devagent_config))
+
+
+def plan_of(tmp_path, base, wbs=None, portfolio=None, config=None, devagent=None):
+    return plan_from(install(tmp_path, base, wbs, portfolio, config, devagent))
 
 
 WEEK = "{ mon = %s, tue = %s, wed = %s, thu = %s, fri = %s }"
@@ -191,8 +208,15 @@ NO_PLAN_CASES = [
 
 
 def test_no_plan_cases_cover_every_reason():
-    assert {key for key, _, _ in NO_PLAN_CASES} == set(NO_PLAN)
-    assert list(NO_PLAN) == ["no_portfolio", "settings_not_read", "no_attention", "no_lanes", "no_sites"]
+    # NO_PLAN_CASES holds the portfolio file's five reasons; the four a devagent capacity
+    # declaration adds (#39) are CAPACITY_NO_PLAN_CASES', on their own installation.
+    legacy = {key for key, _, _ in NO_PLAN_CASES}
+    added = {key for key, _, _, _ in CAPACITY_NO_PLAN_CASES}
+    assert legacy == {"no_portfolio", "settings_not_read", "no_attention", "no_lanes", "no_sites"}
+    assert added == {"capacity_reserved", "capacity_too_small", "invalid_no_attention", "invalid_no_lanes"}
+    assert legacy | added == set(NO_PLAN)
+    assert list(NO_PLAN) == ["no_portfolio", "settings_not_read", "capacity_reserved", "capacity_too_small",
+                             "invalid_no_attention", "invalid_no_lanes", "no_attention", "no_lanes", "no_sites"]
 
 
 @pytest.mark.parametrize(("key", "case", "changes"), NO_PLAN_CASES, ids=[f"{k}: {c}" for k, c, _ in NO_PLAN_CASES])
@@ -271,6 +295,14 @@ def test_ppm_rounds_once_and_clamps():
     assert [ppm(x) for x in (0, 4e-7, 5e-7, 0.25, 1)] == [0, 0, 1, 250_000, 1_000_000]
     assert [ppm(x) for x in (24, 25, 1e308, int("9" * 400), float("inf"))] == [cap] * 5
     assert [ppm(x) for x in (-1, float("nan"), None, True, "3")] == [0] * 5
+
+
+def test_is_rate_0_is_the_ppm_rounding():
+    # What the week view asks of a declared ratio (#39): whether the planner plans it as rate 0.
+    rates = (0, 1e-7, 4e-7, 5e-7, 1e-6, 0.25, 24, 30, -1, float("nan"), None)
+    assert [planner.is_rate_0(x) for x in rates] == [True, True, True, False, False, False, False, False,
+                                                     True, True, True]
+    assert all(planner.is_rate_0(x) is (planner._ppm(x) == 0) for x in rates)
 
 
 # --- what each leaf costs ---------------------------------------------------------------
@@ -460,9 +492,10 @@ def test_cross_site_cycle_reported_once(tmp_path):
     plan = plan_of(tmp_path, "cross_site_cycle")
     assert plan.status == "planned" and len(plan.days) == 10
     assert plan.report == [
-        {"kind": "cross_site_cycle", "leaves": [
+        {"kind": "cross_site_cycle", "text": None, "leaves": [
             {"site": "a", "key": "Issue-1"}, {"site": "a", "key": "Issue-2"}, {"site": "b", "key": "Issue-1"}]},
-        {"kind": "cross_site_cycle", "leaves": [{"site": "a", "key": "Issue-5"}, {"site": "b", "key": "Issue-7"}]},
+        {"kind": "cross_site_cycle", "text": None,
+         "leaves": [{"site": "a", "key": "Issue-5"}, {"site": "b", "key": "Issue-7"}]},
     ]
     a, b = unplanned(plan, "a"), unplanned(plan, "b")
     for site, key in (("a", "Issue-1"), ("a", "Issue-2"), ("b", "Issue-1"), ("a", "Issue-5"), ("b", "Issue-7")):
@@ -1044,12 +1077,13 @@ def test_reason_precedence(tmp_path):
 
 
 @pytest.mark.parametrize("base", FIXTURE_NAMES)
-def test_unplanned_reasons_are_the_eight(tmp_path, base):
+def test_unplanned_reasons_are_the_nine(tmp_path, base):
     plan = plan_of(tmp_path, base)
     reasons = {entry["reason"] for site in plan.sites for entry in site["unplanned"]}
-    assert reasons <= set(planner.UNPLANNED_REASONS)
+    # No fixture here declares capacity, so none has a paused site (#39).
+    assert reasons <= set(planner.UNPLANNED_REASONS) - {"paused"}
     assert planner.UNPLANNED_REASONS == (
-        "blocked_externally", "parked", "waits_on_cycle", "cross_site_cycle", "waits_on_site_absent",
+        "paused", "blocked_externally", "parked", "waits_on_cycle", "cross_site_cycle", "waits_on_site_absent",
         "waits_on_unresolved", "waits_on_unplanned", "beyond_horizon")
 
 
@@ -1951,6 +1985,1004 @@ def test_raising_a_rate_zero_leaf_does_not_reorder_its_tiers_blocks(tmp_path):
     assert found[True] <= found[False], found
 
 
+# --- the capacity argument (#39): nothing declared ---------------------------------------------
+
+DECLARES_NOTHING = resolve_capacity({})
+# The plan's `capacity` object with nothing declared, as a no_plan plan holds it.
+NO_DECLARATION = {"declaration": "not_declared", "capacity_schema": None, "attention": None, "lanes": None,
+                  "declared_ratio": None, "token_budget": None, "paused": []}
+
+
+@pytest.mark.parametrize("base", FIXTURE_NAMES)
+def test_not_declared_plan_is_unchanged(tmp_path, base):
+    copy = install(tmp_path, base)
+    args = built(copy)
+    plan = plan_week(*args)
+    assert plan.status == "planned"
+    assert not DECLARES_NOTHING.declared and not DECLARES_NOTHING.violations
+    for capacity in (None, DECLARES_NOTHING):
+        same = plan_week(*args, capacity=capacity)
+        assert same == plan and planner.plan_to_json(same) == planner.plan_to_json(plan)
+    # The capacity planned from is the portfolio file's, read here by the test itself.
+    hours, lanes, _, _ = file_capacity(copy / "portfolio.md")
+    assert plan.capacity == NO_DECLARATION | {
+        "attention": {"rule": "portfolio_file", "total_hours": None, "weekday_sum_hours": None, "factor": None,
+                      "weekdays_lost_to_cap": []},
+        "lanes": {"max_lanes": lanes, "lane_hours_per_week": None,
+                  "working_days": sum(1 for left in hours.values() if left > 0),
+                  "lane_hours_per_day": 6, "hours_lost_to_cap": 0},
+    }
+    assert [pool["capacity_source"] for pool in plan.pools] == [planner.CAPACITY_SOURCE] * 2
+    assert [day["attention_hours_lost_to_cap"] for day in plan.days] == [0] * 10
+    assert [day["lane_hours"] for day in plan.days] == [lanes * 6] * 10
+    # A cross_site_cycle entry has no line of its own.
+    assert bool(plan.report) == (base == "cross_site_cycle")
+    assert all(entry["text"] is None for entry in plan.report)
+
+
+@pytest.mark.parametrize(("key", "case", "changes"), NO_PLAN_CASES, ids=[f"{k}: {c}" for k, c, _ in NO_PLAN_CASES])
+def test_not_declared_no_plan_is_unchanged(tmp_path, key, case, changes):
+    args = built(install(tmp_path, "binds_lanes", **changes))
+    plan = plan_week(*args)
+    assert (plan.status, plan.reason) == ("no_plan", NO_PLAN[key])
+    for capacity in (None, DECLARES_NOTHING):
+        assert planner.plan_to_json(plan_week(*args, capacity=capacity)) == planner.plan_to_json(plan)
+    assert plan.capacity == NO_DECLARATION
+
+
+# --- devagent's declared capacity (#39): attention, lanes and the narrowed refusals ---------------
+
+# Three sites, a, b and c, each holding a share. Its own devagent config declares no capacity.
+CAPACITY_INSTALL = CAPACITY / "install"
+# The same installation with other leaves: leaves of a wait on leaves of c, for a paused c.
+CAPACITY_DEP = CAPACITY / "install_dep"
+ABC = "".join(f'\n[project.{name}]\ndevdoc_dir = "{name}"\n' for name in "abc")
+# The allocation of the portfolio files under capacity/, for a portfolio_md() text.
+SHARES = allocation("2026-01-05", a=50, b=30, c=20)
+SOURCES_FILE = [planner.CAPACITY_SOURCE] * 2
+SOURCES_DEVAGENT = [planner.CAPACITY_SOURCE_DEVAGENT] * 2
+MON_TO_FRI = ("mon", "tue", "wed", "thu", "fri")
+
+
+def capacity_portfolio(name):
+    """The text of a portfolio file under tests/fixtures/capacity/portfolio/."""
+    return (CAPACITY / "portfolio" / f"{name}.md").read_bytes().decode("utf-8")
+
+
+def capacity_config(name):
+    """The text of a devagent config under tests/fixtures/capacity/config/: projects a, b and c."""
+    return (CONFIGS / f"{name}.toml").read_bytes().decode("utf-8")
+
+
+def declares(total=20, lane_hours=40, max_lanes=3, tokens=(500000000, 60000000, 10), more="", tail=""):
+    """A devagent config's text for capacity/install: a valid [capacity] table
+    of raw TOML literals, then projects a, b and c. `tokens` is tokens_per_week,
+    tokens_per_window and windows_per_week; `more` goes in [capacity], `tail`
+    after the projects."""
+    week, window, windows = tokens
+    return (f"[capacity]\noperator_hours_per_week = {total}\nlane_hours_per_week = {lane_hours}\n"
+            f"max_lanes = {max_lanes}\ntokens_per_week = {week}\ntokens_per_window = {window}\n"
+            f"windows_per_week = {windows}\n" + more + ABC + tail)
+
+
+def file_plan(tmp_path, portfolio, wbs=None):
+    """The plan of capacity/install with `portfolio`, a portfolio file's text, and nothing declared."""
+    return plan_of(tmp_path, CAPACITY_INSTALL, wbs=wbs, portfolio=portfolio)
+
+
+def declared_plan(tmp_path, portfolio, wbs=None, **table):
+    """The same installation's plan with a devagent config that declares(**table)."""
+    return plan_of(tmp_path, CAPACITY_INSTALL, wbs=wbs, portfolio=portfolio, devagent=declares(**table))
+
+
+def sources(plan):
+    return [pool["capacity_source"] for pool in plan.pools]
+
+
+def day_hours(plan, n=5):
+    """(weekday, attention hours before reserved blocks, after them, lost to the day's cap) of the first `n` days."""
+    return [(day["weekday"], day["attention_hours_declared"], day["attention_hours"],
+             day["attention_hours_lost_to_cap"]) for day in plan.days[:n]]
+
+
+def weekdays_lost(plan):
+    """(weekday, hours lost to the day's cap) of each weekday in the plan's attention record, in its order."""
+    return [(entry["weekday"], entry["hours"]) for entry in plan.capacity["attention"]["weekdays_lost_to_cap"]]
+
+
+def agent_hours_by_day(plan):
+    """{(site, key): its agent hours on each day it is placed, in day order}."""
+    found = {}
+    for day in plan.days:
+        today = {}
+        for entry in [e for block in day["blocks"] for e in block["leaves"]] + day["lanes_row"]:
+            key = (entry["site"], entry["key"])
+            today[key] = today.get(key, 0) + entry["agent_hours"]
+        for key, hours in today.items():
+            found.setdefault(key, []).append(hours)
+    return found
+
+
+def shape_problems(plan):
+    """Why the plan's file is not of the pinned shape (tests/test_plan_file.py); [] when it is."""
+    from test_plan_file import document_of, shape_errors
+
+    return shape_errors(document_of(plan))
+
+
+def test_capacity_constants():
+    # The exact strings are the decision (#39).
+    assert planner.CAPACITY_SOURCE_DEVAGENT == "devagent capacity declaration (this build machine)"
+    assert planner.PLAN_REPORT_KINDS == ("capacity_invalid", "capacity_unknown_key", "cross_site_cycle")
+    assert {key: NO_PLAN[key] for key in list(NO_PLAN)[2:6]} == {
+        "capacity_reserved":
+            "devagent declares {total} h a week, but the portfolio file reserves every weekday's attention hours",
+        "capacity_too_small": "devagent declares {total} h a week, under one minute on every working day",
+        "invalid_no_attention":
+            "devagent's capacity declaration is invalid ({count}), and the portfolio file declares no attention hours",
+        "invalid_no_lanes":
+            "devagent's capacity declaration is invalid ({count}), and the portfolio file declares no agent lanes",
+    }
+    # Only those four are filled in.
+    assert [key for key, text in NO_PLAN.items() if "{" in text] == list(NO_PLAN)[2:6]
+    # The declared ratio's basis on a leaf is the pools' source, and its refusal names the most a rate may be.
+    assert planner.RATIO_BASIS == planner.CAPACITY_SOURCE_DEVAGENT
+    assert planner.RATIO_REFUSED == "devagent declares {value} operator hours per agent hour, above 24; it is not used"
+    assert planner.MAX_RATE == 24
+
+
+def test_capacity_install_states_its_premises(tmp_path):
+    copy = install(tmp_path, CAPACITY_INSTALL)
+    result, portfolio, config = built(copy)
+    assert [site.name for site in result.sites] == ["a", "b", "c"] and set(result.pages) == {"a", "b", "c"}
+    assert not read_declared_capacity(result.roots, config.devagent_config).declared
+    names = sorted(path.stem for path in (CAPACITY / "portfolio").glob("*.md"))
+    assert names == ["all_reserved", "all_zero", "no_capacity", "no_hours", "one_day", "shape_20h"]
+    for text in [(copy / "portfolio.md").read_bytes().decode("utf-8"), *map(capacity_portfolio, names),
+                 portfolio_md(tail=SHARES)]:
+        read = built(install(tmp_path, CAPACITY_INSTALL, portfolio=text))[1]
+        # Each of a, b and c holds a share, and the file is read without an entry about a value.
+        assert read.settings_read and intended_shares(read, config.as_of).shares == {"a": 50, "b": 30, "c": 20}
+        assert not [e for e in read.report if e.kind in ("bad_value", "unknown_key", "bad_allocation")], read.report
+    plan = plan_week(result, portfolio, config)
+    assert plan.status == "planned" and {entry["site"] for entry in plan.leaves} == {"a", "b", "c"}
+    assert all(share["share"] is not None for site in plan.sites for share in site["shares"])
+    # install_dep is the same installation but for its leaves.
+    other, other_portfolio, other_config = built(install(tmp_path, CAPACITY_DEP))
+    assert [site.name for site in other.sites] == ["a", "b", "c"] and set(other.pages) == {"a", "b", "c"}
+    assert not read_declared_capacity(other.roots, other_config.devagent_config).declared
+    assert (other_portfolio.capacity, other_config.as_of) == (portfolio.capacity, config.as_of)
+    assert intended_shares(other_portfolio, config.as_of).shares == {"a": 50, "b": 30, "c": 20}
+
+
+def test_weekly_total_scales_net_hours(tmp_path):
+    portfolio = capacity_portfolio("shape_20h")
+    before = file_plan(tmp_path, portfolio)
+    assert day_hours(before) == [("mon", 4, 4, 0), ("tue", 5, 5, 0), ("wed", 4, 2, 0), ("thu", 5, 5, 0),
+                                 ("fri", 4, 4, 0)]
+    plan = declared_plan(tmp_path, portfolio, total=30)
+    assert plan.status == "planned"
+    assert plan.capacity["attention"] == {"rule": "scaled", "total_hours": 30, "weekday_sum_hours": 20.0,
+                                          "factor": 1.5, "weekdays_lost_to_cap": []}
+    assert type(plan.capacity["attention"]["total_hours"]) is int  # as declared: 30 is not 30.0
+    # Each day's hours after its reserved blocks are 1.5 times the portfolio file's, and its hours
+    # before them are that plus the blocks: Wednesday's 2 h are 3 h after its 2-hour block, 5 h before.
+    assert day_hours(plan) == [("mon", 6, 6, 0), ("tue", 7.5, 7.5, 0), ("wed", 5, 3, 0), ("thu", 7.5, 7.5, 0),
+                               ("fri", 6, 6, 0)]
+    assert day_hours(plan, 10)[5:] == day_hours(plan)
+    assert [day["reserved"] for day in plan.days] == [day["reserved"] for day in before.days]
+    assert plan.days[2]["reserved"] == [{"start": "13:00", "hours": 2, "label": "Standing review"}]
+    assert sum(day["attention_hours"] for day in plan.days[:5]) == 30
+    assert (plan.capacity["declaration"], plan.capacity["capacity_schema"]) == ("used", "1.0")
+    assert sources(plan) == SOURCES_DEVAGENT and sources(before) == SOURCES_FILE
+    assert plan.report == [] and shape_problems(plan) == []
+
+
+def test_scaling_tolerance_boundary(tmp_path):
+    # shape_20h's weekdays sum to 1200 minutes. 20.01 h is 1200.6 minutes: 0.6 off, not more, so
+    # nothing is scaled. 20.02 h is 1.2 off, and is.
+    portfolio = capacity_portfolio("shape_20h")
+    unscaled = day_hours(file_plan(tmp_path, portfolio), 10)
+    for total, factor in ((20.01, 1), (19.99, 1), (20, 1), (20.02, 1.001), (19.98, 0.999)):
+        plan = declared_plan(tmp_path, portfolio, total=total)
+        assert plan.capacity["attention"] == {"rule": "scaled", "total_hours": total, "weekday_sum_hours": 20.0,
+                                              "factor": factor, "weekdays_lost_to_cap": []}, total
+        # Within the tolerance the days are the portfolio file's; 1.001 times 300 minutes is still 300.
+        assert day_hours(plan, 10) == unscaled, total
+    # The total is read in its decimal form: 18.01 h is 1080.6 minutes, 0.6 off 18 h. As a binary
+    # float 18.01 * 60 is 1080.6000000000001, over the tolerance.
+    assert 18.01 * 60 - 1080 > 0.6
+    eighteen = portfolio_md(attention=WEEK % (2, 5, 4, 5, 4), lanes=2, tail=reserved("wed", 2) + SHARES)
+    plan = declared_plan(tmp_path, eighteen, total=18.01)
+    assert plan.capacity["attention"] == {"rule": "scaled", "total_hours": 18.01, "weekday_sum_hours": 18.0,
+                                          "factor": 1, "weekdays_lost_to_cap": []}
+    assert day_hours(plan, 10) == day_hours(file_plan(tmp_path, eighteen), 10)
+    # A scaled day is rounded once, half up: 20.375 h are 1222.5 minutes, and 240 of 1200 make 244.5.
+    plan = declared_plan(tmp_path, portfolio, total=20.375)
+    assert plan.capacity["attention"]["factor"] == 1.01875
+    minutes = {"mon": (245, 245), "tue": (306, 306), "wed": (242, 122), "thu": (306, 306), "fri": (245, 245)}
+    assert day_hours(plan) == [(day, before / 60, after / 60, 0) for day, (before, after) in minutes.items()]
+
+
+def test_scaled_day_capped_and_loss_recorded(tmp_path):
+    # one_day's Monday has 10 h and a 2-hour block: 8 h after it. 30 h a week are all Monday's, and
+    # a day holds 24 h less its reserved 2.
+    plan = declared_plan(tmp_path, capacity_portfolio("one_day"), total=30)
+    # The loss is the weekday's, in the attention record, and each Monday's, on its day.
+    assert plan.capacity["attention"] == {"rule": "scaled", "total_hours": 30, "weekday_sum_hours": 8.0,
+                                          "factor": 3.75, "weekdays_lost_to_cap": [{"weekday": "mon", "hours": 8}]}
+    assert day_hours(plan, 10) == [("mon", 24, 22, 8)] * 10
+    assert plan.capacity["lanes"]["working_days"] == 1
+    assert shape_problems(plan) == []
+    # 22 h a week are what fits: nothing is lost.
+    plan = declared_plan(tmp_path, capacity_portfolio("one_day"), total=22)
+    assert day_hours(plan, 10) == [("mon", 24, 22, 0)] * 10 and weekdays_lost(plan) == []
+    # An evenly spread day is capped the same way: of a Tuesday's 6 h, 4 fit after 20 reserved hours.
+    spread = portfolio_md(attention="", lanes=2, tail=reserved("tue", 20) + SHARES)
+    plan = declared_plan(tmp_path, spread, total=30)
+    assert day_hours(plan)[:2] == [("mon", 6, 6, 0), ("tue", 24, 4, 2)] and weekdays_lost(plan) == [("tue", 2)]
+
+
+def test_loss_of_a_weekday_that_is_no_plan_day_is_recorded(tmp_path):
+    # 30 h spread evenly are 6 h a day. Tuesday is reserved for its 24 hours and keeps none of its
+    # 6, so it is no day of the plan: no day's record holds the loss, and the attention record does.
+    spread = portfolio_md(attention="", lanes=2, tail=reserved("tue", 24) + SHARES)
+    plan = declared_plan(tmp_path, spread, total=30)
+    assert plan.status == "planned" and plan.capacity["lanes"]["working_days"] == 4
+    assert day_hours(plan, 10) == [(day, 6, 6, 0) for day in ("mon", "wed", "thu", "fri")] * 2 + [
+        ("mon", 6, 6, 0), ("wed", 6, 6, 0)]
+    assert plan.capacity["attention"] == {"rule": "even_spread", "total_hours": 30, "weekday_sum_hours": None,
+                                          "factor": None, "weekdays_lost_to_cap": [{"weekday": "tue", "hours": 6}]}
+    # The week's days and the list hold the declared total between them.
+    assert sum(day["attention_hours"] for day in plan.days[:4]) + sum(hours for _, hours in weekdays_lost(plan)) == 30
+    assert shape_problems(plan) == []
+    # Monday first, whatever day the plan starts on, with the weekdays that are days of the plan
+    # and those that are not: 168 h are 33.6 h a day, 9.6 more than a day holds.
+    copy = install(tmp_path, CAPACITY_INSTALL, portfolio=spread, devagent=declares(total=168),
+                   config={"as_of": "2026-01-21"})
+    plan = plan_from(copy)
+    assert [day["weekday"] for day in plan.days[:4]] == ["wed", "thu", "fri", "mon"]
+    assert weekdays_lost(plan) == [("mon", 9.6), ("tue", 33.6), ("wed", 9.6), ("thu", 9.6), ("fri", 9.6)]
+    # Each day of a plan loses what the list says of its weekday.
+    lost = dict(weekdays_lost(plan))
+    assert [day["attention_hours_lost_to_cap"] for day in plan.days] == [lost[day["weekday"]] for day in plan.days]
+    # Nothing declared, and a declaration that fits: an empty list. A no_plan plan has no attention record.
+    assert weekdays_lost(file_plan(tmp_path, capacity_portfolio("shape_20h"))) == []
+    assert weekdays_lost(declared_plan(tmp_path, capacity_portfolio("shape_20h"), total=30)) == []
+    every = portfolio_md(attention="", lanes=2, tail="".join(reserved(day, 24) for day in MON_TO_FRI) + SHARES)
+    assert declared_plan(tmp_path, every, total=30).capacity["attention"] is None
+
+
+def test_no_weekday_hours_spreads_evenly(tmp_path):
+    portfolio = capacity_portfolio("no_hours")
+    assert file_plan(tmp_path, portfolio).reason == NO_PLAN["no_attention"]
+    plan = declared_plan(tmp_path, portfolio, total=30)
+    assert plan.status == "planned"
+    assert plan.capacity["attention"] == {"rule": "even_spread", "total_hours": 30, "weekday_sum_hours": None,
+                                          "factor": None, "weekdays_lost_to_cap": []}
+    assert day_hours(plan, 10) == [(day, 6, 6, 0) for day in MON_TO_FRI] * 2
+    assert sources(plan) == SOURCES_DEVAGENT and shape_problems(plan) == []
+    # attention_hours that was rejected is not set either. A day's hours before its reserved
+    # blocks are its share plus the blocks: Thursday's 6.1 h are 7.6 before its 1.5-hour block.
+    rejected = portfolio_md(attention="3", lanes=2, tail=reserved("thu", 1.5) + SHARES)
+    plan = declared_plan(tmp_path, rejected, total=30.5)
+    assert plan.capacity["attention"] == {"rule": "even_spread", "total_hours": 30.5, "weekday_sum_hours": None,
+                                          "factor": None, "weekdays_lost_to_cap": []}
+    assert day_hours(plan) == [(day, 7.6 if day == "thu" else 6.1, 6.1, 0) for day in MON_TO_FRI]
+
+
+def test_every_weekday_reserved_is_no_plan(tmp_path):
+    portfolio = capacity_portfolio("all_reserved")
+    assert file_plan(tmp_path, portfolio).reason == NO_PLAN["no_attention"]
+    plan = declared_plan(tmp_path, portfolio, total=30)
+    assert plan.status == "no_plan"
+    assert plan.reason == ("devagent declares 30 h a week, but the portfolio file reserves every weekday's "
+                           "attention hours")
+    assert sources(plan) == SOURCES_DEVAGENT and plan.capacity["declaration"] == "used"
+    # With no attention_hours the total is spread, and a day reserved for all its 24 hours keeps none of it.
+    full = portfolio_md(attention="", lanes=2, tail="".join(reserved(day, 24) for day in MON_TO_FRI) + SHARES)
+    plan = declared_plan(tmp_path, full, total=30)
+    assert (plan.status, plan.reason) == ("no_plan", NO_PLAN["capacity_reserved"].format(total="30"))
+    # One weekday with room is a plan.
+    some = portfolio_md(attention="", lanes=2, tail="".join(reserved(day, 24) for day in MON_TO_FRI[1:]) + SHARES)
+    plan = declared_plan(tmp_path, some, total=30)
+    assert plan.status == "planned" and day_hours(plan, 10) == [("mon", 6, 6, 0)] * 10
+
+
+def test_all_zero_table_keeps_no_attention(tmp_path):
+    # An attention_hours table that gives every weekday 0 is set: nothing is spread over it, and no
+    # reserved block took its hours. 0.004 h is under half a minute, so 0 minutes.
+    for portfolio in (capacity_portfolio("all_zero"), portfolio_md(attention="{ mon = 0.004 }", lanes=2, tail=SHARES)):
+        plan = declared_plan(tmp_path, portfolio, total=30)
+        assert (plan.status, plan.reason) == ("no_plan", NO_PLAN["no_attention"])
+        assert sources(plan) == SOURCES_DEVAGENT and plan.capacity["declaration"] == "used"
+
+
+def test_tiny_total_is_no_plan_not_a_hang(tmp_path):
+    # 0.001 h is 0.06 of a minute: no weekday keeps a minute of it, scaled or spread.
+    for name in ("shape_20h", "no_hours"):
+        plan = declared_plan(tmp_path, capacity_portfolio(name), total=0.001)
+        assert plan.status == "no_plan"
+        assert plan.reason == "devagent declares 0.001 h a week, under one minute on every working day"
+        assert "0.001" in plan.reason
+    # 0.04 h is 2.4 minutes: shape_20h's two 5-hour days round to a minute each, the others to 0.
+    plan = declared_plan(tmp_path, capacity_portfolio("shape_20h"), total=0.04)
+    assert plan.status == "planned"
+    assert day_hours(plan, 10) == [("tue", 1 / 60, 1 / 60, 0), ("thu", 1 / 60, 1 / 60, 0)] * 5
+    assert plan.capacity["lanes"]["working_days"] == 2
+
+
+def test_lanes_from_declaration(tmp_path):
+    portfolio = capacity_portfolio("shape_20h")
+    wbs = {"a": wbs_md(leaf(1, priority="P0", est="10h", h=0))}
+    # Under the portfolio file's 2 lanes of 6 agent hours the 10-hour leaf is on two days.
+    before = file_plan(tmp_path, portfolio, wbs=wbs)
+    assert before.capacity["lanes"] == {"max_lanes": 2, "lane_hours_per_week": None, "working_days": 5,
+                                        "lane_hours_per_day": 6, "hours_lost_to_cap": 0}
+    assert [day["lane_hours"] for day in before.days] == [12] * 10
+    assert agent_hours_by_day(before)["a", "Issue-1"] == [6, 4]
+    # 20 lane hours a week over 5 working days are 4 a day for each of 3 lanes.
+    plan = declared_plan(tmp_path, portfolio, wbs=wbs, max_lanes=3, lane_hours=20)
+    assert plan.capacity["lanes"] == {"max_lanes": 3, "lane_hours_per_week": 20, "working_days": 5,
+                                      "lane_hours_per_day": 4, "hours_lost_to_cap": 0}
+    assert [day["lane_hours"] for day in plan.days] == [12] * 10
+    assert agent_hours_by_day(plan)["a", "Issue-1"] == [4, 4, 2]
+    assert len(placed(plan, "a", "Issue-1")["days"]) == 3
+    # No leaf takes more than a lane's day, and some other leaf takes all of one.
+    by_leaf = agent_hours_by_day(plan)
+    assert max(hours for found in by_leaf.values() for hours in found) == 4
+    assert any(4 in found for key, found in by_leaf.items() if key != ("a", "Issue-1"))
+    assert shape_problems(plan) == []
+    # A lane's day is rounded once, half up: 20.1 h a week over 5 days are 241.2 minutes, so 241.
+    plan = declared_plan(tmp_path, portfolio, lane_hours=20.1)
+    assert plan.capacity["lanes"]["lane_hours_per_day"] == 241 / 60
+    assert plan.capacity["lanes"]["lane_hours_per_week"] == 20.1
+
+
+def test_lane_day_capped_at_24h(tmp_path):
+    plan = declared_plan(tmp_path, capacity_portfolio("one_day"), lane_hours=168, max_lanes=1)
+    assert plan.capacity["lanes"] == {"max_lanes": 1, "lane_hours_per_week": 168, "working_days": 1,
+                                      "lane_hours_per_day": 24, "hours_lost_to_cap": 144}
+    assert [day["lane_hours"] for day in plan.days] == [24] * 10
+    # Per lane per week: 168 h over 5 working days are 33.6 a day, 9.6 over the cap, 48 a week.
+    plan = declared_plan(tmp_path, capacity_portfolio("shape_20h"), lane_hours=168, max_lanes=2)
+    assert plan.capacity["lanes"] == {"max_lanes": 2, "lane_hours_per_week": 168, "working_days": 5,
+                                      "lane_hours_per_day": 24, "hours_lost_to_cap": 48}
+    assert [day["lane_hours"] for day in plan.days] == [48] * 10
+
+
+def test_valid_declaration_plans_without_portfolio_capacity(tmp_path):
+    portfolio = capacity_portfolio("no_capacity")
+    assert file_plan(tmp_path, portfolio).reason == NO_PLAN["no_attention"]
+    plan = declared_plan(tmp_path, portfolio)
+    assert plan.status == "planned" and len(plan.days) == 10
+    assert sources(plan) == SOURCES_DEVAGENT
+    assert (plan.capacity["declaration"], plan.capacity["capacity_schema"]) == ("used", "1.0")
+    assert plan.capacity["attention"] == {"rule": "even_spread", "total_hours": 20, "weekday_sum_hours": None,
+                                          "factor": None, "weekdays_lost_to_cap": []}
+    assert plan.capacity["lanes"] == {"max_lanes": 3, "lane_hours_per_week": 40, "working_days": 5,
+                                      "lane_hours_per_day": 8, "hours_lost_to_cap": 0}
+    assert day_hours(plan, 10) == [(day, 4, 4, 0) for day in MON_TO_FRI] * 2
+    assert [day["lane_hours"] for day in plan.days] == [24] * 10
+    assert {entry["site"] for entry in plan.leaves} == {"a", "b", "c"}
+    assert shape_problems(plan) == []
+
+
+NO_FILE_CASES = [
+    ("no_portfolio", "no portfolio_file", {"config": {"portfolio_file": None}}),
+    ("settings_not_read", "missing file", {"portfolio": DELETE}),
+    ("settings_not_read", "no settings block", {"portfolio": NO_SETTINGS}),
+    ("no_sites", "no site built", {"wbs": dict.fromkeys("abc", DELETE)}),
+]
+
+
+@pytest.mark.parametrize(("key", "case", "changes"), NO_FILE_CASES, ids=[f"{k}: {c}" for k, c, _ in NO_FILE_CASES])
+def test_no_portfolio_file_still_no_plan(tmp_path, key, case, changes):
+    # A used declaration stands in for the portfolio file's capacity, not for the file or the sites.
+    plan = plan_of(tmp_path, CAPACITY_INSTALL, devagent=declares(), **changes)
+    assert (plan.status, plan.reason) == ("no_plan", NO_PLAN[key])
+    assert (plan.capacity["declaration"], plan.capacity["capacity_schema"]) == ("used", "1.0")
+    assert (plan.capacity["attention"], plan.capacity["lanes"]) == (None, None)
+    assert sources(plan) == SOURCES_DEVAGENT
+    assert plan.report == [] and shape_problems(plan) == []
+
+
+# The four reasons a capacity declaration adds (#39), each on capacity/install: (key, case, what
+# fills the reason's {total} or {count}, the changes: the devagent config and the portfolio file).
+CAPACITY_NO_PLAN_CASES = [
+    ("capacity_reserved", "every weekday reserved", {"total": "30"},
+     {"devagent": declares(total=30), "portfolio": capacity_portfolio("all_reserved")}),
+    ("capacity_reserved", "a total with a fraction", {"total": "30.25"},
+     {"devagent": declares(total=30.25), "portfolio": capacity_portfolio("all_reserved")}),
+    ("capacity_too_small", "scaled", {"total": "0.001"},
+     {"devagent": declares(total=0.001), "portfolio": capacity_portfolio("shape_20h")}),
+    ("capacity_too_small", "spread evenly", {"total": "0.001"},
+     {"devagent": declares(total=0.001), "portfolio": capacity_portfolio("no_capacity")}),
+    ("invalid_no_attention", "one violation", {"count": "1 violation"},
+     {"devagent": capacity_config("rule_missing_required_key"), "portfolio": capacity_portfolio("no_capacity")}),
+    ("invalid_no_attention", "nine violations and two unknown keys", {"count": "9 violations"},
+     {"devagent": capacity_config("order"), "portfolio": capacity_portfolio("all_zero")}),
+    ("invalid_no_attention", "no [capacity] table", {"count": "1 violation"},
+     {"devagent": capacity_config("rule_capacity_table_missing"), "portfolio": capacity_portfolio("all_reserved")}),
+    ("invalid_no_attention", "before invalid_no_lanes", {"count": "1 violation"},
+     {"devagent": capacity_config("rule_missing_required_key"),
+      "portfolio": portfolio_md(hours=0, lanes=0, tail=SHARES)}),
+    ("invalid_no_lanes", "absent", {"count": "1 violation"},
+     {"devagent": capacity_config("rule_missing_required_key"), "portfolio": portfolio_md(lanes=None, tail=SHARES)}),
+    ("invalid_no_lanes", "0", {"count": "9 violations"},
+     {"devagent": capacity_config("order"), "portfolio": portfolio_md(lanes=0, tail=SHARES)}),
+]
+
+
+@pytest.mark.parametrize(("key", "case", "fill", "changes"), CAPACITY_NO_PLAN_CASES,
+                         ids=[f"{k}: {c}" for k, c, _, _ in CAPACITY_NO_PLAN_CASES])
+def test_capacity_no_plan_reasons(tmp_path, key, case, fill, changes):
+    result, portfolio, config = built(install(tmp_path, CAPACITY_INSTALL, **changes))
+    capacity = read_declared_capacity(result.roots, config.devagent_config)
+    plan = plan_week(result, portfolio, config, capacity=capacity)
+    assert plan.status == "no_plan"
+    assert plan.reason == NO_PLAN[key].format(**fill)
+    assert "{" not in plan.reason and str(tmp_path) not in plan.reason and "/" not in plan.reason
+    # A used declaration is both pools' source though nothing is planned; an invalid one is not used.
+    invalid = key.startswith("invalid_")
+    assert bool(capacity.violations) == invalid and capacity.usable != invalid
+    assert sources(plan) == (SOURCES_FILE if invalid else SOURCES_DEVAGENT)
+    assert plan.capacity["declaration"] == ("invalid" if invalid else "used")
+    assert plan.capacity["capacity_schema"] == "1.0"
+    assert (plan.capacity["attention"], plan.capacity["lanes"]) == (None, None)
+    # devagent's lines are the report: each violation, then each unknown key, in its order.
+    assert plan.report == (
+        [{"kind": "capacity_invalid", "leaves": [], "text": line} for line in capacity.violations]
+        + [{"kind": "capacity_unknown_key", "leaves": [], "text": line} for line in capacity.warnings])
+    if invalid:
+        count = len(capacity.violations)
+        assert fill["count"] == ("1 violation" if count == 1 else f"{count} violations")
+    else:
+        assert plan.report == []
+    assert (plan.horizon_days, plan.planned_week, plan.days, plan.leaves, plan.sites) == ([], [], [], [], [])
+    assert plan.binding == {"pool": None, "first_day": None, "text": planner.NO_POOL}
+    assert plan.notes == [] and plan.unestimated_planned == 0
+    assert shape_problems(plan) == []
+
+
+DECLARATION_CASES = [
+    # (the devagent config under capacity/config/, `declaration`, `capacity_schema`, the pools' sources)
+    ("not_declared", "not_declared", None, SOURCES_FILE),
+    ("capacity_only", "used", "1.0", SOURCES_DEVAGENT),
+    ("unknown_key", "used", "1.0", SOURCES_DEVAGENT),
+    ("rule_missing_required_key", "invalid", "1.0", SOURCES_FILE),
+    ("order", "invalid", "1.0", SOURCES_FILE),
+    # A project's capacity table without [capacity] declares nothing and breaks a rule: invalid.
+    ("rule_capacity_table_missing", "invalid", "1.0", SOURCES_FILE),
+]
+
+
+@pytest.mark.parametrize(("name", "declaration", "schema", "pool_sources"), DECLARATION_CASES,
+                         ids=[name for name, _, _, _ in DECLARATION_CASES])
+def test_declaration_is_classified_on_a_planned_plan(tmp_path, name, declaration, schema, pool_sources):
+    from dataclasses import replace
+
+    copy = install(tmp_path, CAPACITY_INSTALL, devagent=capacity_config(name))
+    result, portfolio, config = built(copy)
+    capacity = read_declared_capacity(result.roots, config.devagent_config)
+    plan = plan_week(result, portfolio, config, capacity=capacity)
+    assert plan.status == "planned"
+    assert (plan.capacity["declaration"], plan.capacity["capacity_schema"]) == (declaration, schema)
+    assert sources(plan) == pool_sources
+    lines = EXPECTED_LINES[name]
+    assert plan.report == (
+        [{"kind": "capacity_invalid", "leaves": [], "text": line} for line in lines["violations"]]
+        + [{"kind": "capacity_unknown_key", "leaves": [], "text": line} for line in lines["warnings"]])
+    assert bool(lines["violations"]) == (declaration == "invalid")
+    assert shape_problems(plan) == []
+    if declaration != "used":
+        # Not used, the plan is the one made with no declaration, apart from what it says of this one.
+        bare = plan_week(result, portfolio, config)
+        assert bare.capacity["declaration"] == "not_declared" and bare.report == []
+        assert plan.capacity == bare.capacity | {"declaration": declaration, "capacity_schema": schema}
+        assert replace(plan, capacity=bare.capacity, report=[]) == bare
+
+
+def test_capacity_lines_come_before_a_cross_site_cycle(tmp_path):
+    args = built(install(tmp_path, "cross_site_cycle"))
+    cycles = plan_week(*args).report
+    assert cycles and {entry["kind"] for entry in cycles} == {"cross_site_cycle"}
+    capacity = resolve_capacity(tomllib.loads(capacity_config("order")))
+    plan = plan_week(*args, capacity=capacity)
+    assert [entry["kind"] for entry in plan.report] == (
+        ["capacity_invalid"] * 9 + ["capacity_unknown_key"] * 2 + ["cross_site_cycle"] * len(cycles))
+    assert plan.report[11:] == cycles
+    assert {entry["kind"] for entry in plan.report} == set(planner.PLAN_REPORT_KINDS)
+    assert sorted(plan.report, key=lambda entry: planner.PLAN_REPORT_KINDS.index(entry["kind"])) == plan.report
+
+
+# The numbers a valid declaration may hold at their extremes (#39): (case, the portfolio file under
+# capacity/portfolio/, the [capacity] values, the plan's status).
+DECLARED_EXTREMES = [
+    ("168 h on one working day", "one_day", {"total": 168}, "planned"),
+    ("168 h spread evenly", "no_hours", {"total": 168}, "planned"),
+    ("a lane of 0.001 h a week", "shape_20h", {"lane_hours": 0.001}, "planned"),
+    ("a lane of 168 h a week", "one_day", {"lane_hours": 168}, "planned"),
+    ("2**53 - 1 lanes", "shape_20h", {"max_lanes": 2**53 - 1}, "planned"),
+    ("0.001 h a week", "shape_20h", {"total": 0.001}, "no_plan"),
+    ("the smallest float", "shape_20h", {"total": "5e-324", "lane_hours": "5e-324"}, "no_plan"),
+]
+
+
+@pytest.mark.parametrize(("case", "portfolio", "table", "status"), DECLARED_EXTREMES,
+                         ids=[case for case, _, _, _ in DECLARED_EXTREMES])
+def test_declared_extremes_still_plan(tmp_path, case, portfolio, table, status):
+    copy = install(tmp_path, CAPACITY_INSTALL, portfolio=capacity_portfolio(portfolio), devagent=declares(**table))
+    result, read, config = built(copy)
+    capacity = read_declared_capacity(result.roots, config.devagent_config)
+    # Each extreme is a valid declaration: it reaches the planner.
+    assert capacity.usable, capacity.violations
+    start = time.perf_counter()
+    plan = plan_week(result, read, config, capacity=capacity)
+    elapsed = time.perf_counter() - start
+    assert elapsed < 2, elapsed
+    assert plan.status == status and shape_problems(plan) == []
+    if status == "no_plan":
+        assert plan.reason == NO_PLAN["capacity_too_small"].format(total=repr(capacity.operator_hours_per_week))
+        return
+    assert len(plan.horizon_days) == 10
+    lanes = plan.capacity["lanes"]
+    assert 1 <= lanes["max_lanes"] <= planner.MAX_LANES
+    assert 1 / 60 <= lanes["lane_hours_per_day"] <= 24 and lanes["hours_lost_to_cap"] >= 0
+    for day in plan.days:
+        assert 0 < day["attention_hours"] <= day["attention_hours_declared"] <= 24
+        assert day["attention_hours_lost_to_cap"] == dict(weekdays_lost(plan)).get(day["weekday"], 0) >= 0
+        assert day["lane_hours"] == lanes["max_lanes"] * lanes["lane_hours_per_day"]
+    assert all(max(found) <= lanes["lane_hours_per_day"] + EPS for found in agent_hours_by_day(plan).values())
+
+
+def test_declared_extremes_are_exact(tmp_path):
+    def plan(portfolio, **table):
+        return declared_plan(tmp_path, capacity_portfolio(portfolio), **table)
+
+    # 168 h on one_day's Monday: 22 fit after its 2 reserved hours, 146 do not.
+    assert day_hours(plan("one_day", total=168), 10) == [("mon", 24, 22, 146)] * 10
+    assert weekdays_lost(plan("one_day", total=168)) == [("mon", 146)]
+    # 168 h spread evenly are 33.6 a day: 24 fit.
+    assert day_hours(plan("no_hours", total=168)) == [(day, 24, 24, 9.6) for day in MON_TO_FRI]
+    assert weekdays_lost(plan("no_hours", total=168)) == [(day, 9.6) for day in MON_TO_FRI]
+    # A lane is never under a minute a day, and a lane count above the planner's cap plans as the cap.
+    assert plan("shape_20h", lane_hours=0.001).capacity["lanes"] == {
+        "max_lanes": 3, "lane_hours_per_week": 0.001, "working_days": 5, "lane_hours_per_day": 1 / 60,
+        "hours_lost_to_cap": 0}
+    lanes = plan("shape_20h", max_lanes=2**53 - 1).capacity["lanes"]
+    assert (lanes["max_lanes"], planner.MAX_LANES) == (1_000_000, 1_000_000)
+
+
+# --- devagent's declared capacity (#39): the ratio, paused sites, the token budget, an invalid one -
+
+# For declares(): the optional ratio as a [capacity] line, and a table that pauses c.
+RATIO = "operator_hours_per_agent_hour = %s\n"
+PAUSED_C = "\n[project.c.capacity]\npaused = true\n"
+TOKEN_UNIT = "weighted_input_token_equivalents"
+MISSING_TOTAL = "capacity: capacity.operator_hours_per_week: missing required key"
+THREE_VIOLATIONS = [MISSING_TOTAL, "capacity: capacity.lane_hours_per_week: out of range: 0 < x <= 168",
+                    "capacity: capacity.max_lanes: wrong type: expected integer"]
+
+
+def invalid(lane_hours=40, max_lanes=3):
+    """A devagent config's text for capacity/install that breaks a rule, having
+    no operator_hours_per_week, and still sets what a used declaration is read
+    for: a ratio of 0.25, the token keys and a paused c. `lane_hours=0` and
+    `max_lanes=2.5` break one more rule each."""
+    text = declares(lane_hours=lane_hours, max_lanes=max_lanes, more=RATIO % 0.25, tail=PAUSED_C)
+    return text.replace("operator_hours_per_week = 20\n", "")
+
+
+def capacity_plan(tmp_path, devagent, base=CAPACITY_INSTALL, **changes):
+    """The plan of capacity/install, or of `base`, with `devagent` as its devagent config's text."""
+    return plan_of(tmp_path, base, devagent=devagent, **changes)
+
+
+def unscored_leaves(copy):
+    """{(site, key)} of an installation's open leaves with no usable h:, from the built inputs."""
+    from gantry.attention import read_h
+
+    result, _, _ = built(copy)
+    return {(name, found.key) for name in planner._built_sites(result)
+            for found in result.inputs[name].data.leaves if found.open and read_h(found) is None}
+
+
+def placements(plan, *names):
+    """The named sites' placements, day by day: (date, site, key, agent hours)
+    of each block entry in block order, then of each lanes-row entry."""
+    return [(day["date"], entry["site"], entry["key"], entry["agent_hours"])
+            for day in plan.days
+            for entry in [e for block in day["blocks"] for e in block["leaves"]] + day["lanes_row"]
+            if entry["site"] in names]
+
+
+def in_blocks(plan):
+    """{(site, key)} of the leaves some block of the plan holds."""
+    return {(entry["site"], entry["key"]) for day in plan.days for block in day["blocks"]
+            for entry in block["leaves"]}
+
+
+def in_rows(plan):
+    """{(site, key)} of the leaves some day's lanes row holds."""
+    return {(entry["site"], entry["key"]) for day in plan.days for entry in day["lanes_row"]}
+
+
+def operator_hours(plan, site, key):
+    """The operator hours the plan's blocks give a leaf."""
+    return sum(entry["operator_hours"] for day in plan.days for block in day["blocks"]
+               for entry in block["leaves"] if (entry["site"], entry["key"]) == (site, key))
+
+
+def cycles_of(plan):
+    """The leaves of each cross_site_cycle entry of the plan's report, in report order."""
+    return [[(found["site"], found["key"]) for found in entry["leaves"]]
+            for entry in plan.report if entry["kind"] == "cross_site_cycle"]
+
+
+def test_declared_ratio_tags_unscored_leaves(tmp_path):
+    copy = install(tmp_path, CAPACITY_INSTALL, devagent=capacity_config("ratio"))
+    unscored = unscored_leaves(copy)
+    assert unscored == {("a", "Issue-2"), ("c", "Issue-2")}
+    plan = plan_from(copy)
+    assert plan.capacity["declared_ratio"] == {"value": 0.25, "used": True, "reason": None}
+    basis = "declared: site ratio 0.25; devagent capacity declaration (this build machine)"
+    assert basis == "declared: site ratio 0.25; " + planner.RATIO_BASIS
+    assert unscored < {(entry["site"], entry["key"]) for entry in plan.leaves}
+    for entry in plan.leaves:
+        if (entry["site"], entry["key"]) in unscored:
+            assert (entry["tag"], entry["rate"], entry["need"], entry["basis"]) == ("declared", 0.25, None, basis)
+        else:
+            # A leaf with h: stays scored: its score wins over the site ratio.
+            assert entry["tag"] == "scored" and entry["basis"].startswith("scored: h: "), entry
+    # The source is the site's, whatever its leaves' h: says: b has no unscored leaf.
+    assert {site["name"]: site["ratio_source"] for site in plan.sites} == dict.fromkeys("abc", "declared")
+    # The rate is planned with: a's 8 agent hours and c's 4 take a quarter as many operator hours.
+    assert [placed(plan, *found)["hours_after_horizon"] for found in sorted(unscored)] == [0, 0]
+    assert (operator_hours(plan, "a", "Issue-2"), operator_hours(plan, "c", "Issue-2")) == (2, 1)
+    assert shape_problems(plan) == []
+    # Premise: the same declaration without the ratio estimates those leaves, at the heuristic's rate.
+    bare = capacity_plan(tmp_path, declares())
+    assert bare.capacity["declared_ratio"] is None
+    assert {(placed(bare, *found)["tag"], placed(bare, *found)["rate"]) for found in unscored} == {("estimated", 0.1)}
+    assert {site["ratio_source"] for site in bare.sites} == {"estimated"}
+
+
+def test_declared_ratio_zero_runs_in_lanes(tmp_path):
+    copy = install(tmp_path, CAPACITY_INSTALL, devagent=capacity_config("ratio_zero"))
+    unscored = unscored_leaves(copy)
+    assert unscored  # an unscored leaf exists
+    plan = plan_from(copy)
+    assert plan.capacity["declared_ratio"] == {"value": 0, "used": True, "reason": None}
+    for found in unscored:
+        entry = placed(plan, *found)
+        assert (entry["tag"], entry["rate"], entry["need"]) == ("declared", 0, None)
+        assert entry["basis"] == "declared: site ratio 0; " + planner.RATIO_BASIS
+    assert unscored <= in_rows(plan) and not unscored & in_blocks(plan)
+    assert {site["ratio_source"] for site in plan.sites} == {"declared"}
+    assert shape_problems(plan) == []
+    # Premise: estimated, each of those leaves needs the operator and is in a block.
+    bare = capacity_plan(tmp_path, declares())
+    assert unscored <= in_blocks(bare) and not unscored & in_rows(bare)
+
+
+def test_tiny_declared_ratio_runs_in_lanes(tmp_path):
+    # A rate is planned in whole parts per million: 1e-7 is rate 0, so its leaves need no block.
+    assert (planner._ppm(1e-7), planner._ppm(1e-6)) == (0, 1)
+    copy = install(tmp_path, CAPACITY_INSTALL, devagent=declares(more=RATIO % "1e-7"))
+    unscored = unscored_leaves(copy)
+    assert unscored
+    plan = plan_from(copy)
+    # The ratio is recorded as declared and is used; the rate planned is the leaf's.
+    assert plan.capacity["declared_ratio"] == {"value": 1e-7, "used": True, "reason": None}
+    for found in unscored:
+        entry = placed(plan, *found)
+        assert (entry["tag"], entry["rate"]) == ("declared", 0)
+        assert entry["basis"] == "declared: site ratio 1e-07; " + planner.RATIO_BASIS
+    assert unscored <= in_rows(plan) and not unscored & in_blocks(plan)
+    assert shape_problems(plan) == []
+    # One part per million is a rate above 0: those leaves are in blocks.
+    plan = capacity_plan(tmp_path, declares(more=RATIO % "1e-6"))
+    assert {placed(plan, *found)["rate"] for found in unscored} == {1e-6}
+    assert unscored <= in_blocks(plan) and not unscored & in_rows(plan)
+
+
+def test_ratio_above_max_is_not_passed(tmp_path):
+    from dataclasses import replace
+
+    copy = install(tmp_path, CAPACITY_INSTALL, devagent=capacity_config("ratio_above_max"))
+    unscored = unscored_leaves(copy)
+    plan = plan_from(copy)
+    # 30 is valid for devagent, so the declaration is used; only its ratio is refused.
+    assert (plan.capacity["declaration"], sources(plan), plan.report) == ("used", SOURCES_DEVAGENT, [])
+    refused = {"value": 30, "used": False,
+               "reason": "devagent declares 30 operator hours per agent hour, above 24; it is not used"}
+    assert plan.capacity["declared_ratio"] == refused
+    assert {placed(plan, *found)["tag"] for found in unscored} == {"estimated"}
+    assert {site["ratio_source"] for site in plan.sites} == {"estimated"}
+    # The plan is the one of the same declaration without the ratio.
+    bare = capacity_plan(tmp_path, declares())
+    assert plan.capacity == bare.capacity | {"declared_ratio": refused}
+    assert replace(plan, capacity=bare.capacity) == bare
+    assert shape_problems(plan) == []
+
+    def ratio_of(value):
+        plan = capacity_plan(tmp_path, declares(more=RATIO % value))
+        assert plan.status == "planned" and shape_problems(plan) == []
+        return plan.capacity["declared_ratio"], {site["ratio_source"] for site in plan.sites}
+
+    # 24 is the most a rate may be, and is used. Anything above is refused, written as declared.
+    assert ratio_of(24) == ({"value": 24, "used": True, "reason": None}, {"declared"})
+    assert ratio_of(24.5) == ({
+        "value": 24.5, "used": False,
+        "reason": "devagent declares 24.5 operator hours per agent hour, above 24; it is not used"}, {"estimated"})
+    # The most devagent allows.
+    assert ratio_of(2**53 - 1) == ({
+        "value": 9007199254740991, "used": False,
+        "reason": "devagent declares 9007199254740991 operator hours per agent hour, above 24; it is not used"},
+        {"estimated"})
+
+
+def test_paused_site_gets_nothing(tmp_path):
+    copy = install(tmp_path, CAPACITY_DEP, devagent=declares(tail=PAUSED_C))
+    plan = plan_from(copy)
+    assert plan.status == "planned" and plan.capacity["paused"] == ["c"]
+    # c stays a site of the plan, with its share: each of its open leaves is unplanned, for the one reason.
+    assert [site["name"] for site in plan.sites] == ["a", "b", "c"]
+    assert unplanned(plan, "c") == {
+        "Issue-1": ("paused", "pending"), "Issue-2": ("paused", "blocked_external"), "Issue-3": ("paused", "parked"),
+        "Issue-4": ("paused", "pending"), "Issue-5": ("paused", "pending"), "Issue-6": ("paused", "pending"),
+        "Issue-7": ("paused", "pending")}
+    assert set(unplanned(plan, "c")) == open_keys(copy, "c")
+    # No block and no lanes-row entry names c, and nothing is charged to it or accrues to it.
+    assert placed_keys(plan, "c") == [] and placements(plan, "c") == []
+    assert all(block["site"] != "c" for day in plan.days for block in day["blocks"])
+    c = site_record(plan, "c")
+    assert [c[field] for field in ("attention_hours_charged", "lane_hours_charged", "attention_hours_target",
+                                   "lane_hours_target", "unestimated_planned")] == [0] * 5
+    assert [share["share"] for share in c["shares"]] == [20] * 10 and c["shareless_days"] == []
+    # The other sites are planned, and every open leaf is still placed or unplanned once.
+    assert placements(plan, "a") and placements(plan, "b")
+    for name in "abc":
+        on_days, listed = placed_keys(plan, name), unplanned(plan, name)
+        assert not set(on_days) & set(listed) and set(on_days) | set(listed) == open_keys(copy, name)
+    assert shape_problems(plan) == []
+    # Premise: not paused, c's P0 leaf is placed on day 1 and its other leaves have the reasons paused replaces.
+    active = capacity_plan(tmp_path, declares(), CAPACITY_DEP)
+    assert active.capacity["paused"] == []
+    first = placed(active, "c", "Issue-1")
+    assert (first["tier"], first["days"][0], active.horizon_days[0]) == ("p0", "2026-01-19", "2026-01-19")
+    assert placed_keys(active, "c") == ["Issue-1", "Issue-7"]
+    assert reasons_of(active, "c") == {
+        "Issue-2": "blocked_externally", "Issue-3": "parked", "Issue-4": "waits_on_cycle",
+        "Issue-5": "waits_on_cycle", "Issue-6": "cross_site_cycle"}
+
+
+def test_paused_lists_only_built_sites(tmp_path):
+    from dataclasses import replace
+
+    # zz is a project with no site, and c's page is then not written: neither is a built site.
+    copy = install(tmp_path, CAPACITY_INSTALL,
+                   devagent=declares(tail=PAUSED_C + "\n[project.zz.capacity]\npaused = true\n"))
+    result, portfolio, config = built(copy)
+    capacity = read_declared_capacity(result.roots, config.devagent_config)
+    assert capacity.usable and capacity.paused == ("c", "zz")
+    plan = plan_week(result, portfolio, config, capacity=capacity)
+    assert plan.capacity["paused"] == ["c"] and [site["name"] for site in plan.sites] == ["a", "b", "c"]
+    result = replace(result, pages={name: page for name, page in result.pages.items() if name != "c"})
+    plan = plan_week(result, portfolio, config, capacity=capacity)
+    assert plan.capacity["paused"] == [] and [site["name"] for site in plan.sites] == ["a", "b"]
+
+
+def test_paused_share_goes_to_other_share_sites(tmp_path):
+    paused = capacity_plan(tmp_path, capacity_config("paused"))
+    assert paused.capacity["paused"] == ["c"] and placements(paused, "c") == []
+    # The same capacity with nothing paused and c's leaves done: c holds its share and has nothing to plan.
+    c_done = (CAPACITY_INSTALL / "c" / "WBS.md").read_bytes().decode("utf-8").replace("  - [ ]", "  - [x]")
+    assert c_done.count("[x]") == 2
+    done = capacity_plan(tmp_path, declares(), wbs={"c": c_done})
+    assert done.capacity["paused"] == [] and site_record(done, "c")["unplanned"] == []
+    assert paused.capacity == done.capacity | {"paused": ["c"]}
+    # a's and b's placements are the same, and so is all else but c's unplanned list.
+    assert placements(paused, "a", "b") == placements(done, "a", "b")
+    assert (paused.days, paused.leaves) == (done.days, done.leaves)
+    assert [site_record(paused, name) for name in "ab"] == [site_record(done, name) for name in "ab"]
+    assert site_record(paused, "c") | {"unplanned": []} == site_record(done, "c")
+    assert set(reasons_of(paused, "c").values()) == {"paused"}
+    # Premise: with c active its leaves take capacity, and a's and b's placements differ.
+    active = capacity_plan(tmp_path, declares())
+    assert placements(active, "c") and placements(active, "a", "b") != placements(paused, "a", "b")
+
+
+def test_dependent_of_paused_leaf_waits_on_unplanned(tmp_path):
+    plan = capacity_plan(tmp_path, declares(tail=PAUSED_C), CAPACITY_DEP)
+    reasons = reasons_of(plan, "a")
+    # a's Issue-1 waits on c's Issue-1, and a's Issue-3 on a's Issue-1.
+    assert reasons_of(plan, "c")["Issue-1"] == "paused"
+    assert reasons["Issue-1"] == reasons["Issue-3"] == "waits_on_unplanned"
+    assert placed_keys(plan, "a") == ["Issue-2"]
+    # Premise: not paused, it is first placed the working day after c's leaf finishes.
+    active = capacity_plan(tmp_path, declares(), CAPACITY_DEP)
+    assert placed(active, "c", "Issue-1")["days"] == ["2026-01-19"]
+    assert placed(active, "a", "Issue-1")["days"][0] == "2026-01-20"
+    assert placed(active, "a", "Issue-3")["days"]
+
+
+def test_paused_leaf_breaks_no_cycle(tmp_path):
+    # Not paused: a's Issue-4 and c's Issue-6 wait on each other, and so do a's Issue-5 and b's Issue-3.
+    active = capacity_plan(tmp_path, declares(), CAPACITY_DEP)
+    assert cycles_of(active) == [[("a", "Issue-4"), ("c", "Issue-6")], [("a", "Issue-5"), ("b", "Issue-3")]]
+    assert reasons_of(active, "a")["Issue-4"] == reasons_of(active, "c")["Issue-6"] == "cross_site_cycle"
+    plan = capacity_plan(tmp_path, declares(tail=PAUSED_C), CAPACITY_DEP)
+    # A paused leaf is in no cycle across sites: no entry names one, and the leaf of a waits on an unplanned leaf.
+    assert cycles_of(plan) == [[("a", "Issue-5"), ("b", "Issue-3")]]
+    assert plan.report == active.report[1:]
+    assert reasons_of(plan, "c")["Issue-6"] == "paused"
+    assert reasons_of(plan, "a")["Issue-4"] == "waits_on_unplanned"
+    # The cycle that holds no paused leaf stands.
+    assert reasons_of(plan, "a")["Issue-5"] == reasons_of(plan, "b")["Issue-3"] == "cross_site_cycle"
+
+
+def test_per_project_priority_caps_reserves_change_nothing(tmp_path):
+    copy = install(tmp_path, CAPACITY_INSTALL, devagent=capacity_config("per_project_keys"))
+    result, portfolio, config = built(copy)
+    capacity = read_declared_capacity(result.roots, config.devagent_config)
+    # The keys are read: a priority, a lane cap, two reserves and a deadline on a and on b.
+    assert [(p.name, p.priority, p.max_lanes, p.reserve_operator_hours_per_week, p.reserve_tokens_per_week,
+             p.deadline) for p in capacity.projects] == [
+        ("a", 1, 2, 6, 200000000, "2026-12-31"), ("b", 9, 1, 2.5, 100000000, "2027-03-01"),
+        ("c", 5, None, None, None, None)]
+    plan = plan_week(result, portfolio, config, capacity=capacity)
+    # The same [capacity] table with no project table: no key of a project's moves a placement.
+    without = capacity_plan(tmp_path, declares())
+    assert plan.status == "planned"
+    assert (plan.days, plan.leaves, plan.sites) == (without.days, without.leaves, without.sites)
+    # Nor does the plan say anything of them.
+    assert plan == without
+
+
+def test_invalid_declaration_uses_portfolio_capacity(tmp_path):
+    from dataclasses import replace
+
+    # The same keys in a valid declaration change the plan: the ratio is used and c is paused.
+    used = capacity_plan(tmp_path, declares(more=RATIO % 0.25, tail=PAUSED_C))
+    assert used.capacity["declared_ratio"]["used"] and used.capacity["paused"] == ["c"]
+    copy = install(tmp_path, CAPACITY_INSTALL, devagent=invalid(lane_hours=0, max_lanes=2.5))
+    result, portfolio, config = built(copy)
+    capacity = read_declared_capacity(result.roots, config.devagent_config)
+    assert list(capacity.violations) == THREE_VIOLATIONS and not capacity.warnings
+    plan = plan_week(result, portfolio, config, capacity=capacity)
+    bare = plan_week(result, portfolio, config)
+    # The days are the ones planned with no declaration, from the portfolio file's capacity.
+    assert plan.status == "planned" and plan.days == bare.days
+    assert (plan.leaves, plan.sites) == (bare.leaves, bare.sites)
+    assert sources(plan) == SOURCES_FILE == sources(bare)
+    # One entry per violation, its text the line, in devagent's order.
+    assert plan.report == [{"kind": "capacity_invalid", "leaves": [], "text": line} for line in THREE_VIOLATIONS]
+    assert plan.capacity == bare.capacity | {"declaration": "invalid", "capacity_schema": "1.0"}
+    # Its ratio, its token keys and its paused project are not read.
+    assert (plan.capacity["declared_ratio"], plan.capacity["token_budget"], plan.capacity["paused"]) == (
+        None, None, [])
+    assert placed_keys(plan, "c") and {site["ratio_source"] for site in plan.sites} == {"estimated"}
+    assert {entry["tag"] for entry in plan.leaves} == {"scored", "estimated"}
+    assert shape_problems(plan) == []
+    # Whatever a declaration with a violation holds, none of it is read: capacity/config/full.toml's
+    # valid one (a ratio, a token budget, b paused) with a violation added by hand.
+    full = resolve_capacity(tomllib.loads(capacity_config("full")))
+    assert full.usable and full.operator_hours_per_agent_hour == 0.25 and full.paused == ("b",)
+    assert full.token_budget == 246000000
+    broken = replace(full, violations=(MISSING_TOTAL,))
+    plan = plan_week(result, portfolio, config, capacity=broken)
+    assert plan.report == [{"kind": "capacity_invalid", "leaves": [], "text": MISSING_TOTAL}]
+    assert plan.capacity == bare.capacity | {"declaration": "invalid", "capacity_schema": "1.0"}
+    assert replace(plan, capacity=bare.capacity, report=[]) == bare
+
+
+def test_invalid_declaration_names_itself_in_no_plan(tmp_path):
+    def no_plan(devagent, portfolio):
+        plan = capacity_plan(tmp_path, devagent, portfolio=portfolio)
+        assert plan.status == "no_plan" and sources(plan) == SOURCES_FILE
+        # Of an invalid declaration the plan holds its lines, and nothing it declares.
+        assert plan.capacity == NO_DECLARATION | {"declaration": "invalid", "capacity_schema": "1.0"}
+        assert all(entry["leaves"] == [] for entry in plan.report)
+        assert shape_problems(plan) == []
+        return plan
+
+    def lines(plan, kind):
+        return [entry["text"] for entry in plan.report if entry["kind"] == kind]
+
+    # No attention hours in the portfolio file: the reason counts the violations.
+    plan = no_plan(invalid(lane_hours=0, max_lanes=2.5), capacity_portfolio("no_capacity"))
+    assert plan.reason == ("devagent's capacity declaration is invalid (3 violations), and the portfolio file "
+                           "declares no attention hours")
+    assert [entry["kind"] for entry in plan.report] == ["capacity_invalid"] * 3
+    assert lines(plan, "capacity_invalid") == THREE_VIOLATIONS
+    plan = no_plan(invalid(), capacity_portfolio("no_capacity"))
+    assert plan.reason == ("devagent's capacity declaration is invalid (1 violation), and the portfolio file "
+                           "declares no attention hours")
+    assert plan.report == [{"kind": "capacity_invalid", "leaves": [], "text": MISSING_TOTAL}]
+    # Attention hours and no lanes.
+    plan = no_plan(invalid(), portfolio_md(lanes=None, tail=SHARES))
+    assert plan.reason == ("devagent's capacity declaration is invalid (1 violation), and the portfolio file "
+                           "declares no agent lanes")
+    assert plan.report == [{"kind": "capacity_invalid", "leaves": [], "text": MISSING_TOTAL}]
+    # Nine violations and two unknown keys: the report holds every line, in devagent's order.
+    plan = no_plan(capacity_config("order"), capacity_portfolio("no_capacity"))
+    assert plan.reason == ("devagent's capacity declaration is invalid (9 violations), and the portfolio file "
+                           "declares no attention hours")
+    assert [entry["kind"] for entry in plan.report] == ["capacity_invalid"] * 9 + ["capacity_unknown_key"] * 2
+    expected = EXPECTED_LINES["order"]
+    assert lines(plan, "capacity_invalid") == expected["violations"]
+    assert lines(plan, "capacity_unknown_key") == expected["warnings"]
+
+
+def test_unknown_key_is_reported_and_the_rest_used(tmp_path):
+    from dataclasses import replace
+
+    def warnings(plan):
+        assert all(entry == {"kind": "capacity_unknown_key", "leaves": [], "text": entry["text"]}
+                   for entry in plan.report)
+        return [entry["text"] for entry in plan.report]
+
+    plan = capacity_plan(tmp_path, capacity_config("unknown_key"))
+    assert warnings(plan) == EXPECTED_LINES["unknown_key"]["warnings"] and len(plan.report) == 2
+    assert (plan.capacity["declaration"], sources(plan)) == ("used", SOURCES_DEVAGENT)
+    # The rest is used: the plan is the one of the same [capacity] table without the two keys.
+    assert replace(plan, report=[]) == capacity_plan(tmp_path, declares())
+    # So are a ratio, the token keys and a paused project that stand beside an unknown key.
+    plan = capacity_plan(tmp_path, declares(more=RATIO % 0.25 + "max_lane = 3\n", tail=PAUSED_C + "priorty = 2\n"))
+    assert warnings(plan) == ["capacity: warning: capacity.max_lane: unknown key (ignored)",
+                              "capacity: warning: project.c.capacity.priorty: unknown key (ignored)"]
+    assert plan.capacity["declared_ratio"] == {"value": 0.25, "used": True, "reason": None}
+    assert plan.capacity["paused"] == ["c"] and plan.capacity["token_budget"]["tokens_per_week"] == 500000000
+    assert replace(plan, report=[]) == capacity_plan(tmp_path, declares(more=RATIO % 0.25, tail=PAUSED_C))
+
+
+def test_token_budget_recorded(tmp_path):
+    def budget(devagent, status="planned", **changes):
+        plan = capacity_plan(tmp_path, devagent, **changes)
+        assert plan.status == status and shape_problems(plan) == []
+        return plan.capacity["token_budget"]
+
+    # 60000000 tokens a window over 4.1 windows, under tokens_per_week: the window product binds.
+    assert budget(capacity_config("full")) == {
+        "tokens_per_week": 246000000, "binding": "tokens_per_window_x_windows_per_week", "unit": TOKEN_UNIT}
+    assert budget(declares()) == {"tokens_per_week": 500000000, "binding": "tokens_per_week", "unit": TOKEN_UNIT}
+    # A tie binds on tokens_per_week.
+    assert budget(capacity_config("binding_tie")) == {
+        "tokens_per_week": 600000000, "binding": "tokens_per_week", "unit": TOKEN_UNIT}
+    # 1 token a window over 0.1 windows rounds to 0, a budget like any other: recorded, not null.
+    nothing = (500000000, 1, 0.1)
+    assert budget(declares(tokens=nothing)) == {
+        "tokens_per_week": 0, "binding": "tokens_per_window_x_windows_per_week", "unit": TOKEN_UNIT}
+    # Nothing declared, or a declaration that breaks a rule: no budget.
+    assert budget(capacity_config("not_declared")) is None and budget(invalid()) is None
+    # Shown, not scheduled: with no token to spend the days, leaves and sites are the same.
+    plans = [capacity_plan(tmp_path, declares(tokens=tokens)) for tokens in ((500000000, 60000000, 10), nothing)]
+    assert plans[0].capacity["token_budget"] != plans[1].capacity["token_budget"]
+    assert (plans[0].days, plans[0].leaves, plans[0].sites) == (plans[1].days, plans[1].leaves, plans[1].sites)
+    assert plans[0].capacity == plans[1].capacity | {"token_budget": plans[0].capacity["token_budget"]}
+
+
+def test_no_plan_records_what_a_used_declaration_holds(tmp_path):
+    # Under a minute a day, so nothing is planned: the ratio, the budget and the paused site are still the plan's.
+    devagent = declares(total=0.001, more=RATIO % 30, tail=PAUSED_C)
+    plan = capacity_plan(tmp_path, devagent)
+    assert (plan.status, plan.reason) == ("no_plan", NO_PLAN["capacity_too_small"].format(total="0.001"))
+    assert plan.capacity == {
+        "declaration": "used", "capacity_schema": "1.0", "attention": None, "lanes": None,
+        "declared_ratio": {
+            "value": 30, "used": False,
+            "reason": "devagent declares 30 operator hours per agent hour, above 24; it is not used"},
+        "token_budget": {"tokens_per_week": 500000000, "binding": "tokens_per_week", "unit": TOKEN_UNIT},
+        "paused": ["c"]}
+    assert shape_problems(plan) == []
+    # `paused` names built sites, and with no site built there is none.
+    plan = capacity_plan(tmp_path, devagent, wbs=dict.fromkeys("abc", DELETE))
+    assert plan.status == "no_plan" and plan.capacity["paused"] == []
+    assert plan.capacity["token_budget"]["tokens_per_week"] == 500000000
+
+
 # --- through the build ------------------------------------------------------------------------
 
 
@@ -1991,7 +3023,8 @@ def test_week_plan_doc_states_planner():
     doc = " ".join(text.split())
     wanted = [
         "## The planner", "## The plan file", planner.ALLOCATION_RULE, planner.POOL_ATTENTION, planner.POOL_LANES,
-        planner.NO_POOL, *NO_PLAN.values(), *(f"`{reason}`" for reason in planner.UNPLANNED_REASONS),
+        planner.NO_POOL, *(text.format(total="T", count="N violations") for text in NO_PLAN.values()),
+        *(f"`{reason}`" for reason in planner.UNPLANNED_REASONS),
         "hours_after_horizon", planner.PLAN_FILE, "plan_version", "shape-v1.json", planner.CAPACITY_SOURCE,
         "never belongs in a repository", "deliberate reading", "start cost plus one agent minute",
         "`WBS.md` states only", "int(hours * 60 + 0.5)", "parts per million", "no build time",
@@ -2007,10 +3040,11 @@ def test_week_plan_doc_states_planner():
     # The interim rule is gone. Split, so this test is not itself a hit of the sweep's grep.
     absent = ["Until " + "#37", "most urgent site " + "first", "at most one block a day", "planned like any other"]
     assert [a for a in absent if a in doc] == []
-    assert len(planner.UNPLANNED_REASONS) == 8 and len(NO_PLAN) == 5
+    assert len(planner.UNPLANNED_REASONS) == 9 and len(NO_PLAN) == 9
     # The planner's rules are in its section, the file's in its own.
     the_planner = " ".join(doc_section(text, "## The planner").split())
-    for topic in ("### Days and capacity", "### What each leaf costs", "### Blocks", "### A ready leaf that fits",
+    for topic in ("### Days and capacity", "### Declared capacity from devagent", "### What each leaf costs",
+                  "### Blocks", "### A ready leaf that fits",
                   "### Order within a site", "### Priority tiers", "### Merged blocks", "### How long a block runs",
                   "### Fair share between sites", "### The lanes row", "### Share-less sites",
                   "### Started in this plan", "### States",
