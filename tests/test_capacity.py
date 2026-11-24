@@ -791,9 +791,8 @@ def test_capacity_only_line_is_devagents_alone(tmp_path):
 FORMATS_DOC = ROOT / "docs" / "devagent-formats.md"
 CAPACITY_HEADING = "## The capacity declaration"
 KEY_TABLE_HEADER = ["Key", "Type", "Range", "Default", "What Gantry does with it"]
-# A devagent source line cite, `scripts/<file>:N`. The page's cites are lines of the floor
-# pin's release, which has no capacity reader, so this section names files, keys and rule
-# strings only (tests/test_devagent_contract.py holds every cite to the floor's CITES).
+# A devagent source line cite, `scripts/<file>:N`. This section cites no source line, only
+# files, keys and rule strings: the agreement tests below hold the port to devagent's reader.
 LINE_CITE = re.compile(r"(?:scripts|templates)/[\w./-]+:[0-9]")
 
 

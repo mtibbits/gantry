@@ -1134,7 +1134,7 @@ def test_warned_key_re_matches_the_pinned_parser_texts():
                        ("PRIORITY_WARNING", "NAMESPACED_WARNING", "H_WARNING"))
     assert sorted(texts) == ["H_WARNING", "NAMESPACED_WARNING", "PRIORITY_WARNING"]
     cases = (
-        (texts["PRIORITY_WARNING"].format("P0"), "priority"),
+        (texts["PRIORITY_WARNING"].format("P5"), "priority"),
         (texts["NAMESPACED_WARNING"].format("satisfies", "x"), "satisfies"),
         (texts["NAMESPACED_WARNING"].format("objective", "x"), "objective"),
         (texts["H_WARNING"].format("high"), "h"),

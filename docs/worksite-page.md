@@ -451,9 +451,11 @@ whenever it has one. Each leaf's details name the source of its hours.
 
 ### The `est:` classes
 
-A stopgap for mtibbits/devagent#737; #13 deletes these rules. The value is
-read as devagent reads metadata (quotes stripped; a list is unparseable),
-and the classes are tried in this order, each a full match:
+A stopgap for mtibbits/devagent#737; #13 deletes these rules. Every
+supported devagent reads a range such as `2-3d` as time (since 3.2.0), so
+until #13 Gantry and devagent disagree on it. The value is read as devagent
+reads metadata (quotes stripped; a list is unparseable), and the classes
+are tried in this order, each a full match:
 
 | Class | Pattern | Meaning |
 |---|---|---|
