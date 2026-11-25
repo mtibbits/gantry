@@ -565,7 +565,9 @@ def test_plan_written_only_in_output_folder(tmp_path):
     assert run_main("--config", str(folder / "gantry.toml"))[0] == 0
     after = snapshot(folder)
     assert {rel: stamp for rel, stamp in after.items() if rel != "out" and not rel.startswith("out/")} == before
-    assert sorted(rel for rel in after if rel.endswith(".json")) == [f"out/{PLAN_FILE}"]
+    # The copy's devagent portfolio document (#197) is an input, there before the build.
+    assert "portfolio.json" in before
+    assert sorted(rel for rel in after if rel.endswith(".json") and rel not in before) == [f"out/{PLAN_FILE}"]
     assert sorted(written_bytes(folder / "out")) == ["index.html", "sites/a.html", "sites/b.html", "strategic.html",
                                                      PLAN_FILE, "week.html"]
 

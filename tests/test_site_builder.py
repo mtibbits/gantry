@@ -408,6 +408,17 @@ def test_append_nodes(tmp_path):
     assert [leaf.key for leaf in hp.site_of(written, "a").leaves] == ["Issue-1", "Issue-2"]
     with pytest.raises(AssertionError):
         hp.rewrite_document(tree, lambda d: d)
+    # An install() copy (#197) holds its document there too, and rewrite_document round-trips on it.
+    from test_planner import install
+
+    installed = install(tmp_path, "two_sites")
+    assert hp.document_path(installed) == installed / "portfolio.json"
+    append_bytes(installed / "a" / "WBS.md", "- [ ] Later {issue: Issue-98}\n")
+    hp.rewrite_document(installed, lambda d: hp.append_nodes(d, "a", hp.node("Later", issue="Issue-98")))
+    written = json.loads((installed / "portfolio.json").read_bytes().decode("utf-8"))
+    assert "Issue-98" in [leaf.key for leaf in hp.site_of(written, "a").leaves]
+    with pytest.raises(AssertionError):
+        hp.rewrite_document(installed, lambda d: d)
     # A project appended to the document answers the foreign entries that named it.
     waits = hp.site_document({"a": hp.source(b"- [ ] A {issue: Issue-1, depends_on: [c:Issue-1]}\n",
                                              hp.node("A", issue="Issue-1", depends_on=["c:Issue-1"]))})

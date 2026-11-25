@@ -20,7 +20,7 @@ from gantry.capacity import read_declared_capacity, resolve_capacity
 from gantry.config import load_config
 from gantry.planner import NO_PLAN, plan_week
 from gantry.portfolio_file import intended_shares, read_portfolio_file
-from helpers_config import run_main, sample_build
+from helpers_config import _stopgap_agreement, run_main, sample_build
 from test_capacity import CONFIGS, EXPECTED as EXPECTED_LINES, FIXTURES as CAPACITY
 from test_samples import ROOT
 
@@ -42,6 +42,9 @@ def install(tmp_path, base, wbs=None, portfolio=None, config=None, devagent=None
     is the portfolio file's text; `devagent` is the devagent config's text;
     `config` maps a top-level config key to its raw TOML literal (None drops
     the key). DELETE removes a file.
+
+    The copy carries devagent's portfolio document beside its devagent.toml
+    (#197), checked against every WBS.md in the copy (_stopgap_agreement).
     """
     copy = tmp_path / f"{Path(base).name}-{next(_copies)}"
     shutil.copytree(FIXTURES / base, copy)
@@ -53,6 +56,8 @@ def install(tmp_path, base, wbs=None, portfolio=None, config=None, devagent=None
     for path, text in files.items():
         if text is DELETE:
             path.unlink()
+        elif isinstance(text, hp.Source):
+            path.write_bytes(text.text)
         else:
             path.write_bytes(text.encode("utf-8"))
     if config:
@@ -61,7 +66,80 @@ def install(tmp_path, base, wbs=None, portfolio=None, config=None, devagent=None
                  if line.split(" = ")[0] not in config]
         lines += [f"{key} = {value}" for key, value in config.items() if value is not None]
         path.write_bytes(("\n".join(lines) + "\n").encode("utf-8"))
+    write_document(copy, base, wbs or {}, devagent)
     return copy
+
+
+def _project_names(text):
+    """devagent v3.4.0's project list of a devagent config, in config order: its [project.*] tables,
+    less a name holding a dot (config_list_projects keeps the tables of exactly two dotted parts)."""
+    return {name: table for name, table in tomllib.loads(text).get("project", {}).items() if "." not in name}
+
+
+def _project_site(copy, table):
+    """devagent v3.4.0 _read_wbs's verdict on a project's devdoc_dir, in its order: hp.NotRead, None
+    (no_wbs), or the WBS.md path to read."""
+    devdoc = table.get("devdoc_dir") if isinstance(table, dict) else None
+    if devdoc is None:
+        return hp.NotRead("no_devdoc_dir", hp.UNSET_REASON)
+    if devdoc == "":
+        return hp.NotRead("no_devdoc_dir", hp.EMPTY_REASON)
+    folder = copy / devdoc
+    if not folder.exists():
+        return hp.NotRead("no_devdoc_dir", hp.ABSENT_REASON)
+    if not folder.is_dir():
+        return hp.NotRead("no_devdoc_dir", hp.NOT_DIR_REASON)
+    path = folder / "WBS.md"
+    if not path.exists():
+        return None
+    if not path.is_file():
+        return hp.NotRead("unreadable", hp.NOT_FILE_REASON)
+    return path
+
+
+def write_document(copy, base, wbs, devagent):
+    """Write devagent's portfolio document over the install() copy `copy` of `base` beside its
+    devagent.toml, and check it against every WBS.md in the copy (#197).
+
+    Each project of the final devagent.toml (devagent's list and status order) is a not-read
+    project, or its `wbs` Source, or its stored reading in hp.TREES (the copy's own bytes). A
+    status no install() measured, a `wbs` key that is no project's folder, and a rewrite of a tree
+    whose stored readings hold a dep_cycle (its cross-project entries depend on the sites and on
+    the project order) raise. A str site is written but left out of the document (until every
+    caller passes Sources).
+    """
+    tree = (FIXTURES / base).relative_to(FIXTURES.parent).as_posix()
+    stored = json.loads(hp.TREES.read_bytes().decode("utf-8"))["trees"][tree]
+    names = _project_names((copy / "devagent.toml").read_bytes().decode("utf-8"))
+    if any(e["kind"] == "dep_cycle" for e in stored["parse_report"]):
+        if wbs:
+            raise AssertionError(f"install: {base}: its stored dep_cycle entries depend on the sites you rewrite; "
+                                 "state the document's cycles in the Sources")
+        if list(names) != [p["project"] for p in stored["projects"]]:
+            raise AssertionError(f"install: {base}: its stored dep_cycle entries depend on the project order; "
+                                 "a devagent= config that changes it needs Sources")
+    folders = {copy / table["devdoc_dir"] for table in names.values()
+               if isinstance(table, dict) and isinstance(table.get("devdoc_dir"), str)}
+    stray = [site for site in wbs if copy / site not in folders]
+    if stray:
+        raise AssertionError(f"install: wbs key {stray[0]!r} is no project's devdoc_dir")
+    sites = {}
+    for name, table in names.items():
+        found = _project_site(copy, table)
+        if isinstance(found, hp.NotRead) and (found.status, found.reason) != ("no_devdoc_dir", hp.UNSET_REASON):
+            raise AssertionError(f"install: project {name!r}: devagent lists it {found.status} ({found.reason}), "
+                                 "a status no install() measured")
+        if not isinstance(found, Path):
+            sites[name] = found
+            continue
+        value = wbs.get(found.parent.name) if found.parent.parent == copy else None
+        if isinstance(value, str):
+            continue
+        sites[name] = value if isinstance(value, hp.Source) else hp.tree_source(tree, name, found.read_bytes())
+    path = copy / hp.DOC_NAME
+    path.write_bytes(hp.sp.dumps(hp.site_document(sites)))
+    _stopgap_agreement(copy, path, {name: source.text for name, source in sites.items()
+                                    if isinstance(source, hp.Source)}, who="install")
 
 
 def built(copy):
