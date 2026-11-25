@@ -309,10 +309,12 @@ def test_agreement_covers_every_read_fixture_and_description(tmp_path):
     trees = sorted(p.parent for p in (fixtures / "week_plan").glob("*/gantry.toml")) + [
         fixtures / "capacity" / "install", fixtures / "capacity" / "install_dep"]
     assert list(stored["trees"]) == [tree.relative_to(fixtures).as_posix() for tree in trees]
-    assert stored["pin"] == hd.read_pin()[0]
+    regenerate = ("tests/fixtures/week_plan/trees.json is stale: regenerate it with gen_trees197.py "
+                  "(#197's pull request) against the pinned devagent")
+    assert stored["pin"] == hd.read_pin()[0], regenerate
     inputs = [path for tree in trees for path in (tree / "devagent.toml", *sorted(tree.rglob("WBS.md")))]
     assert stored["inputs"] == {path.relative_to(fixtures).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
-                                for path in inputs}
+                                for path in inputs}, regenerate
     from test_planner import install
 
     for tree in stored["trees"]:

@@ -105,7 +105,8 @@ def write_site_tree(folder, sites, tail="", **raw):
 # every dep_cycle message, a local one too, must parse whole, for #195's callers as well as install();
 # a devagent cross-project cycle through a row, or through a done, skipped or parked leaf, has no Gantry
 # match (Gantry's graph is open leaves with open targets) and raises. The check calls planner
-# internals, so a signature change there reds this helper.
+# internals, so a signature change there reds this helper; _gantry_cycles copies _site_work's in-site
+# predecessor rule, and a change to that rule does not.
 COMPARED = re.compile(r"nodes\[\d+\](\.(key|issue|outline|title|state|depends_on|meta))?|links|held_out"
                       r"|report\[(\d+|null), [a-z_]+\]")
 # (class, the side holding the entry): known_differences.json's one-sided entries on

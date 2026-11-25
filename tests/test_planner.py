@@ -40,12 +40,14 @@ def install(tmp_path, base, wbs=None, portfolio=None, config=None, devagent=None
     """A copy of fixture `base` with the named files rewritten: the copy's folder.
 
     `base` names an installation under tests/fixtures/week_plan/, or is the
-    path of one elsewhere. `wbs` maps a site to an hp.Source (its WBS.md
+    path of one elsewhere under tests/fixtures; either way a tree stored in
+    hp.TREES. `wbs` maps a site to an hp.Source (its WBS.md
     bytes and devagent's reading of them: wbs_md, hp.source ...) or DELETE;
     anything else raises a TypeError naming hp.source before anything is copied.
     `portfolio` is the portfolio file's text; `devagent` is the devagent
     config's text; `config` maps a top-level config key to its raw TOML
-    literal (None drops the key). DELETE removes a file.
+    literal (None drops the key). DELETE removes a site's WBS.md or the
+    portfolio file; devagent.toml stays, since the document is written from it.
 
     The copy carries devagent's portfolio document beside its devagent.toml
     (#197), checked against every WBS.md in the copy (_stopgap_agreement).
