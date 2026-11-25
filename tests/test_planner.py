@@ -7,6 +7,7 @@ import re
 import shutil
 import time
 import tomllib
+from contextlib import contextmanager
 from datetime import date
 from fractions import Fraction
 from pathlib import Path
@@ -15,7 +16,6 @@ from typing import NamedTuple
 import pytest
 
 import helpers_portfolio as hp
-import sample_portfolio as sp
 from gantry import planner, schedule
 from gantry.build import build_all
 from gantry.capacity import read_declared_capacity, resolve_capacity
@@ -1564,9 +1564,11 @@ def three_sites(tmp_path, shares, y_leaves, mapping=None, z_leaf=None, x_leaves=
     (copy / "z").mkdir()
     (copy / "devagent.toml").write_bytes(
         b"".join(f'[project.{n}]\ndevdoc_dir = "{n}"\n\n'.encode() for n in ("x", "y", "z")))
-    (copy / "x" / "WBS.md").write_bytes((x_leaves or wbs_md(*(leaf(n, est="3w", h=4) for n in (1, 2, 3)))).text)
-    (copy / "y" / "WBS.md").write_bytes(y_leaves.text)
-    (copy / "z" / "WBS.md").write_bytes((z_leaf or wbs_md(leaf(1, est="3w", h=1))).text)
+    sites = {"x": x_leaves or wbs_md(*(leaf(n, est="3w", h=4) for n in (1, 2, 3))), "y": y_leaves,
+             "z": z_leaf or wbs_md(leaf(1, est="3w", h=1))}
+    for name, source in sites.items():
+        (copy / name / "WBS.md").write_bytes(source.text)
+    hp.rewrite_document(copy, lambda doc: hp.site_document(sites))  # #197: the document of x, y and z
     if mapping is not None:
         text = (copy / "portfolio.md").read_bytes().decode().replace("[capacity]\n", f"[capacity]\n{mapping}")
         (copy / "portfolio.md").write_bytes(text.encode())
@@ -2056,28 +2058,32 @@ def raised_meta(doc, site, line):
     return doc
 
 
-def priority_property(copy, build, *, document=True):
+@contextmanager
+def raised_leaf(copy, site, line):
+    """The copy with `site`'s leaf on `line` one priority step up, in its WBS.md and in its portfolio
+    document (#195, #197); both restored on the way out, whatever happens."""
+    path, document = copy / site / "WBS.md", hp.document_path(copy)
+    text, saved = path.read_bytes(), document.read_bytes()
+    try:
+        path.write_bytes(raised(text.decode("utf-8"), line).encode("utf-8"))
+        hp.rewrite_document(copy, lambda doc: raised_meta(doc, site, line))
+        yield
+    finally:
+        path.write_bytes(text)
+        document.write_bytes(saved)
+
+
+def priority_property(copy, build):
     """(subjects with a baseline placement, [(subject, before, after) moved later]) over every
-    subject of the installation at `copy`; build() gives (build result, plan). With `document`,
-    the copy's portfolio document is raised and restored with its WBS.md (#195)."""
+    subject of the installation at `copy`; build() gives (build result, plan). Each raise is made
+    in the copy's WBS.md and portfolio document, and undone (raised_leaf)."""
     result, before = build()
     placed_n, later = 0, []
-    portfolio = copy.joinpath(sp.OUT, *sp.DOCUMENT)
     for site, key, line in priority_subjects(result):
-        path = copy / site / "WBS.md"
-        text = path.read_bytes().decode("utf-8")
         old = first_placement(before, site, key)
         placed_n += old != NEVER
-        saved = portfolio.read_bytes() if document else None
-        path.write_bytes(raised(text, line).encode("utf-8"))
-        try:
-            if document:
-                hp.rewrite_document(copy, lambda doc: raised_meta(doc, site, line))
+        with raised_leaf(copy, site, line):
             new = first_placement(build()[1], site, key)
-        finally:
-            path.write_bytes(text.encode("utf-8"))
-            if document:
-                portfolio.write_bytes(saved)
         if new > old:
             later.append(((site, key), old, new))
     return placed_n, later
@@ -2103,7 +2109,7 @@ def test_raising_priority_never_delays_first_placement(tmp_path):
     total = 0
     for base in FIXTURE_NAMES:
         copy = install(tmp_path, base)
-        placed_n, later = priority_property(copy, lambda copy=copy: fixture_build(copy), document=False)  # #197
+        placed_n, later = priority_property(copy, lambda copy=copy: fixture_build(copy))
         assert later == [], base
         total += placed_n
     # The spike's per-installation counts over 12 fixtures sum to 71 (its "75" was a slip);
@@ -2117,13 +2123,8 @@ def test_raising_priority_moves_a_tied_leaf_earlier(tmp_path):
     moved = 0
     for name in ("a", "b"):
         for found in [leaf for leaf in result.inputs[name].data.leaves if leaf.open][1:]:
-            path = copy / name / "WBS.md"
-            text = path.read_bytes().decode("utf-8")
-            path.write_bytes(raised(text, found.line).encode("utf-8"))
-            try:
+            with raised_leaf(copy, name, found.line):
                 after = fixture_build(copy)[1]
-            finally:
-                path.write_bytes(text.encode("utf-8"))
             assert first_placement(after, name, found.key) < first_placement(before, name, found.key), found.key
             moved += 1
     assert moved >= 2
