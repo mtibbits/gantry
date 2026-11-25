@@ -1,6 +1,5 @@
 """The week planner: gantry/planner.py (#61)."""
 
-import copy
 import itertools
 import json
 import re
@@ -72,7 +71,7 @@ def install(tmp_path, base, wbs=None, portfolio=None, config=None, devagent=None
                  if line.split(" = ")[0] not in config]
         lines += [f"{key} = {value}" for key, value in config.items() if value is not None]
         path.write_bytes(("\n".join(lines) + "\n").encode("utf-8"))
-    write_document(copy, base, wbs or {}, devagent)
+    write_document(copy, base, wbs or {})
     return copy
 
 
@@ -82,28 +81,21 @@ def _project_names(text):
     return {name: table for name, table in tomllib.loads(text).get("project", {}).items() if "." not in name}
 
 
-def _project_site(copy, table):
-    """devagent v3.4.0 _read_wbs's verdict on a project's devdoc_dir, in its order: hp.NotRead, None
-    (no_wbs), or the WBS.md path to read."""
+def _project_site(copy, name, table):
+    """devagent v3.4.0 _read_wbs's verdict on project `name`'s devdoc_dir, of those install() measured:
+    hp.NotRead (no devdoc_dir set), None (no_wbs), or the WBS.md path to read. An empty, absent or
+    non-directory devdoc_dir raises."""
     devdoc = table.get("devdoc_dir") if isinstance(table, dict) else None
     if devdoc is None:
         return hp.NotRead("no_devdoc_dir", hp.UNSET_REASON)
-    if devdoc == "":
-        return hp.NotRead("no_devdoc_dir", hp.EMPTY_REASON)
-    folder = copy / devdoc
-    if not folder.exists():
-        return hp.NotRead("no_devdoc_dir", hp.ABSENT_REASON)
-    if not folder.is_dir():
-        return hp.NotRead("no_devdoc_dir", hp.NOT_DIR_REASON)
-    path = folder / "WBS.md"
-    if not path.exists():
-        return None
-    if not path.is_file():
-        return hp.NotRead("unreadable", hp.NOT_FILE_REASON)
-    return path
+    if not devdoc or not (copy / devdoc).is_dir():
+        raise AssertionError(f"install: project {name!r}: devdoc_dir {devdoc!r} is not a directory of the copy, "
+                             "a status no install() measured")
+    path = copy / devdoc / "WBS.md"
+    return path if path.exists() else None
 
 
-def write_document(copy, base, wbs, devagent):
+def write_document(copy, base, wbs):
     """Write devagent's portfolio document over the install() copy `copy` of `base` beside its
     devagent.toml, and check it against every WBS.md in the copy (#197).
 
@@ -114,7 +106,7 @@ def write_document(copy, base, wbs, devagent):
     the project order) raise.
     """
     tree = (FIXTURES / base).relative_to(FIXTURES.parent).as_posix()
-    stored = json.loads(hp.TREES.read_bytes().decode("utf-8"))["trees"][tree]
+    stored = hp._parsed(hp.TREES)["trees"][tree]
     names = _project_names((copy / "devagent.toml").read_bytes().decode("utf-8"))
     if any(e["kind"] == "dep_cycle" for e in stored["parse_report"]):
         if wbs:
@@ -130,10 +122,7 @@ def write_document(copy, base, wbs, devagent):
         raise AssertionError(f"install: wbs key {stray[0]!r} is no project's devdoc_dir")
     sites = {}
     for name, table in names.items():
-        found = _project_site(copy, table)
-        if isinstance(found, hp.NotRead) and (found.status, found.reason) != ("no_devdoc_dir", hp.UNSET_REASON):
-            raise AssertionError(f"install: project {name!r}: devagent lists it {found.status} ({found.reason}), "
-                                 "a status no install() measured")
+        found = _project_site(copy, name, table)
         if not isinstance(found, Path):
             sites[name] = found
             continue
@@ -244,10 +233,10 @@ def wbs_md(*leaves, report=()) -> hp.Source:
 
 
 def edited_source(tree, site, text, edit):
-    """hp.tree_source(tree, site, text) with edit(node) applied to a copy of each stored node: devagent's
+    """hp.tree_source(tree, site, text) with edit(node) applied to each stored node (tree_source's own copies): devagent's
     reading of a stored tree's text that a test edits, edited the same way. edit returns the node."""
     found = hp.tree_source(tree, site, text.encode("utf-8"))
-    return hp.Source(found.text, tuple(edit(copy.deepcopy(n)) for n in found.nodes), found.report)
+    return hp.Source(found.text, tuple(edit(n) for n in found.nodes), found.report)
 
 
 def placed(plan, site, key):

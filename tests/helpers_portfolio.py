@@ -282,12 +282,6 @@ UNREADABLE_REASON = "WBS.md could not be read: UnicodeDecodeError: {reason} at b
 # The no_devdoc_dir reasons (REASON_UNSET, REASON_ABSENT), for a samples copy whose config a test edits.
 UNSET_REASON = "no devdoc dir is configured"
 ABSENT_REASON = "the devdoc dir does not exist"
-# devagent v3.4.0 scripts/lib/portfolio.py:807, :809 and :811 (REASON_EMPTY, REASON_NOT_DIR, REASON_NOT_FILE):
-# the reasons _read_wbs gives an empty devdoc_dir, a devdoc dir that is not a directory, and a WBS.md that is
-# not a regular file (#197).
-EMPTY_REASON = "devdoc_dir is set but empty"
-NOT_DIR_REASON = "the devdoc dir is not a directory"
-NOT_FILE_REASON = "WBS.md is not a regular file"
 
 
 @dataclass(frozen=True)
@@ -505,8 +499,8 @@ def rewrite_document(copy, fn):
     assert after != before, "rewrite_document: the document did not change"
     path.write_bytes(after)
     # A devdoc_dir resolves against the copy beside devagent.toml, against devagent/ in a samples copy.
-    home = copy if path.parent == copy else copy / "devagent"
-    config = home / ("devagent.toml" if home == copy else "config.toml")
+    home, config = ((copy, copy / "devagent.toml") if path.parent == copy
+                    else (copy / "devagent", copy / "devagent" / "config.toml"))
     try:
         tables = tomllib.loads(config.read_bytes().decode("utf-8"))["project"]
         _stopgap_agreement(copy, path, {p["project"]: (home / tables[p["project"]]["devdoc_dir"] / "WBS.md").read_bytes()

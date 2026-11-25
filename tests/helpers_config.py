@@ -175,8 +175,9 @@ def _stopgap_agreement(root, document, sites, who="write_site_tree"):
         if remaining:
             raise AssertionError(f"{who}: site {name!r}: the portfolio document disagrees with the "
                                  f"stopgap's reading: {remaining}")
-    found = _gantry_cycles(list(sites), read)
-    for project, message, members in _cross_project_cycles(json.loads(Path(document).read_bytes()), who):
+    cycles = _cross_project_cycles(json.loads(Path(document).read_bytes()), who)
+    found = _gantry_cycles(list(sites), read) if cycles else []
+    for project, message, members in cycles:
         if members not in found:
             shown = sorted(sorted(cycle) for cycle in found)
             raise AssertionError(f"{who}: the portfolio document's cross-project dep_cycle {message!r} (project "
@@ -219,8 +220,9 @@ def _gantry_cycles(names, read):
     from gantry import planner
     from gantry.crosssite import resolve_foreign
     from gantry.inputs import Inputs
+    from gantry.sites import SiteEntry
 
-    resolved, _ = resolve_foreign([SimpleNamespace(name=name) for name in names],
+    resolved, _ = resolve_foreign([SiteEntry(name, None, None) for name in names],
                                   {name: Inputs(data, None, None) for name, data in read.items()},
                                   {name: "not read" for name in names if name not in read})
     items, line = {}, {}
