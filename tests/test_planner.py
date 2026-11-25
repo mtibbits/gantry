@@ -42,7 +42,7 @@ def install(tmp_path, base, wbs=None, portfolio=None, config=None, devagent=None
     `base` names an installation under tests/fixtures/week_plan/, or is the
     path of one elsewhere. `wbs` maps a site to an hp.Source (its WBS.md
     bytes and devagent's reading of them: wbs_md, hp.source ...) or DELETE;
-    anything else raises site_document's TypeError before anything is copied.
+    anything else raises a TypeError naming hp.source before anything is copied.
     `portfolio` is the portfolio file's text; `devagent` is the devagent
     config's text; `config` maps a top-level config key to its raw TOML
     literal (None drops the key). DELETE removes a file.
@@ -50,7 +50,10 @@ def install(tmp_path, base, wbs=None, portfolio=None, config=None, devagent=None
     The copy carries devagent's portfolio document beside its devagent.toml
     (#197), checked against every WBS.md in the copy (_stopgap_agreement).
     """
-    hp.site_document({site: value for site, value in (wbs or {}).items() if value is not DELETE})
+    for site, value in (wbs or {}).items():
+        if value is not DELETE and not isinstance(value, hp.Source):
+            raise TypeError(f"install: site {site!r} is a {type(value).__name__}, not an hp.Source; "
+                            "pass hp.source(...), wbs_md(...) or DELETE")
     copy = tmp_path / f"{Path(base).name}-{next(_copies)}"
     shutil.copytree(FIXTURES / base, copy)
     files = {copy / site / "WBS.md": text for site, text in (wbs or {}).items()}
@@ -84,7 +87,7 @@ def _project_names(text):
 def _project_site(copy, name, table):
     """devagent v3.4.0 _read_wbs's verdict on project `name`'s devdoc_dir, of those install() measured:
     hp.NotRead (no devdoc_dir set), None (no_wbs), or the WBS.md path to read. An empty, absent or
-    non-directory devdoc_dir raises."""
+    non-directory devdoc_dir, and a WBS.md that is not a regular file, raise."""
     devdoc = table.get("devdoc_dir") if isinstance(table, dict) else None
     if devdoc is None:
         return hp.NotRead("no_devdoc_dir", hp.UNSET_REASON)
@@ -92,7 +95,12 @@ def _project_site(copy, name, table):
         raise AssertionError(f"install: project {name!r}: devdoc_dir {devdoc!r} is not a directory of the copy, "
                              "a status no install() measured")
     path = copy / devdoc / "WBS.md"
-    return path if path.exists() else None
+    if not path.exists():
+        return None
+    if not path.is_file():
+        raise AssertionError(f"install: project {name!r}: {devdoc}/WBS.md is not a regular file, "
+                             "a status no install() measured")
+    return path
 
 
 def write_document(copy, base, wbs):
@@ -110,8 +118,8 @@ def write_document(copy, base, wbs):
     names = _project_names((copy / "devagent.toml").read_bytes().decode("utf-8"))
     if any(e["kind"] == "dep_cycle" for e in stored["parse_report"]):
         if wbs:
-            raise AssertionError(f"install: {base}: its stored dep_cycle entries depend on the sites you rewrite; "
-                                 "state the document's cycles in the Sources")
+            raise AssertionError(f"install: {base}: its stored dep_cycle entries depend on its sites, so install() "
+                                 "cannot rewrite one; lay the tree out with write_site_tree and state its cycles")
         if list(names) != [p["project"] for p in stored["projects"]]:
             raise AssertionError(f"install: {base}: its stored dep_cycle entries depend on the project order; "
                                  "a devagent= config that changes it needs Sources")
@@ -233,8 +241,9 @@ def wbs_md(*leaves, report=()) -> hp.Source:
 
 
 def edited_source(tree, site, text, edit):
-    """hp.tree_source(tree, site, text) with edit(node) applied to each stored node (tree_source's own copies): devagent's
-    reading of a stored tree's text that a test edits, edited the same way. edit returns the node."""
+    """hp.tree_source(tree, site, text) with edit(node) applied to each stored node (tree_source's own
+    copies): devagent's reading of a stored tree's text that a test edits, edited the same way. edit
+    returns the node."""
     found = hp.tree_source(tree, site, text.encode("utf-8"))
     return hp.Source(found.text, tuple(edit(n) for n in found.nodes), found.report)
 

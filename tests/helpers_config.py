@@ -102,6 +102,7 @@ def write_site_tree(folder, sites, tail="", **raw):
 # NOT guarded: a Gantry cycle the document does not state (Gantry expands a row target to the open
 # leaves under it, devagent's edge stops at the row, so Gantry can find more), a local dep_cycle, and
 # issue_not_id; the out-of-suite differential in #197's pull request vouches for those. Fail-closed:
+# every dep_cycle message, a local one too, must parse whole, for #195's callers as well as install();
 # a devagent cross-project cycle through a row, or through a done, skipped or parked leaf, has no Gantry
 # match (Gantry's graph is open leaves with open targets) and raises. The check calls planner
 # internals, so a signature change there reds this helper.
