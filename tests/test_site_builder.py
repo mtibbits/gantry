@@ -7,9 +7,11 @@ site data through hp.site_of, which maps the document with #83's
 map_document. These tests pin the builder to what devagent writes.
 """
 
+import hashlib
 import json
 import os
 import re
+import tomllib
 
 import pytest
 
@@ -21,8 +23,8 @@ import update_expected_leaves as ue
 from gantry import deps
 from gantry.model import ParsedValue
 from gantry.portfolio_json import ProjectInput, map_document
-from helpers_config import (ONE_SIDED, append_bytes, copy_samples, install_sample_document, one_sided_classes,
-                            sample_projects, write_site_tree)
+from helpers_config import (ONE_SIDED, _stopgap_agreement, append_bytes, copy_samples, install_sample_document,
+                            one_sided_classes, sample_projects, write_site_tree)
 from helpers_links import link_dir, symlink
 from sample_roles import BUSY, NO_WBS, READABLE, SMALL, UNREADABLE
 from test_portfolio_equivalence import known
@@ -294,12 +296,32 @@ def alpha_snapshot(data):
                           namespaces=frozenset({"alpha"}))
 
 
-def test_agreement_covers_every_read_fixture_and_description():
+def test_agreement_covers_every_read_fixture_and_description(tmp_path):
     assert len(AGREEMENT) == len(set(AGREEMENT)) == 15
     assert set(AGREEMENT) == {*sp.FIXTURE_SOURCES} - {"not_utf8"} | set(hp.DESCRIBED)
     assert [name for name in AGREEMENT if known_rows(name)] == ["ids", "edges"]
     # write_site_tree's agreement check forgives exactly these one-sided report classes (#195).
     assert one_sided_classes() == ONE_SIDED
+    # The stored readings of the installable trees (#197): every tree, the pin they were made at,
+    # each input as committed (an edit to a fixture WBS.md or devagent.toml reds here), and one
+    # agreement check per tree over all of its sites.
+    fixtures = ROOT / "tests" / "fixtures"
+    stored = json.loads(hp.TREES.read_bytes().decode("utf-8"))
+    trees = sorted(p.parent for p in (fixtures / "week_plan").glob("*/gantry.toml")) + [
+        fixtures / "capacity" / "install", fixtures / "capacity" / "install_dep"]
+    assert list(stored["trees"]) == [tree.relative_to(fixtures).as_posix() for tree in trees]
+    assert stored["pin"] == hd.read_pin()[0]
+    inputs = [path for tree in trees for path in (tree / "devagent.toml", *sorted(tree.rglob("WBS.md")))]
+    assert stored["inputs"] == {path.relative_to(fixtures).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+                                for path in inputs}
+    for tree, reading in stored["trees"].items():
+        config = tomllib.loads((fixtures / tree / "devagent.toml").read_bytes().decode("utf-8"))["project"]
+        sites = {p["project"]: hp.tree_source(tree, p["project"], (
+            fixtures / tree / config[p["project"]]["devdoc_dir"] / "WBS.md").read_bytes()) for p in reading["projects"]}
+        folder = tmp_path / tree
+        folder.mkdir(parents=True)
+        (folder / hp.DOC_NAME).write_bytes(sp.dumps(hp.site_document(sites)))
+        _stopgap_agreement(folder, folder / hp.DOC_NAME, {name: site.text for name, site in sites.items()}, who=tree)
 
 
 @pytest.mark.parametrize("name", AGREEMENT)

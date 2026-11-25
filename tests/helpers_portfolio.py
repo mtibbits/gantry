@@ -337,10 +337,27 @@ def fixture_source(name) -> Source:
     return _written_source(sp.WRITTEN, name, (sp.ROOT / sp.FIXTURE_SOURCES[name]).read_bytes())
 
 
-def _written_source(path, name, text) -> Source:
-    """`text` with project `name`'s nodes in the committed document at `path`, and its entries
-    that are neither auto_report's nor a foreign dep_unresolved."""
+# devagent's reading of each tree install() copies (#197): the 14 week_plan/*/gantry.toml folders and
+# capacity/install, capacity/install_dep, keyed by path under tests/fixtures, with the pin it was made at
+# and each input's sha256 (test_site_builder pins both). Made by running the pinned aggregator on each
+# tree (its generator is in #197's pull request); never edited by hand.
+TREES = sp.ROOT / "tests" / "fixtures" / "week_plan" / "trees.json"
+
+
+def tree_source(tree, site, text) -> Source:
+    """`text` with devagent's reading of project `site` in the stored tree `tree` (TREES): its nodes,
+    and its entries that are neither auto_report's nor a foreign dep_unresolved (dep_cycle ...)."""
+    return _written_source(TREES, site, text, tree=tree)
+
+
+def _written_source(path, name, text, tree=None) -> Source:
+    """`text` with project `name`'s nodes in the committed document at `path` (in its tree `tree`
+    when given), and its entries that are neither auto_report's nor a foreign dep_unresolved."""
     doc = _parsed(path)
+    if tree is not None:
+        if tree not in doc["trees"]:
+            raise ValueError(f"{path.name} holds no tree {tree!r}")
+        doc = doc["trees"][tree]
     (proj,) = [p for p in doc["projects"] if p["project"] == name]
     report = tuple((e["source_line"], e["kind"], e["message"]) for e in doc["parse_report"]
                    if e["project"] == name and not auto_entry(e, name)

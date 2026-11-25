@@ -1,0 +1,450 @@
+{
+  "pin": "devagent--v3.4.0",
+  "inputs": {
+    "week_plan/binds_attention/devagent.toml": "516b365db0f252a6466f1c4f7a2352bb4518632da7eef9d65ab993b4c571c995",
+    "week_plan/binds_attention/alpha/WBS.md": "c58757445fa9dede49324c3063784a6225e60b194a3511a43b611ccecbd4fe66",
+    "week_plan/binds_lanes/devagent.toml": "516b365db0f252a6466f1c4f7a2352bb4518632da7eef9d65ab993b4c571c995",
+    "week_plan/binds_lanes/alpha/WBS.md": "9c5ff305123f4450523867f4ef9deec9c1159a5fb65f29e34c0169d4eea78b0a",
+    "week_plan/continues/devagent.toml": "516b365db0f252a6466f1c4f7a2352bb4518632da7eef9d65ab993b4c571c995",
+    "week_plan/continues/alpha/WBS.md": "77647628e2f1dd746eaa4afab707f5a54fb90dd0c99723a5fc93f3bad0db2333",
+    "week_plan/cross_site/devagent.toml": "1a9670f34085444b2c7f2abae5e3ee779870ac7aaf9f0e5b4dd5613bc4daa788",
+    "week_plan/cross_site/a/WBS.md": "428808a7ec2a630dbdc1f663944aad6cd819cdf6db573a5bddb766f94b0be1aa",
+    "week_plan/cross_site/b/WBS.md": "052517ef1b8405b257451d7a1552599e80c10b39db810b8ad4b0bfa3795b6446",
+    "week_plan/cross_site_cycle/devagent.toml": "1a9670f34085444b2c7f2abae5e3ee779870ac7aaf9f0e5b4dd5613bc4daa788",
+    "week_plan/cross_site_cycle/a/WBS.md": "70cf09988389fd0380a7346cd8ba180707a3ebd728945805077f008ab32ce2a6",
+    "week_plan/cross_site_cycle/b/WBS.md": "59f1dab6dd749f90814e5aee9e6f1bc47d7bd6079ed4f02a141f7478a86a9316",
+    "week_plan/late_ready/devagent.toml": "57a70b63c4142b8ba01bc7a7ad5b31efc233c8e1637bd45ec1b2a565d8b8cc42",
+    "week_plan/late_ready/a/WBS.md": "126b4e1ab044bde965f21f3689e74e4f04363c0cbb1307929bd2eac36f7e24da",
+    "week_plan/late_ready/b/WBS.md": "9bec7182584308e9830fcef147177997c0abd0fe48e78aa9847adc7f26216285",
+    "week_plan/late_ready/c/WBS.md": "76eb97a2ac9fdf059f6509b425f37937689f4e8dde8c5c9fef1636f93b46296c",
+    "week_plan/leaf_boxes/devagent.toml": "5160da7deffc830d995c5ddba9ca57eef3a78423a00692009ae28ac3aa4cd348",
+    "week_plan/leaf_boxes/a/WBS.md": "8f741cafa6aa9f46e7dccfe2cc01024a168bde4bfb04cab4be8a171f0f053733",
+    "week_plan/leaf_boxes/b/WBS.md": "16509300eb5e4a656c8bd021b32ccf77204ae0b56eb0ac36ad5b82c94e65218e",
+    "week_plan/no_allocation/devagent.toml": "f935d05f79eb2e52668a1a48fb7f34924dfc821df00090355207bb1957fc789b",
+    "week_plan/no_allocation/a/WBS.md": "2ba41c17ff49927f05e07374ea087ada9727b23f49d5afdec44522e6b0af28db",
+    "week_plan/no_allocation/b/WBS.md": "7e68c9494823d5422807d3425b2e22afd32d78a9530e55d5e4747d37d9353485",
+    "week_plan/no_share/devagent.toml": "b277337cf1373a867e8041631603c47cd15c3ea1109facb1bff1769d8a691d98",
+    "week_plan/no_share/a/WBS.md": "628d3ba612f43c08eddb20c787145349eee2802afa3fc16590cf4414d3586a3f",
+    "week_plan/no_share/c/WBS.md": "9ee527d35b484a9d0db333b86a21219e2cbf334146bf1ffb53a78572c4aa79b2",
+    "week_plan/no_share/d/WBS.md": "be430acd2b22b6e219d0c645be9c10f06091220e6ba6db6495e6d8b77dfb70fe",
+    "week_plan/p0/devagent.toml": "f935d05f79eb2e52668a1a48fb7f34924dfc821df00090355207bb1957fc789b",
+    "week_plan/p0/a/WBS.md": "c8897fc76a3f1aa48702f38f1bc484d573405f94e934ed74f81654342e133c55",
+    "week_plan/p0/b/WBS.md": "6e810825657e03b164f9c0685e3034326501b556a875cc2033614ac4a610db60",
+    "week_plan/share_unbuilt/devagent.toml": "f935d05f79eb2e52668a1a48fb7f34924dfc821df00090355207bb1957fc789b",
+    "week_plan/share_unbuilt/a/WBS.md": "126b4e1ab044bde965f21f3689e74e4f04363c0cbb1307929bd2eac36f7e24da",
+    "week_plan/share_unbuilt/b/WBS.md": "6bc253899157ace263a967c917ad2e151279150b846cc3ca78182a4994d55bb1",
+    "week_plan/states/devagent.toml": "19f27732c749a3fe7fb82c5994e38d785611a0b6135307c4f2969122a5dd4738",
+    "week_plan/states/a/WBS.md": "01edbf6a42fa58b0b5b0c309e9df5cb7201f4ff9d7aff6e931712127fd8a3995",
+    "week_plan/states/b/WBS.md": "9d993dab0865bc4c7c6f3ea1a6e2ecaea7ba2bf301df08a80efad3cba3ed0a71",
+    "week_plan/two_sites/devagent.toml": "f935d05f79eb2e52668a1a48fb7f34924dfc821df00090355207bb1957fc789b",
+    "week_plan/two_sites/a/WBS.md": "126b4e1ab044bde965f21f3689e74e4f04363c0cbb1307929bd2eac36f7e24da",
+    "week_plan/two_sites/b/WBS.md": "6bc253899157ace263a967c917ad2e151279150b846cc3ca78182a4994d55bb1",
+    "week_plan/unequal_rates/devagent.toml": "f935d05f79eb2e52668a1a48fb7f34924dfc821df00090355207bb1957fc789b",
+    "week_plan/unequal_rates/a/WBS.md": "351fc997f718dff3e6bd5165555f73c203903ccbc7a89004c1e00b78a9279a82",
+    "week_plan/unequal_rates/b/WBS.md": "720513b28f7db94fd46d3cc5391aa53322374102f256659ed6f870d3484ea00c",
+    "capacity/install/devagent.toml": "b55370effb7a40d8d3fd06eb701979b44fc211317d154408b0bce14c3dc3d7e7",
+    "capacity/install/a/WBS.md": "dae4f974921c05150cd20a130b3f00312f7f943b7c7b1509bd7a3b76ffaea585",
+    "capacity/install/b/WBS.md": "dd95cc6ab55eb1b90d64795cd81cc8684173583a5663a0d13f17b90cd81f6b26",
+    "capacity/install/c/WBS.md": "32b467b1017aaf024ae288e8b78849563deac26076a0cd12a4c84bde2299f031",
+    "capacity/install_dep/devagent.toml": "2e939abb60222cb1d148862c65345f8cbe075c8440c827b75689e4b7ede50e19",
+    "capacity/install_dep/a/WBS.md": "ea4d316d8ee50e6482cdad77c88a482d6dc0e2634ed5359e75600188c2ad6db4",
+    "capacity/install_dep/b/WBS.md": "6e643bb8e700524717ad73d3050601cfaffa63c9efb609cd1fc13c257b1d9bdb",
+    "capacity/install_dep/c/WBS.md": "e2a1c0f44738f06318b7e07bd1ce7649ce91443bb629f99bd40e66b8c8a931ba"
+  },
+  "trees": {
+    "week_plan/binds_attention": {
+      "projects": [
+        {"project": "alpha", "status": "read", "status_reason": null, "nodes": [
+          {"id": "n1", "parent": null, "text": "Attention binds", "state": "pending", "glyph": " ", "source_line": 3, "issue": null, "meta": {}},
+          {"id": "n2", "parent": "n1", "text": "Review every change by hand", "state": "pending", "glyph": " ", "source_line": 4, "issue": "Issue-1", "meta": {"issue": "Issue-1", "priority": "P1", "est": "6h", "h": "4"}},
+          {"id": "n3", "parent": "n1", "text": "Draft the handbook", "state": "pending", "glyph": " ", "source_line": 5, "issue": "Issue-2", "meta": {"issue": "Issue-2", "priority": "P2", "est": "3h", "h": "2"}}
+        ]}
+      ],
+      "parse_report": [
+      ]
+    },
+    "week_plan/binds_lanes": {
+      "projects": [
+        {"project": "alpha", "status": "read", "status_reason": null, "nodes": [
+          {"id": "n1", "parent": null, "text": "Lanes bind", "state": "pending", "glyph": " ", "source_line": 3, "issue": null, "meta": {}},
+          {"id": "n2", "parent": "n1", "text": "Approve the outline", "state": "pending", "glyph": " ", "source_line": 4, "issue": "Issue-1", "meta": {"issue": "Issue-1", "priority": "P1", "est": "2h", "h": "1"}},
+          {"id": "n3", "parent": "n1", "text": "Convert the archive", "state": "pending", "glyph": " ", "source_line": 5, "issue": "Issue-2", "meta": {"issue": "Issue-2", "priority": "P2", "est": "6h", "h": "0"}},
+          {"id": "n4", "parent": "n1", "text": "Index the archive", "state": "pending", "glyph": " ", "source_line": 6, "issue": "Issue-3", "meta": {"issue": "Issue-3", "priority": "P3", "est": "6h", "h": "0"}}
+        ]}
+      ],
+      "parse_report": [
+      ]
+    },
+    "week_plan/continues": {
+      "projects": [
+        {"project": "alpha", "status": "read", "status_reason": null, "nodes": [
+          {"id": "n1", "parent": null, "text": "Work that continues", "state": "pending", "glyph": " ", "source_line": 3, "issue": null, "meta": {}},
+          {"id": "n2", "parent": "n1", "text": "Migrate the records", "state": "pending", "glyph": " ", "source_line": 4, "issue": "Issue-1", "meta": {"issue": "Issue-1", "priority": "P2", "est": "15h", "h": "1"}},
+          {"id": "n3", "parent": "n1", "text": "Freeze the schema", "state": "pending", "glyph": " ", "source_line": 5, "issue": "Issue-2", "meta": {"issue": "Issue-2", "priority": "P3", "est": "1h", "h": "1"}},
+          {"id": "n4", "parent": "n1", "text": "Cut over the readers", "state": "pending", "glyph": " ", "source_line": 6, "issue": "Issue-3", "meta": {"issue": "Issue-3", "priority": "P1", "est": "2h", "h": "1", "depends_on": ["Issue-2"]}},
+          {"id": "n5", "parent": "n1", "text": "Rebuild every index", "state": "pending", "glyph": " ", "source_line": 7, "issue": "Issue-4", "meta": {"issue": "Issue-4", "priority": "P4", "est": "3w", "h": "1"}},
+          {"id": "n6", "parent": "n1", "text": "Retire the old store", "state": "pending", "glyph": " ", "source_line": 8, "issue": "Issue-5", "meta": {"issue": "Issue-5", "h": "1", "depends_on": ["Issue-4"]}}
+        ]}
+      ],
+      "parse_report": [
+      ]
+    },
+    "week_plan/cross_site": {
+      "projects": [
+        {"project": "a", "status": "read", "status_reason": null, "nodes": [
+          {"id": "n1", "parent": null, "text": "Waits on b", "state": "pending", "glyph": " ", "source_line": 3, "issue": null, "meta": {}},
+          {"id": "n2", "parent": "n1", "text": "Hold on an open leaf", "state": "pending", "glyph": " ", "source_line": 4, "issue": "Issue-1", "meta": {"issue": "Issue-1", "est": "6h", "h": "0", "depends_on": ["b:Issue-1"]}},
+          {"id": "n3", "parent": "n1", "text": "Finished blocker", "state": "pending", "glyph": " ", "source_line": 5, "issue": "Issue-2", "meta": {"issue": "Issue-2", "est": "6h", "h": "0", "depends_on": ["b:Issue-2"]}},
+          {"id": "n4", "parent": "n1", "text": "Absent site", "state": "pending", "glyph": " ", "source_line": 6, "issue": "Issue-3", "meta": {"issue": "Issue-3", "est": "6h", "h": "0", "depends_on": ["zz:Issue-1"]}},
+          {"id": "n5", "parent": "n1", "text": "Unresolved entry", "state": "pending", "glyph": " ", "source_line": 7, "issue": "Issue-4", "meta": {"issue": "Issue-4", "est": "6h", "h": "0", "depends_on": ["b:Issue-99"]}},
+          {"id": "n6", "parent": "n1", "text": "Both", "state": "pending", "glyph": " ", "source_line": 8, "issue": "Issue-5", "meta": {"issue": "Issue-5", "est": "6h", "h": "0", "depends_on": ["b:Issue-99", "zz:Issue-1"]}},
+          {"id": "n7", "parent": null, "text": "Row with an entry", "state": "pending", "glyph": " ", "source_line": 9, "issue": "Issue-6", "meta": {"issue": "Issue-6", "depends_on": ["b:Issue-1", "9.9"]}},
+          {"id": "n8", "parent": "n7", "text": "Under the row", "state": "pending", "glyph": " ", "source_line": 10, "issue": "Issue-7", "meta": {"issue": "Issue-7", "est": "6h", "h": "0"}},
+          {"id": "n9", "parent": "n7", "text": "Two bad entries", "state": "pending", "glyph": " ", "source_line": 11, "issue": "Issue-16", "meta": {"issue": "Issue-16", "est": "6h", "h": "0", "depends_on": ["Issue-97"]}},
+          {"id": "n10", "parent": null, "text": "More waits", "state": "pending", "glyph": " ", "source_line": 12, "issue": null, "meta": {}},
+          {"id": "n11", "parent": "n10", "text": "Names a row of b", "state": "pending", "glyph": " ", "source_line": 13, "issue": "Issue-8", "meta": {"issue": "Issue-8", "est": "6h", "h": "0", "depends_on": ["b:Issue-5"]}},
+          {"id": "n12", "parent": "n10", "text": "Parked blocker", "state": "pending", "glyph": " ", "source_line": 14, "issue": "Issue-9", "meta": {"issue": "Issue-9", "est": "6h", "h": "0", "depends_on": ["b:Issue-3", "Issue-98"]}},
+          {"id": "n13", "parent": "n10", "text": "Long blocker", "state": "pending", "glyph": " ", "source_line": 15, "issue": "Issue-10", "meta": {"issue": "Issue-10", "est": "6h", "h": "0", "depends_on": ["b:Issue-4"]}},
+          {"id": "n14", "parent": "n10", "text": "Blocker beyond the horizon", "state": "pending", "glyph": " ", "source_line": 16, "issue": "Issue-11", "meta": {"issue": "Issue-11", "est": "6h", "h": "0", "depends_on": ["b:Issue-10"]}},
+          {"id": "n15", "parent": "n10", "text": "P0 on a P3", "state": "pending", "glyph": " ", "source_line": 17, "issue": "Issue-12", "meta": {"issue": "Issue-12", "priority": "P0", "est": "6h", "h": "0", "depends_on": ["b:Issue-8"]}},
+          {"id": "n16", "parent": "n10", "text": "Local unresolved", "state": "pending", "glyph": " ", "source_line": 18, "issue": "Issue-13", "meta": {"issue": "Issue-13", "est": "6h", "h": "0", "depends_on": ["Issue-99"]}},
+          {"id": "n17", "parent": "n10", "text": "Malformed", "state": "pending", "glyph": " ", "source_line": 19, "issue": "Issue-14", "meta": {"issue": "Issue-14", "est": "6h", "h": "0", "depends_on": ["x:y:z"]}},
+          {"id": "n18", "parent": "n10", "text": "After the hold", "state": "pending", "glyph": " ", "source_line": 20, "issue": "Issue-15", "meta": {"issue": "Issue-15", "est": "6h", "h": "0", "depends_on": ["Issue-1"]}},
+          {"id": "n19", "parent": "n10", "text": "Waits on a derived reason", "state": "pending", "glyph": " ", "source_line": 21, "issue": "Issue-17", "meta": {"issue": "Issue-17", "est": "6h", "h": "0", "depends_on": ["b:Issue-13"]}}
+        ]},
+        {"project": "b", "status": "read", "status_reason": null, "nodes": [
+          {"id": "n20", "parent": null, "text": "Blockers", "state": "pending", "glyph": " ", "source_line": 3, "issue": null, "meta": {}},
+          {"id": "n21", "parent": "n20", "text": "Two days", "state": "pending", "glyph": " ", "source_line": 4, "issue": "Issue-1", "meta": {"issue": "Issue-1", "est": "12h", "h": "0"}},
+          {"id": "n22", "parent": "n20", "text": "Done", "state": "done", "glyph": "x", "source_line": 5, "issue": "Issue-2", "meta": {"issue": "Issue-2", "est": "6h", "h": "0"}},
+          {"id": "n23", "parent": "n20", "text": "Parked", "state": "parked", "glyph": "P", "source_line": 6, "issue": "Issue-3", "meta": {"issue": "Issue-3", "est": "6h", "h": "0"}},
+          {"id": "n24", "parent": "n20", "text": "Too long", "state": "pending", "glyph": " ", "source_line": 7, "issue": "Issue-4", "meta": {"issue": "Issue-4", "est": "90h", "h": "0"}},
+          {"id": "n25", "parent": "n20", "text": "Absent on b", "state": "pending", "glyph": " ", "source_line": 8, "issue": "Issue-12", "meta": {"issue": "Issue-12", "est": "6h", "h": "0", "depends_on": ["zz:Issue-1"]}},
+          {"id": "n26", "parent": "n20", "text": "Behind the absent one", "state": "pending", "glyph": " ", "source_line": 9, "issue": "Issue-13", "meta": {"issue": "Issue-13", "est": "6h", "h": "0", "depends_on": ["Issue-12"]}},
+          {"id": "n27", "parent": null, "text": "A row", "state": "pending", "glyph": " ", "source_line": 10, "issue": "Issue-5", "meta": {"issue": "Issue-5"}},
+          {"id": "n28", "parent": "n27", "text": "One day", "state": "pending", "glyph": " ", "source_line": 11, "issue": "Issue-6", "meta": {"issue": "Issue-6", "est": "6h", "h": "0"}},
+          {"id": "n29", "parent": "n27", "text": "Three days", "state": "pending", "glyph": " ", "source_line": 12, "issue": "Issue-7", "meta": {"issue": "Issue-7", "est": "18h", "h": "0"}},
+          {"id": "n30", "parent": "n27", "text": "Done under the row", "state": "done", "glyph": "x", "source_line": 13, "issue": "Issue-11", "meta": {"issue": "Issue-11", "est": "6h", "h": "0"}},
+          {"id": "n31", "parent": null, "text": "Priority", "state": "pending", "glyph": " ", "source_line": 14, "issue": null, "meta": {}},
+          {"id": "n32", "parent": "n31", "text": "The P3 blocker", "state": "pending", "glyph": " ", "source_line": 15, "issue": "Issue-8", "meta": {"issue": "Issue-8", "priority": "P3", "est": "6h", "h": "0"}},
+          {"id": "n33", "parent": "n31", "text": "The P2 leaf", "state": "pending", "glyph": " ", "source_line": 16, "issue": "Issue-9", "meta": {"issue": "Issue-9", "priority": "P2", "est": "6h", "h": "0"}},
+          {"id": "n34", "parent": "n31", "text": "After the long one", "state": "pending", "glyph": " ", "source_line": 17, "issue": "Issue-10", "meta": {"issue": "Issue-10", "est": "6h", "h": "0", "depends_on": ["Issue-4"]}}
+        ]}
+      ],
+      "parse_report": [
+        {"project": "a", "source_line": 6, "kind": "dep_unresolved", "message": "depends_on 'zz:Issue-1' names project 'zz', which is not configured"},
+        {"project": "a", "source_line": 7, "kind": "dep_unresolved", "message": "depends_on 'b:Issue-99' matches no issue in project 'b'"},
+        {"project": "a", "source_line": 8, "kind": "dep_unresolved", "message": "depends_on 'b:Issue-99' matches no issue in project 'b'"},
+        {"project": "a", "source_line": 8, "kind": "dep_unresolved", "message": "depends_on 'zz:Issue-1' names project 'zz', which is not configured"},
+        {"project": "a", "source_line": 9, "kind": "dep_unresolved", "message": "depends_on '9.9' matches no issue in this project"},
+        {"project": "a", "source_line": 11, "kind": "dep_unresolved", "message": "depends_on 'Issue-97' matches no issue in this project"},
+        {"project": "a", "source_line": 14, "kind": "dep_unresolved", "message": "depends_on 'Issue-98' matches no issue in this project"},
+        {"project": "a", "source_line": 18, "kind": "dep_unresolved", "message": "depends_on 'Issue-99' matches no issue in this project"},
+        {"project": "a", "source_line": 19, "kind": "dep_unresolved", "message": "depends_on 'x:y:z' matches no issue in this project"},
+        {"project": "b", "source_line": 8, "kind": "dep_unresolved", "message": "depends_on 'zz:Issue-1' names project 'zz', which is not configured"}
+      ]
+    },
+    "week_plan/cross_site_cycle": {
+      "projects": [
+        {"project": "a", "status": "read", "status_reason": null, "nodes": [
+          {"id": "n1", "parent": null, "text": "Cycle", "state": "pending", "glyph": " ", "source_line": 3, "issue": null, "meta": {}},
+          {"id": "n2", "parent": "n1", "text": "Waits on a2", "state": "pending", "glyph": " ", "source_line": 4, "issue": "Issue-1", "meta": {"issue": "Issue-1", "est": "6h", "h": "0", "depends_on": ["Issue-2"]}},
+          {"id": "n3", "parent": "n1", "text": "Waits on b1", "state": "pending", "glyph": " ", "source_line": 5, "issue": "Issue-2", "meta": {"issue": "Issue-2", "est": "6h", "h": "0", "depends_on": ["b:Issue-1"]}},
+          {"id": "n4", "parent": "n1", "text": "Downstream on a", "state": "pending", "glyph": " ", "source_line": 6, "issue": "Issue-3", "meta": {"issue": "Issue-3", "est": "6h", "h": "0", "depends_on": ["b:Issue-1"]}},
+          {"id": "n5", "parent": "n1", "text": "Free on a", "state": "pending", "glyph": " ", "source_line": 7, "issue": "Issue-4", "meta": {"issue": "Issue-4", "est": "6h", "h": "0"}},
+          {"id": "n6", "parent": "n1", "text": "Waits on a row of b", "state": "pending", "glyph": " ", "source_line": 8, "issue": "Issue-5", "meta": {"issue": "Issue-5", "est": "6h", "h": "0", "depends_on": ["b:Issue-6"]}}
+        ]},
+        {"project": "b", "status": "read", "status_reason": null, "nodes": [
+          {"id": "n7", "parent": null, "text": "Cycle", "state": "pending", "glyph": " ", "source_line": 3, "issue": null, "meta": {}},
+          {"id": "n8", "parent": "n7", "text": "Waits on a1", "state": "pending", "glyph": " ", "source_line": 4, "issue": "Issue-1", "meta": {"issue": "Issue-1", "est": "6h", "h": "0", "depends_on": ["a:Issue-1"]}},
+          {"id": "n9", "parent": "n7", "text": "Downstream on b", "state": "pending", "glyph": " ", "source_line": 5, "issue": "Issue-2", "meta": {"issue": "Issue-2", "est": "6h", "h": "0", "depends_on": ["Issue-1"]}},
+          {"id": "n10", "parent": "n7", "text": "Free on b", "state": "pending", "glyph": " ", "source_line": 6, "issue": "Issue-3", "meta": {"issue": "Issue-3", "est": "6h", "h": "0"}},
+          {"id": "n11", "parent": "n7", "text": "Own cycle one", "state": "pending", "glyph": " ", "source_line": 7, "issue": "Issue-4", "meta": {"issue": "Issue-4", "est": "6h", "h": "0", "depends_on": ["Issue-5"]}},
+          {"id": "n12", "parent": "n7", "text": "Own cycle two", "state": "pending", "glyph": " ", "source_line": 8, "issue": "Issue-5", "meta": {"issue": "Issue-5", "est": "6h", "h": "0", "depends_on": ["Issue-4"]}},
+          {"id": "n13", "parent": null, "text": "Row target", "state": "pending", "glyph": " ", "source_line": 9, "issue": "Issue-6", "meta": {"issue": "Issue-6"}},
+          {"id": "n14", "parent": "n13", "text": "Under the target", "state": "pending", "glyph": " ", "source_line": 10, "issue": "Issue-7", "meta": {"issue": "Issue-7", "est": "6h", "h": "0", "depends_on": ["a:Issue-5"]}}
+        ]}
+      ],
+      "parse_report": [
+        {"project": "a", "source_line": 4, "kind": "dep_cycle", "message": "dependency cycle: Issue-1 (line 4), Issue-2 (line 5), b:Issue-1 (line 4)"},
+        {"project": "b", "source_line": 7, "kind": "dep_cycle", "message": "dependency cycle: Issue-4 (line 7), Issue-5 (line 8)"}
+      ]
+    },
+    "week_plan/late_ready": {
+      "projects": [
+        {"project": "a", "status": "read", "status_reason": null, "nodes": [
+          {"id": "n1", "parent": null, "text": "Work", "state": "pending", "glyph": " ", "source_line": 3, "issue": null, "meta": {}},
+          {"id": "n2", "parent": "n1", "text": "Leaf 1", "state": "pending", "glyph": " ", "source_line": 4, "issue": "Issue-1", "meta": {"issue": "Issue-1", "est": "12h", "h": "4"}},
+          {"id": "n3", "parent": "n1", "text": "Leaf 2", "state": "pending", "glyph": " ", "source_line": 5, "issue": "Issue-2", "meta": {"issue": "Issue-2", "est": "12h", "h": "4"}},
+          {"id": "n4", "parent": "n1", "text": "Leaf 3", "state": "pending", "glyph": " ", "source_line": 6, "issue": "Issue-3", "meta": {"issue": "Issue-3", "est": "12h", "h": "4"}},
+          {"id": "n5", "parent": "n1", "text": "Leaf 4", "state": "pending", "glyph": " ", "source_line": 7, "issue": "Issue-4", "meta": {"issue": "Issue-4", "est": "12h", "h": "4"}},
+          {"id": "n6", "parent": "n1", "text": "Leaf 5", "state": "pending", "glyph": " ", "source_line": 8, "issue": "Issue-5", "meta": {"issue": "Issue-5", "est": "12h", "h": "4"}}
+        ]},
+        {"project": "b", "status": "read", "status_reason": null, "nodes": [
+          {"id": "n7", "parent": null, "text": "Work", "state": "pending", "glyph": " ", "source_line": 3, "issue": null, "meta": {}},
+          {"id": "n8", "parent": "n7", "text": "Leaf 1", "state": "pending", "glyph": " ", "source_line": 4, "issue": "Issue-1", "meta": {"issue": "Issue-1", "est": "12h", "h": "4", "depends_on": ["c:Issue-1"]}},
+          {"id": "n9", "parent": "n7", "text": "Leaf 2", "state": "pending", "glyph": " ", "source_line": 5, "issue": "Issue-2", "meta": {"issue": "Issue-2", "est": "12h", "h": "4", "depends_on": ["c:Issue-1"]}},
+          {"id": "n10", "parent": "n7", "text": "Leaf 3", "state": "pending", "glyph": " ", "source_line": 6, "issue": "Issue-3", "meta": {"issue": "Issue-3", "est": "12h", "h": "4", "depends_on": ["c:Issue-1"]}},
+          {"id": "n11", "parent": "n7", "text": "Leaf 4", "state": "pending", "glyph": " ", "source_line": 7, "issue": "Issue-4", "meta": {"issue": "Issue-4", "est": "12h", "h": "4", "depends_on": ["c:Issue-1"]}},
+          {"id": "n12", "parent": "n7", "text": "Leaf 5", "state": "pending", "glyph": " ", "source_line": 8, "issue": "Issue-5", "meta": {"issue": "Issue-5", "est": "12h", "h": "4", "depends_on": ["c:Issue-1"]}}
+        ]},
+        {"project": "c", "status": "read", "status_reason": null, "nodes": [
+          {"id": "n13", "parent": null, "text": "Work", "state": "pending", "glyph": " ", "source_line": 3, "issue": null, "meta": {}},
+          {"id": "n14", "parent": "n13", "text": "Leaf 1", "state": "pending", "glyph": " ", "source_line": 4, "issue": "Issue-1", "meta": {"issue": "Issue-1", "est": "18h", "h": "0"}}
+        ]}
+      ],
+      "parse_report": [
+      ]
+    },
+    "week_plan/leaf_boxes": {
+      "projects": [
+        {"project": "a", "status": "read", "status_reason": null, "nodes": [
+          {"id": "n1", "parent": null, "text": "Boxes", "state": "pending", "glyph": " ", "source_line": 3, "issue": null, "meta": {}},
+          {"id": "n2", "parent": "n1", "text": "Lay the base", "state": "pending", "glyph": " ", "source_line": 4, "issue": "Issue-1", "meta": {"issue": "Issue-1", "est": "2h", "h": "1"}},
+          {"id": "n3", "parent": "n1", "text": "Raise the walls", "state": "in_progress", "glyph": "~", "source_line": 5, "issue": "Issue-2", "meta": {"issue": "Issue-2", "est": "2h", "h": "1", "depends_on": ["Issue-1"]}},
+          {"id": "n4", "parent": "n1", "text": "Fix the beams", "state": "stuck", "glyph": "!", "source_line": 6, "issue": "Issue-3", "meta": {"issue": "Issue-3", "est": "2h", "h": "1", "depends_on": ["Issue-2"]}},
+          {"id": "n5", "parent": "n1", "text": "Close the roof", "state": "pending", "glyph": " ", "source_line": 7, "issue": "Issue-4", "meta": {"issue": "Issue-4", "est": "2h", "h": "1", "depends_on": ["Issue-3", "Issue-7"]}},
+          {"id": "n6", "parent": "n1", "text": "Hang the doors", "state": "pending", "glyph": " ", "source_line": 8, "issue": "Issue-5", "meta": {"issue": "Issue-5", "est": "2h", "h": "1", "depends_on": ["Issue-4", "Issue-12"]}},
+          {"id": "n7", "parent": "n1", "text": "Hand over", "state": "pending", "glyph": " ", "source_line": 9, "issue": "Issue-6", "meta": {"issue": "Issue-6", "est": "2h", "h": "1", "depends_on": ["Issue-5", "Issue-14"]}},
+          {"id": "n8", "parent": "n1", "text": "Order the trusses", "state": "pending", "glyph": " ", "source_line": 10, "issue": "Issue-7", "meta": {"issue": "Issue-7", "est": "2h", "h": "1"}},
+          {"id": "n9", "parent": "n1", "text": "Sort the tiles", "state": "pending", "glyph": " ", "source_line": 11, "issue": "Issue-8", "meta": {"issue": "Issue-8", "est": "2h", "h": "0"}},
+          {"id": "n10", "parent": "n1", "text": "Stack the tiles", "state": "pending", "glyph": " ", "source_line": 12, "issue": "Issue-9", "meta": {"issue": "Issue-9", "est": "2h", "h": "0", "depends_on": ["Issue-8"]}},
+          {"id": "n11", "parent": "n1", "text": "Wait for the survey", "state": "pending", "glyph": " ", "source_line": 13, "issue": "Issue-10", "meta": {"issue": "Issue-10", "est": "2h", "h": "0", "depends_on": ["b:Issue-1"]}},
+          {"id": "n12", "parent": "n1", "text": "The quick brown fox jumps over the lazy dog again and again", "state": "pending", "glyph": " ", "source_line": 14, "issue": "Issue-12345678901234", "meta": {"issue": "Issue-12345678901234", "priority": "urgent!", "est": "2h", "h": "1"}},
+          {"id": "n13", "parent": "n1", "text": "Check the long model names", "state": "pending", "glyph": " ", "source_line": 15, "issue": "Issue-11", "meta": {"issue": "Issue-11", "est": "2h", "h": "1"}},
+          {"id": "n14", "parent": "n1", "text": "Book the crane", "state": "pending", "glyph": " ", "source_line": 16, "issue": "Issue-12", "meta": {"issue": "Issue-12", "est": "2h", "h": "1"}},
+          {"id": "n15", "parent": "n1", "text": "Guess the fittings", "state": "pending", "glyph": " ", "source_line": 17, "issue": "Issue-13", "meta": {"issue": "Issue-13", "est": "?", "h": "1"}},
+          {"id": "n16", "parent": "n1", "text": "", "state": "pending", "glyph": " ", "source_line": 18, "issue": "Issue-14", "meta": {"issue": "Issue-14", "est": "2h", "h": "0"}}
+        ]},
+        {"project": "b", "status": "read", "status_reason": null, "nodes": [
+          {"id": "n17", "parent": null, "text": "Survey", "state": "pending", "glyph": " ", "source_line": 3, "issue": null, "meta": {}},
+          {"id": "n18", "parent": "n17", "text": "Survey the plot", "state": "pending", "glyph": " ", "source_line": 4, "issue": "Issue-1", "meta": {"issue": "Issue-1", "est": "1h", "h": "0"}},
+          {"id": "n19", "parent": "n17", "text": "Mark the corners", "state": "pending", "glyph": " ", "source_line": 5, "issue": "Issue-2", "meta": {"issue": "Issue-2", "est": "1h", "h": "0"}},
+          {"id": "n20", "parent": "n17", "text": "File the survey", "state": "pending", "glyph": " ", "source_line": 6, "issue": "Issue-3", "meta": {"issue": "Issue-3", "est": "2h", "h": "1"}}
+        ]}
+      ],
+      "parse_report": [
+      ]
+    },
+    "week_plan/no_allocation": {
+      "projects": [
+        {"project": "a", "status": "read", "status_reason": null, "nodes": [
+          {"id": "n1", "parent": null, "text": "Work", "state": "pending", "glyph": " ", "source_line": 3, "issue": null, "meta": {}},
+          {"id": "n2", "parent": "n1", "text": "Leaf 1", "state": "pending", "glyph": " ", "source_line": 4, "issue": "Issue-1", "meta": {"issue": "Issue-1", "est": "12h", "h": "4"}},
+          {"id": "n3", "parent": "n1", "text": "Leaf 2", "state": "pending", "glyph": " ", "source_line": 5, "issue": "Issue-2", "meta": {"issue": "Issue-2", "est": "12h", "h": "4"}},
+          {"id": "n4", "parent": "n1", "text": "Leaf 3", "state": "pending", "glyph": " ", "source_line": 6, "issue": "Issue-3", "meta": {"issue": "Issue-3", "est": "12h", "h": "4"}}
+        ]},
+        {"project": "b", "status": "read", "status_reason": null, "nodes": [
+          {"id": "n5", "parent": null, "text": "Work", "state": "pending", "glyph": " ", "source_line": 3, "issue": null, "meta": {}},
+          {"id": "n6", "parent": "n5", "text": "Leaf 1", "state": "pending", "glyph": " ", "source_line": 4, "issue": "Issue-1", "meta": {"issue": "Issue-1", "est": "12h", "h": "4"}},
+          {"id": "n7", "parent": "n5", "text": "Leaf 2", "state": "pending", "glyph": " ", "source_line": 5, "issue": "Issue-2", "meta": {"issue": "Issue-2", "est": "12h", "h": "4"}},
+          {"id": "n8", "parent": "n5", "text": "Leaf 3", "state": "pending", "glyph": " ", "source_line": 6, "issue": "Issue-3", "meta": {"issue": "Issue-3", "est": "12h", "h": "4"}}
+        ]}
+      ],
+      "parse_report": [
+      ]
+    },
+    "week_plan/no_share": {
+      "projects": [
+        {"project": "c", "status": "read", "status_reason": null, "nodes": [
+          {"id": "n1", "parent": null, "text": "Work", "state": "pending", "glyph": " ", "source_line": 3, "issue": null, "meta": {}},
+          {"id": "n2", "parent": "n1", "text": "Leaf 1", "state": "pending", "glyph": " ", "source_line": 4, "issue": "Issue-1", "meta": {"issue": "Issue-1", "est": "3w", "h": "4"}},
+          {"id": "n3", "parent": "n1", "text": "Leaf 2", "state": "pending", "glyph": " ", "source_line": 5, "issue": "Issue-2", "meta": {"issue": "Issue-2", "est": "3w", "h": "4"}},
+          {"id": "n4", "parent": "n1", "text": "Leaf 3", "state": "pending", "glyph": " ", "source_line": 6, "issue": "Issue-3", "meta": {"issue": "Issue-3", "est": "3w", "h": "0"}}
+        ]},
+        {"project": "a", "status": "read", "status_reason": null, "nodes": [
+          {"id": "n5", "parent": null, "text": "Work", "state": "pending", "glyph": " ", "source_line": 3, "issue": null, "meta": {}},
+          {"id": "n6", "parent": "n5", "text": "Leaf 1", "state": "pending", "glyph": " ", "source_line": 4, "issue": "Issue-1", "meta": {"issue": "Issue-1", "est": "12h", "h": "4"}},
+          {"id": "n7", "parent": "n5", "text": "Leaf 2", "state": "pending", "glyph": " ", "source_line": 5, "issue": "Issue-2", "meta": {"issue": "Issue-2", "est": "0.5h", "h": "0"}}
+        ]},
+        {"project": "d", "status": "read", "status_reason": null, "nodes": [
+          {"id": "n8", "parent": null, "text": "Work", "state": "pending", "glyph": " ", "source_line": 3, "issue": null, "meta": {}},
+          {"id": "n9", "parent": "n8", "text": "Leaf 1", "state": "pending", "glyph": " ", "source_line": 4, "issue": "Issue-1", "meta": {"issue": "Issue-1", "est": "3w", "h": "4"}},
+          {"id": "n10", "parent": "n8", "text": "Leaf 2", "state": "pending", "glyph": " ", "source_line": 5, "issue": "Issue-2", "meta": {"issue": "Issue-2", "est": "3w", "h": "4"}},
+          {"id": "n11", "parent": "n8", "text": "Leaf 3", "state": "pending", "glyph": " ", "source_line": 6, "issue": "Issue-3", "meta": {"issue": "Issue-3", "est": "3w", "h": "0"}}
+        ]}
+      ],
+      "parse_report": [
+      ]
+    },
+    "week_plan/p0": {
+      "projects": [
+        {"project": "a", "status": "read", "status_reason": null, "nodes": [
+          {"id": "n1", "parent": null, "text": "Work", "state": "pending", "glyph": " ", "source_line": 3, "issue": null, "meta": {}},
+          {"id": "n2", "parent": "n1", "text": "Leaf 1", "state": "pending", "glyph": " ", "source_line": 4, "issue": "Issue-1", "meta": {"issue": "Issue-1", "priority": "P0", "est": "2h", "h": "4", "depends_on": ["Issue-2"]}},
+          {"id": "n3", "parent": "n1", "text": "Leaf 2", "state": "pending", "glyph": " ", "source_line": 5, "issue": "Issue-2", "meta": {"issue": "Issue-2", "est": "1h", "h": "4"}},
+          {"id": "n4", "parent": "n1", "text": "Leaf 3", "state": "pending", "glyph": " ", "source_line": 6, "issue": "Issue-3", "meta": {"issue": "Issue-3", "priority": "P0", "est": "1h", "h": "4", "depends_on": ["b:Issue-3"]}},
+          {"id": "n5", "parent": "n1", "text": "Leaf 4", "state": "pending", "glyph": " ", "source_line": 7, "issue": "Issue-4", "meta": {"issue": "Issue-4", "est": "3w", "h": "4"}},
+          {"id": "n6", "parent": "n1", "text": "Leaf 5", "state": "pending", "glyph": " ", "source_line": 8, "issue": "Issue-5", "meta": {"issue": "Issue-5", "est": "3w", "h": "4"}},
+          {"id": "n7", "parent": "n1", "text": "Leaf 6", "state": "pending", "glyph": " ", "source_line": 9, "issue": "Issue-6", "meta": {"issue": "Issue-6", "est": "3w", "h": "4"}}
+        ]},
+        {"project": "b", "status": "read", "status_reason": null, "nodes": [
+          {"id": "n8", "parent": null, "text": "Work", "state": "pending", "glyph": " ", "source_line": 3, "issue": null, "meta": {}},
+          {"id": "n9", "parent": "n8", "text": "Leaf 1", "state": "pending", "glyph": " ", "source_line": 4, "issue": "Issue-1", "meta": {"issue": "Issue-1", "priority": "P0", "est": "0.5h", "h": "4"}},
+          {"id": "n10", "parent": "n8", "text": "Leaf 4", "state": "pending", "glyph": " ", "source_line": 5, "issue": "Issue-4", "meta": {"issue": "Issue-4", "priority": "P0", "est": "1h", "h": "4", "depends_on": ["Issue-1"]}},
+          {"id": "n11", "parent": "n8", "text": "Leaf 3", "state": "pending", "glyph": " ", "source_line": 6, "issue": "Issue-3", "meta": {"issue": "Issue-3", "est": "3w", "h": "4"}},
+          {"id": "n12", "parent": "n8", "text": "Leaf 2", "state": "pending", "glyph": " ", "source_line": 7, "issue": "Issue-2", "meta": {"issue": "Issue-2", "est": "3w", "h": "4"}}
+        ]}
+      ],
+      "parse_report": [
+      ]
+    },
+    "week_plan/share_unbuilt": {
+      "projects": [
+        {"project": "a", "status": "read", "status_reason": null, "nodes": [
+          {"id": "n1", "parent": null, "text": "Work", "state": "pending", "glyph": " ", "source_line": 3, "issue": null, "meta": {}},
+          {"id": "n2", "parent": "n1", "text": "Leaf 1", "state": "pending", "glyph": " ", "source_line": 4, "issue": "Issue-1", "meta": {"issue": "Issue-1", "est": "12h", "h": "4"}},
+          {"id": "n3", "parent": "n1", "text": "Leaf 2", "state": "pending", "glyph": " ", "source_line": 5, "issue": "Issue-2", "meta": {"issue": "Issue-2", "est": "12h", "h": "4"}},
+          {"id": "n4", "parent": "n1", "text": "Leaf 3", "state": "pending", "glyph": " ", "source_line": 6, "issue": "Issue-3", "meta": {"issue": "Issue-3", "est": "12h", "h": "4"}},
+          {"id": "n5", "parent": "n1", "text": "Leaf 4", "state": "pending", "glyph": " ", "source_line": 7, "issue": "Issue-4", "meta": {"issue": "Issue-4", "est": "12h", "h": "4"}},
+          {"id": "n6", "parent": "n1", "text": "Leaf 5", "state": "pending", "glyph": " ", "source_line": 8, "issue": "Issue-5", "meta": {"issue": "Issue-5", "est": "12h", "h": "4"}}
+        ]},
+        {"project": "b", "status": "read", "status_reason": null, "nodes": [
+          {"id": "n7", "parent": null, "text": "Work", "state": "pending", "glyph": " ", "source_line": 3, "issue": null, "meta": {}},
+          {"id": "n8", "parent": "n7", "text": "Leaf 1", "state": "pending", "glyph": " ", "source_line": 4, "issue": "Issue-1", "meta": {"issue": "Issue-1", "est": "12h", "h": "4"}},
+          {"id": "n9", "parent": "n7", "text": "Leaf 2", "state": "pending", "glyph": " ", "source_line": 5, "issue": "Issue-2", "meta": {"issue": "Issue-2", "est": "12h", "h": "4"}},
+          {"id": "n10", "parent": "n7", "text": "Leaf 3", "state": "pending", "glyph": " ", "source_line": 6, "issue": "Issue-3", "meta": {"issue": "Issue-3", "est": "12h", "h": "4"}},
+          {"id": "n11", "parent": "n7", "text": "Leaf 4", "state": "pending", "glyph": " ", "source_line": 7, "issue": "Issue-4", "meta": {"issue": "Issue-4", "est": "12h", "h": "4"}},
+          {"id": "n12", "parent": "n7", "text": "Leaf 5", "state": "pending", "glyph": " ", "source_line": 8, "issue": "Issue-5", "meta": {"issue": "Issue-5", "est": "12h", "h": "4"}}
+        ]}
+      ],
+      "parse_report": [
+      ]
+    },
+    "week_plan/states": {
+      "projects": [
+        {"project": "a", "status": "read", "status_reason": null, "nodes": [
+          {"id": "n1", "parent": null, "text": "Every open state", "state": "pending", "glyph": " ", "source_line": 3, "issue": null, "meta": {}},
+          {"id": "n2", "parent": "n1", "text": "Build the frame", "state": "in_progress", "glyph": "~", "source_line": 4, "issue": "Issue-1", "meta": {"issue": "Issue-1", "priority": "P1", "est": "6h", "h": "1"}},
+          {"id": "n3", "parent": "n1", "text": "Fit the panels", "state": "in_progress", "glyph": "~", "source_line": 5, "issue": "Issue-2", "meta": {"issue": "Issue-2", "priority": "P2", "est": "6h", "h": "1"}},
+          {"id": "n4", "parent": "n1", "text": "Seal the joints", "state": "stuck", "glyph": "!", "source_line": 6, "issue": "Issue-3", "meta": {"issue": "Issue-3", "est": "3h", "h": "1"}},
+          {"id": "n5", "parent": "n1", "text": "Await the inspection", "state": "blocked_external", "glyph": "?", "source_line": 7, "issue": "Issue-4", "meta": {"issue": "Issue-4", "h": "1"}},
+          {"id": "n6", "parent": "n1", "text": "Paint the trim", "state": "parked", "glyph": "P", "source_line": 8, "issue": "Issue-5", "meta": {"issue": "Issue-5", "h": "1"}},
+          {"id": "n7", "parent": "n1", "text": "Hand over the keys", "state": "pending", "glyph": " ", "source_line": 9, "issue": "Issue-6", "meta": {"issue": "Issue-6", "h": "1", "depends_on": ["Issue-4"]}}
+        ]},
+        {"project": "b", "status": "read", "status_reason": null, "nodes": [
+          {"id": "n8", "parent": null, "text": "Second site", "state": "pending", "glyph": " ", "source_line": 3, "issue": null, "meta": {}},
+          {"id": "n9", "parent": "n8", "text": "Dig the footing", "state": "in_progress", "glyph": "~", "source_line": 4, "issue": "Issue-1", "meta": {"issue": "Issue-1", "priority": "P1", "est": "6h", "h": "1"}},
+          {"id": "n10", "parent": "n8", "text": "Pour the footing", "state": "pending", "glyph": " ", "source_line": 5, "issue": "Issue-2", "meta": {"issue": "Issue-2", "h": "1"}}
+        ]}
+      ],
+      "parse_report": [
+      ]
+    },
+    "week_plan/two_sites": {
+      "projects": [
+        {"project": "a", "status": "read", "status_reason": null, "nodes": [
+          {"id": "n1", "parent": null, "text": "Work", "state": "pending", "glyph": " ", "source_line": 3, "issue": null, "meta": {}},
+          {"id": "n2", "parent": "n1", "text": "Leaf 1", "state": "pending", "glyph": " ", "source_line": 4, "issue": "Issue-1", "meta": {"issue": "Issue-1", "est": "12h", "h": "4"}},
+          {"id": "n3", "parent": "n1", "text": "Leaf 2", "state": "pending", "glyph": " ", "source_line": 5, "issue": "Issue-2", "meta": {"issue": "Issue-2", "est": "12h", "h": "4"}},
+          {"id": "n4", "parent": "n1", "text": "Leaf 3", "state": "pending", "glyph": " ", "source_line": 6, "issue": "Issue-3", "meta": {"issue": "Issue-3", "est": "12h", "h": "4"}},
+          {"id": "n5", "parent": "n1", "text": "Leaf 4", "state": "pending", "glyph": " ", "source_line": 7, "issue": "Issue-4", "meta": {"issue": "Issue-4", "est": "12h", "h": "4"}},
+          {"id": "n6", "parent": "n1", "text": "Leaf 5", "state": "pending", "glyph": " ", "source_line": 8, "issue": "Issue-5", "meta": {"issue": "Issue-5", "est": "12h", "h": "4"}}
+        ]},
+        {"project": "b", "status": "read", "status_reason": null, "nodes": [
+          {"id": "n7", "parent": null, "text": "Work", "state": "pending", "glyph": " ", "source_line": 3, "issue": null, "meta": {}},
+          {"id": "n8", "parent": "n7", "text": "Leaf 1", "state": "pending", "glyph": " ", "source_line": 4, "issue": "Issue-1", "meta": {"issue": "Issue-1", "est": "12h", "h": "4"}},
+          {"id": "n9", "parent": "n7", "text": "Leaf 2", "state": "pending", "glyph": " ", "source_line": 5, "issue": "Issue-2", "meta": {"issue": "Issue-2", "est": "12h", "h": "4"}},
+          {"id": "n10", "parent": "n7", "text": "Leaf 3", "state": "pending", "glyph": " ", "source_line": 6, "issue": "Issue-3", "meta": {"issue": "Issue-3", "est": "12h", "h": "4"}},
+          {"id": "n11", "parent": "n7", "text": "Leaf 4", "state": "pending", "glyph": " ", "source_line": 7, "issue": "Issue-4", "meta": {"issue": "Issue-4", "est": "12h", "h": "4"}},
+          {"id": "n12", "parent": "n7", "text": "Leaf 5", "state": "pending", "glyph": " ", "source_line": 8, "issue": "Issue-5", "meta": {"issue": "Issue-5", "est": "12h", "h": "4"}}
+        ]}
+      ],
+      "parse_report": [
+      ]
+    },
+    "week_plan/unequal_rates": {
+      "projects": [
+        {"project": "a", "status": "read", "status_reason": null, "nodes": [
+          {"id": "n1", "parent": null, "text": "Work", "state": "pending", "glyph": " ", "source_line": 3, "issue": null, "meta": {}},
+          {"id": "n2", "parent": "n1", "text": "Leaf 1", "state": "pending", "glyph": " ", "source_line": 4, "issue": "Issue-1", "meta": {"issue": "Issue-1", "est": "3w", "h": "4"}},
+          {"id": "n3", "parent": "n1", "text": "Leaf 2", "state": "pending", "glyph": " ", "source_line": 5, "issue": "Issue-2", "meta": {"issue": "Issue-2", "est": "3w", "h": "4"}},
+          {"id": "n4", "parent": "n1", "text": "Leaf 3", "state": "pending", "glyph": " ", "source_line": 6, "issue": "Issue-3", "meta": {"issue": "Issue-3", "est": "3w", "h": "0"}},
+          {"id": "n5", "parent": "n1", "text": "Leaf 4", "state": "pending", "glyph": " ", "source_line": 7, "issue": "Issue-4", "meta": {"issue": "Issue-4", "est": "3w", "h": "0"}},
+          {"id": "n6", "parent": "n1", "text": "Leaf 5", "state": "pending", "glyph": " ", "source_line": 8, "issue": "Issue-5", "meta": {"issue": "Issue-5", "est": "3w", "h": "0"}},
+          {"id": "n7", "parent": "n1", "text": "Leaf 6", "state": "pending", "glyph": " ", "source_line": 9, "issue": "Issue-6", "meta": {"issue": "Issue-6", "est": "3w", "h": "0"}},
+          {"id": "n8", "parent": "n1", "text": "Leaf 7", "state": "pending", "glyph": " ", "source_line": 10, "issue": "Issue-7", "meta": {"issue": "Issue-7", "est": "3w", "h": "0"}},
+          {"id": "n9", "parent": "n1", "text": "Leaf 8", "state": "pending", "glyph": " ", "source_line": 11, "issue": "Issue-8", "meta": {"issue": "Issue-8", "est": "3w", "h": "0"}},
+          {"id": "n10", "parent": "n1", "text": "Leaf 9", "state": "pending", "glyph": " ", "source_line": 12, "issue": "Issue-9", "meta": {"issue": "Issue-9", "est": "3w", "h": "0"}},
+          {"id": "n11", "parent": "n1", "text": "Leaf 10", "state": "pending", "glyph": " ", "source_line": 13, "issue": "Issue-10", "meta": {"issue": "Issue-10", "est": "3w", "h": "0"}},
+          {"id": "n12", "parent": "n1", "text": "Leaf 11", "state": "pending", "glyph": " ", "source_line": 14, "issue": "Issue-11", "meta": {"issue": "Issue-11", "est": "3w", "h": "0"}}
+        ]},
+        {"project": "b", "status": "read", "status_reason": null, "nodes": [
+          {"id": "n13", "parent": null, "text": "Work", "state": "pending", "glyph": " ", "source_line": 3, "issue": null, "meta": {}},
+          {"id": "n14", "parent": "n13", "text": "Leaf 1", "state": "pending", "glyph": " ", "source_line": 4, "issue": "Issue-1", "meta": {"issue": "Issue-1", "est": "3w", "h": "1"}},
+          {"id": "n15", "parent": "n13", "text": "Leaf 2", "state": "pending", "glyph": " ", "source_line": 5, "issue": "Issue-2", "meta": {"issue": "Issue-2", "est": "3w", "h": "1"}},
+          {"id": "n16", "parent": "n13", "text": "Leaf 3", "state": "pending", "glyph": " ", "source_line": 6, "issue": "Issue-3", "meta": {"issue": "Issue-3", "est": "3w", "h": "1"}},
+          {"id": "n17", "parent": "n13", "text": "Leaf 4", "state": "pending", "glyph": " ", "source_line": 7, "issue": "Issue-4", "meta": {"issue": "Issue-4", "est": "3w", "h": "1"}},
+          {"id": "n18", "parent": "n13", "text": "Leaf 5", "state": "pending", "glyph": " ", "source_line": 8, "issue": "Issue-5", "meta": {"issue": "Issue-5", "est": "3w", "h": "1"}},
+          {"id": "n19", "parent": "n13", "text": "Leaf 6", "state": "pending", "glyph": " ", "source_line": 9, "issue": "Issue-6", "meta": {"issue": "Issue-6", "est": "3w", "h": "1"}},
+          {"id": "n20", "parent": "n13", "text": "Leaf 7", "state": "pending", "glyph": " ", "source_line": 10, "issue": "Issue-7", "meta": {"issue": "Issue-7", "est": "3w", "h": "1"}},
+          {"id": "n21", "parent": "n13", "text": "Leaf 8", "state": "pending", "glyph": " ", "source_line": 11, "issue": "Issue-8", "meta": {"issue": "Issue-8", "est": "3w", "h": "1"}},
+          {"id": "n22", "parent": "n13", "text": "Leaf 9", "state": "pending", "glyph": " ", "source_line": 12, "issue": "Issue-9", "meta": {"issue": "Issue-9", "est": "3w", "h": "0"}},
+          {"id": "n23", "parent": "n13", "text": "Leaf 10", "state": "pending", "glyph": " ", "source_line": 13, "issue": "Issue-10", "meta": {"issue": "Issue-10", "est": "3w", "h": "0"}},
+          {"id": "n24", "parent": "n13", "text": "Leaf 11", "state": "pending", "glyph": " ", "source_line": 14, "issue": "Issue-11", "meta": {"issue": "Issue-11", "est": "3w", "h": "0"}},
+          {"id": "n25", "parent": "n13", "text": "Leaf 12", "state": "pending", "glyph": " ", "source_line": 15, "issue": "Issue-12", "meta": {"issue": "Issue-12", "est": "3w", "h": "0"}},
+          {"id": "n26", "parent": "n13", "text": "Leaf 13", "state": "pending", "glyph": " ", "source_line": 16, "issue": "Issue-13", "meta": {"issue": "Issue-13", "est": "3w", "h": "0"}},
+          {"id": "n27", "parent": "n13", "text": "Leaf 14", "state": "pending", "glyph": " ", "source_line": 17, "issue": "Issue-14", "meta": {"issue": "Issue-14", "est": "3w", "h": "0"}},
+          {"id": "n28", "parent": "n13", "text": "Leaf 15", "state": "pending", "glyph": " ", "source_line": 18, "issue": "Issue-15", "meta": {"issue": "Issue-15", "est": "3w", "h": "0"}},
+          {"id": "n29", "parent": "n13", "text": "Leaf 16", "state": "pending", "glyph": " ", "source_line": 19, "issue": "Issue-16", "meta": {"issue": "Issue-16", "est": "3w", "h": "0"}},
+          {"id": "n30", "parent": "n13", "text": "Leaf 17", "state": "pending", "glyph": " ", "source_line": 20, "issue": "Issue-17", "meta": {"issue": "Issue-17", "est": "3w", "h": "0"}}
+        ]}
+      ],
+      "parse_report": [
+      ]
+    },
+    "capacity/install": {
+      "projects": [
+        {"project": "a", "status": "read", "status_reason": null, "nodes": [
+          {"id": "n1", "parent": null, "text": "Work", "state": "pending", "glyph": " ", "source_line": 3, "issue": null, "meta": {}},
+          {"id": "n2", "parent": "n1", "text": "Leaf 1", "state": "pending", "glyph": " ", "source_line": 4, "issue": "Issue-1", "meta": {"issue": "Issue-1", "est": "10h", "h": "2"}},
+          {"id": "n3", "parent": "n1", "text": "Leaf 2", "state": "pending", "glyph": " ", "source_line": 5, "issue": "Issue-2", "meta": {"issue": "Issue-2", "est": "8h"}}
+        ]},
+        {"project": "b", "status": "read", "status_reason": null, "nodes": [
+          {"id": "n4", "parent": null, "text": "Work", "state": "pending", "glyph": " ", "source_line": 3, "issue": null, "meta": {}},
+          {"id": "n5", "parent": "n4", "text": "Leaf 1", "state": "pending", "glyph": " ", "source_line": 4, "issue": "Issue-1", "meta": {"issue": "Issue-1", "est": "12h", "h": "3"}},
+          {"id": "n6", "parent": "n4", "text": "Leaf 2", "state": "pending", "glyph": " ", "source_line": 5, "issue": "Issue-2", "meta": {"issue": "Issue-2", "est": "6h", "h": "0"}}
+        ]},
+        {"project": "c", "status": "read", "status_reason": null, "nodes": [
+          {"id": "n7", "parent": null, "text": "Work", "state": "pending", "glyph": " ", "source_line": 3, "issue": null, "meta": {}},
+          {"id": "n8", "parent": "n7", "text": "Leaf 1", "state": "pending", "glyph": " ", "source_line": 4, "issue": "Issue-1", "meta": {"issue": "Issue-1", "est": "8h", "h": "1"}},
+          {"id": "n9", "parent": "n7", "text": "Leaf 2", "state": "pending", "glyph": " ", "source_line": 5, "issue": "Issue-2", "meta": {"issue": "Issue-2", "est": "4h"}}
+        ]}
+      ],
+      "parse_report": [
+      ]
+    },
+    "capacity/install_dep": {
+      "projects": [
+        {"project": "a", "status": "read", "status_reason": null, "nodes": [
+          {"id": "n1", "parent": null, "text": "Work", "state": "pending", "glyph": " ", "source_line": 3, "issue": null, "meta": {}},
+          {"id": "n2", "parent": "n1", "text": "Waits on a leaf of c", "state": "pending", "glyph": " ", "source_line": 4, "issue": "Issue-1", "meta": {"issue": "Issue-1", "est": "10h", "h": "2", "depends_on": ["c:Issue-1"]}},
+          {"id": "n3", "parent": "n1", "text": "Free", "state": "pending", "glyph": " ", "source_line": 5, "issue": "Issue-2", "meta": {"issue": "Issue-2", "est": "8h"}},
+          {"id": "n4", "parent": "n1", "text": "Behind the wait", "state": "pending", "glyph": " ", "source_line": 6, "issue": "Issue-3", "meta": {"issue": "Issue-3", "est": "4h", "h": "1", "depends_on": ["Issue-1"]}},
+          {"id": "n5", "parent": "n1", "text": "In a cycle with c", "state": "pending", "glyph": " ", "source_line": 7, "issue": "Issue-4", "meta": {"issue": "Issue-4", "est": "4h", "h": "1", "depends_on": ["c:Issue-6"]}},
+          {"id": "n6", "parent": "n1", "text": "In a cycle with b", "state": "pending", "glyph": " ", "source_line": 8, "issue": "Issue-5", "meta": {"issue": "Issue-5", "est": "4h", "h": "1", "depends_on": ["b:Issue-3"]}}
+        ]},
+        {"project": "b", "status": "read", "status_reason": null, "nodes": [
+          {"id": "n7", "parent": null, "text": "Work", "state": "pending", "glyph": " ", "source_line": 3, "issue": null, "meta": {}},
+          {"id": "n8", "parent": "n7", "text": "Leaf 1", "state": "pending", "glyph": " ", "source_line": 4, "issue": "Issue-1", "meta": {"issue": "Issue-1", "est": "12h", "h": "3"}},
+          {"id": "n9", "parent": "n7", "text": "Leaf 2", "state": "pending", "glyph": " ", "source_line": 5, "issue": "Issue-2", "meta": {"issue": "Issue-2", "est": "6h", "h": "0"}},
+          {"id": "n10", "parent": "n7", "text": "In a cycle with a", "state": "pending", "glyph": " ", "source_line": 6, "issue": "Issue-3", "meta": {"issue": "Issue-3", "est": "4h", "h": "1", "depends_on": ["a:Issue-5"]}}
+        ]},
+        {"project": "c", "status": "read", "status_reason": null, "nodes": [
+          {"id": "n11", "parent": null, "text": "Work", "state": "pending", "glyph": " ", "source_line": 3, "issue": null, "meta": {}},
+          {"id": "n12", "parent": "n11", "text": "The P0 leaf", "state": "pending", "glyph": " ", "source_line": 4, "issue": "Issue-1", "meta": {"issue": "Issue-1", "priority": "P0", "est": "8h", "h": "1"}},
+          {"id": "n13", "parent": "n11", "text": "Blocked outside", "state": "blocked_external", "glyph": "?", "source_line": 5, "issue": "Issue-2", "meta": {"issue": "Issue-2", "est": "4h", "h": "1"}},
+          {"id": "n14", "parent": "n11", "text": "Parked", "state": "parked", "glyph": "P", "source_line": 6, "issue": "Issue-3", "meta": {"issue": "Issue-3", "est": "4h", "h": "1"}},
+          {"id": "n15", "parent": "n11", "text": "Own cycle one", "state": "pending", "glyph": " ", "source_line": 7, "issue": "Issue-4", "meta": {"issue": "Issue-4", "est": "4h", "h": "1", "depends_on": ["Issue-5"]}},
+          {"id": "n16", "parent": "n11", "text": "Own cycle two", "state": "pending", "glyph": " ", "source_line": 8, "issue": "Issue-5", "meta": {"issue": "Issue-5", "est": "4h", "h": "1", "depends_on": ["Issue-4"]}},
+          {"id": "n17", "parent": "n11", "text": "In a cycle with a", "state": "pending", "glyph": " ", "source_line": 9, "issue": "Issue-6", "meta": {"issue": "Issue-6", "est": "4h", "h": "1", "depends_on": ["a:Issue-4"]}},
+          {"id": "n18", "parent": "n11", "text": "Free", "state": "pending", "glyph": " ", "source_line": 10, "issue": "Issue-7", "meta": {"issue": "Issue-7", "est": "4h"}}
+        ]}
+      ],
+      "parse_report": [
+        {"project": "a", "source_line": 7, "kind": "dep_cycle", "message": "dependency cycle: Issue-4 (line 7), c:Issue-6 (line 9)"},
+        {"project": "a", "source_line": 8, "kind": "dep_cycle", "message": "dependency cycle: Issue-5 (line 8), b:Issue-3 (line 6)"},
+        {"project": "c", "source_line": 7, "kind": "dep_cycle", "message": "dependency cycle: Issue-4 (line 7), Issue-5 (line 8)"}
+      ]
+    }
+  }
+}
