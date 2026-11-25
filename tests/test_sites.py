@@ -13,7 +13,7 @@ import helpers_portfolio as hp
 from gantry import config as cfg
 from gantry import sites as st
 from gantry.cli import main
-from helpers_config import append_bytes, copy_samples, sample_projects, write_config
+from helpers_config import _stopgap_agreement, append_bytes, copy_samples, sample_projects, write_config
 from sample_roles import NO_WBS, READABLE, UNREADABLE
 from test_samples import GANTRY_SAMPLE, SAMPLES
 
@@ -198,6 +198,12 @@ def test_nul_devdoc_dir_is_a_site_problem_not_a_crash(tmp_path, capsys):
     (tmp_path / "plans").mkdir()
     (tmp_path / "plans" / "WBS.md").write_bytes(b"x\n")
     p = fixture_config(tmp_path, devagent)
+    # devagent's portfolio document for this tree (#197), as its v3.4.0 aggregator writes it: the NUL
+    # project's directory does not exist for it, and alpha is read with no node.
+    document = tmp_path / hp.DOC_NAME
+    document.write_bytes(hp.sp.dumps(hp.site_document({"nul": hp.NotRead("no_devdoc_dir", hp.ABSENT_REASON),
+                                                       ALPHA: hp.source(b"x\n")})))
+    _stopgap_agreement(tmp_path, document, {ALPHA: b"x\n"}, who="test_sites")
     sites, _ = site_list(p)
     assert sites[0].problem.startswith("cannot check the planning directory: ")
     assert sites[1].problem is None
