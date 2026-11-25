@@ -210,11 +210,19 @@ class Leaf(NamedTuple):
 
 def _meta_value(value):
     """devagent's reading of a leaf() metadata value: a [...] value as the list of its stripped
-    entries, anything else as its text."""
+    entries, anything else as its text. A value devagent's parser reads otherwise (a quote or a
+    brace, a ',', ': ' or bracket outside a list, surrounding space, an empty list entry) raises
+    ValueError: state such a line and its node with Leaf(line, hp.node(...))."""
     text = str(value)
-    if text.startswith("[") and text.endswith("]"):
-        return [entry.strip() for entry in text[1:-1].split(",")] if text[1:-1].strip() else []
-    return text
+    listed = text.startswith("[") and text.endswith("]")
+    inner = text[1:-1] if listed else ""
+    entries = [entry.strip() for entry in inner.split(",")] if inner.strip() else []
+    if (any(c in text for c in "\"'{}") or text != text.strip()
+            or (not listed and any(part in text for part in (",", ": ", "[", "]")))
+            or (listed and ("[" in inner or "]" in inner or "" in entries))):
+        raise ValueError(f"leaf: meta value {text!r} is not one leaf() reads as devagent does; "
+                         "pass Leaf(line, hp.node(...))")
+    return entries if listed else text
 
 
 def leaf(n, glyph=" ", **meta) -> Leaf:
@@ -1397,6 +1405,11 @@ def test_site_with_no_page_is_not_a_share_site(tmp_path):
     with pytest.raises(TypeError, match=r"hp\.source"):
         install(tmp_path, "two_sites", wbs={"b": leaf(1)})
     assert sorted(tmp_path.iterdir()) == before
+    # leaf() reads a metadata value as devagent does, or refuses it: a quote, a ',' outside a list,
+    # surrounding space and an empty list entry are read otherwise by devagent's parser.
+    for value in ('"2h"', "2h, 3h", " 2h", "[Issue-1, , Issue-2]"):
+        with pytest.raises(ValueError, match="not one leaf"):
+            leaf(1, est=value)
 
 
 # --- priority tiers and merged blocks (#37) ------------------------------------------------------
