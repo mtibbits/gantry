@@ -41,14 +41,17 @@ def install(tmp_path, base, wbs=None, portfolio=None, config=None, devagent=None
     """A copy of fixture `base` with the named files rewritten: the copy's folder.
 
     `base` names an installation under tests/fixtures/week_plan/, or is the
-    path of one elsewhere. `wbs` maps a site to its WBS.md text; `portfolio`
-    is the portfolio file's text; `devagent` is the devagent config's text;
-    `config` maps a top-level config key to its raw TOML literal (None drops
-    the key). DELETE removes a file.
+    path of one elsewhere. `wbs` maps a site to an hp.Source (its WBS.md
+    bytes and devagent's reading of them: wbs_md, hp.source ...) or DELETE;
+    anything else raises site_document's TypeError before anything is copied.
+    `portfolio` is the portfolio file's text; `devagent` is the devagent
+    config's text; `config` maps a top-level config key to its raw TOML
+    literal (None drops the key). DELETE removes a file.
 
     The copy carries devagent's portfolio document beside its devagent.toml
     (#197), checked against every WBS.md in the copy (_stopgap_agreement).
     """
+    hp.site_document({site: value for site, value in (wbs or {}).items() if value is not DELETE})
     copy = tmp_path / f"{Path(base).name}-{next(_copies)}"
     shutil.copytree(FIXTURES / base, copy)
     files = {copy / site / "WBS.md": text for site, text in (wbs or {}).items()}
@@ -62,7 +65,7 @@ def install(tmp_path, base, wbs=None, portfolio=None, config=None, devagent=None
         elif isinstance(text, hp.Source):
             path.write_bytes(text.text)
         else:
-            path.write_bytes(text.encode("utf-8"))
+            path.write_bytes(text.encode("utf-8"))  # the portfolio file's or the devagent config's text
     if config:
         path = copy / "gantry.toml"
         lines = [line for line in path.read_bytes().decode("utf-8").splitlines()
@@ -108,8 +111,7 @@ def write_document(copy, base, wbs, devagent):
     project, or its `wbs` Source, or its stored reading in hp.TREES (the copy's own bytes). A
     status no install() measured, a `wbs` key that is no project's folder, and a rewrite of a tree
     whose stored readings hold a dep_cycle (its cross-project entries depend on the sites and on
-    the project order) raise. A str site is written but left out of the document (until every
-    caller passes Sources).
+    the project order) raise.
     """
     tree = (FIXTURES / base).relative_to(FIXTURES.parent).as_posix()
     stored = json.loads(hp.TREES.read_bytes().decode("utf-8"))["trees"][tree]
@@ -136,8 +138,6 @@ def write_document(copy, base, wbs, devagent):
             sites[name] = found
             continue
         value = wbs.get(found.parent.name) if found.parent.parent == copy else None
-        if isinstance(value, str):
-            continue
         sites[name] = value if isinstance(value, hp.Source) else hp.tree_source(tree, name, found.read_bytes())
     path = copy / hp.DOC_NAME
     path.write_bytes(hp.sp.dumps(hp.site_document(sites)))
@@ -1386,6 +1386,17 @@ def test_site_with_no_page_is_not_a_share_site(tmp_path):
     assert [site["name"] for site in plan.sites] == ["a"]
     assert {(note["kind"], tuple(note["projects"])) for note in plan.notes} == {("shares_dropped", ("b",))}
     assert shares_of(plan, "a") == [100.0] * 10
+    # The installed document (#197): the deleted site is devagent's no_wbs project. A site handed as
+    # text, or as a bare Leaf, is refused before anything is copied, naming hp.source.
+    copy = install(tmp_path, "two_sites", wbs={"b": DELETE})
+    (b,) = [p for p in json.loads((copy / hp.DOC_NAME).read_bytes())["projects"] if p["project"] == "b"]
+    assert (b["status"], b["status_reason"], b["nodes"]) == ("no_wbs", hp.NO_WBS_REASON, [])
+    before = sorted(tmp_path.iterdir())
+    with pytest.raises(TypeError, match=r"hp\.source"):
+        install(tmp_path, "two_sites", wbs={"b": "- [ ] A\n"})
+    with pytest.raises(TypeError, match=r"hp\.source"):
+        install(tmp_path, "two_sites", wbs={"b": leaf(1)})
+    assert sorted(tmp_path.iterdir()) == before
 
 
 # --- priority tiers and merged blocks (#37) ------------------------------------------------------
