@@ -32,8 +32,8 @@ from page_script.harness import Planted, open_page
 from test_plan_file import shape_errors
 from test_planner import (CAPACITY_DEP, CAPACITY_INSTALL, CAPACITY_NO_PLAN_CASES, DELETE, EXPECTED_LINES,
                           FIXTURE_NAMES, FIXTURES, MISSING_TOTAL, NO_DECLARATION, NO_PLAN_CASES, PAUSED_C,
-                          RATIO, SHARES, built, capacity_config, capacity_portfolio, declares, install, leaf,
-                          portfolio_md, reserved, wbs_md)
+                          RATIO, SHARES, built, capacity_config, capacity_portfolio, declares, edited_source,
+                          install, leaf, portfolio_md, reserved, wbs_md)
 from test_planner import invalid as invalid_config
 from test_worksite_page import find, text_of, tree, visible_text
 
@@ -529,7 +529,18 @@ def test_box_matches_worksite_on_priority_wrap_and_unest(tmp_path):
     for old, new in LINKED_VARIANT.items():
         assert wbs.count(old) == 1, old
         wbs = wbs.replace(old, new)
-    variant = matched_boxes(*fixture_build(tmp_path, "leaf_boxes", wbs={"a": wbs}))
+
+    def linked(node):  # LINKED_VARIANT's three edits, as devagent reads them (#197)
+        if node["issue"] == "Issue-7":
+            node["text"] = "Order the trusses from the far yard"
+            rest = {key: value for key, value in node["meta"].items() if key != "issue"}
+            node["meta"] = {"issue": "Issue-7", "priority": "P2", **rest}
+        if node["issue"] == "Issue-12":
+            node["meta"]["est"] = "?"
+        return node
+
+    source = edited_source("week_plan/leaf_boxes", "a", wbs, linked)
+    variant = matched_boxes(*fixture_build(tmp_path, "leaf_boxes", wbs={"a": source}))
     assert any(len(node["title"]) == 2 for node in variant)
     for matched in (variant, matched_boxes(*demo(tmp_path))):
         assert any(node["prio"] is not None for node in matched)

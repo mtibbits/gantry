@@ -1,5 +1,6 @@
 """The week planner: gantry/planner.py (#61)."""
 
+import copy
 import itertools
 import json
 import re
@@ -9,6 +10,7 @@ import tomllib
 from datetime import date
 from fractions import Fraction
 from pathlib import Path
+from typing import NamedTuple
 
 import pytest
 
@@ -18,6 +20,7 @@ from gantry import planner, schedule
 from gantry.build import build_all
 from gantry.capacity import read_declared_capacity, resolve_capacity
 from gantry.config import load_config
+from gantry.model import STATE_GLYPHS
 from gantry.planner import NO_PLAN, plan_week
 from gantry.portfolio_file import intended_shares, read_portfolio_file
 from helpers_config import _stopgap_agreement, run_main, sample_build
@@ -199,14 +202,44 @@ def reserved(day, hours, label=None, start="09:00"):
     return text + (f'label = "{label}"\n' if label is not None else "")
 
 
-def leaf(n, glyph=" ", **meta):
-    """One leaf line: issue Issue-<n> and the given metadata, in order."""
+class Leaf(NamedTuple):
+    """One leaf of wbs_md: its line and devagent's reading of it (#197)."""
+    text: str  # the line, as it is written under wbs_md's Epic
+    node: dict  # hp.node(...): devagent's reading of the line
+
+
+def _meta_value(value):
+    """devagent's reading of a leaf() metadata value: a [...] value as the list of its stripped
+    entries, anything else as its text."""
+    text = str(value)
+    if text.startswith("[") and text.endswith("]"):
+        return [entry.strip() for entry in text[1:-1].split(",")] if text[1:-1].strip() else []
+    return text
+
+
+def leaf(n, glyph=" ", **meta) -> Leaf:
+    """One leaf: issue Issue-<n> and the given metadata, in order."""
     pairs = "".join(f", {key}: {value}" for key, value in meta.items())
-    return f"  - [{glyph}] Leaf {n} {{issue: Issue-{n}{pairs}}}\n"
+    return Leaf(f"  - [{glyph}] Leaf {n} {{issue: Issue-{n}{pairs}}}\n",
+                hp.node(f"Leaf {n}", glyph=glyph, issue=f"Issue-{n}",
+                        **{key: _meta_value(value) for key, value in meta.items()}))
 
 
-def wbs_md(*leaves):
-    return "# Site\n\n- [ ] Epic\n" + "".join(leaves)
+def wbs_md(*leaves, report=()) -> hp.Source:
+    """A site of `leaves` under one Epic row on line 3, as an hp.Source; `report` is its
+    (line, kind, message) entries devagent writes that hp does not derive (dep_cycle ...)."""
+    for x in leaves:
+        if not isinstance(x, Leaf):
+            raise TypeError(f"wbs_md: {type(x).__name__} is not a Leaf; pass leaf(n, ...) or Leaf(line, hp.node(...))")
+    return hp.source(("# Site\n\n- [ ] Epic\n" + "".join(x.text for x in leaves)).encode("utf-8"),
+                     hp.node("Epic", *(x.node for x in leaves)), start=3, report=report)
+
+
+def edited_source(tree, site, text, edit):
+    """hp.tree_source(tree, site, text) with edit(node) applied to a copy of each stored node: devagent's
+    reading of a stored tree's text that a test edits, edited the same way. edit returns the node."""
+    found = hp.tree_source(tree, site, text.encode("utf-8"))
+    return hp.Source(found.text, tuple(edit(copy.deepcopy(n)) for n in found.nodes), found.report)
 
 
 def placed(plan, site, key):
@@ -449,7 +482,8 @@ def test_unplanned_list_is_in_wbs_order(tmp_path):
 def test_cycle_is_waits_on_cycle(tmp_path):
     plan = plan_of(tmp_path, "states", wbs={"a": wbs_md(
         leaf(1, h=1, depends_on="[Issue-2]"), leaf(2, h=1, depends_on="[Issue-1]"),
-        leaf(3, h=1, depends_on="[Issue-2]"), leaf(4, h=1))})
+        leaf(3, h=1, depends_on="[Issue-2]"), leaf(4, h=1),
+        report=((4, "dep_cycle", "dependency cycle: Issue-1 (line 4), Issue-2 (line 5)"),))})
     assert unplanned(plan, "a") == {key: ("waits_on_cycle", "pending") for key in ("Issue-1", "Issue-2", "Issue-3")}
     assert placed_keys(plan, "a") == ["Issue-4"]
 
@@ -465,6 +499,8 @@ def test_reason_precedence_before_the_horizon(tmp_path):
             leaf(6, h=1, depends_on="[b:Issue-99, zz:Issue-1]"),  # unresolved, and on an absent site
             leaf(7, h=1, depends_on="[Issue-2, b:Issue-99]"),  # unresolved, and on a parked leaf
             leaf(8, h=1, depends_on="[Issue-7]"),  # waits on a leaf unplanned for another reason
+            report=((6, "dep_cycle", "dependency cycle: Issue-3 (line 6), Issue-4 (line 7), b:Issue-3 (line 6)"),
+                    (8, "dep_cycle", "dependency cycle: Issue-5 (line 8), b:Issue-1 (line 4)")),
         ),
         "b": wbs_md(leaf(1, h=1, depends_on="[a:Issue-5]"), leaf(2, h=1), leaf(3, h=1, depends_on="[a:Issue-4]")),
     })
@@ -995,7 +1031,8 @@ def test_binding_tie_more_days_then_attention(tmp_path):
     # A full tie: operator attention hours.
     assert plan.binding == {"pool": ATTENTION, "first_day": "2026-01-19", "text": ATTENTION}
     # A rate-0 leaf waits for a lane on the third day too: agent lanes ran out on more days.
-    more = both + leaf(3, priority="P3", est="1h", h=0)
+    more = wbs_md(leaf(1, priority="P1", est="12h", h=4), leaf(2, priority="P2", est="6h", h=4),
+                  leaf(3, priority="P3", est="1h", h=0))
     plan = plan_of(tmp_path, "binds_lanes", wbs={"alpha": more}, **TIE)
     assert [day["ran_out"] for day in plan.days[:4]] == [[ATTENTION, LANES], [ATTENTION, LANES], [LANES], []]
     assert plan.binding == {"pool": LANES, "first_day": "2026-01-19", "text": LANES}
@@ -1244,7 +1281,14 @@ def test_p0_leaf_held_by_other_site(tmp_path):
     # An absent and an unresolved outcome hold the leaf too, in depends_on order.
     text = (FIXTURES / "p0" / "a" / "WBS.md").read_bytes().decode("utf-8").replace(
         "depends_on: [b:Issue-3]", "depends_on: [zz:Issue-1, b:Issue-99, b:Issue-3]")
-    entries = {e["key"]: e for e in site_record(plan_of(tmp_path, "p0", wbs={"a": text}), "a")["p0"]}
+
+    def more_targets(node):
+        if node["meta"].get("depends_on") == ["b:Issue-3"]:
+            node["meta"]["depends_on"] = ["zz:Issue-1", "b:Issue-99", "b:Issue-3"]
+        return node
+
+    a = edited_source("week_plan/p0", "a", text, more_targets)
+    entries = {e["key"]: e for e in site_record(plan_of(tmp_path, "p0", wbs={"a": a}), "a")["p0"]}
     assert entries["Issue-3"]["held_by"] == ["zz:Issue-1", "b:Issue-99", "b:Issue-3"]
 
 
@@ -1509,10 +1553,9 @@ def three_sites(tmp_path, shares, y_leaves, mapping=None, z_leaf=None, x_leaves=
     (copy / "z").mkdir()
     (copy / "devagent.toml").write_bytes(
         b"".join(f'[project.{n}]\ndevdoc_dir = "{n}"\n\n'.encode() for n in ("x", "y", "z")))
-    (copy / "x" / "WBS.md").write_bytes(
-        (x_leaves or wbs_md(*(leaf(n, est="3w", h=4) for n in (1, 2, 3)))).encode())
-    (copy / "y" / "WBS.md").write_bytes(y_leaves.encode())
-    (copy / "z" / "WBS.md").write_bytes((z_leaf or wbs_md(leaf(1, est="3w", h=1))).encode())
+    (copy / "x" / "WBS.md").write_bytes((x_leaves or wbs_md(*(leaf(n, est="3w", h=4) for n in (1, 2, 3)))).text)
+    (copy / "y" / "WBS.md").write_bytes(y_leaves.text)
+    (copy / "z" / "WBS.md").write_bytes((z_leaf or wbs_md(leaf(1, est="3w", h=1))).text)
     if mapping is not None:
         text = (copy / "portfolio.md").read_bytes().decode().replace("[capacity]\n", f"[capacity]\n{mapping}")
         (copy / "portfolio.md").write_bytes(text.encode())
@@ -1724,7 +1767,14 @@ def test_leaf_split_and_resumed_same_day_counts_once(tmp_path, trace):
     # a's Issue-1 has no estimate (12 h at the default unit), so the day's count can see it twice.
     text = (FIXTURES / "two_sites" / "a" / "WBS.md").read_bytes().decode().replace(
         "{issue: Issue-1, est: 12h, h: 4}", "{issue: Issue-1, h: 4}")
-    plan = traced(trace, install(tmp_path, "two_sites", wbs={"a": text, "b": wbs_md(leaf(1, est="0.5h", h=4))},
+
+    def no_estimate(node):
+        if node["issue"] == "Issue-1":
+            del node["meta"]["est"]
+        return node
+
+    a = edited_source("week_plan/two_sites", "a", text, no_estimate)
+    plan = traced(trace, install(tmp_path, "two_sites", wbs={"a": a, "b": wbs_md(leaf(1, est="0.5h", h=4))},
                                  config={"default_unit_hours": "12"}))
     first = plan.days[0]
     assert block_sites(first) == ["a", "b", "a"]
@@ -2877,8 +2927,15 @@ def test_paused_share_goes_to_other_share_sites(tmp_path):
     paused = capacity_plan(tmp_path, capacity_config("paused"))
     assert paused.capacity["paused"] == ["c"] and placements(paused, "c") == []
     # The same capacity with nothing paused and c's leaves done: c holds its share and has nothing to plan.
-    c_done = (CAPACITY_INSTALL / "c" / "WBS.md").read_bytes().decode("utf-8").replace("  - [ ]", "  - [x]")
-    assert c_done.count("[x]") == 2
+    text = (CAPACITY_INSTALL / "c" / "WBS.md").read_bytes().decode("utf-8").replace("  - [ ]", "  - [x]")
+    assert text.count("[x]") == 2
+
+    def finished(node):
+        if node["parent"] is not None:
+            node.update(glyph="x", state=STATE_GLYPHS["x"])
+        return node
+
+    c_done = edited_source("capacity/install", "c", text, finished)
     done = capacity_plan(tmp_path, declares(), wbs={"c": c_done})
     assert done.capacity["paused"] == [] and site_record(done, "c")["unplanned"] == []
     assert paused.capacity == done.capacity | {"paused": ["c"]}

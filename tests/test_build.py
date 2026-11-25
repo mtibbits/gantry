@@ -1148,10 +1148,12 @@ def test_week_page_links_land(tmp_path, monkeypatch):
 
 
 def test_week_hostile_key_href_lands(tmp_path):
-    from test_planner import wbs_md
+    from test_planner import Leaf, wbs_md
 
     key = "a b<c>&é"
-    copy = plan_install(tmp_path, "binds_lanes", wbs={"alpha": wbs_md(f"  - [ ] Hostile {{issue: {key}, est: 2h}}\n")})
+    hostile = wbs_md(Leaf(f"  - [ ] Hostile {{issue: {key}, est: 2h}}\n", hp.node("Hostile", issue=key, est="2h")),
+                     report=((4, "issue_not_id", f"issue '{key}' is not an issue id; its issue dir is not read"),))
+    copy = plan_install(tmp_path, "binds_lanes", wbs={"alpha": hostile})
     code, _, stderr = run_main("--config", str(copy / "gantry.toml"))
     assert code == 0, stderr
     out = copy / "out"
