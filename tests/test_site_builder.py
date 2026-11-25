@@ -361,6 +361,7 @@ def test_append_nodes(tmp_path):
     # rewrite_document (#195): a samples copy's document, changed where it lies; a change that changes nothing fails.
     copy = copy_samples(tmp_path)
     append_bytes(copy / SMALL / "WBS.md", "- [ ] Later {issue: Issue-98}\n")
+    assert hp.document_path(copy) == copy.joinpath(sp.OUT, *sp.DOCUMENT)
     hp.rewrite_document(copy, lambda d: hp.append_nodes(d, SMALL, hp.node("Later", issue="Issue-98")))
     written = json.loads(copy.joinpath(sp.OUT, *sp.DOCUMENT).read_bytes().decode("utf-8"))
     assert "Issue-98" in [leaf.key for leaf in hp.site_of(written, SMALL).leaves]
@@ -374,6 +375,17 @@ def test_append_nodes(tmp_path):
 
     with pytest.raises(AssertionError, match=r"\.state"):
         hp.rewrite_document(copy, done)
+    # The install() layout (#197), as write_site_tree lays a tree out: the document beside devagent.toml,
+    # each devdoc_dir relative to the folder.
+    tree = tmp_path / "tree"
+    write_site_tree(tree, {"a": hp.source(b"- [ ] A {issue: Issue-1}\n", hp.node("A", issue="Issue-1"))})
+    assert hp.document_path(tree) == tree / "portfolio.json"
+    append_bytes(tree / "0" / "WBS.md", "- [ ] B {issue: Issue-2}\n")
+    hp.rewrite_document(tree, lambda d: hp.append_nodes(d, "a", hp.node("B", issue="Issue-2")))
+    written = json.loads((tree / "portfolio.json").read_bytes().decode("utf-8"))
+    assert [leaf.key for leaf in hp.site_of(written, "a").leaves] == ["Issue-1", "Issue-2"]
+    with pytest.raises(AssertionError):
+        hp.rewrite_document(tree, lambda d: d)
     # A project appended to the document answers the foreign entries that named it.
     waits = hp.site_document({"a": hp.source(b"- [ ] A {issue: Issue-1, depends_on: [c:Issue-1]}\n",
                                              hp.node("A", issue="Issue-1", depends_on=["c:Issue-1"]))})
@@ -397,3 +409,9 @@ def test_site_document_not_read_reason_is_devagents():
         assert (made[mine]["status"], made[mine]["status_reason"]) == (
             written[theirs]["status"], written[theirs]["status_reason"]), mine
         assert made[mine]["nodes"] == written[theirs]["nodes"] == [], mine
+    # A project devagent lists but does not read (#197): hp.NotRead, in config order with the others.
+    doc = hp.site_document({"d": hp.NotRead("no_devdoc_dir", hp.UNSET_REASON), "x": None})
+    assert [(p["project"], p["status"], p["status_reason"], p["nodes"]) for p in doc["projects"]] == [
+        ("d", "no_devdoc_dir", "no devdoc dir is configured", []), ("x", "no_wbs", hp.NO_WBS_REASON, [])]
+    with pytest.raises(TypeError, match=r"hp\.source"):  # a bare (status, reason) is not a not-read project
+        hp.site_document({"d": ("no_devdoc_dir", hp.UNSET_REASON)})
