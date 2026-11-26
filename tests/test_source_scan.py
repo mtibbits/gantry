@@ -278,13 +278,16 @@ def test_gantry_imports_stdlib_only(tmp_path):
 
 
 # tools/check_schedulers.py drives the page-script harness from tests/ (#9).
-# tools/demo_build.py runs tools/sample_history.py's main in process (#45).
+# tools/demo_build.py runs tools/sample_history.py's main in process (#45), and tools/sample_portfolio.py's,
+# with its folder guard and #31's pin reader and toolchain text, for the sample portfolio step (#12).
 # tools/check_demo.py reuses the page checkers and the sample roles from tests/ (#45).
 # tools/sample_portfolio.py runs devagent's aggregator through #31's bash helpers (#83).
 # tools/update_expected_leaves.py makes the sample document with tools/sample_portfolio.py (#83).
 ALLOWED_TOOL_IMPORTS = {
     ("check_schedulers.py", "page_script.harness"),
     ("demo_build.py", "sample_history"),
+    ("demo_build.py", "sample_portfolio"),
+    ("demo_build.py", "devagent_record_fixtures"),
     ("check_demo.py", "page_safety"),
     ("check_demo.py", "sample_roles"),
     ("pages_artifact.py", "page_safety"),
