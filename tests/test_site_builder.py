@@ -7,6 +7,7 @@ site data through hp.site_of, which maps the document with #83's
 map_document. These tests pin the builder to what devagent writes.
 """
 
+import hashlib
 import json
 import os
 import re
@@ -294,12 +295,30 @@ def alpha_snapshot(data):
                           namespaces=frozenset({"alpha"}))
 
 
-def test_agreement_covers_every_read_fixture_and_description():
+def test_agreement_covers_every_read_fixture_and_description(tmp_path):
     assert len(AGREEMENT) == len(set(AGREEMENT)) == 15
     assert set(AGREEMENT) == {*sp.FIXTURE_SOURCES} - {"not_utf8"} | set(hp.DESCRIBED)
     assert [name for name in AGREEMENT if known_rows(name)] == ["ids", "edges"]
     # write_site_tree's agreement check forgives exactly these one-sided report classes (#195).
     assert one_sided_classes() == ONE_SIDED
+    # The stored readings of the installable trees (#197): every tree, the pin they were made at,
+    # each input as committed (an edit to a fixture WBS.md or devagent.toml reds here), and one
+    # agreement check per tree over all of its sites.
+    fixtures = ROOT / "tests" / "fixtures"
+    stored = hp._parsed(hp.TREES)
+    trees = sorted(p.parent for p in (fixtures / "week_plan").glob("*/gantry.toml")) + [
+        fixtures / "capacity" / "install", fixtures / "capacity" / "install_dep"]
+    assert list(stored["trees"]) == [tree.relative_to(fixtures).as_posix() for tree in trees]
+    regenerate = ("tests/fixtures/week_plan/trees.json is stale: regenerate it with gen_trees197.py "
+                  "(#197's pull request) against the pinned devagent")
+    assert stored["pin"] == hd.read_pin()[0], regenerate
+    inputs = [path for tree in trees for path in (tree / "devagent.toml", *sorted(tree.rglob("WBS.md")))]
+    assert stored["inputs"] == {path.relative_to(fixtures).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+                                for path in inputs}, regenerate
+    from test_planner import install
+
+    for tree in stored["trees"]:
+        install(tmp_path, fixtures / tree)  # writes the tree's document from its stored readings and checks it
 
 
 @pytest.mark.parametrize("name", AGREEMENT)
@@ -361,6 +380,7 @@ def test_append_nodes(tmp_path):
     # rewrite_document (#195): a samples copy's document, changed where it lies; a change that changes nothing fails.
     copy = copy_samples(tmp_path)
     append_bytes(copy / SMALL / "WBS.md", "- [ ] Later {issue: Issue-98}\n")
+    assert hp.document_path(copy) == copy.joinpath(sp.OUT, *sp.DOCUMENT)
     hp.rewrite_document(copy, lambda d: hp.append_nodes(d, SMALL, hp.node("Later", issue="Issue-98")))
     written = json.loads(copy.joinpath(sp.OUT, *sp.DOCUMENT).read_bytes().decode("utf-8"))
     assert "Issue-98" in [leaf.key for leaf in hp.site_of(written, SMALL).leaves]
@@ -374,6 +394,28 @@ def test_append_nodes(tmp_path):
 
     with pytest.raises(AssertionError, match=r"\.state"):
         hp.rewrite_document(copy, done)
+    # The install() layout (#197), as write_site_tree lays a tree out: the document beside devagent.toml,
+    # each devdoc_dir relative to the folder.
+    tree = tmp_path / "tree"
+    write_site_tree(tree, {"a": hp.source(b"- [ ] A {issue: Issue-1}\n", hp.node("A", issue="Issue-1"))})
+    assert hp.document_path(tree) == tree / "portfolio.json"
+    append_bytes(tree / "0" / "WBS.md", "- [ ] B {issue: Issue-2}\n")
+    hp.rewrite_document(tree, lambda d: hp.append_nodes(d, "a", hp.node("B", issue="Issue-2")))
+    written = json.loads((tree / "portfolio.json").read_bytes().decode("utf-8"))
+    assert [leaf.key for leaf in hp.site_of(written, "a").leaves] == ["Issue-1", "Issue-2"]
+    with pytest.raises(AssertionError):
+        hp.rewrite_document(tree, lambda d: d)
+    # An install() copy (#197) holds its document there too, and rewrite_document round-trips on it.
+    from test_planner import install
+
+    installed = install(tmp_path, "two_sites")
+    assert hp.document_path(installed) == installed / "portfolio.json"
+    append_bytes(installed / "a" / "WBS.md", "- [ ] Later {issue: Issue-98}\n")
+    hp.rewrite_document(installed, lambda d: hp.append_nodes(d, "a", hp.node("Later", issue="Issue-98")))
+    written = json.loads((installed / "portfolio.json").read_bytes().decode("utf-8"))
+    assert "Issue-98" in [leaf.key for leaf in hp.site_of(written, "a").leaves]
+    with pytest.raises(AssertionError):
+        hp.rewrite_document(installed, lambda d: d)
     # A project appended to the document answers the foreign entries that named it.
     waits = hp.site_document({"a": hp.source(b"- [ ] A {issue: Issue-1, depends_on: [c:Issue-1]}\n",
                                              hp.node("A", issue="Issue-1", depends_on=["c:Issue-1"]))})
@@ -397,3 +439,9 @@ def test_site_document_not_read_reason_is_devagents():
         assert (made[mine]["status"], made[mine]["status_reason"]) == (
             written[theirs]["status"], written[theirs]["status_reason"]), mine
         assert made[mine]["nodes"] == written[theirs]["nodes"] == [], mine
+    # A project devagent lists but does not read (#197): hp.NotRead, in config order with the others.
+    doc = hp.site_document({"d": hp.NotRead("no_devdoc_dir", hp.UNSET_REASON), "x": None})
+    assert [(p["project"], p["status"], p["status_reason"], p["nodes"]) for p in doc["projects"]] == [
+        ("d", "no_devdoc_dir", "no devdoc dir is configured", []), ("x", "no_wbs", hp.NO_WBS_REASON, [])]
+    with pytest.raises(TypeError, match=r"hp\.source"):  # a bare (status, reason) is not a not-read project
+        hp.site_document({"d": ("no_devdoc_dir", hp.UNSET_REASON)})

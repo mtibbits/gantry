@@ -6,21 +6,23 @@ import re
 import shutil
 import time
 import tomllib
+from contextlib import contextmanager
 from datetime import date
 from fractions import Fraction
 from pathlib import Path
+from typing import NamedTuple
 
 import pytest
 
 import helpers_portfolio as hp
-import sample_portfolio as sp
 from gantry import planner, schedule
 from gantry.build import build_all
 from gantry.capacity import read_declared_capacity, resolve_capacity
 from gantry.config import load_config
+from gantry.model import STATE_GLYPHS
 from gantry.planner import NO_PLAN, plan_week
 from gantry.portfolio_file import intended_shares, read_portfolio_file
-from helpers_config import run_main, sample_build
+from helpers_config import _stopgap_agreement, run_main, sample_build
 from test_capacity import CONFIGS, EXPECTED as EXPECTED_LINES, FIXTURES as CAPACITY
 from test_samples import ROOT
 
@@ -38,11 +40,22 @@ def install(tmp_path, base, wbs=None, portfolio=None, config=None, devagent=None
     """A copy of fixture `base` with the named files rewritten: the copy's folder.
 
     `base` names an installation under tests/fixtures/week_plan/, or is the
-    path of one elsewhere. `wbs` maps a site to its WBS.md text; `portfolio`
-    is the portfolio file's text; `devagent` is the devagent config's text;
-    `config` maps a top-level config key to its raw TOML literal (None drops
-    the key). DELETE removes a file.
+    path of one elsewhere under tests/fixtures; either way a tree stored in
+    hp.TREES. `wbs` maps a site to an hp.Source (its WBS.md
+    bytes and devagent's reading of them: wbs_md, hp.source ...) or DELETE;
+    anything else raises a TypeError naming hp.source before anything is copied.
+    `portfolio` is the portfolio file's text; `devagent` is the devagent
+    config's text; `config` maps a top-level config key to its raw TOML
+    literal (None drops the key). DELETE removes a site's WBS.md or the
+    portfolio file; devagent.toml stays, since the document is written from it.
+
+    The copy carries devagent's portfolio document beside its devagent.toml
+    (#197), checked against every WBS.md in the copy (_stopgap_agreement).
     """
+    for site, value in (wbs or {}).items():
+        if value is not DELETE and not isinstance(value, hp.Source):
+            raise TypeError(f"install: site {site!r} is a {type(value).__name__}, not an hp.Source; "
+                            "pass hp.source(...), wbs_md(...) or DELETE")
     copy = tmp_path / f"{Path(base).name}-{next(_copies)}"
     shutil.copytree(FIXTURES / base, copy)
     files = {copy / site / "WBS.md": text for site, text in (wbs or {}).items()}
@@ -53,15 +66,82 @@ def install(tmp_path, base, wbs=None, portfolio=None, config=None, devagent=None
     for path, text in files.items():
         if text is DELETE:
             path.unlink()
+        elif isinstance(text, hp.Source):
+            path.write_bytes(text.text)
         else:
-            path.write_bytes(text.encode("utf-8"))
+            path.write_bytes(text.encode("utf-8"))  # the portfolio file's or the devagent config's text
     if config:
         path = copy / "gantry.toml"
         lines = [line for line in path.read_bytes().decode("utf-8").splitlines()
                  if line.split(" = ")[0] not in config]
         lines += [f"{key} = {value}" for key, value in config.items() if value is not None]
         path.write_bytes(("\n".join(lines) + "\n").encode("utf-8"))
+    write_document(copy, base, wbs or {})
     return copy
+
+
+def _project_names(text):
+    """devagent v3.4.0's project list of a devagent config, in config order: its [project.*] tables,
+    less a name holding a dot (config_list_projects keeps the tables of exactly two dotted parts)."""
+    return {name: table for name, table in tomllib.loads(text).get("project", {}).items() if "." not in name}
+
+
+def _project_site(copy, name, table):
+    """devagent v3.4.0 _read_wbs's verdict on project `name`'s devdoc_dir, of those install() measured:
+    hp.NotRead (no devdoc_dir set), None (no_wbs), or the WBS.md path to read. An empty, absent or
+    non-directory devdoc_dir, and a WBS.md that is not a regular file, raise."""
+    devdoc = table.get("devdoc_dir") if isinstance(table, dict) else None
+    if devdoc is None:
+        return hp.NotRead("no_devdoc_dir", hp.UNSET_REASON)
+    if not devdoc or not (copy / devdoc).is_dir():
+        raise AssertionError(f"install: project {name!r}: devdoc_dir {devdoc!r} is not a directory of the copy, "
+                             "a status no install() measured")
+    path = copy / devdoc / "WBS.md"
+    if not path.exists():
+        return None
+    if not path.is_file():
+        raise AssertionError(f"install: project {name!r}: {devdoc}/WBS.md is not a regular file, "
+                             "a status no install() measured")
+    return path
+
+
+def write_document(copy, base, wbs):
+    """Write devagent's portfolio document over the install() copy `copy` of `base` beside its
+    devagent.toml, and check it against every WBS.md in the copy (#197).
+
+    Each project of the final devagent.toml (devagent's list and status order) is a not-read
+    project, or its `wbs` Source, or its stored reading in hp.TREES (the copy's own bytes). A
+    status no install() measured, a `wbs` key that is no project's folder, and a rewrite of a tree
+    whose stored readings hold a dep_cycle (its cross-project entries depend on the sites and on
+    the project order) raise.
+    """
+    tree = (FIXTURES / base).relative_to(FIXTURES.parent).as_posix()
+    stored = hp._parsed(hp.TREES)["trees"][tree]
+    names = _project_names((copy / "devagent.toml").read_bytes().decode("utf-8"))
+    if any(e["kind"] == "dep_cycle" for e in stored["parse_report"]):
+        if wbs:
+            raise AssertionError(f"install: {base}: its stored dep_cycle entries depend on its sites, so install() "
+                                 "cannot rewrite one; lay the tree out with write_site_tree and state its cycles")
+        if list(names) != [p["project"] for p in stored["projects"]]:
+            raise AssertionError(f"install: {base}: its stored dep_cycle entries depend on the project order; "
+                                 "a devagent= config that changes it needs Sources")
+    folders = {copy / table["devdoc_dir"] for table in names.values()
+               if isinstance(table, dict) and isinstance(table.get("devdoc_dir"), str)}
+    stray = [site for site in wbs if copy / site not in folders]
+    if stray:
+        raise AssertionError(f"install: wbs key {stray[0]!r} is no project's devdoc_dir")
+    sites = {}
+    for name, table in names.items():
+        found = _project_site(copy, name, table)
+        if not isinstance(found, Path):
+            sites[name] = found
+            continue
+        value = wbs.get(found.parent.name) if found.parent.parent == copy else None
+        sites[name] = value if isinstance(value, hp.Source) else hp.tree_source(tree, name, found.read_bytes())
+    path = copy / hp.DOC_NAME
+    path.write_bytes(hp.sp.dumps(hp.site_document(sites)))
+    _stopgap_agreement(copy, path, {name: source.text for name, source in sites.items()
+                                    if isinstance(source, hp.Source)}, who="install")
 
 
 def built(copy):
@@ -121,14 +201,53 @@ def reserved(day, hours, label=None, start="09:00"):
     return text + (f'label = "{label}"\n' if label is not None else "")
 
 
-def leaf(n, glyph=" ", **meta):
-    """One leaf line: issue Issue-<n> and the given metadata, in order."""
+class Leaf(NamedTuple):
+    """One leaf of wbs_md: its line and devagent's reading of it (#197)."""
+    text: str  # the line, as it is written under wbs_md's Epic
+    node: dict  # hp.node(...): devagent's reading of the line
+
+
+def _meta_value(value):
+    """devagent's reading of a leaf() metadata value: a [...] value as the list of its stripped
+    entries, anything else as its text. A value devagent's parser reads otherwise (a quote or a
+    brace, a ',', ': ' or bracket outside a list, surrounding space, an empty list entry) raises
+    ValueError: state such a line and its node with Leaf(line, hp.node(...))."""
+    text = str(value)
+    listed = text.startswith("[") and text.endswith("]")
+    inner = text[1:-1] if listed else ""
+    entries = [entry.strip() for entry in inner.split(",")] if inner.strip() else []
+    if (any(c in text for c in "\"'{}") or text != text.strip()
+            or (not listed and any(part in text for part in (",", ": ", "[", "]")))
+            or (listed and ("[" in inner or "]" in inner or "" in entries))):
+        raise ValueError(f"leaf: meta value {text!r} is not one leaf() reads as devagent does; "
+                         "pass Leaf(line, hp.node(...))")
+    return entries if listed else text
+
+
+def leaf(n, glyph=" ", **meta) -> Leaf:
+    """One leaf: issue Issue-<n> and the given metadata, in order."""
     pairs = "".join(f", {key}: {value}" for key, value in meta.items())
-    return f"  - [{glyph}] Leaf {n} {{issue: Issue-{n}{pairs}}}\n"
+    return Leaf(f"  - [{glyph}] Leaf {n} {{issue: Issue-{n}{pairs}}}\n",
+                hp.node(f"Leaf {n}", glyph=glyph, issue=f"Issue-{n}",
+                        **{key: _meta_value(value) for key, value in meta.items()}))
 
 
-def wbs_md(*leaves):
-    return "# Site\n\n- [ ] Epic\n" + "".join(leaves)
+def wbs_md(*leaves, report=()) -> hp.Source:
+    """A site of `leaves` under one Epic row on line 3, as an hp.Source; `report` is its
+    (line, kind, message) entries devagent writes that hp does not derive (dep_cycle ...)."""
+    for x in leaves:
+        if not isinstance(x, Leaf):
+            raise TypeError(f"wbs_md: {type(x).__name__} is not a Leaf; pass leaf(n, ...) or Leaf(line, hp.node(...))")
+    return hp.source(("# Site\n\n- [ ] Epic\n" + "".join(x.text for x in leaves)).encode("utf-8"),
+                     hp.node("Epic", *(x.node for x in leaves)), start=3, report=report)
+
+
+def edited_source(tree, site, text, edit):
+    """hp.tree_source(tree, site, text) with edit(node) applied to each stored node (tree_source's own
+    copies): devagent's reading of a stored tree's text that a test edits, edited the same way. edit
+    returns the node."""
+    found = hp.tree_source(tree, site, text.encode("utf-8"))
+    return hp.Source(found.text, tuple(edit(n) for n in found.nodes), found.report)
 
 
 def placed(plan, site, key):
@@ -371,7 +490,8 @@ def test_unplanned_list_is_in_wbs_order(tmp_path):
 def test_cycle_is_waits_on_cycle(tmp_path):
     plan = plan_of(tmp_path, "states", wbs={"a": wbs_md(
         leaf(1, h=1, depends_on="[Issue-2]"), leaf(2, h=1, depends_on="[Issue-1]"),
-        leaf(3, h=1, depends_on="[Issue-2]"), leaf(4, h=1))})
+        leaf(3, h=1, depends_on="[Issue-2]"), leaf(4, h=1),
+        report=((4, "dep_cycle", "dependency cycle: Issue-1 (line 4), Issue-2 (line 5)"),))})
     assert unplanned(plan, "a") == {key: ("waits_on_cycle", "pending") for key in ("Issue-1", "Issue-2", "Issue-3")}
     assert placed_keys(plan, "a") == ["Issue-4"]
 
@@ -387,6 +507,8 @@ def test_reason_precedence_before_the_horizon(tmp_path):
             leaf(6, h=1, depends_on="[b:Issue-99, zz:Issue-1]"),  # unresolved, and on an absent site
             leaf(7, h=1, depends_on="[Issue-2, b:Issue-99]"),  # unresolved, and on a parked leaf
             leaf(8, h=1, depends_on="[Issue-7]"),  # waits on a leaf unplanned for another reason
+            report=((6, "dep_cycle", "dependency cycle: Issue-3 (line 6), Issue-4 (line 7), b:Issue-3 (line 6)"),
+                    (8, "dep_cycle", "dependency cycle: Issue-5 (line 8), b:Issue-1 (line 4)")),
         ),
         "b": wbs_md(leaf(1, h=1, depends_on="[a:Issue-5]"), leaf(2, h=1), leaf(3, h=1, depends_on="[a:Issue-4]")),
     })
@@ -917,7 +1039,8 @@ def test_binding_tie_more_days_then_attention(tmp_path):
     # A full tie: operator attention hours.
     assert plan.binding == {"pool": ATTENTION, "first_day": "2026-01-19", "text": ATTENTION}
     # A rate-0 leaf waits for a lane on the third day too: agent lanes ran out on more days.
-    more = both + leaf(3, priority="P3", est="1h", h=0)
+    more = wbs_md(leaf(1, priority="P1", est="12h", h=4), leaf(2, priority="P2", est="6h", h=4),
+                  leaf(3, priority="P3", est="1h", h=0))
     plan = plan_of(tmp_path, "binds_lanes", wbs={"alpha": more}, **TIE)
     assert [day["ran_out"] for day in plan.days[:4]] == [[ATTENTION, LANES], [ATTENTION, LANES], [LANES], []]
     assert plan.binding == {"pool": LANES, "first_day": "2026-01-19", "text": LANES}
@@ -1166,7 +1289,14 @@ def test_p0_leaf_held_by_other_site(tmp_path):
     # An absent and an unresolved outcome hold the leaf too, in depends_on order.
     text = (FIXTURES / "p0" / "a" / "WBS.md").read_bytes().decode("utf-8").replace(
         "depends_on: [b:Issue-3]", "depends_on: [zz:Issue-1, b:Issue-99, b:Issue-3]")
-    entries = {e["key"]: e for e in site_record(plan_of(tmp_path, "p0", wbs={"a": text}), "a")["p0"]}
+
+    def more_targets(node):
+        if node["meta"].get("depends_on") == ["b:Issue-3"]:
+            node["meta"]["depends_on"] = ["zz:Issue-1", "b:Issue-99", "b:Issue-3"]
+        return node
+
+    a = edited_source("week_plan/p0", "a", text, more_targets)
+    entries = {e["key"]: e for e in site_record(plan_of(tmp_path, "p0", wbs={"a": a}), "a")["p0"]}
     assert entries["Issue-3"]["held_by"] == ["zz:Issue-1", "b:Issue-99", "b:Issue-3"]
 
 
@@ -1264,6 +1394,22 @@ def test_site_with_no_page_is_not_a_share_site(tmp_path):
     assert [site["name"] for site in plan.sites] == ["a"]
     assert {(note["kind"], tuple(note["projects"])) for note in plan.notes} == {("shares_dropped", ("b",))}
     assert shares_of(plan, "a") == [100.0] * 10
+    # The installed document (#197): the deleted site is devagent's no_wbs project. A site handed as
+    # text, or as a bare Leaf, is refused before anything is copied, naming hp.source.
+    copy = install(tmp_path, "two_sites", wbs={"b": DELETE})
+    (b,) = [p for p in json.loads((copy / hp.DOC_NAME).read_bytes())["projects"] if p["project"] == "b"]
+    assert (b["status"], b["status_reason"], b["nodes"]) == ("no_wbs", hp.NO_WBS_REASON, [])
+    before = sorted(tmp_path.iterdir())
+    with pytest.raises(TypeError, match=r"hp\.source"):
+        install(tmp_path, "two_sites", wbs={"b": "- [ ] A\n"})
+    with pytest.raises(TypeError, match=r"hp\.source"):
+        install(tmp_path, "two_sites", wbs={"b": leaf(1)})
+    assert sorted(tmp_path.iterdir()) == before
+    # leaf() reads a metadata value as devagent does, or refuses it: a quote, a ',' outside a list,
+    # surrounding space and an empty list entry are read otherwise by devagent's parser.
+    for value in ('"2h"', "2h, 3h", " 2h", "[Issue-1, , Issue-2]"):
+        with pytest.raises(ValueError, match="not one leaf"):
+            leaf(1, est=value)
 
 
 # --- priority tiers and merged blocks (#37) ------------------------------------------------------
@@ -1431,10 +1577,11 @@ def three_sites(tmp_path, shares, y_leaves, mapping=None, z_leaf=None, x_leaves=
     (copy / "z").mkdir()
     (copy / "devagent.toml").write_bytes(
         b"".join(f'[project.{n}]\ndevdoc_dir = "{n}"\n\n'.encode() for n in ("x", "y", "z")))
-    (copy / "x" / "WBS.md").write_bytes(
-        (x_leaves or wbs_md(*(leaf(n, est="3w", h=4) for n in (1, 2, 3)))).encode())
-    (copy / "y" / "WBS.md").write_bytes(y_leaves.encode())
-    (copy / "z" / "WBS.md").write_bytes((z_leaf or wbs_md(leaf(1, est="3w", h=1))).encode())
+    sites = {"x": x_leaves or wbs_md(*(leaf(n, est="3w", h=4) for n in (1, 2, 3))), "y": y_leaves,
+             "z": z_leaf or wbs_md(leaf(1, est="3w", h=1))}
+    for name, source in sites.items():
+        (copy / name / "WBS.md").write_bytes(source.text)
+    hp.rewrite_document(copy, lambda doc: hp.site_document(sites))  # #197: the document of x, y and z
     if mapping is not None:
         text = (copy / "portfolio.md").read_bytes().decode().replace("[capacity]\n", f"[capacity]\n{mapping}")
         (copy / "portfolio.md").write_bytes(text.encode())
@@ -1646,7 +1793,14 @@ def test_leaf_split_and_resumed_same_day_counts_once(tmp_path, trace):
     # a's Issue-1 has no estimate (12 h at the default unit), so the day's count can see it twice.
     text = (FIXTURES / "two_sites" / "a" / "WBS.md").read_bytes().decode().replace(
         "{issue: Issue-1, est: 12h, h: 4}", "{issue: Issue-1, h: 4}")
-    plan = traced(trace, install(tmp_path, "two_sites", wbs={"a": text, "b": wbs_md(leaf(1, est="0.5h", h=4))},
+
+    def no_estimate(node):
+        if node["issue"] == "Issue-1":
+            del node["meta"]["est"]
+        return node
+
+    a = edited_source("week_plan/two_sites", "a", text, no_estimate)
+    plan = traced(trace, install(tmp_path, "two_sites", wbs={"a": a, "b": wbs_md(leaf(1, est="0.5h", h=4))},
                                  config={"default_unit_hours": "12"}))
     first = plan.days[0]
     assert block_sites(first) == ["a", "b", "a"]
@@ -1917,28 +2071,32 @@ def raised_meta(doc, site, line):
     return doc
 
 
-def priority_property(copy, build, *, document=True):
+@contextmanager
+def raised_leaf(copy, site, line):
+    """The copy with `site`'s leaf on `line` one priority step up, in its WBS.md and in its portfolio
+    document (#195, #197); both restored on the way out, whatever happens."""
+    path, document = copy / site / "WBS.md", hp.document_path(copy)
+    text, saved = path.read_bytes(), document.read_bytes()
+    try:
+        path.write_bytes(raised(text.decode("utf-8"), line).encode("utf-8"))
+        hp.rewrite_document(copy, lambda doc: raised_meta(doc, site, line))
+        yield
+    finally:
+        path.write_bytes(text)
+        document.write_bytes(saved)
+
+
+def priority_property(copy, build):
     """(subjects with a baseline placement, [(subject, before, after) moved later]) over every
-    subject of the installation at `copy`; build() gives (build result, plan). With `document`,
-    the copy's portfolio document is raised and restored with its WBS.md (#195)."""
+    subject of the installation at `copy`; build() gives (build result, plan). Each raise is made
+    in the copy's WBS.md and portfolio document, and undone (raised_leaf)."""
     result, before = build()
     placed_n, later = 0, []
-    portfolio = copy.joinpath(sp.OUT, *sp.DOCUMENT)
     for site, key, line in priority_subjects(result):
-        path = copy / site / "WBS.md"
-        text = path.read_bytes().decode("utf-8")
         old = first_placement(before, site, key)
         placed_n += old != NEVER
-        saved = portfolio.read_bytes() if document else None
-        path.write_bytes(raised(text, line).encode("utf-8"))
-        try:
-            if document:
-                hp.rewrite_document(copy, lambda doc: raised_meta(doc, site, line))
+        with raised_leaf(copy, site, line):
             new = first_placement(build()[1], site, key)
-        finally:
-            path.write_bytes(text.encode("utf-8"))
-            if document:
-                portfolio.write_bytes(saved)
         if new > old:
             later.append(((site, key), old, new))
     return placed_n, later
@@ -1964,7 +2122,7 @@ def test_raising_priority_never_delays_first_placement(tmp_path):
     total = 0
     for base in FIXTURE_NAMES:
         copy = install(tmp_path, base)
-        placed_n, later = priority_property(copy, lambda copy=copy: fixture_build(copy), document=False)  # #197
+        placed_n, later = priority_property(copy, lambda copy=copy: fixture_build(copy))
         assert later == [], base
         total += placed_n
     # The spike's per-installation counts over 12 fixtures sum to 71 (its "75" was a slip);
@@ -1978,13 +2136,8 @@ def test_raising_priority_moves_a_tied_leaf_earlier(tmp_path):
     moved = 0
     for name in ("a", "b"):
         for found in [leaf for leaf in result.inputs[name].data.leaves if leaf.open][1:]:
-            path = copy / name / "WBS.md"
-            text = path.read_bytes().decode("utf-8")
-            path.write_bytes(raised(text, found.line).encode("utf-8"))
-            try:
+            with raised_leaf(copy, name, found.line):
                 after = fixture_build(copy)[1]
-            finally:
-                path.write_bytes(text.encode("utf-8"))
             assert first_placement(after, name, found.key) < first_placement(before, name, found.key), found.key
             moved += 1
     assert moved >= 2
@@ -2799,8 +2952,15 @@ def test_paused_share_goes_to_other_share_sites(tmp_path):
     paused = capacity_plan(tmp_path, capacity_config("paused"))
     assert paused.capacity["paused"] == ["c"] and placements(paused, "c") == []
     # The same capacity with nothing paused and c's leaves done: c holds its share and has nothing to plan.
-    c_done = (CAPACITY_INSTALL / "c" / "WBS.md").read_bytes().decode("utf-8").replace("  - [ ]", "  - [x]")
-    assert c_done.count("[x]") == 2
+    text = (CAPACITY_INSTALL / "c" / "WBS.md").read_bytes().decode("utf-8").replace("  - [ ]", "  - [x]")
+    assert text.count("[x]") == 2
+
+    def finished(node):
+        if node["parent"] is not None:
+            node.update(glyph="x", state=STATE_GLYPHS["x"])
+        return node
+
+    c_done = edited_source("capacity/install", "c", text, finished)
     done = capacity_plan(tmp_path, declares(), wbs={"c": c_done})
     assert done.capacity["paused"] == [] and site_record(done, "c")["unplanned"] == []
     assert paused.capacity == done.capacity | {"paused": ["c"]}

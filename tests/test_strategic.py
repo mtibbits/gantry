@@ -159,8 +159,14 @@ def planner_install(tmp_path, shares, wbs):
                                  / "gantry.toml"))
 
 
-SAME = "# S\n\n- [ ] Only {issue: Issue-1, est: 6h, h: 1}\n"
-FINISHED = "# S\n\n- [x] Done {issue: Issue-1}\n"
+def only(est):
+    """A site of one open leaf, Issue-1, of estimate `est`."""
+    return hp.source(f"# S\n\n- [ ] Only {{issue: Issue-1, est: {est}, h: 1}}\n".encode("utf-8"),
+                     hp.node("Only", issue="Issue-1", est=est, h="1"), start=3)
+
+
+SAME = only("6h")
+FINISHED = hp.source(b"# S\n\n- [x] Done {issue: Issue-1}\n", hp.node("Done", glyph="x", issue="Issue-1"), start=3)
 
 
 def test_headline_tie_by_config_order(tmp_path):
@@ -172,9 +178,7 @@ def test_headline_tie_by_config_order(tmp_path):
 def test_headline_two_site_tie_is_not_float_noise(tmp_path):
     """Two built sites with shares always tie: 1 h and 2 h against 10 and 90
     give both a gap of 23 1/3, which floats compute a hair apart."""
-    one = "# S\n\n- [ ] Only {issue: Issue-1, est: 1h, h: 1}\n"
-    two = "# S\n\n- [ ] Only {issue: Issue-1, est: 2h, h: 1}\n"
-    model = strategic_model(planner_install(tmp_path, "a = 10, b = 90", {"a": one, "b": two}))
+    model = strategic_model(planner_install(tmp_path, "a = 10, b = 90", {"a": only("1h"), "b": only("2h")}))
     assert math.isclose(gaps(model)["a"], gaps(model)["b"])
     assert model.headline.site == "a"
 

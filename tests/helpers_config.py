@@ -92,6 +92,21 @@ def write_site_tree(folder, sites, tail="", **raw):
 # dep_cycle, unknown_meta_key ...). Those were checked once against devagent's own
 # aggregator; re-run that differential (its scripts and run line are in #195's pull
 # request) for any new or changed Source.
+# One stricter comparison (#197): each CROSS-PROJECT dep_cycle entry of the document (one whose members
+# name two or more projects; the whole message must parse as devagent writes it, by the reader's own
+# CYCLE_MEMBER_RE) must have the member set {(project, line)} of one cycle Gantry finds across the sites:
+# the planner's own cross-site rule (planner._cross_site_preds, planner._cross_site_cycles) over the
+# stopgap's reading of every read site, with no site paused. That is a superset of any build's cycles
+# (a build leaves out its paused and unbuilt sites), so an entry for a cycle through such a site passes.
+# Guarded: an invented entry, or one with a wrong or missing member (the document -> Gantry direction).
+# NOT guarded: a Gantry cycle the document does not state (Gantry expands a row target to the open
+# leaves under it, devagent's edge stops at the row, so Gantry can find more), a local dep_cycle, and
+# issue_not_id; the out-of-suite differential in #197's pull request vouches for those. Fail-closed:
+# every dep_cycle message, a local one too, must parse whole, for #195's callers as well as install();
+# a devagent cross-project cycle through a row, or through a done, skipped or parked leaf, has no Gantry
+# match (Gantry's graph is open leaves with open targets) and raises. The check calls planner
+# internals, so a signature change there reds this helper; _gantry_cycles copies _site_work's in-site
+# predecessor rule, and a change to that rule does not.
 COMPARED = re.compile(r"nodes\[\d+\](\.(key|issue|outline|title|state|depends_on|meta))?|links|held_out"
                       r"|report\[(\d+|null), [a-z_]+\]")
 # (class, the side holding the entry): known_differences.json's one-sided entries on
@@ -129,14 +144,16 @@ def _kept(where, stopgap, document):
 def _stopgap_agreement(root, document, sites, who="write_site_tree"):
     """Assert that the portfolio document at `document`, read under `root`, reads each project
     of `sites` ({name: that site's WBS.md bytes}) as the stopgap reads those bytes, on the
-    fields COMPARED names (see its comment for what is not compared); `who` heads a failure. The pin of ONE_SIDED
-    against known_differences.json is test_site_builder's."""
+    fields COMPARED names, and that each cross-project dep_cycle entry it holds is a cycle Gantry
+    finds across `sites` (see COMPARED's comment for what is not compared); `who` heads a failure.
+    The pin of ONE_SIDED against known_differences.json is test_site_builder's."""
     import update_expected_leaves as ue
     from gantry.portfolio_json import ProjectInput, read_portfolio
     from gantry.roots import directory_roots
     from gantry.wbs_stopgap import parse_wbs
 
     projects = read_portfolio(directory_roots([root]), document).projects
+    read = {}  # the stopgap's SiteData of each UTF-8 site, for the cycle comparison
     for name, wbs in sites.items():
         found = [p for p in projects if p.name == name]
         assert len(found) == 1, f"{who}: site {name!r}: the portfolio document holds {len(found)} such projects"
@@ -152,13 +169,78 @@ def _stopgap_agreement(root, document, sites, who="write_site_tree"):
             return ue.snapshot_of(ProjectInput(name, "read", None, data), (), pin="agreement", schema_version="1.2",
                                   namespaces={name})
 
-        rows = [row for row in ue.diff_snapshots(snap(parse_wbs(text, name)), snap(project.data))
+        read[name] = parse_wbs(text, name)
+        rows = [row for row in ue.diff_snapshots(snap(read[name]), snap(project.data))
                 if COMPARED.fullmatch(row[0]) and _kept(*row)]
         remaining = [row for row in rows
                      if not (row[0].startswith("report[") and (_row_class(row[0]), _holder(row[2])) in ONE_SIDED)]
         if remaining:
             raise AssertionError(f"{who}: site {name!r}: the portfolio document disagrees with the "
                                  f"stopgap's reading: {remaining}")
+    cycles = _cross_project_cycles(json.loads(Path(document).read_bytes()), who)
+    found = _gantry_cycles(list(sites), read) if cycles else []
+    for project, message, members in cycles:
+        if members not in found:
+            shown = sorted(sorted(cycle) for cycle in found)
+            raise AssertionError(f"{who}: the portfolio document's cross-project dep_cycle {message!r} (project "
+                                 f"{project!r}) is not a cycle Gantry finds across these sites: {shown}")
+
+
+CYCLE_HEAD = "dependency cycle: "
+
+
+def _cross_project_cycles(doc, who):
+    """(project, message, member set {(project, line)}) of each dep_cycle entry of `doc` whose members
+    name two or more projects. Every dep_cycle message must parse whole, as devagent writes it: the head,
+    then CYCLE_MEMBER_RE's members joined by ", "."""
+    from gantry.portfolio_json import CYCLE_MEMBER_RE
+
+    out = []
+    for entry in doc["parse_report"]:
+        if entry["kind"] != "dep_cycle":
+            continue
+        project, message = entry["project"], entry["message"]
+        members = list(CYCLE_MEMBER_RE.finditer(message))
+        labels = [f"{m['project'] + ':' if m['project'] else ''}{m['key']} (line {m['line']})" for m in members]
+        if not members or message != CYCLE_HEAD + ", ".join(labels) or any(":" in m["key"] for m in members):
+            raise AssertionError(f"{who}: dep_cycle {message!r} (project {project!r}) does not parse as "
+                                 "devagent's cycle message")
+        found = frozenset((m["project"] or project, int(m["line"])) for m in members)
+        if len({name for name, _ in found}) >= 2:
+            out.append((project, message, found))
+    return out
+
+
+def _gantry_cycles(names, read):
+    """Gantry's cross-site cycles over the sites `names` (config order) as member sets {(site, line)}:
+    `read` holds the SiteData of each site read; every other site is not read. The planner's own rule:
+    crosssite.resolve_foreign, each open leaf's open predecessors in its site (as planner._site_work
+    takes them), planner._cross_site_preds (a row target is the open leaves under it), and
+    planner._cross_site_cycles with no site paused."""
+    from types import SimpleNamespace
+
+    from gantry import planner
+    from gantry.crosssite import resolve_foreign
+    from gantry.inputs import Inputs
+    from gantry.sites import SiteEntry
+
+    resolved, _ = resolve_foreign([SiteEntry(name, None, None) for name in names],
+                                  {name: Inputs(data, None, None) for name, data in read.items()},
+                                  {name: "not read" for name in names if name not in read})
+    items, line = {}, {}
+    for name, inputs in resolved.items():
+        open_leaves = [leaf for leaf in inputs.data.leaves if leaf.open]
+        preds = {leaf.key: [] for leaf in open_leaves}
+        for before, after in inputs.data.links:
+            if before in preds and after in preds:
+                preds[after].append((name, before))
+        items[name] = [{"site": name, "key": leaf.key, "preds": preds[leaf.key], "foreign": leaf.foreign_targets or ()}
+                       for leaf in open_leaves]
+        line.update({(name, leaf.key): leaf.line for leaf in open_leaves})
+    planner._cross_site_preds(SimpleNamespace(inputs=resolved), items)
+    by_node = {(item["site"], item["key"]): item for site_items in items.values() for item in site_items}
+    return [frozenset((site, line[site, key]) for site, key in cycle)
+            for cycle in planner._cross_site_cycles(by_node, frozenset())]
 
 
 def toml_key(name):

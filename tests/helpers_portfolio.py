@@ -291,6 +291,13 @@ class Source:
     report: tuple  # (line, kind, message): entries of kinds auto_report does not write
 
 
+@dataclass(frozen=True)
+class NotRead:
+    """A project devagent lists but does not read (#197): site_document writes it with no nodes."""
+    status: str  # devagent's status: no_devdoc_dir, no_wbs or unreadable
+    reason: str  # its status_reason, as devagent words it (UNSET_REASON ...)
+
+
 def _decode_error(text):
     try:
         text.decode("utf-8")
@@ -324,10 +331,27 @@ def fixture_source(name) -> Source:
     return _written_source(sp.WRITTEN, name, (sp.ROOT / sp.FIXTURE_SOURCES[name]).read_bytes())
 
 
-def _written_source(path, name, text) -> Source:
-    """`text` with project `name`'s nodes in the committed document at `path`, and its entries
-    that are neither auto_report's nor a foreign dep_unresolved."""
+# devagent's reading of each tree install() copies (#197): the 14 week_plan/*/gantry.toml folders and
+# capacity/install, capacity/install_dep, keyed by path under tests/fixtures, with the pin it was made at
+# and each input's sha256 (test_site_builder pins both). Made by running the pinned aggregator on each
+# tree (its generator is in #197's pull request); never edited by hand.
+TREES = sp.ROOT / "tests" / "fixtures" / "week_plan" / "trees.json"
+
+
+def tree_source(tree, site, text) -> Source:
+    """`text` with devagent's reading of project `site` in the stored tree `tree` (TREES): its nodes,
+    and its entries that are neither auto_report's nor a foreign dep_unresolved (dep_cycle ...)."""
+    return _written_source(TREES, site, text, tree=tree)
+
+
+def _written_source(path, name, text, tree=None) -> Source:
+    """`text` with project `name`'s nodes in the committed document at `path` (in its tree `tree`
+    when given), and its entries that are neither auto_report's nor a foreign dep_unresolved."""
     doc = _parsed(path)
+    if tree is not None:
+        if tree not in doc["trees"]:
+            raise ValueError(f"{path.name} holds no tree {tree!r}")
+        doc = doc["trees"][tree]
     (proj,) = [p for p in doc["projects"] if p["project"] == name]
     report = tuple((e["source_line"], e["kind"], e["message"]) for e in doc["parse_report"]
                    if e["project"] == name and not auto_entry(e, name)
@@ -417,13 +441,17 @@ def _project_of(name, source, first):
 
 
 def site_document(sites) -> dict:
-    """The portfolio document over `sites`, {name: Source | None} in config order:
-    None is devagent's no_wbs project, a text that is not UTF-8 its unreadable
-    one, any other Source a read project; ids n<N> are unique across the document."""
+    """The portfolio document over `sites`, {name: Source | None | NotRead} in config order:
+    None is devagent's no_wbs project, a NotRead the project it lists with that status and
+    reason, a text that is not UTF-8 its unreadable one, any other Source a read project;
+    ids n<N> are unique across the document. Any other value raises _project_of's TypeError."""
     projects, report = [], []
     for name, value in sites.items():
         if value is None:
             projects.append(_not_read(name, "no_wbs", NO_WBS_REASON))
+            continue
+        if isinstance(value, NotRead):
+            projects.append(_not_read(name, value.status, value.reason))
             continue
         made, rows = _project_of(name, value, 1 + sum(len(p["nodes"]) for p in projects))
         projects.append(made)
@@ -445,24 +473,36 @@ def append_project(doc, name, source) -> dict:
     return refresh_foreign(out)
 
 
+def document_path(copy) -> Path:
+    """The portfolio document of `copy`: beside its devagent config in an install() copy or a
+    write_site_tree folder (copy/devagent.toml, #197), else where the aggregator writes it in a
+    samples copy."""
+    copy = Path(copy)
+    if (copy / "devagent.toml").is_file():
+        return copy / DOC_NAME
+    return copy.joinpath(sp.OUT, *sp.DOCUMENT)
+
+
 def rewrite_document(copy, fn):
-    """Replace the portfolio document in the samples copy `copy` with fn(the parsed document),
-    for a test that edits the copy's WBS.md or config (#195); an edit that changes nothing fails.
-    Each read project of the new document is then checked against its WBS.md in the copy, as
-    write_site_tree checks its sites."""
+    """Replace the portfolio document of `copy` (document_path: an install() copy, a write_site_tree
+    folder or a samples copy) with fn(the parsed document), for a test that edits the copy's WBS.md or
+    config (#195, #197); an edit that changes nothing fails. Each read project of the new document is
+    then checked against its WBS.md in the copy, as write_site_tree checks its sites."""
     import tomllib
 
     copy = Path(copy)
-    path = copy.joinpath(sp.OUT, *sp.DOCUMENT)
+    path = document_path(copy)
     before = path.read_bytes()
     new = fn(json.loads(before.decode("utf-8")))
     assert new is not None, "rewrite_document: fn returned None"
     after = sp.dumps(new)
     assert after != before, "rewrite_document: the document did not change"
     path.write_bytes(after)
-    home = copy / "devagent"
+    # A devdoc_dir resolves against the copy beside devagent.toml, against devagent/ in a samples copy.
+    home, config = ((copy, copy / "devagent.toml") if path.parent == copy
+                    else (copy / "devagent", copy / "devagent" / "config.toml"))
     try:
-        tables = tomllib.loads((home / "config.toml").read_bytes().decode("utf-8"))["project"]
+        tables = tomllib.loads(config.read_bytes().decode("utf-8"))["project"]
         _stopgap_agreement(copy, path, {p["project"]: (home / tables[p["project"]]["devdoc_dir"] / "WBS.md").read_bytes()
                                         for p in new["projects"] if p["status"] == "read"}, who="rewrite_document")
     except BaseException:
