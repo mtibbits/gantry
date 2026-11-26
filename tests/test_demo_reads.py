@@ -237,7 +237,8 @@ def _devagent(config_file):
 def _installation(config_file, devagent_rel):
     config_file = Path(config_file)
     config_file.parent.mkdir(parents=True, exist_ok=True)
-    config_file.write_bytes(f'config_version = 1\ndevagent_config = "{devagent_rel}"\noutput_dir = "out"\n'
+    config_file.write_bytes(f'config_version = 2\ndevagent_config = "{devagent_rel}"\nportfolio_json = "portfolio.json"\n'
+                            f'output_dir = "out"\n'
                             .encode("utf-8"))
 
 

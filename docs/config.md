@@ -45,8 +45,9 @@ fires_check_days rows; reword them and that test together. -->
 
 | Key | Type | Required | Default | Meaning | Owner |
 |---|---|---|---|---|---|
-| `config_version` | integer | yes | none | the format version; this Gantry reads `1` | #7 |
+| `config_version` | integer | yes | none | the format version; this Gantry reads `2` | #7 |
 | `devagent_config` | path | yes | none | devagent's `config.toml`, which names the sites; the full build also reads the capacity it declares, for the week plan ([the rules](week-plan.md#declared-capacity-from-devagent), #39) | #7 |
+| `portfolio_json` | path | yes | none | devagent's portfolio JSON, the document devagent's aggregator (`/devagent:portfolio`) writes over every project in `devagent_config`; the build reads every site's nodes and devagent's parse report from it, and no working-tree `WBS.md` ([the rules](worksite-page.md#reading-devagents-portfolio-json)). A missing or unreadable document stops the build (exit 1, nothing written); run the aggregator first | #12 |
 | `output_dir` | path | yes | none | the folder the build writes pages and the plan file (`week-plan.json`) into | #9 |
 | `as_of` | TOML date (a string is refused) | no | the build machine's local date when the run starts | the date a build treats as today | every dated view |
 | `default_unit_hours` | positive number, integer or float (0, a negative, infinity, an integer too large to convert to a float, or a boolean is refused) | no | `6` | the agent-hours given to a leaf with no estimate | #9 |
@@ -90,8 +91,9 @@ puts lighthouse in the trace, plus an optional site table and the
 `[requirements]` table at its default.
 
 ```toml
-config_version = 1
+config_version = 2
 devagent_config = "devagent/config.toml"
+portfolio_json = "devagent/out/portfolio/portfolio.json"
 output_dir = "out"
 as_of = 2026-01-20
 portfolio_file = "portfolio.md"
@@ -114,7 +116,7 @@ history = "history/out/orchard"
 
 ## The version rule
 
-`config_version` is an integer, currently `1`. A file with no
+`config_version` is an integer, currently `2`. A file with no
 `config_version`, or with a number other than the one this Gantry reads, is
 refused, naming both numbers.
 
@@ -130,6 +132,7 @@ refused, naming both numbers.
 | Version | Change |
 |---|---|
 | 1 | Initial format (#7). |
+| 2 | `portfolio_json` is required (#12): the build reads every site from devagent's portfolio JSON, not from each `WBS.md`. Gantry refuses a version-1 file naming both edits: set `config_version = 2` and add `portfolio_json = "<path>"`. |
 
 ## Encoding
 

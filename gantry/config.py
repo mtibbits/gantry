@@ -17,7 +17,7 @@ from typing import Literal
 
 from gantry.roots import CONFIG_KEY, OutsideRoots, bootstrap_roots, read_bytes_confined
 
-CONFIG_VERSION = 1
+CONFIG_VERSION = 2
 DEFAULT_BR_NAMESPACE = "life"
 
 # devagent's ID_TOKEN_RE (scripts/lib/wbs-parser.py); used with fullmatch.
@@ -46,6 +46,7 @@ class Key:
 KEYS = (
     Key("config_version", "int", True, None, "#7", "`config_version`"),
     Key("devagent_config", "path", True, None, "#7", "`devagent_config`", "file"),
+    Key("portfolio_json", "path", True, None, "#12", "`portfolio_json`", "file"),
     Key("output_dir", "path", True, None, "#9", "`output_dir`", "directory"),
     Key("as_of", "date", False, None, "every dated view", "`as_of`"),
     Key("default_unit_hours", "positive_number", False, 6, "#9", "`default_unit_hours`"),
@@ -114,6 +115,8 @@ class Config:
     path: PurePath
     config_version: int
     devagent_config: PurePath
+    # devagent's portfolio JSON (#12): every site's nodes, read through gantry.portfolio_json.
+    portfolio_json: PurePath
     output_dir: PurePath
     as_of: date
     default_unit_hours: int | float
@@ -349,9 +352,13 @@ def load_config(path) -> Config:
             "the version this Gantry reads"
         )
     if version < CONFIG_VERSION:
+        # Every edit from the file's version up, so the printed remedy is the whole one (#12).
+        edits = f"set config_version = {CONFIG_VERSION}"
+        if version < 2:
+            edits += " and add portfolio_json = \"<path>\" (devagent's portfolio JSON)"
         raise fail(
             f"config_version {version} is older than config_version {CONFIG_VERSION}, "
-            "the version this Gantry reads; docs/config.md lists what changed"
+            f"the version this Gantry reads; {edits}; docs/config.md lists what changed"
         )
 
     problem = _table_problem(raw, KEYS, "")
@@ -390,6 +397,7 @@ def load_config(path) -> Config:
 
     # Registry order: the first bad path reported is the first in KEYS.
     devagent_config = resolved("devagent_config", raw["devagent_config"])
+    portfolio_json = resolved("portfolio_json", raw["portfolio_json"])
     output_dir = resolved("output_dir", raw["output_dir"])
     portfolio_file = resolved("portfolio_file", raw.get("portfolio_file"))
     fires_list = resolved("fires_list", raw.get("fires_list"))
@@ -410,6 +418,7 @@ def load_config(path) -> Config:
         path=config_path,
         config_version=version,
         devagent_config=devagent_config,
+        portfolio_json=portfolio_json,
         output_dir=output_dir,
         as_of=as_of,
         default_unit_hours=raw.get("default_unit_hours", _KEYS_BY_NAME["default_unit_hours"].default),

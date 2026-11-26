@@ -18,8 +18,10 @@ from urllib.parse import unquote
 from test_samples import CONFIG, SAMPLES, load_config
 
 BASE = {
-    "config_version": "1",
+    "config_version": "2",
     "devagent_config": '"devagent.toml"',
+    # The portfolio document beside the devagent config (#12): write_site_tree and #197's install() write it there.
+    "portfolio_json": '"portfolio.json"',
     "output_dir": '"out"',
 }
 

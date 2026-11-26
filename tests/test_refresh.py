@@ -1119,8 +1119,9 @@ def absolute_sample_config(tmp_path, update=()):
     inst = tmp_path / "inst"
     inst.mkdir()
     lines = [
-        "config_version = 1",
+        "config_version = 2",
         f"devagent_config = {literal(copy / raw['devagent_config'])}",
+        f"portfolio_json = {literal(copy / raw['portfolio_json'])}",
         f"output_dir = {literal(inst / 'out')}",
         f"as_of = {raw['as_of'].isoformat()}",
         f"portfolio_file = {literal(copy / raw['portfolio_file'])}",

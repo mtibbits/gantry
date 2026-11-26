@@ -67,9 +67,11 @@ ERROR_CASES = {
     "invalid-utf8": (_bytes(b"config_version = 1\nx = \"\xff\"\n"), ["not valid TOML"]),
     "huge-int": (_bytes(b"config_version = " + b"9" * 5000 + b"\n"), ["not valid TOML"]),
     "bom": (_bytes(b"\xef\xbb\xbfconfig_version = 1\n"), ["byte-order mark"]),
-    "no-version": (_raw(config_version=None), ["config_version", "config_version 1"]),
-    "newer": (_raw(config_version="2"), ["config_version 2", "config_version 1"]),
-    "older": (_raw(config_version="0"), ["config_version 0", "config_version 1"]),
+    "no-version": (_raw(config_version=None), ["config_version", "config_version 2"]),
+    "newer": (_raw(config_version="3"), ["config_version 3", "config_version 2"]),
+    "older": (_raw(config_version="0"), ["config_version 0", "config_version 2"]),
+    "missing-portfolio-json": (_raw(portfolio_json=None), ["missing required key 'portfolio_json'"]),
+    "portfolio-json-int": (_raw(portfolio_json="3"), ["'portfolio_json'", "must be a path string"]),
     "version-string": (_raw(config_version='"1"'), ["config_version must be an integer"]),
     "version-bool": (_raw(config_version="true"), ["config_version must be an integer"]),
     "unknown-top": (_raw(foo="1"), ["'foo'"]),
@@ -605,3 +607,62 @@ def test_config_doc_refresh_rows():
 def test_sample_config_has_no_refresh_table():
     # The sample installation has no refresh job; the refresh tests write their own tables.
     assert "refresh" not in tomllib.loads(Path(GANTRY_SAMPLE).read_text(encoding="utf-8"))
+
+
+# --- config_version 2 and portfolio_json (#12) ----------------------------------------
+
+VERSION_1_REFUSAL = ("config_version 1 is older than config_version 2, the version this Gantry reads; set "
+                     'config_version = 2 and add portfolio_json = "<path>" (devagent\'s portfolio JSON); '
+                     "docs/config.md lists what changed")
+
+
+def version_1_file(tmp_path):
+    """A config as version 1 wrote it: no portfolio_json."""
+    return write_config(tmp_path, config_version="1", portfolio_json=None)
+
+
+def test_version_1_is_refused_naming_both_numbers_and_the_key(tmp_path):
+    path = version_1_file(tmp_path)
+    with pytest.raises(cfg.ConfigError) as refused:
+        cfg.load_config(path)
+    assert str(refused.value) == f"{path}: {VERSION_1_REFUSAL}"
+
+
+def test_version_1_remedy_recovers(tmp_path):
+    """Applying both printed edits to the refused file makes it load."""
+    path = version_1_file(tmp_path)
+    with pytest.raises(cfg.ConfigError):
+        cfg.load_config(path)
+    text = path.read_bytes().decode("utf-8")
+    assert "config_version = 1\n" in text and "portfolio_json" not in text
+    path.write_bytes(text.replace("config_version = 1\n",
+                                  'config_version = 2\nportfolio_json = "portfolio.json"\n').encode("utf-8"))
+    config = cfg.load_config(path)
+    assert config.config_version == 2
+    assert config.portfolio_json == PurePath(os.path.abspath(tmp_path / "portfolio.json"))
+
+
+def test_version_2_without_portfolio_json_is_refused(tmp_path):
+    path = write_config(tmp_path, portfolio_json=None)
+    with pytest.raises(cfg.ConfigError) as refused:
+        cfg.load_config(path)
+    assert str(refused.value) == f"{path}: missing required key 'portfolio_json'"
+
+
+def test_sample_config_loads_at_version_2():
+    config = cfg.load_config(GANTRY_SAMPLE)
+    assert cfg.CONFIG_VERSION == config.config_version == 2
+    assert config.portfolio_json == PurePath(os.path.normpath(SAMPLES / "devagent" / "out" / "portfolio"
+                                                              / "portfolio.json"))
+
+
+def test_portfolio_json_is_a_file_root(tmp_path):
+    from gantry.sites import config_roots
+
+    key = next(key for key in cfg.KEYS if key.name == "portfolio_json")
+    assert (key.kind, key.required, key.root, key.owner) == ("path", True, "file", "#12")
+    names = [key.name for key in cfg.KEYS]
+    assert names.index("portfolio_json") == names.index("devagent_config") + 1
+    config = cfg.load_config(write_config(tmp_path))
+    found = [r for r in config_roots(config).roots if r.key == "portfolio_json"]
+    assert len(found) == 1 and found[0].kind == "file" and not found[0].writable

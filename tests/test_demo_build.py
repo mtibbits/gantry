@@ -32,7 +32,7 @@ SENTINEL = "keep.txt"
 
 def config_bytes(output_dir='"out"'):
     line = "" if output_dir is None else f"output_dir = {output_dir}\n"
-    return f"config_version = 1\n{line}as_of = 2026-01-20\n".encode("utf-8")
+    return f"config_version = 2\n{line}as_of = 2026-01-20\n".encode("utf-8")
 
 
 def plant(folder):
