@@ -246,3 +246,11 @@ def test_site_totals_without_inputs_counts_every_leaf_default():
     data = est_data()
     totals = site_totals(scheduled(data), 6)
     assert (totals.hours, totals.unestimated_count) == (6 * 16, 16)
+
+
+def test_est_unparseable_text_for_list_value(tmp_path):
+    """A list est: devagent parsed is unparseable; the message prints the stored value (#12, item 2)."""
+    got = run(tmp_path, hp.site(hp.node("C", issue="Issue-3", est=["2h", "3h"])), estimates=None)
+    assert entries(got, "est_unparseable")[0].message == (
+        "WBS.md line 1: est ['2h', '3h'] on 'Issue-3' is not a time, a placeholder or a quantity with a unit; "
+        "it is not used")

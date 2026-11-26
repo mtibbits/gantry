@@ -531,7 +531,7 @@ def render_traced(config_path, site, trace=True):
     inputs = build.read_sites(config, sites, roots=roots, projects=projects)[0][site]
     if trace:
         return build.render_site(site, inputs, config, "", catalog=load_catalog(roots, config, sites),
-                                 records=NO_RECORDS)
+                                 records=NO_RECORDS, devagent=())
     m = page_model(site, inputs.data, default_unit_hours=config.default_unit_hours, inputs=inputs)
     return worksite.render_model(m, stamp=""), m
 

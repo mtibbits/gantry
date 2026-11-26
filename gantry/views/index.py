@@ -16,7 +16,7 @@ from gantry.links import page_href
 from gantry.render import Markup, embed_json, esc, fill
 from gantry.sites import shown
 from gantry.stamp import public_text
-from gantry.views.worksite import DOT, LANES_DEFAULT, SCHEDULE_LABEL, _count_line, _includes
+from gantry.views.worksite import DOT, LANES_DEFAULT, SCHEDULE_LABEL, _count_line, _includes, devagent_line
 
 TITLE = "Worksites"
 FINISH_LABEL = "Finishes at {lanes} agent lanes: {label}"
@@ -27,6 +27,17 @@ NO_FINISH = "nothing is scheduled"
 REPORT = "{n} missing or unreadable"
 REPORT_NONE = "nothing missing or unreadable"
 NOT_BUILT = "not built: {reason}"
+# One of devagent's shown report entries about a project with no page (#12), among the warnings.
+UNPLACED = "{project}: {line}"
+UNPLACED_KEY = "devagent"
+
+
+def devagent_unplaced(result) -> list:
+    """devagent's shown report entries whose project has no page in this build, in document
+    order: derived from the final pages, after every re-render and write failure (#12)."""
+    if result.document is None:
+        return []
+    return [entry for entry in result.document.devagent_report if entry.project not in result.pages]
 
 
 def _part(cls, text):
@@ -79,6 +90,8 @@ def render_index(result, *, headline="", extra=None, view_links=None) -> str:
     roots = result.roots
     # A warning names a path by its config key or file kind, as a reason does.
     warnings = [(w.key, public_text(w.message, roots)) for w in result.warnings]
+    warnings += [(UNPLACED_KEY, public_text(UNPLACED.format(project=shown(e.project), line=devagent_line(e)), roots))
+                 for e in devagent_unplaced(result)]
     return fill(
         render.asset("templates/index.html"),
         TITLE=TITLE,

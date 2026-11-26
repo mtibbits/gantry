@@ -530,3 +530,15 @@ def test_bad_h_row_points_to_week_plan():
 
 def test_readme_points_to_week_plan():
     assert "[docs/week-plan.md](docs/week-plan.md)" in (ROOT / "README.md").read_bytes().decode("utf-8")
+
+
+def test_bad_h_text_for_list_and_quoted_values():
+    """The stored value is printed with repr (#12, item 2): a list as a list, a string as devagent parsed it."""
+    import helpers_portfolio as hp
+    from gantry.attention import check_h
+
+    site = hp.site(hp.node("A", issue="Issue-1", h=["3", "4"]), hp.node("B", issue="Issue-2", h='"2" x'))
+    assert [e.message for e in check_h(site, "alpha").report if e.kind == "bad_h"] == [
+        "WBS.md line 1: h: ['3', '4'] on 'Issue-1' is not one digit from 0 to 4; it is not used",
+        "WBS.md line 2: h: '\"2\" x' on 'Issue-2' is not one digit from 0 to 4; it is not used",
+    ]

@@ -59,6 +59,9 @@ LIMITS_CAPTION_NO_CHAIN = ("At {hpd} agent-hours a day, all open work is {c} to 
 NO_CHAIN = "none: no open leaf waits on another"
 NO_LEAVES = "This site has no leaves."
 NO_OPEN = "This site has no open leaves."
+# devagent's own report entries on the panel (#12): its kind, as written, then its line and message.
+DEVAGENT_LINE = "devagent {kind}: WBS.md line {line}: {message}"
+DEVAGENT_LINE_BARE = "devagent {kind}: {message}"
 # The panel line of a site whose devagent records were not read (#173).
 RECORDS_LINE = "Phase rows show unknown: this site's devagent records were not read ({reason})"
 ALL_HELD = "Every open leaf waits on a dependency cycle, so nothing can be scheduled; the panel lists them."
@@ -463,8 +466,15 @@ def _tier_counts(tiers):
     return [[t, counts[t]] for t in _known_first(counts)]
 
 
+def devagent_line(entry) -> str:
+    """One of devagent's shown report entries as a panel line (#12)."""
+    if entry.line is None:
+        return DEVAGENT_LINE_BARE.format(kind=entry.kind, message=entry.message)
+    return DEVAGENT_LINE.format(kind=entry.kind, line=entry.line, message=entry.message)
+
+
 def page_model(site, data, *, default_unit_hours, inputs=None, trace=None, built=frozenset(),
-               br_namespace=None, records=phases.NO_RECORDS) -> dict:
+               br_namespace=None, records=phases.NO_RECORDS, devagent=()) -> dict:
     """The page's data for one site's parsed WBS.md.
 
     `inputs` is apply_inputs's result for the site; without it every leaf is
@@ -477,7 +487,9 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None, built
     and checklist gets its workflow phase row, and a site whose records were
     not read gets RECORDS_LINE in its panel. phases.NO_RECORDS, the default
     for direct renders, gives every leaf no row; anything else raises
-    TypeError.
+    TypeError. `devagent` is the site's shown entries of devagent's parse
+    report (portfolio_json.DevagentEntry, #12): each is a panel line, after
+    Gantry's own. gantry.build.render_site always passes it.
     """
     if records is not phases.NO_RECORDS and not isinstance(records, SiteRecords):
         raise TypeError(f"page_model records must be SiteRecords or NO_RECORDS, not {type(records).__name__}")
@@ -525,7 +537,7 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None, built
         leaves.append({
             "key": k, "anchor": leaf_anchor(k), "issue": leaf.issue, "outline": leaf.outline, "title": leaf.title,
             "lane": lane_of[leaf.epic], "state": leaf.state, "sc": state_class(leaf.state),
-            "mark": STATE_MARKS.get(leaf.state), "priority": leaf.priority, "eff": eff[k],
+            "mark": STATE_MARKS.get(leaf.state), "priority": render.meta_text(leaf.priority), "eff": eff[k],
             "prio_mark": _prio_mark(leaf),
             "hours": hours[k][0], "lo": spans[k][0], "hi": spans[k][1], "unestimated": hours[k][1],
             "source": leaf.estimate.source if leaf.estimate is not None else "default",
@@ -535,7 +547,7 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None, built
             "sclass": slack_class(net.slack[k]) if linked else None,
             "es": net.es[k] if linked else 0 if k in foreign_only else None, "wave_full": wave_full,
             "models": tiers, "mc": [model_class(t) for t in tiers] if tiers else None,
-            "flags": _flags(leaf), "meta": [[mk, mv] for mk, mv in leaf.meta.items()],
+            "flags": _flags(leaf), "meta": [[mk, render.meta_text(mv)] for mk, mv in leaf.meta.items()],
             "foreign": _foreign(site, leaf, row_at),
             "other_site": FLAG if leaf.waits_on_other_site else None, "fboxes": _fboxes(leaf),
             "preds": net.preds.get(k, []), "succs": net.succs.get(k, []),
@@ -656,8 +668,9 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None, built
             "near": [[s, near[s]] for s in sorted(near)],
             "heaviest": {"keys": list(chain), "hours": chain_total, "same": bool(path) and chain_total == sum(hours[k][0] for k in path)},
         },
-        "panel": _panel(data) + ([RECORDS_LINE.format(reason=records.reason)]
-                                 if records is not phases.NO_RECORDS and records.status != READ else []),
+        "panel": _panel(data) + [devagent_line(entry) for entry in devagent]
+                 + ([RECORDS_LINE.format(reason=records.reason)]
+                    if records is not phases.NO_RECORDS and records.status != READ else []),
         "summary": summary_text(items, planned, path, LANES_DEFAULT, totals.unestimated_count,
                                 unest_path, no_chain),
         "unestimated": {"site": totals.unestimated_count, "heaviest": sum(k in unest for k in chain),

@@ -305,19 +305,21 @@ def site_traces(inputs, catalog, roots):
     return traces, failed
 
 
-def render_site(name, inputs, config, stamp, *, catalog, records, trace=None, built=frozenset()):
+def render_site(name, inputs, config, stamp, *, catalog, records, devagent, trace=None, built=frozenset()):
     """(html, page model) of one read site. `trace` is its installation
     trace in a full build (#21); without one (a --site build) its trace is
     built here from the run's `catalog` (#20), and a fault in it raises, which
     the caller's `try` makes this site's render error. `built` is the set of
     sites with a page in this build, which the page may link to. `records`
     is the site's SiteRecords, read before any page (#173), or
-    phases.NO_RECORDS for a page with no phase rows."""
+    phases.NO_RECORDS for a page with no phase rows. `devagent` is the site's
+    shown entries of devagent's parse report (#12), panel lines on the page."""
     if trace is None:
         trace = build_site_trace(name, inputs.data.leaves, catalog, rows=inputs.data.rows)
     trace = page_trace(trace, catalog, inputs.data, built=built)
     m = worksite.page_model(name, inputs.data, default_unit_hours=config.default_unit_hours, inputs=inputs,
-                            trace=trace, built=built, br_namespace=catalog.br_namespace, records=records)
+                            trace=trace, built=built, br_namespace=catalog.br_namespace, records=records,
+                            devagent=tuple(devagent))
     return worksite.render_model(m, stamp=stamp), m
 
 
@@ -334,7 +336,7 @@ def read_sites(config, sites, *, roots, projects):
     return inputs, reasons
 
 
-def render_sites(config, inputs, stamp, *, roots, catalog, records, traces=None, built=frozenset()):
+def render_sites(config, inputs, stamp, *, roots, catalog, records, devagent, traces=None, built=frozenset()):
     """({name: html}, {name: page model}, {name: reason}) over the read sites, each in its own try.
     `traces` is the full build's {name: installation trace} (#21); `records`
     its {name: SiteRecords} (#173). A site missing from `records` draws
@@ -345,6 +347,7 @@ def render_sites(config, inputs, stamp, *, roots, catalog, records, traces=None,
         try:
             pages[name], models[name] = render_site(name, site_inputs, config, stamp, catalog=catalog,
                                                     records=records.get(name, RECORDS_MISSING),
+                                                    devagent=devagent.get(name, ()),
                                                     trace=(traces or {}).get(name), built=built)
         except Exception as e:
             reasons[name] = render_reason(e, roots)
@@ -392,7 +395,7 @@ def _trace_sites(trace) -> set[str]:
 
 
 def rerender_failed(config, raw, sites, reasons, resolved, foreign, pages, models, failed, stamp, *, roots,
-                    catalog, records, traces=None):
+                    catalog, records, devagent, traces=None):
     """Re-resolve and re-render after render failures, until no new page fails (#68).
 
     `resolved` and `foreign` are resolve_foreign's result for the last
@@ -419,7 +422,7 @@ def rerender_failed(config, raw, sites, reasons, resolved, foreign, pages, model
                    if any(o.target_site in new for o in foreign[name])
                    or (traces is not None and not _trace_sites(traces[name]).isdisjoint(new))}
         again, remodels, new = render_sites(config, waiting, stamp, roots=roots, catalog=catalog, records=records,
-                                            traces=traces, built=built)
+                                            devagent=devagent, traces=traces, built=built)
         pages.update(again)
         models.update(remodels)
     return resolved, foreign
@@ -467,11 +470,13 @@ def build_all(config, *, now=None, samples=None) -> BuildResult:
     traces, trace_failed = site_traces(resolved, catalog, roots)
     traces = build_installation_trace(sites, resolved, traces, {**reasons, **trace_failed}, catalog)
     built = frozenset(name for name in raw if name not in reasons and name not in trace_failed)
+    devagent = devagent_by_project(document)
     pages, models, failed = render_sites(config, {name: resolved[name] for name in traces}, stamp, roots=roots,
-                                         catalog=catalog, records=records, traces=traces, built=built)
+                                         catalog=catalog, records=records, devagent=devagent, traces=traces,
+                                         built=built)
     resolved, foreign = rerender_failed(config, raw, sites, reasons, resolved, foreign, pages, models,
                                         {**trace_failed, **failed}, stamp, roots=roots, catalog=catalog,
-                                        records=records, traces=traces)
+                                        records=records, devagent=devagent, traces=traces)
     summaries = tuple(_summary(s.name, resolved[s.name], models[s.name], config.as_of) if s.name in pages
                       else not_built(s.name, reasons[s.name]) for s in sites)
     result = BuildResult(config, tuple(sites), tuple(warnings), resolved, pages, summaries, stamp, roots, foreign,
@@ -480,6 +485,14 @@ def build_all(config, *, now=None, samples=None) -> BuildResult:
     # The plan is made from the rendered sites: a worksite page does not get it.
     result = replace(result, plan=plan_week(result, result.portfolio, config, capacity=capacity))
     return collect_build_fires(result, config, sites, now)
+
+
+def devagent_by_project(document) -> dict:
+    """{project: its shown devagent report entries, in document order} (#12)."""
+    found = {}
+    for entry in document.devagent_report:
+        found.setdefault(entry.project, []).append(entry)
+    return found
 
 
 def read_records(roots, sites) -> dict:

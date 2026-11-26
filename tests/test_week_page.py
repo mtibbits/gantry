@@ -2103,3 +2103,19 @@ def test_legend_phase_swatch_spaced():
     # The swatch's svg sits right before its word (#173), as .sw's margin spaces the fills.
     css = (TEMPLATES / "week.html").read_text(encoding="utf-8")
     assert re.search(r"#legend \.ph-svg \{[^}]*margin-right: \.4rem;", css)
+
+
+def test_week_page_est_is_text(tmp_path):
+    """The week page's named row carries an est: as text: a list as `[a, b]` (#12)."""
+    import helpers_portfolio as hp
+    from gantry.build import build_all
+    from helpers_config import write_site_tree
+
+    source = hp.source(b"- [ ] A {issue: Issue-1, est: [2h, 3h]}\n- [ ] B {issue: Issue-2, est: 4h}\n",
+                       hp.node("A", issue="Issue-1", est=["2h", "3h"]), hp.node("B", issue="Issue-2", est="4h"))
+    result = build_all(load_config(write_site_tree(tmp_path, {"alpha": source})))
+    page = week._Page(result.plan, result)
+    page.title("alpha", "Issue-1")
+    page.title("alpha", "Issue-2")
+    assert page.named[("alpha", "Issue-1")][3] == "[2h, 3h]"
+    assert page.named[("alpha", "Issue-2")][3] == "4h"

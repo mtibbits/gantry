@@ -430,3 +430,66 @@ def test_no_plan_index_still_links_week(tmp_path):
     assert lands(out, "index.html", "week.html")
     t = tree((out / "week.html").read_bytes().decode("utf-8"))
     assert text_of(t, by_id(t, "no-plan")) == "no week plan: no portfolio_file is configured"
+
+
+# --- devagent's entries about a project with no page (#12) --------------------------------------
+
+
+def _with_entries(folder, *entries):
+    import json
+
+    import helpers_portfolio as hp
+
+    path = folder / "portfolio.json"
+    doc = json.loads(path.read_bytes())
+    doc["parse_report"] += [{"project": p, "source_line": line, "kind": kind, "message": message}
+                            for p, line, kind, message in entries]
+    path.write_bytes(hp.sp.dumps(doc))
+
+
+def test_unplaced_devagent_entries_are_on_the_index(tmp_path):
+    import helpers_portfolio as hp
+    from helpers_config import run_main, write_site_tree
+    from gantry.views.index import UNPLACED_KEY
+
+    folder = tmp_path / "tree"
+    config = write_site_tree(folder, {"alpha": hp.fixture_source("page"), "beta": None})
+    _with_entries(folder, ("beta", None, "parser_note", "beta has no page"), ("alpha", 1, "parser_note", "on alpha"))
+    code, _, err = run_main("--config", str(config))
+    assert code == 0
+    index = (folder / "out" / "index.html").read_bytes().decode("utf-8")
+    t = tree(index)
+    warnings = [text_of(t, li) for li in find(t, "li", within=by_id(t, "warnings"))]
+    assert warnings == ["beta: devagent parser_note: beta has no page"]
+    data = assert_page_safe(index, [])
+    assert {"key": UNPLACED_KEY, "text": "beta: devagent parser_note: beta has no page"} in data["warnings"]
+    assert ("gantry: warning: portfolio JSON: 1 devagent report entry names a project with no page; "
+            "the index lists them") in err.splitlines()
+
+
+def test_entry_for_a_site_that_loses_its_page_is_on_the_index(tmp_path, monkeypatch):
+    """A site whose page fails to write loses its page after the render: its entries move to the index."""
+    import helpers_portfolio as hp
+    from gantry import build
+    from gantry.build import build_all, write_all
+    from gantry.config import load_config
+    from helpers_config import write_site_tree
+
+    folder = tmp_path / "tree"
+    config = load_config(write_site_tree(folder, {"alpha": hp.fixture_source("page"), "beta": hp.fixture_source("page")}))
+    _with_entries(folder, ("beta", 1, "parser_note", "on beta"))
+    real = build.write_page
+
+    def write_page(roots, where, name, text):
+        if name == "beta":
+            raise PermissionError(13, "Permission denied")
+        return real(roots, where, name, text)
+
+    monkeypatch.setattr(build, "write_page", write_page)
+    result = build_all(config)
+    assert "devagent parser_note: WBS.md line 1: on beta" in result.page_models["beta"]["panel"]
+    result, _, error = write_all(result)
+    assert error is None and "beta" not in result.pages
+    t = tree((folder / "out" / "index.html").read_bytes().decode("utf-8"))
+    assert [text_of(t, li) for li in find(t, "li", within=by_id(t, "warnings"))] == [
+        "beta: devagent parser_note: WBS.md line 1: on beta"]

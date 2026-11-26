@@ -1507,7 +1507,7 @@ def test_render_sites_missing_key_fails_closed(tmp_path):
     sites, projects = matched_sites(config, roots)
     inputs = build.read_sites(config, sites, roots=roots, projects=projects)[0]
     _, models, failed = build.render_sites(config, {BUSY: inputs[BUSY]}, "", roots=roots,
-                                           catalog=load_catalog(roots, config, sites), records={})
+                                           catalog=load_catalog(roots, config, sites), records={}, devagent={})
     assert failed == {}
     leaves = [leaf for leaf in models[BUSY]["leaves"] if leaf["issue"] is not None]
     assert leaves and all(leaf["phases"] == UNKNOWN5 for leaf in leaves)

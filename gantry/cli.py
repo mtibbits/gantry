@@ -83,10 +83,14 @@ from gantry.roots import OutsideRoots
 from gantry.sites import config_roots, one_line, shown
 from gantry.stamp import stamp_text
 from gantry.trace import counts_line, load_catalog
+from gantry.views.index import devagent_unplaced
 
 # The full build's last stdout line (#32): how many fires, and how many sources
 # were not fully read. It names no fire; docs/daily-screen.md#fires states it.
 FIRES_LINE = "fires: {n}; sources not fully read: {m}"
+# devagent's shown report entries about a project with no page (#12): counted here, listed on the index.
+UNPLACED_LINE = ("gantry: warning: portfolio JSON: {n} devagent report {entries} a project with no page; "
+                 "the index lists them")
 # An invalid devagent capacity declaration (#39) is not used, its pauses included; {count} is
 # "1 violation" or "N violations".
 CAPACITY_INVALID_LINE = "gantry: warning: devagent's capacity declaration is invalid ({count}); it is not used"
@@ -184,8 +188,8 @@ def _build_site(config, roots, sites, name, flag, projects, document):
     records = read_records(roots, [site]).get(site.name, RECORDS_MISSING)
     try:
         text, m = render_site(site.name, inputs, config, stamp_text(config, generated_at=document.generated_at, roots=roots),
-                              catalog=catalog,
-                              records=records)
+                              catalog=catalog, records=records,
+                              devagent=[e for e in document.devagent_report if e.project == site.name])
     except Exception as e:
         # One line, naming no configured root by its path.
         return fail(render_reason(e, roots))
@@ -287,6 +291,10 @@ def _build_all(config, *, marker=False):
         if s.status != "built":
             print(f"gantry: warning: site {shown(s.name)} is not built: {_flagged(one_line(s.reason), marker)}",
                   file=sys.stderr)
+    unplaced = len(devagent_unplaced(result))
+    if unplaced:
+        print(UNPLACED_LINE.format(n=unplaced, entries="entry names" if unplaced == 1 else "entries name"),
+              file=sys.stderr)
     for name, kind in result.thieves_failed.items():
         # One site's thieves that could not be derived read "no data" on its panel; the exit code is unchanged (#29).
         print(f"gantry: warning: site {shown(name)}: {thieves.THIEVES_FAILED.format(type=kind)}", file=sys.stderr)
