@@ -24,7 +24,7 @@ from gantry.attention import check_h, read_h
 from gantry.deps import refs
 from gantry.est_rules import classify_est
 from gantry.model import (REPORT_KINDS, STATE_GLYPHS, Leaf, ParsedValue, ReportEntry, Row, SiteData, meta_scalar,
-                          meta_value, meta_values, report_order)
+                          meta_values, report_order)
 from gantry.portfolio_json import (DevagentEntry, PortfolioInput, PortfolioLoadError, ProjectInput, map_document,
                                    read_portfolio)
 from gantry.priority import rank
@@ -37,11 +37,9 @@ from page_safety import HOSTILE
 
 def test_parsed_shapes_are_not_re_read():
     listed = [ParsedValue("a"), ParsedValue("[b]")]
-    assert meta_value(listed) is listed
     assert meta_values(listed) is listed
     bracket = ParsedValue("[x]")
-    assert meta_value(bracket) == "[x]" and meta_value(bracket) is bracket
-    assert meta_scalar(bracket) is bracket
+    assert meta_scalar(bracket) == "[x]" and meta_scalar(bracket) is bracket
     quoted = ParsedValue('"a"')
     assert meta_values(quoted) == ['"a"'] and meta_values(quoted)[0] is quoted
     assert meta_scalar(["a"]) is None
@@ -50,15 +48,18 @@ def test_parsed_shapes_are_not_re_read():
     assert meta_values(ParsedValue("")) == []
     assert meta_values([]) == []
     # Surrounding space is devagent's to strip, not the accessor's.
-    assert meta_value(ParsedValue(" x ")) == " x "
+    assert meta_scalar(ParsedValue(" x ")) == " x "
     assert ParsedValue.__slots__ == () and not hasattr(ParsedValue("x"), "__dict__")
 
 
-def test_meta_value_returns_stored_shapes():
-    """No value is read a second time (#12): a list and a string come back as the same object, a
-    plain str included, whatever brackets, quotes or spaces it holds."""
-    for value in ("[a, 'b']", '"x"', " x ", "[a]", ParsedValue("[x]"), [ParsedValue("a")], []):
-        assert meta_value(value) is value
+def test_accessors_return_stored_shapes():
+    """No value is read a second time (#12): a string or a non-empty list comes back as the same
+    object, a plain str included, whatever brackets, quotes or spaces it holds."""
+    for value in ("[a, 'b']", '"x"', " x ", "[a]", ParsedValue("[x]")):
+        assert meta_scalar(value) is value and meta_values(value)[0] is value
+    for value in ([ParsedValue("a")], ["[a]", '"b"']):
+        assert meta_values(value) is value
+    assert meta_values([]) == []
     assert meta_scalar("[a]") == "[a]" and meta_scalar([ParsedValue("a")]) is None
     assert meta_values('"x"') == ['"x"'] and meta_values([ParsedValue("a")]) == ["a"]
     assert type(ParsedValue("[x]").strip()) is str

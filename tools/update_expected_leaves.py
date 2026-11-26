@@ -40,7 +40,7 @@ from gantry import trace  # noqa: E402
 from gantry.attention import read_h  # noqa: E402
 from gantry.deps import refs  # noqa: E402
 from gantry.est_rules import classify_est  # noqa: E402
-from gantry.model import Row, meta_value  # noqa: E402
+from gantry.model import Row  # noqa: E402
 from gantry.portfolio_json import PortfolioLoadError, map_document, read_portfolio  # noqa: E402
 from gantry.priority import rank  # noqa: E402
 from gantry.roots import directory_roots  # noqa: E402
@@ -50,9 +50,8 @@ FIXTURE_OUT = OUT / "fixture"
 
 
 def _value(raw):
-    """A metadata value through gantry.model's accessor, in JSON's types."""
-    value = meta_value(raw)
-    return [str(v) for v in value] if isinstance(value, list) else str(value)
+    """A metadata value as devagent parsed it, in JSON's types."""
+    return [str(v) for v in raw] if isinstance(raw, list) else str(raw)
 
 
 def _node(node, site, namespaces):

@@ -23,9 +23,9 @@ if str(ROOT / "tools") not in sys.path:
 import sample_portfolio as sp  # noqa: E402
 
 
-def command(devagent, cwd, da_home, python=None) -> list[str]:
+def command(devagent, cwd, da_home) -> list[str]:
     """The update step's argv: every program and path absolute, so it runs under any PATH."""
-    python = os.path.abspath(python or sys.executable)
+    python = os.path.abspath(sys.executable)
     search = os.pathsep.join(os.path.abspath(entry) for entry in os.environ.get("PATH", "").split(os.pathsep)
                              if entry)
     return [python, "-P", str(Path(__file__).resolve()), str(Path(devagent).resolve()), os.path.abspath(cwd),

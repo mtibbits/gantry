@@ -182,28 +182,15 @@ class ParsedValue(str):
     __slots__ = ()
 
 
-def meta_value(raw: str | list[str]) -> str | list[str]:
-    """A metadata value as devagent read it (#12): a list or a string, the same object.
-
-    Every value comes from devagent's portfolio JSON (gantry/portfolio_json.py),
-    already parsed: no quote, bracket or space is read a second time.
-    """
-    return raw
-
-
 def meta_scalar(raw: str | list[str] | None) -> str | None:
     """A metadata value's string value; None when missing or a list."""
     if raw is None:
         return None
-    value = meta_value(raw)
-    return value if isinstance(value, str) else None
+    return raw if isinstance(raw, str) else None
 
 
 def meta_values(raw: str | list[str] | None) -> list[str]:
     """A metadata value as a list of entries: a scalar is one entry, empty is none."""
-    if raw is None:
+    if not raw:
         return []
-    value = meta_value(raw)
-    if not value:
-        return []
-    return value if isinstance(value, list) else [value]
+    return raw if isinstance(raw, list) else [raw]

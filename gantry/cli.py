@@ -65,6 +65,7 @@ from gantry.build import (
     RECORDS_MISSING,
     build_all,
     clashes,
+    devagent_by_project,
     read_document,
     read_records,
     read_site,
@@ -180,7 +181,7 @@ def _build_site(config, roots, sites, name, flag, projects, document):
         return fail(f"no such site in {config.devagent_config}")
     # The full build's read: its case-clash rule, and a fault stops only this site.
     inputs, problem = read_site(site, config, clashes(sites).get(site.name), roots=roots,
-                                project=(projects or {}).get(site.name))
+                                project=projects.get(site.name))
     if problem is not None:
         return fail(f"cannot build: {problem}")
     # The trace reads every requirements file and the portfolio file (#20).
@@ -191,7 +192,7 @@ def _build_site(config, roots, sites, name, flag, projects, document):
     try:
         text, m = render_site(site.name, inputs, config, stamp_text(config, generated_at=document.generated_at, roots=roots),
                               catalog=catalog, records=records,
-                              devagent=[e for e in document.devagent_report if e.project == site.name])
+                              devagent=devagent_by_project(document).get(site.name, []))
     except Exception as e:
         # One line, naming no configured root by its path.
         return fail(render_reason(e, roots))
