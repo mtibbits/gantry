@@ -162,37 +162,26 @@ def test_write_site_tree_builds_sites(tmp_path, capsys):
         "fires: 0; sources not fully read: 2"]  # no fires_list; beta has no node line
     assert "14 open leaves" in (out / "index.html").read_bytes().decode("utf-8")
     assert NO_LEAVES in (out / "sites" / "beta.html").read_bytes().decode("utf-8")
-    # The agreement check (#195): a document that reads the text otherwise fails the write.
-    with pytest.raises(AssertionError, match=r"nodes\[1\]\.state"):
-        write_site_tree(tmp_path / "bad", {"a": hp.source(b"- [x] A {issue: Issue-1}\n",
-                                                          hp.node("A", issue="Issue-1"))})
-    with pytest.raises(AssertionError, match=r"nodes\[1\]\.meta"):
-        write_site_tree(tmp_path / "nometa", {"a": hp.source(b"- [ ] A {issue: Issue-1, est: 3h}\n",
-                                                             hp.node("A", issue="Issue-1"))})
-    write_site_tree(tmp_path / "edges", {"alpha": hp.fixture_source("edges")})  # all three exempt directions
+    # The build reads the document, not the text (#12): a Source's nodes are what the page shows.
+    bad = write_site_tree(tmp_path / "bad", {"a": hp.source(b"- [x] A {issue: Issue-1}\n",
+                                                            hp.node("A", issue="Issue-1"))})
+    assert main(["build", "--config", str(bad)]) == 0
+    assert "1 open leaf" in (tmp_path / "bad" / "out" / "index.html").read_bytes().decode("utf-8")
+    write_site_tree(tmp_path / "edges", {"alpha": hp.fixture_source("edges")})
     write_site_tree(tmp_path / "unreadable", {"alpha": hp.fixture_source("not_utf8")})
     doc = hp.read_doc(tmp_path / "unreadable", (tmp_path / "unreadable" / "portfolio.json").read_bytes())
     assert [p.status for p in doc.projects] == ["unreadable"]
-    # A cross-project dep_cycle entry (#197) must be a cycle Gantry finds across the sites: two sites
-    # whose leaves wait on each other, the entry where devagent homes it (its first member's project).
+    # A cross-project dep_cycle entry (#197) is devagent's: shown as it wrote it, on its project's page
+    # (#12); Gantry's own cycle finder decides what the pages plan. No check ties the two any more.
     entry = (1, "dep_cycle", "dependency cycle: Issue-1 (line 1), b:Issue-1 (line 1)")
-
-    def mutual(entry):
-        return {"a": hp.source(b"- [ ] A {issue: Issue-1, depends_on: [b:Issue-1]}\n",
-                               hp.node("A", issue="Issue-1", depends_on=["b:Issue-1"]), report=(entry,)),
-                "b": hp.source(b"- [ ] B {issue: Issue-1, depends_on: [a:Issue-1]}\n",
-                               hp.node("B", issue="Issue-1", depends_on=["a:Issue-1"]))}
-
-    invented = hp.Source(hp.DONE_SITE.text, hp.DONE_SITE.nodes, (entry,))
-    with pytest.raises(AssertionError, match=r"cross-project dep_cycle"):
-        write_site_tree(tmp_path / "invented", {"a": invented, "b": hp.DONE_SITE})
-    with pytest.raises(AssertionError, match=r"cross-project dep_cycle"):
-        write_site_tree(tmp_path / "member", mutual((1, "dep_cycle", "dependency cycle: Issue-1 (line 1), "
-                                                                     "b:Issue-1 (line 2)")))
-    write_site_tree(tmp_path / "mutual", mutual(entry))
-    with pytest.raises(AssertionError, match=r"does not parse as devagent's cycle message"):
-        write_site_tree(tmp_path / "spaced", mutual((1, "dep_cycle", "dependency cycle: a b<c>&é (line 1), "
-                                                                     "b:Issue-1 (line 1)")))
+    mutual = write_site_tree(tmp_path / "mutual", {
+        "a": hp.source(b"- [ ] A {issue: Issue-1, depends_on: [b:Issue-1]}\n",
+                       hp.node("A", issue="Issue-1", depends_on=["b:Issue-1"]), report=(entry,)),
+        "b": hp.source(b"- [ ] B {issue: Issue-1, depends_on: [a:Issue-1]}\n",
+                       hp.node("B", issue="Issue-1", depends_on=["a:Issue-1"]))})
+    assert main(["build", "--config", str(mutual)]) in (0, 1)
+    page = (tmp_path / "mutual" / "out" / "sites" / "a.html").read_bytes().decode("utf-8")
+    assert "devagent dep_cycle: WBS.md line 1: dependency cycle: Issue-1 (line 1), b:Issue-1 (line 1)" in page
 
 
 # --- build --output-dir and its completion marker (#35) -------------------------

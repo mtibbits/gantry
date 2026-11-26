@@ -6,7 +6,7 @@ from gantry.est_rules import classify_est
 from gantry.model import DAYS_PER_WEEK, HOURS_PER_DAY
 
 
-@pytest.mark.parametrize(("raw", "hours"), [("3h", 3), ("1.5d", 9), ("2w", 60), ('"3h"', 3)])
+@pytest.mark.parametrize(("raw", "hours"), [("3h", 3), ("1.5d", 9), ("2w", 60)])
 def test_time_values(raw, hours):
     v = classify_est(raw)
     assert v.kind == "time"
@@ -34,7 +34,8 @@ def test_non_time(raw, number, unit):
     assert (v.lo_h, v.hi_h) == (None, None)
 
 
-@pytest.mark.parametrize("raw", ["?3d", "2-3d", "0h", "3H", "48p<r", '"about two days"', "3 h", "[3h]", "",
+# A stored value that still holds quotes is that text (#12: devagent has already unquoted it).
+@pytest.mark.parametrize("raw", ["?3d", "2-3d", "0h", "3H", "48p<r", '"about two days"', "3 h", "[3h]", "", '"3h"',
                                  "9" * 5000 + "h", "0pr", "1.5W"])
 def test_unparseable(raw):
     v = classify_est(raw)

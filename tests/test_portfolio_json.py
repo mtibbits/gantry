@@ -538,8 +538,10 @@ def test_generated_at_is_utc(tmp_path):
 
 
 def test_module_docstring_names_its_first_callers():
+    # The build (#12) and the test builder (#84) bind the signatures: no longer provisional.
     text = pj.__doc__
-    assert "#12" in text and "#84" in text and "provisional" in text
+    assert "#12" in text and "#84" in text and "provisional" not in text
+    assert "read_portfolio(roots, path)" in text and "gantry/build.py" in text
 
 
 # --- nodes into Leaf, Row and SiteData (Task 4) ----------------------------------------------

@@ -736,7 +736,7 @@ def hostile_trace_site(tmp_path):
         hostile_leaf(h[2], h[2], 5, satisfies=first),  # an open unlinked leaf: schedule only
         hostile_leaf("Issue-6", "Issue-6", 6, title=h[0], glyph="x", satisfies=first),  # finished
         hostile_leaf("Issue-7", "Issue-7", 7, title=h[10]),  # open and untraced: a report item
-        hostile_leaf("Issue-8", "Issue-8", 8, satisfies=f"[{first}, {h[3]}]"),  # a hostile entry in a list
+        hostile_leaf("Issue-8", "Issue-8", 8, satisfies=[first, h[3]]),  # a hostile entry in a list (devagent's shape, #12)
         hostile_leaf("Issue-9", "Issue-9", 9, satisfies=h[5]),  # a hostile scalar entry
         hostile_leaf("__proto__", "__proto__", 10, satisfies="alpha:FR-90"),
     )

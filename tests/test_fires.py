@@ -208,14 +208,14 @@ def test_p0_inherited_is_not_a_fire():
     assert [f.leaf_key for f in report.fires] == ["Issue-1"]
 
 
-@pytest.mark.parametrize("raw", ["P0", '"P0"', "p0", "P00", "[P0]", None])
+# devagent has already unquoted `"P0"` (#12): a stored value that still holds the quotes is not P0.
+@pytest.mark.parametrize("raw", ["P0", model.ParsedValue("P0"), '"P0"', "p0", "P00", "[P0]", None])
 def test_p0_goes_through_priority_rule(raw):
     from gantry import priority
 
     report = p0(fake_result(site("harbor", [leaf("Issue-1", "pending", raw)])))
     assert len(report.fires) == (1 if priority.rank(raw) == 0 else 0)
-    if raw in ("P0", '"P0"'):
-        assert len(report.fires) == 1
+    assert len(report.fires) == (1 if raw == "P0" else 0)
 
 
 def test_p0_state_only_leaves():

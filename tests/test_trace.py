@@ -480,9 +480,9 @@ def test_hostile_values_never_raise(tmp_path):
     assert {e.kind for e in problems} <= set(TRACE_KINDS)
     listed = [e for e in problems if e.kind == "unbracketed_list"]
     # One entry per leaf whose satisfies is a scalar, naming alpha, the key directly after it (life never
-    # is). meta_value reads every HOSTILE value as a scalar, an unclosed "[" included, except "[,]", a list.
-    assert len(listed) == len(HOSTILE) - 1
-    assert sorted(e.line for e in listed) == [i + 2 for i, raw in enumerate(HOSTILE) if raw != "[,]"]
+    # is). A stored str is a scalar whatever it holds, "[,]" included: meta_value reads no bracket (#12).
+    assert len(listed) == len(HOSTILE)
+    assert sorted(e.line for e in listed) == [i + 2 for i, raw in enumerate(HOSTILE)]
     assert {e.message for e in listed} == {message("unbracketed_list", key="alpha")}
 
 
