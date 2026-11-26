@@ -417,9 +417,7 @@ def built_panel(out, site):
 
 def assert_quarry_lists_bad_h(copy, panel):
     """Of every bad_h message quarry's h: values could give, the panel lists only Issue-7's."""
-    from gantry.wbs_stopgap import read_wbs
-
-    data = read_wbs(directory_roots([copy]), copy / UNESTIMATED / "WBS.md", UNESTIMATED)
+    data = hp.sample_site(UNESTIMATED)
     held = [n for n in (*data.leaves, *data.rows) if "h" in n.meta]
     assert len(held) == 4
     possible = {H_MESSAGES[kind].format(line=n.line, raw=n.meta["h"], key=n.key)

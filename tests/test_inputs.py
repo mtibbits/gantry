@@ -84,10 +84,8 @@ def test_ranged_row_adds_midpoint_and_ends(tmp_path):
 
 
 def test_est_fixture_totals(tmp_path):
-    # A smoke test of the stopgap path (#84): est.md's totals from the raw text.
-    from gantry.wbs_stopgap import parse_wbs
-
-    got = run(tmp_path, parse_wbs(est_text(), "alpha"))
+    # est.md's totals, from devagent's reading of it (written.json; #12 restated it off the stopgap).
+    got = run(tmp_path, est_data())
     assert got.totals == Totals(80, 74, 86, 6, {"pr": {"quantity": 50.5, "leaves": 2}})
 
 

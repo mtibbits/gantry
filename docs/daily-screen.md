@@ -158,16 +158,28 @@ it, and so does a report with no status at all. For each source:
 - A site's P0 status is `read` when its `WBS.md` was read, `absent` when it
   has none, and `not_read` (with the site's reason) otherwise, a case clash
   and an invalid site name included. It is `read_with_problems` when the
-  parser reported a `WBS.md` line it did not read as a leaf (a
-  `bad_priority` or `skipped_line` entry), or a `WBS.md` with no node line
-  at all (a `no_nodes` entry), since a mistyped P0 may hide there. The
-  parser reports only some mistyped lines, so a P0 can still be
-  missed with every status `read`: on a line it neither reads as a leaf nor
-  reports, or in metadata it does not read. Examples, not a complete list:
+  `WBS.md` holds a line that was not read as a leaf (a `bad_priority` entry,
+  or a `skipped_line` entry: devagent's near miss, a list marker then `[`
+  that is not a node), or no node line at all (a `no_nodes` entry), since a
+  mistyped P0 may hide there. Since #12 devagent's parser reads every
+  `WBS.md` (its portfolio JSON), and its near-miss rule decides which lines
+  are reported: `* [ ] Fix the crane {priority: P0}`, `+ [ ] ...`,
+  `-[ ] ...` and `- [xx] ...` are now reported and fail closed. It reports
+  only some mistyped lines, so a P0 can still be missed with every status
+  `read`: on a line it neither reads as a node nor reports, or in metadata
+  it does not read. Examples, not a complete list:
   `- [ ] Fix the crane {priority: P0} today` (text after the braces, so no
   metadata is read), `- [ ] Fix the crane {Priority: P0}` (the key is
-  case-sensitive), `* [ ] Fix the crane {priority: P0}` and
-  `1. [ ] Fix the crane {priority: P0}` (not a `- ` bullet, so not a node).
+  case-sensitive), `- [ ] Fix the crane {priority: P0` (a brace with no
+  closing one, so the rest is item text), `1. [ ] Fix the crane {priority: P0}`
+  (not a list marker devagent reads), and a `- [X] ...`, `- [ ]Fix ...` or
+  `- [] ...` line indented with no-break spaces, which the stopgap parser
+  reported and devagent's near-miss rule does not (it counts only spaces
+  and tabs as indentation). devagent does report the first three of these
+  as its own kinds (`meta_unreadable`, `unknown_meta_key`), shown on the
+  site's page; the fires do not read those kinds yet, so the page lists the
+  line while the status reads `read` and `confirmed_none` can hold (a
+  follow-up makes them fail closed).
   The same shapes hide a STUCK fire: when the leaf a marker names is on
   such a line, or its `issue:` is not read, the marker is counted in
   `stuck_no_open_leaf` with every status `read`.

@@ -22,7 +22,7 @@ from gantry.config import load_config
 from gantry.model import STATE_GLYPHS
 from gantry.planner import NO_PLAN, plan_week
 from gantry.portfolio_file import intended_shares, read_portfolio_file
-from helpers_config import _stopgap_agreement, run_main, sample_build
+from helpers_config import run_main, sample_build
 from test_capacity import CONFIGS, EXPECTED as EXPECTED_LINES, FIXTURES as CAPACITY
 from test_samples import ROOT
 
@@ -50,7 +50,7 @@ def install(tmp_path, base, wbs=None, portfolio=None, config=None, devagent=None
     portfolio file; devagent.toml stays, since the document is written from it.
 
     The copy carries devagent's portfolio document beside its devagent.toml
-    (#197), checked against every WBS.md in the copy (_stopgap_agreement).
+    (#197), the build's only source of nodes (#12).
     """
     for site, value in (wbs or {}).items():
         if value is not DELETE and not isinstance(value, hp.Source):
@@ -87,7 +87,7 @@ def _project_names(text):
 
 
 def _project_site(copy, name, table):
-    """devagent v3.4.0 _read_wbs's verdict on project `name`'s devdoc_dir, of those install() measured:
+    """devagent v3.4.0's WBS.md-read verdict (portfolio.py) on project `name`'s devdoc_dir, of those install() measured:
     hp.NotRead (no devdoc_dir set), None (no_wbs), or the WBS.md path to read. An empty, absent or
     non-directory devdoc_dir, and a WBS.md that is not a regular file, raise."""
     devdoc = table.get("devdoc_dir") if isinstance(table, dict) else None
@@ -140,8 +140,6 @@ def write_document(copy, base, wbs):
         sites[name] = value if isinstance(value, hp.Source) else hp.tree_source(tree, name, found.read_bytes())
     path = copy / hp.DOC_NAME
     path.write_bytes(hp.sp.dumps(hp.site_document(sites)))
-    _stopgap_agreement(copy, path, {name: source.text for name, source in sites.items()
-                                    if isinstance(source, hp.Source)}, who="install")
 
 
 def built(copy):

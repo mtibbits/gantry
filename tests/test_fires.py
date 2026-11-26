@@ -10,7 +10,9 @@ from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
+import helpers_portfolio as hp
 from page_safety import HOSTILE
+from test_samples import ROOT as ROOT_DIR
 
 from gantry import devagent_records as dr
 from gantry import fires, model
@@ -254,17 +256,27 @@ def test_p0_statuses():
     assert len(report.fires) == 1
 
 
-@pytest.mark.parametrize("line", ["- [ ] Fix the crane {priority: p0}", "- [ ] Fix the crane {priority: PO}",
-                                  "- [ ]Fix the crane {priority: P0}", "- [X] Fix the crane {priority: P0}"])
-def test_p0_report_problems_fail_closed(line):
-    from gantry.wbs_stopgap import parse_wbs
+# The fires tests' WBS.md (tests/fixtures/portfolio/fires.md) as devagent's aggregator reads it at the pin
+# (#12): line 1 is one clean leaf, each other line one shape. FIRES[n] is line n's text.
+FIRES = [None, *(ROOT_DIR / "tests" / "fixtures" / "portfolio" / "fires.md").read_bytes().decode("utf-8").splitlines()]
 
-    clean = parse_wbs("- [ ] Pour the slab {issue: Issue-1}\n", "harbor")
-    control = p0(fake_result(site("harbor", data=clean)))
+
+def fires_site(*lines):
+    """devagent's reading of fires.md narrowed to `lines`, as site harbor's SiteData."""
+    return hp.site_of(hp.keep_lines(hp.fixture_doc("fires", "harbor"), *lines))
+
+
+# p0 and PO are read as nodes and reported bad_priority; the rest are devagent's near misses (skipped_line),
+# * [ ] among them: the stopgap neither read nor reported it, so it hid a P0 there.
+@pytest.mark.parametrize("line", [2, 3, 4, 5, 14])
+def test_p0_report_problems_fail_closed(line):
+    assert FIRES[1] == "- [ ] Pour the slab {issue: Issue-1}"
+    assert "P0" in FIRES[line].upper().replace("PO", "P0")
+    control = p0(fake_result(site("harbor", data=fires_site(1))))
     assert by_source(control, "p0_leaf") == [("harbor", "read", None)]
     assert control.confirmed_none is True
 
-    data = parse_wbs(f"- [ ] Pour the slab {{issue: Issue-1}}\n{line}\n", "harbor")
+    data = fires_site(1, line)
     report = p0(fake_result(site("harbor", data=data)))
     assert by_source(report, "p0_leaf") == [("harbor", "read_with_problems", "WBS.md lines not read as leaves: 1")]
     assert report.confirmed_none is False
@@ -442,23 +454,22 @@ def test_every_marker_has_exactly_one_outcome():
 
 
 def test_wbs_with_no_node_lines_fails_closed():
-    from gantry.wbs_stopgap import parse_wbs
-
-    data = parse_wbs("* [ ] Fix the crane {issue: Issue-7}\n", "harbor")
-    assert [e.kind for e in data.report] == ["no_nodes"]
+    """A WBS.md whose one line is not a node: no_nodes, and devagent's near miss for the line itself."""
+    assert FIRES[6] == "* [ ] Fix the crane {issue: Issue-7}"
+    data = fires_site(6)
+    assert [e.kind for e in data.report] == ["no_nodes", "skipped_line"]
     report = all_sources(fake_result(site("harbor", data=data)), {"harbor": site_records(folder("Issue-7"))})
     assert report.fires == ()
-    assert by_source(report, "p0_leaf") == [("harbor", "read_with_problems", "WBS.md lines not read as leaves: 1")]
+    assert by_source(report, "p0_leaf") == [("harbor", "read_with_problems", "WBS.md lines not read as leaves: 2")]
     assert by_source(report, "stuck") == [
         ("harbor", "read_with_problems", "markers with no open leaf while WBS.md lines were not read: 1")]
     assert report.confirmed_none is False
 
 
-@pytest.mark.parametrize("line", ["- [ ]Fix the crane {issue: Issue-7}", "- [X] Fix the crane {issue: Issue-7}"])
+@pytest.mark.parametrize("line", [7, 8])
 def test_stuck_marker_behind_an_unread_line_fails_closed(line):
-    from gantry.wbs_stopgap import parse_wbs
-
-    data = parse_wbs(f"- [ ] Pour the slab {{issue: Issue-1}}\n{line}\n", "harbor")
+    assert FIRES[line].endswith("Fix the crane {issue: Issue-7}")
+    data = fires_site(1, line)
     assert [e.kind for e in data.report] == ["skipped_line"]
     report = stuck(fake_result(site("harbor", data=data)), {"harbor": site_records(folder("Issue-7"))})
     assert report.stuck_no_open_leaf == {"harbor": ("Issue-7",)}
@@ -467,18 +478,16 @@ def test_stuck_marker_behind_an_unread_line_fails_closed(line):
 
 
 def test_unread_line_without_a_stray_marker_keeps_stuck_read():
-    from gantry.wbs_stopgap import parse_wbs
-
-    data = parse_wbs("- [ ] Pour the slab {issue: Issue-1}\n- [ ]Fix the crane\n", "harbor")
+    assert FIRES[9] == "- [ ]Fix the crane"
+    data = fires_site(1, 9)
     report = stuck(fake_result(site("harbor", data=data)), {"harbor": site_records(folder("Issue-1"))})
     assert len(report.fires) == 1 and by_source(report, "stuck") == [("harbor", "read", None)]
 
 
 def test_stuck_marker_on_a_parent_row_has_no_open_leaf():
-    from gantry.wbs_stopgap import parse_wbs
-
-    data = parse_wbs("- [ ] Rebuild the quay {issue: Issue-5}\n  - [ ] Pour the slab {issue: Issue-1}\n", "harbor")
-    assert [lf.issue for lf in data.leaves] == ["Issue-1"]
+    assert FIRES[10:12] == ["- [ ] Rebuild the quay {issue: Issue-5}", "  - [ ] Pour the slab {issue: Issue-6}"]
+    data = fires_site(10, 11)
+    assert [lf.issue for lf in data.leaves] == ["Issue-6"]
     report = stuck(fake_result(site("harbor", data=data)), {"harbor": site_records(folder("Issue-5"))})
     assert report.fires == () and report.stuck_no_open_leaf == {"harbor": ("Issue-5",)}
     assert by_source(report, "stuck") == [("harbor", "read", None)]
@@ -917,21 +926,37 @@ def test_doc_names_every_token():
                               if line.startswith("## ")]
 
 
-# Lines that hide a P0 while every status reads `read`: the parser neither
-# reads their priority nor reports them. The doc names them as examples, not
-# as a complete list.
-BLIND_P0_LINES = ("- [ ] Fix the crane {priority: P0} today", "- [ ] Fix the crane {Priority: P0}",
-                  "* [ ] Fix the crane {priority: P0}", "1. [ ] Fix the crane {priority: P0}")
+# Lines that hide a P0 while every status reads `read` (#12, at the pin's devagent): devagent's parser
+# neither reads their priority nor reports a kind the fires count (analysis/fires-shape-grid.md in the
+# issue's notes). The doc names them as examples, not as a complete list. fires.md's line for each.
+BLIND_P0_LINES = {12: "- [ ] Fix the crane {priority: P0} today", 13: "- [ ] Fix the crane {Priority: P0}",
+                  15: "1. [ ] Fix the crane {priority: P0}", 16: "- [ ] Fix the crane {priority: P0"}
+# The three that moved from fail-closed (the stopgap reported them) to blind: indented with no-break
+# spaces, which devagent's near-miss rule does not count as indentation. The doc names them in words.
+NBSP_LINES = (17, 18, 19)
 
 
-@pytest.mark.parametrize("line", BLIND_P0_LINES)
+def _blind(line):
+    report = collect(fake_result(site("harbor", data=fires_site(1, line))), {"harbor": site_records()})
+    return (report.fires, report.confirmed_none) == ((), True)
+
+
+@pytest.mark.parametrize("line", list(BLIND_P0_LINES))
 def test_doc_p0_blind_shapes_are_examples(line):
-    from gantry.wbs_stopgap import parse_wbs
     from test_samples import ROOT
 
-    data = parse_wbs(f"- [ ] Pour the slab {{issue: Issue-1}}\n{line}\n", "harbor")
-    report = collect(fake_result(site("harbor", data=data)), {"harbor": site_records()})
-    assert (report.fires, report.confirmed_none) == ((), True)
+    assert FIRES[line] == BLIND_P0_LINES[line]
+    assert _blind(line)
     text = " ".join((ROOT / "docs" / "daily-screen.md").read_bytes().decode("utf-8").split())
-    assert f"`{line}`" in text
+    assert f"`{BLIND_P0_LINES[line]}`" in text
     assert "One P0 shape is still not seen" not in text
+
+
+@pytest.mark.parametrize("line", NBSP_LINES)
+def test_no_break_space_indent_hides_a_p0(line):
+    from test_samples import ROOT
+
+    assert FIRES[line].startswith("\u00a0\u00a0- [") and "P0" in FIRES[line]
+    assert _blind(line)
+    text = " ".join((ROOT / "docs" / "daily-screen.md").read_bytes().decode("utf-8").split())
+    assert "indented with no-break spaces" in text

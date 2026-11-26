@@ -17,6 +17,7 @@
     "states": "tests/fixtures/wbs/states.md",
     "est": "tests/fixtures/inputs/est.md",
     "h_values": "tests/fixtures/attention/h_values.md",
-    "edges": "tests/fixtures/portfolio/edges.md"
+    "edges": "tests/fixtures/portfolio/edges.md",
+    "fires": "tests/fixtures/portfolio/fires.md"
   }
 }

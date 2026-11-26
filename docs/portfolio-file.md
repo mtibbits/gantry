@@ -34,7 +34,7 @@ business requirements
   line 14: duplicate_id: life:BR-2 is also defined on line 12; the first definition is kept
 settings
   line 31: bad_value: capacity.agent_lanes: must be an integer, 0 or more, not a boolean; it is not set
-note: the milestone leaf is not checked here (this command reads no WBS.md); a full gantry build checks it and lists the result on the strategic page
+note: the milestone leaf is not checked here (this command reads no site's leaves); a full gantry build checks it and lists the result on the strategic page
 2 entries
 ```
 

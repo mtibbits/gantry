@@ -101,27 +101,6 @@ def site_of(*leaves, rows=()):
 
 
 @pytest.mark.parametrize("i", range(len(H_CASES)), ids=CASE_IDS)
-def test_h_text_forms(i):
-    # A smoke test of the stopgap path (#84): h_values.md's quoted forms as the raw text the stopgap keeps.
-    from gantry.wbs_stopgap import parse_wbs
-
-    written, _, expected = H_CASES[i]
-    data = parse_wbs((FIXTURES / "h_values.md").read_bytes().decode("utf-8"), SITE)
-    leaf = case_leaf(data, i)
-    assert leaf.meta["h"] == written
-    assert read_h(leaf) == expected
-    found = entries_on(check_h(data, SITE), leaf.line)
-    if expected is not None:
-        assert found == []
-        return
-    assert len(found) == 1
-    entry = found[0]
-    assert (entry.site, entry.line) == (SITE, leaf.line)
-    assert entry.message == bad_h_message(leaf, written)
-    assert repr(leaf.key) in entry.message and repr(written) in entry.message
-
-
-@pytest.mark.parametrize("i", range(len(H_CASES)), ids=CASE_IDS)
 def test_h_parsed_forms(i):
     _, form, expected = H_CASES[i]
     value = tag(form)

@@ -358,10 +358,10 @@ def _build(args):
     return _build_site(config, roots, sites, args.site, flag, projects, document)
 
 
-# This command reads no WBS.md, so it cannot find the milestone leaf; the full
+# This command reads no site's leaves, so it cannot find the milestone leaf; the full
 # build reads every site and runs report_entries with each site's issue:
 # values, and the strategic page lists the result (#23, docs/portfolio-file.md).
-MILESTONE_NOTE = ("note: the milestone leaf is not checked here (this command reads no WBS.md); a full gantry build "
+MILESTONE_NOTE = ("note: the milestone leaf is not checked here (this command reads no site's leaves); a full gantry build "
                   "checks it and lists the result on the strategic page")
 
 
@@ -389,7 +389,7 @@ def _portfolio(args):
               "to check a portfolio file (docs/portfolio-file.md)", file=sys.stderr)
         return 1
     portfolio = read_portfolio_file(roots, config.portfolio_file, br_namespace=config.requirements.br_namespace)
-    # It reads no WBS.md, so no issues_by_site: the milestone leaf is not checked.
+    # It reads no site's leaves, so no issues_by_site: the milestone leaf is not checked.
     entries = report_entries(portfolio, site_names)
     for section in (None, *SECTIONS):
         group = [e for e in entries if e.section == section]

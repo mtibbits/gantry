@@ -1,0 +1,322 @@
+{
+  "pin": "devagent--v3.4.0",
+  "schema_version": "1.2",
+  "site": "fires",
+  "status": "read",
+  "reason": null,
+  "nodes": [
+    {
+      "line": 1,
+      "row": false,
+      "key": "Issue-1",
+      "issue": "Issue-1",
+      "outline": "1",
+      "title": "Pour the slab",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": null,
+      "parent": null,
+      "meta": {
+        "issue": "Issue-1"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 2,
+      "row": false,
+      "key": "2",
+      "issue": null,
+      "outline": "2",
+      "title": "Fix the crane",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": "p0",
+      "epic": null,
+      "parent": null,
+      "meta": {
+        "priority": "p0"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 3,
+      "row": false,
+      "key": "3",
+      "issue": null,
+      "outline": "3",
+      "title": "Fix the crane",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": "PO",
+      "epic": null,
+      "parent": null,
+      "meta": {
+        "priority": "PO"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 10,
+      "row": true,
+      "key": "Issue-5",
+      "issue": "Issue-5",
+      "outline": "4",
+      "title": "Rebuild the quay",
+      "glyph": " ",
+      "state": "pending",
+      "open": null,
+      "priority": null,
+      "epic": null,
+      "parent": null,
+      "meta": {
+        "issue": "Issue-5"
+      },
+      "depends_on": [],
+      "rank": null,
+      "est": null,
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 11,
+      "row": false,
+      "key": "Issue-6",
+      "issue": "Issue-6",
+      "outline": "4.1",
+      "title": "Pour the slab",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": "Issue-5",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-6"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 12,
+      "row": false,
+      "key": "5",
+      "issue": null,
+      "outline": "5",
+      "title": "Fix the crane {priority: P0} today",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": null,
+      "parent": null,
+      "meta": {},
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 13,
+      "row": false,
+      "key": "6",
+      "issue": null,
+      "outline": "6",
+      "title": "Fix the crane",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": null,
+      "parent": null,
+      "meta": {
+        "Priority": "P0"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    },
+    {
+      "line": 16,
+      "row": false,
+      "key": "7",
+      "issue": null,
+      "outline": "7",
+      "title": "Fix the crane {priority: P0",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": null,
+      "parent": null,
+      "meta": {},
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": []
+    }
+  ],
+  "links": [],
+  "held_out": [],
+  "report": [
+    [
+      2,
+      "no_issue",
+      "WBS.md line 2: leaf has no issue: id; it is named '2'"
+    ],
+    [
+      2,
+      "bad_priority",
+      "WBS.md line 2: priority 'p0' is not P0, P1, P2, P3 or P4; it counts as P3"
+    ],
+    [
+      3,
+      "no_issue",
+      "WBS.md line 3: leaf has no issue: id; it is named '3'"
+    ],
+    [
+      3,
+      "bad_priority",
+      "WBS.md line 3: priority 'PO' is not P0, P1, P2, P3 or P4; it counts as P3"
+    ],
+    [
+      4,
+      "skipped_line",
+      "WBS.md line 4: looks like a node but is not one: - [ ]Fix the crane {priority: P0}"
+    ],
+    [
+      5,
+      "skipped_line",
+      "WBS.md line 5: looks like a node but is not one: - [X] Fix the crane {priority: P0}"
+    ],
+    [
+      6,
+      "skipped_line",
+      "WBS.md line 6: looks like a node but is not one: * [ ] Fix the crane {issue: Issue-7}"
+    ],
+    [
+      7,
+      "skipped_line",
+      "WBS.md line 7: looks like a node but is not one: - [ ]Fix the crane {issue: Issue-7}"
+    ],
+    [
+      8,
+      "skipped_line",
+      "WBS.md line 8: looks like a node but is not one: - [X] Fix the crane {issue: Issue-7}"
+    ],
+    [
+      9,
+      "skipped_line",
+      "WBS.md line 9: looks like a node but is not one: - [ ]Fix the crane"
+    ],
+    [
+      12,
+      "no_issue",
+      "WBS.md line 12: leaf has no issue: id; it is named '5'"
+    ],
+    [
+      13,
+      "no_issue",
+      "WBS.md line 13: leaf has no issue: id; it is named '6'"
+    ],
+    [
+      14,
+      "skipped_line",
+      "WBS.md line 14: looks like a node but is not one: * [ ] Fix the crane {priority: P0}"
+    ],
+    [
+      16,
+      "no_issue",
+      "WBS.md line 16: leaf has no issue: id; it is named '7'"
+    ]
+  ],
+  "devagent": [
+    [
+      12,
+      "meta_unreadable",
+      "a '{...}' block that is not at the end of the line, or holds a brace, is item text, not metadata"
+    ],
+    [
+      13,
+      "unknown_meta_key",
+      "unknown metadata key 'Priority'"
+    ],
+    [
+      16,
+      "meta_unreadable",
+      "'{' with no closing '}'; the text after it is item text, not metadata"
+    ]
+  ]
+}

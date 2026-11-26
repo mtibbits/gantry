@@ -21,12 +21,10 @@ import sample_portfolio as sp
 import update_expected_leaves as ue
 from gantry import deps
 from gantry.model import ParsedValue
-from gantry.portfolio_json import ProjectInput, map_document
-from helpers_config import (ONE_SIDED, append_bytes, copy_samples, install_sample_document, one_sided_classes,
-                            sample_projects, write_site_tree)
+from gantry.portfolio_json import map_document
+from helpers_config import append_bytes, copy_samples, install_sample_document, sample_projects, write_site_tree
 from helpers_links import link_dir, symlink
 from sample_roles import BUSY, NO_WBS, READABLE, SMALL, UNREADABLE
-from test_portfolio_equivalence import known
 from test_samples import ROOT
 
 NODE_LINE_RE = re.compile(r"^\s*- \[.\] ", re.M)
@@ -42,7 +40,7 @@ def kinds(data, kind):
 def test_auto_report_matches_devagent_on_the_written_fixture():
     doc = hp.written_doc()
     read = [p for p in doc["projects"] if p["status"] == "read"]
-    assert len(read) == 13
+    assert len(read) == 14
     for project in read:
         name = project["project"]
         made = sorted((e["source_line"], e["kind"], e["message"]) for e in hp.auto_report(project))
@@ -281,29 +279,13 @@ def test_sample_site_reads_each_readable_sample():
     assert hp.sample_source(SMALL, b"x").text == b"x"
 
 
-# --- agreement with the stopgap (Task 5; #12 deletes it) ---------------------------------------
-
-AGREEMENT = [p["project"] for p in hp.written_doc()["projects"] if p["status"] == "read"] + list(hp.DESCRIBED)
+# --- the stored readings of the installable trees (#197) ---------------------------------------
 
 
-def known_rows(name):
-    return [(e["where"], e["stopgap"], e["snapshot"]) for e in known("fixtures") if e["site"] == name]
-
-
-def alpha_snapshot(data):
-    return ue.snapshot_of(ProjectInput("alpha", "read", None, data), (), pin=hd.read_pin()[0], schema_version="1.2",
-                          namespaces=frozenset({"alpha"}))
-
-
-def test_agreement_covers_every_read_fixture_and_description(tmp_path):
-    assert len(AGREEMENT) == len(set(AGREEMENT)) == 15
-    assert set(AGREEMENT) == {*sp.FIXTURE_SOURCES} - {"not_utf8"} | set(hp.DESCRIBED)
-    assert [name for name in AGREEMENT if known_rows(name)] == ["ids", "edges"]
-    # write_site_tree's agreement check forgives exactly these one-sided report classes (#195).
-    assert one_sided_classes() == ONE_SIDED
-    # The stored readings of the installable trees (#197): every tree, the pin they were made at,
-    # each input as committed (an edit to a fixture WBS.md or devagent.toml reds here), and one
-    # agreement check per tree over all of its sites.
+def test_stored_trees_match_their_inputs(tmp_path):
+    """Every tree install() copies, the pin its reading was made at, and each input as committed: an
+    edit to a fixture WBS.md or devagent.toml reds here, since the build reads only the stored
+    reading (#12). Each tree then installs, its document written from the stored readings."""
     fixtures = ROOT / "tests" / "fixtures"
     stored = hp._parsed(hp.TREES)
     trees = sorted(p.parent for p in (fixtures / "week_plan").glob("*/gantry.toml")) + [
@@ -318,22 +300,7 @@ def test_agreement_covers_every_read_fixture_and_description(tmp_path):
     from test_planner import install
 
     for tree in stored["trees"]:
-        install(tmp_path, fixtures / tree)  # writes the tree's document from its stored readings and checks it
-
-
-@pytest.mark.parametrize("name", AGREEMENT)
-def test_fixture_sites_agree_with_the_stopgap(name):
-    # The builder's sites read like the stopgap's reading of the same text, renamed alpha,
-    # but for the listed devagent-reading differences (known_differences.json).
-    from gantry.wbs_stopgap import parse_wbs
-
-    if name in hp.DESCRIBED:
-        source, data = hp.DESCRIBED[name][0], hp.described_site(name)
-    else:
-        source, data = sp.FIXTURE_SOURCES[name], hp.fixture_site(name)
-    stopgap = parse_wbs((ROOT / source).read_bytes().decode("utf-8"), "alpha")
-    found = ue.diff_snapshots(alpha_snapshot(stopgap), alpha_snapshot(data))
-    assert [tuple(row) for row in found] == known_rows(name)
+        install(tmp_path, fixtures / tree)
 
 
 def test_document_report_entries_follow_the_auto_entries():
@@ -386,14 +353,7 @@ def test_append_nodes(tmp_path):
     assert "Issue-98" in [leaf.key for leaf in hp.site_of(written, SMALL).leaves]
     with pytest.raises(AssertionError):
         hp.rewrite_document(copy, lambda d: d)
-
-    def done(d):  # the document says a node is done that the copy's WBS.md still has open
-        nodes = next(p for p in d["projects"] if p["project"] == SMALL)["nodes"]
-        next(n for n in nodes if n["state"] == "pending").update(state="done", glyph="x")
-        return d
-
-    with pytest.raises(AssertionError, match=r"\.state"):
-        hp.rewrite_document(copy, done)
+    # No check against the copy's WBS.md remains (#12): the document is the build's only source.
     # The install() layout (#197), as write_site_tree lays a tree out: the document beside devagent.toml,
     # each devdoc_dir relative to the folder.
     tree = tmp_path / "tree"

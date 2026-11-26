@@ -23,7 +23,6 @@ from gantry import portfolio_json as pj
 from gantry.attention import check_h, read_h
 from gantry.deps import refs
 from gantry.est_rules import classify_est
-from gantry import wbs_stopgap
 from gantry.model import (REPORT_KINDS, STATE_GLYPHS, Leaf, ParsedValue, ReportEntry, Row, SiteData, meta_scalar,
                           meta_value, meta_values, report_order)
 from gantry.portfolio_json import (DevagentEntry, PortfolioInput, PortfolioLoadError, ProjectInput, map_document,
@@ -31,7 +30,6 @@ from gantry.portfolio_json import (DevagentEntry, PortfolioInput, PortfolioLoadE
 from gantry.priority import rank
 from gantry.roots import directory_roots
 from gantry.sites import SiteEntry
-from gantry.wbs_stopgap import parse_wbs
 from page_safety import HOSTILE
 
 # --- ParsedValue and the accessors (Task 1) --------------------------------------------------
@@ -56,17 +54,13 @@ def test_parsed_shapes_are_not_re_read():
     assert ParsedValue.__slots__ == () and not hasattr(ParsedValue("x"), "__dict__")
 
 
-def test_plain_str_keeps_the_raw_text_reading():
-    assert meta_value("[a, 'b']") == ["a", "b"]
-    assert meta_values("[a, 'b']") == ["a", "b"]
-    assert meta_value('"x"') == "x"
-    assert meta_scalar('"x"') == "x"
-    assert meta_scalar("[a]") is None
-    (leaf,) = parse_wbs('- [ ] A {issue: I-1, note: "[x]"}\n', "s").leaves
-    note = leaf.meta["note"]
-    assert type(note) is str and note == '"[x]"'
-    assert meta_value(note) == "[x]"
-    # A str method gives a plain str back, so the tag is read off the stored object only.
+def test_meta_value_returns_stored_shapes():
+    """No value is read a second time (#12): a list and a string come back as the same object, a
+    plain str included, whatever brackets, quotes or spaces it holds."""
+    for value in ("[a, 'b']", '"x"', " x ", "[a]", ParsedValue("[x]"), [ParsedValue("a")], []):
+        assert meta_value(value) is value
+    assert meta_scalar("[a]") == "[a]" and meta_scalar([ParsedValue("a")]) is None
+    assert meta_values('"x"') == ['"x"'] and meta_values([ParsedValue("a")]) == ["a"]
     assert type(ParsedValue("[x]").strip()) is str
 
 
@@ -173,7 +167,7 @@ def test_models_field_is_not_read():
     doc = hp.written_doc()
     plain = map_document(doc)
     leaves = [n for p in doc["projects"] for n in p["nodes"] if n["leaf"]]
-    assert len(leaves) == 114 and all(list(n["models"]) == ["thinking", "checking"] for n in leaves)
+    assert len(leaves) == 121 and all(list(n["models"]) == ["thinking", "checking"] for n in leaves)
     assert not any("models" in n for p in doc["projects"] for n in p["nodes"] if not n["leaf"])
     for node in leaves:
         node["models"] = {"thinking": "<script>", "checking": ["x"]}
@@ -425,7 +419,7 @@ SCHEMA_ROWS = (
      "nests deeper than 64 levels"),
     ("a chain 5,000 deep", _set(("projects", EMPTY, "nodes"), chain(5000)), "$.projects[1].nodes[64].parent",
      "nests deeper than 64 levels"),
-    ("shapes are checked before parent links", _both_passes, "$.parse_report[55].message", "not a string"),
+    ("shapes are checked before parent links", _both_passes, "$.parse_report[70].message", "not a string"),
 )
 
 
@@ -433,7 +427,7 @@ def test_schema_breaking_documents(tmp_path):
     assert len(SCHEMA_ROWS) == 66
     doc = hp.written_doc()
     assert (doc["projects"][IDS]["nodes"][1]["id"], doc["projects"][IDS]["nodes"][0]["id"]) == ("n13", "n12")
-    assert doc["projects"][CYCLE]["nodes"][0]["id"] == "n1" and len(doc["parse_report"]) == 56
+    assert doc["projects"][CYCLE]["nodes"][0]["id"] == "n1" and len(doc["parse_report"]) == 71
     assert ", ".join(repr(g) for g in STATE_GLYPHS) == GLYPHS
     seen = set()
     for what, change, where, problem in SCHEMA_ROWS:
@@ -608,7 +602,7 @@ def test_outline_name_equal_to_an_issue_gets_key_collision():
     (entry,) = [e for e in data.report if e.kind == "key_collision"]
     assert entry == ReportEntry("ids", 5, "key_collision", "WBS.md line 5: outline position '1.3' is the issue: id "
                                                            "on line 7; this node is named '1.3~5'")
-    assert entry.message == wbs_stopgap.MESSAGES["key_collision"].format(line=5, outline="1.3", other=7, key="1.3~5")
+    assert entry.message == pj.MESSAGES["key_collision"].format(line=5, outline="1.3", other=7, key="1.3~5")
 
 
 def test_outline_ignores_ids_and_array_order():
@@ -661,7 +655,7 @@ def test_meta_holds_parsed_values_in_document_order():
     assert type(lights.deps[0].raw) is ParsedValue
 
 
-META_COUNTS = (130, 181, 45, 23)  # nodes, scalar values, list values, leaf priorities
+META_COUNTS = (138, 187, 45, 25)  # nodes, scalar values, list values, leaf priorities
 
 
 def shape(data):
@@ -720,7 +714,7 @@ def test_bad_priority_is_gantrys_and_p0_is_legal():
     assert sum(e.kind == "bad_priority" for p in got.projects for e in p.data.report) == BAD_PRIORITIES
 
 
-BAD_PRIORITIES = 8  # ids 4, rows 5, refs 5, est 13 and 14, h_values 11, edges 14 and 15
+BAD_PRIORITIES = 10  # ids 4, rows 5, refs 5, est 13 and 14, h_values 11, edges 14 and 15, fires 2 and 3
 
 
 def test_statuses_are_returned_as_written():
@@ -753,15 +747,12 @@ def test_map_document_equals_read_portfolio(tmp_path):
     read = hp.read_doc(tmp_path, hp.written_doc())
     again = mapped()
     assert read == again
-    assert len(read.projects) == 14 and sum(len(p.data.leaves) + len(p.data.rows) for p in read.projects) == 130
+    assert len(read.projects) == 15 and sum(len(p.data.leaves) + len(p.data.rows) for p in read.projects) == 138
 
 
-def test_copied_messages_equal_the_stopgaps():
-    # #12 deletes this test with the stopgap: the texts are then the reader's own.
-    copied = ("key_collision", "bad_priority", "no_nodes", "no_issue", "duplicate_issue")
-    assert tuple(pj.MESSAGES) == copied
-    for kind in copied:
-        assert pj.MESSAGES[kind] == wbs_stopgap.MESSAGES[kind], kind
+def test_reader_imports_no_parser_of_its_own():
+    """The reader's texts are its own (#12 deleted the stopgap they were copied from)."""
+    assert tuple(pj.MESSAGES) == ("key_collision", "bad_priority", "no_nodes", "no_issue", "duplicate_issue")
     tree = ast.parse(hp.sp.ROOT.joinpath("gantry", "portfolio_json.py").read_bytes())
     imported = {n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
     imported |= {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
@@ -816,7 +807,8 @@ def test_every_entry_has_one_disposition():
     doc = hp.written_doc()
     got = map_document(doc)
     names = [p["project"] for p in doc["projects"]]
-    earlier = [n for n in names if n != "edges"]
+    later = ("edges", "fires")  # #83's own source, and #12's
+    earlier = [n for n in names if n not in later]
     # devagent_report is a sub-sequence of parse_report, unchanged and in document order.
     written = [as_shown(raw) for raw in doc["parse_report"]]
     assert list(got.devagent_report) == [e for e in written if e in set(got.devagent_report)]
@@ -830,13 +822,18 @@ def test_every_entry_has_one_disposition():
     # Before `edges`: 46 = 13 mapped + 28 suppressed + 5 shown.
     assert partition(earlier) == (46, 13, 28, 5)
     assert mapped_counts(got, earlier) == {"no_issue": 6, "duplicate_issue": 1, "skipped_line": 2, "unresolved_ref": 4}
-    assert [(e.project, e.line, e.kind) for e in got.devagent_report if e.project != "edges"] == [
+    assert [(e.project, e.line, e.kind) for e in got.devagent_report if e.project not in later] == [
         ("cycle", 7, "dep_cycle"), ("fences", 17, "parser_warning"), ("nesting", 10, "unknown_meta_key"),
         ("rows", 9, "dep_cycle"), ("rows", 13, "parent_done_leaf_pending")]
     # With `edges`: four near misses and two unresolved refs mapped; two est_unparseable, an
     # issue_malformed and a meta_unreadable shown.
-    assert partition(names) == (56, 19, 28, 9)
+    assert partition(names) == (71, 31, 28, 12)
     assert partition(["edges"]) == (10, 6, 0, 4)
+    # With `fires` (#12): five issue-less leaves and seven near misses mapped; two meta_unreadable and an
+    # unknown_meta_key shown (the kinds the fires do not read yet).
+    assert partition(["fires"]) == (15, 12, 0, 3)
+    assert [(e.line, e.kind) for e in got.devagent_report if e.project == "fires"] == [
+        (12, "meta_unreadable"), (13, "unknown_meta_key"), (16, "meta_unreadable")]
     # What is suppressed, by devagent's kind: each is an entry Gantry's own passes report.
     gone = {}
     kept = set(got.devagent_report)
@@ -864,10 +861,6 @@ def test_mapped_entries_take_gantrys_texts():
     assert [(e.kind, e.message) for e in at(ids, 11)] == [
         ("skipped_line", "WBS.md line 11: looks like a node but is not one: - [ ]")]
     assert shown_at(got, "ids", 4) == shown_at(got, "ids", 9) == shown_at(got, "ids", 10) == []
-    # The stopgap gives the same texts for the three kinds Gantry holds every field of.
-    stopgap = parse_wbs((hp.sp.ROOT / hp.sp.FIXTURE_SOURCES["ids"]).read_bytes().decode("utf-8"), "ids")
-    for kind in ("no_issue", "duplicate_issue", "unresolved_ref"):
-        assert [e for e in ids.report if e.kind == kind] == [e for e in stopgap.report if e.kind == kind], kind
 
 
 def test_foreign_entry_yields_only_gantrys_entry():

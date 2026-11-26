@@ -80,6 +80,8 @@ FIXTURE_SOURCES = {
     "est": "tests/fixtures/inputs/est.md",
     "h_values": "tests/fixtures/attention/h_values.md",
     "edges": "tests/fixtures/portfolio/edges.md",
+    # The fires tests' lines (#12): line 1 one clean leaf, then each P0 and STUCK shape they restate.
+    "fires": "tests/fixtures/portfolio/fires.md",
 }
 
 # run_bash runs from, and writes its driver into, the folder it is given. So
