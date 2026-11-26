@@ -131,6 +131,15 @@ def _clean_checkout(folder) -> bool:
     return ran.returncode == 0 and not ran.stdout
 
 
+def _rmtree(folder):
+    """shutil.rmtree that also deletes read-only files (git's objects, which Windows will not unlink)."""
+    def writable(func, path, _):
+        os.chmod(path, stat.S_IWRITE | stat.S_IREAD)
+        func(path)
+
+    shutil.rmtree(folder, **({"onexc": writable} if sys.version_info >= (3, 12) else {"onerror": writable}))
+
+
 def _devagent(root):
     """devagent at the pin: GANTRY_DEVAGENT_DIR's checkout (nothing fetched), or the fetch folder."""
     from devagent_record_fixtures import Refused as FixturesRefused
@@ -155,7 +164,7 @@ def _devagent(root):
             target = guard_deletable(root, FETCH, FETCH)
         except FixturesRefused as e:  # sample_portfolio's: one line, as this tool's own
             raise Refused(str(e)) from None
-        shutil.rmtree(target)
+        _rmtree(target)
     ran = _git(root, "clone", "-q", "--depth", "1", "--branch", tag, REPO, FETCH)
     if ran.returncode != 0:
         raise Refused(f"cannot fetch {tag} from {REPO} (git exit {ran.returncode})")

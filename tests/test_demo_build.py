@@ -336,7 +336,7 @@ def test_stale_fetch_folder_is_replaced_only_under_the_guard(tree, fetches, tmp_
     assert fetches["calls"] == [CLONE_ARGS]
     assert _hgit(old, "rev-parse", "HEAD").strip() == fetches["head"]
     # A stale folder that is a link is never deleted, nor what it points at.
-    shutil.rmtree(old)
+    demo_build._rmtree(old)  # git writes its objects read-only; Windows will not unlink them
     outside = tmp_path / "elsewhere"
     checkout_at(outside, version="0.0.1")
     link_dir(outside, old)
