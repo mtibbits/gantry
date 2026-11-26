@@ -215,6 +215,7 @@ PROBES = (
     "samples/out/commit-check-probe",
     "samples/history/out/commit-check-probe",
     "samples/devagent/out/commit-check-probe",
+    "out/devagent/commit-check-probe",
 )
 
 

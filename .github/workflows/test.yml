@@ -41,6 +41,13 @@ jobs:
           test "$got" = "$want" || { echo "$(cat tests/devagent.pin) is at $got; the fixtures were written at $want"; exit 1; }
           echo "GANTRY_DEVAGENT_DIR=$RUNNER_TEMP/devagent" >> "$GITHUB_ENV"
       - run: python -m pytest -q -rs
-      # The console script, unconditionally: the matching test skips when
-      # gantry is not on PATH, and a skip is never the only evidence.
-      - run: gantry build --config samples/gantry.sample.toml
+      # The sample portfolio JSON the sample config reads (#12), written by the
+      # pinned devagent's own aggregator. Linux only: devagent's toolchain is
+      # bash and GNU coreutils (docs/demo.md).
+      - if: runner.os == 'Linux'
+        run: python tools/sample_portfolio.py
+      # The console script: the matching test skips when gantry is not on
+      # PATH, and a skip is never the only evidence. Linux only, as the
+      # document it reads.
+      - if: runner.os == 'Linux'
+        run: gantry build --config samples/gantry.sample.toml

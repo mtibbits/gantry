@@ -128,6 +128,11 @@ LOG_LINE_RE = re.compile(rb"^(- )" + MINUTES + rb"(  )")
 STUCK_CREATED_RE = re.compile(rb"^(Created:     )(?:(" + ISO + rb")|(" + MINUTES + rb"))$")
 
 
+# Why devagent's writers and aggregator do not run on Windows: the gated tests
+# (tests/helpers_devagent.py) and the demo build (tools/demo_build.py) both say it.
+TOOLCHAIN = "needs devagent's own toolchain (bash and GNU coreutils)"
+
+
 class Refused(Exception):
     """A reason to exit 1."""
 

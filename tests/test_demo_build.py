@@ -1,18 +1,30 @@
-"""tools/demo_build.py: the demo build, its clean guard and its steps (#45).
+"""tools/demo_build.py: the demo build, its clean guard and its steps (#45, #12).
 
 The guard and step tests run against a throwaway git tree with fake steps;
+the devagent fetch tests replace `git clone` with a local fake (`fetches`);
 the clone tests build the real demo from committed HEAD in a child process
-under a frozen clock (tests/demo_build_runner.py, tests/clock.py).
+under a frozen clock (tests/demo_build_runner.py, tests/clock.py), with the
+devagent checkout GANTRY_DEVAGENT_DIR names (hd.require_devagent).
 """
 
+import json as _json
 import os
 import shutil
+import subprocess as _subprocess
+from pathlib import Path
 
 import pytest
 
+import commit_check
 import demo_build
+import helpers_devagent as hd
+from devagent_record_fixtures import read_pin
+from helpers_history import git as _hgit
 from helpers_history import make_repo, write
 from helpers_links import link_dir
+
+# The real preconditions: the tree fixture replaces them, so the guard tests run on every host.
+PRECONDITIONS = demo_build.preconditions
 
 CONFIG = "samples/gantry.sample.toml"
 SENTINEL = "keep.txt"
@@ -30,11 +42,12 @@ def plant(folder):
 
 
 @pytest.fixture
-def tree(tmp_path, git_ready):
+def tree(tmp_path, git_ready, monkeypatch):
     root = make_repo(tmp_path / "tree")
     write(root, ".gitignore", "out/\n")
     write(root, CONFIG, config_bytes())
     plant(root / "samples" / "out")
+    monkeypatch.setattr(demo_build, "preconditions", lambda *args: None)
     return root
 
 
@@ -191,9 +204,161 @@ def test_main_takes_no_arguments(monkeypatch):
     assert raised.value.code == 2
 
 
-def test_real_steps():
-    assert [s.name for s in demo_build.STEPS] == ["sample history", "build"]
+def test_steps_are_history_devagent_portfolio_build():
+    assert [s.name for s in demo_build.STEPS] == ["sample history", "devagent", "sample portfolio", "build"]
     assert demo_build.Step._fields == ("name", "run")
+
+
+# --- the preconditions and the devagent fetch (#12) ---------------------------------------
+
+TAG = read_pin()
+VERSION = TAG.removeprefix("devagent--v")
+CLONE_ARGS = ("clone", "-q", "--depth", "1", "--branch", TAG, demo_build.REPO, demo_build.FETCH)
+
+
+def checkout_at(folder, version=VERSION):
+    """A devagent-shaped git checkout at `version`, committed at a fixed time: its HEAD."""
+    make_repo(folder)
+    write(folder, ".claude-plugin/plugin.json", _json.dumps({"name": "devagent", "version": version}) + "\n")
+    write(folder, "scripts/portfolio.sh", "exit 0\n")
+    _hgit(folder, "add", "-A")
+    _hgit(folder, "commit", "-q", "-m", "release", when="2026-01-12T09:30:00+00:00")
+    return _hgit(folder, "rev-parse", "HEAD").strip()
+
+
+@pytest.fixture
+def fetches(tree, tmp_path, monkeypatch):
+    """`git clone` replaced by a copy of a local fake checkout; the fixture's state:
+    `calls` (each clone's arguments), `commit` (what recorded_commit returns),
+    `head` (the fake's HEAD), `fail` (a clone exit code to return instead)."""
+    monkeypatch.delenv(demo_build.VARIABLE, raising=False)
+    template = tmp_path / "template"
+    state = {"calls": [], "head": checkout_at(template), "fail": None}
+    state["commit"] = state["head"]
+    real = demo_build._git
+
+    def fake(root, *args):
+        if args[:1] == ("clone",):
+            state["calls"].append(args)
+            if state["fail"] is not None:
+                return _subprocess.CompletedProcess(args, state["fail"], b"", b"fatal: " + str(tmp_path).encode())
+            shutil.copytree(template, Path(root) / args[-1])
+            return _subprocess.CompletedProcess(args, 0, b"", b"")
+        return real(root, *args)
+
+    monkeypatch.setattr(demo_build, "_git", fake)
+    monkeypatch.setattr(demo_build, "recorded_commit", lambda root: state["commit"])
+    return state
+
+
+def test_windows_is_refused_before_clean_or_fetch(tree, fetches, monkeypatch, capsys):
+    monkeypatch.setattr(demo_build, "preconditions", PRECONDITIONS)
+    sentinel = tree / "samples" / "out" / SENTINEL
+    calls = []
+    monkeypatch.setattr(demo_build, "STEPS", (step("never", calls),))
+    assert demo_build.run(tree, os_name="nt") == 1
+    err = capsys.readouterr().err
+    assert err.splitlines() == ["demo_build: the sample portfolio step needs devagent's own toolchain (bash and GNU "
+                                "coreutils), which Windows does not provide; see docs/demo.md"]
+    assert hd.TOOLCHAIN in err
+    assert sentinel.is_file() and calls == [] and fetches["calls"] == []
+
+
+def test_missing_bash_stops_before_clean_and_fetch(tree, fetches, tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(demo_build, "preconditions", PRECONDITIONS)
+    empty = tmp_path / "no-programs"
+    empty.mkdir()
+    monkeypatch.setenv("PATH", str(empty))
+    sentinel = tree / "samples" / "out" / SENTINEL
+    calls = []
+    monkeypatch.setattr(demo_build, "STEPS", (step("never", calls),))
+    assert demo_build.run(tree, os_name="posix") == 1
+    assert capsys.readouterr().err.splitlines() == [f"demo_build: {demo_build.NO_BASH}"]
+    assert sentinel.is_file() and calls == [] and fetches["calls"] == []
+
+
+def test_checkout_variable_is_used_and_nothing_is_fetched(tree, fetches, tmp_path, monkeypatch):
+    import sample_portfolio
+
+    named = tmp_path / "named-checkout"
+    monkeypatch.setenv(demo_build.VARIABLE, str(named))
+    assert demo_build.devagent_dir(tree, os.environ) == named
+    assert demo_build._devagent(tree) == 0
+    seen = []
+    monkeypatch.setattr(sample_portfolio, "main", lambda argv: seen.append(argv) or 0)
+    assert demo_build._sample_portfolio(tree) == 0
+    assert seen == [["--devagent", str(named), "--samples", str(tree / "samples")]]
+    assert fetches["calls"] == [] and not (tree / demo_build.FETCH).exists()
+
+
+def test_fetch_clones_the_pinned_tag_into_the_ignored_folder(tree, fetches):
+    assert demo_build.devagent_dir(tree, {}) == tree / demo_build.FETCH
+    assert demo_build._devagent(tree) == 0
+    assert fetches["calls"] == [CLONE_ARGS]
+    assert (tree / demo_build.FETCH / ".claude-plugin" / "plugin.json").is_file()
+    # A second run reuses the checkout: no fetch.
+    assert demo_build._devagent(tree) == 0
+    assert fetches["calls"] == [CLONE_ARGS]
+
+
+def test_unignored_folder_refuses_before_first_clone(tree, fetches, monkeypatch, capsys):
+    monkeypatch.setattr(demo_build, "preconditions", PRECONDITIONS)
+    write(tree, ".gitignore", "samples/out/\n")
+    sentinel = tree / "samples" / "out" / SENTINEL
+    calls = []
+    monkeypatch.setattr(demo_build, "STEPS", (step("never", calls),))
+    assert demo_build.run(tree, os_name="posix") == 1
+    assert capsys.readouterr().err.splitlines() == [
+        "demo_build: git does not ignore out/devagent, the devagent fetch folder"]
+    assert sentinel.is_file() and calls == [] and fetches["calls"] == []
+
+
+def test_dirty_reused_checkout_is_refused(tree, fetches):
+    assert demo_build._devagent(tree) == 0
+    changed = write(tree / demo_build.FETCH, "scripts/portfolio.sh", "echo edited\n")
+    with pytest.raises(demo_build.Refused, match="out/devagent holds a change; it is not used or deleted"):
+        demo_build._devagent(tree)
+    assert changed.read_bytes() == b"echo edited\n"
+    assert fetches["calls"] == [CLONE_ARGS]
+
+
+def test_fetched_commit_mismatch_fails_closed(tree, fetches):
+    fetches["commit"] = "0" * 40
+    with pytest.raises(demo_build.Refused) as refused:
+        demo_build._devagent(tree)
+    assert str(refused.value) == f"{TAG} is at {fetches['head']}; the fixtures were written at {'0' * 40}"
+
+
+def test_stale_fetch_folder_is_replaced_only_under_the_guard(tree, fetches, tmp_path):
+    old = tree / demo_build.FETCH
+    checkout_at(old, version="0.0.1")
+    assert demo_build._devagent(tree) == 0
+    assert fetches["calls"] == [CLONE_ARGS]
+    assert _hgit(old, "rev-parse", "HEAD").strip() == fetches["head"]
+    # A stale folder that is a link is never deleted, nor what it points at.
+    shutil.rmtree(old)
+    outside = tmp_path / "elsewhere"
+    checkout_at(outside, version="0.0.1")
+    link_dir(outside, old)
+    with pytest.raises(demo_build.Refused, match="out/devagent is, or is under, a link; it is not deleted"):
+        demo_build._devagent(tree)
+    assert (outside / ".claude-plugin" / "plugin.json").is_file()
+    assert fetches["calls"] == [CLONE_ARGS]
+
+
+def test_failed_fetch_names_no_path(tree, fetches, tmp_path, monkeypatch, capsys):
+    fetches["fail"] = 128
+    calls = []
+    monkeypatch.setattr(demo_build, "STEPS", (demo_build.Step("devagent", demo_build._devagent), step("never", calls)))
+    assert demo_build.run(tree) == 1
+    err = capsys.readouterr().err
+    assert err.splitlines() == [f"demo_build: cannot fetch {TAG} from https://github.com/mtibbits/devagent (git exit 128)",
+                                "demo_build: step devagent failed"]
+    assert str(tmp_path) not in err and calls == []
+
+
+def test_commit_check_probes_out_devagent():
+    assert "out/devagent" in commit_check.FIXED_PROBE_DIRS
 
 
 # --- the frozen clock and the clone runs --------------------------------------------
@@ -285,7 +450,8 @@ def stamps(data):
 
 @pytest.fixture(scope="module")
 def two_days(tmp_path_factory):
-    """The clone and the two `main` runs, a year apart."""
+    """The clone and the two `main` runs, a year apart; each run's aggregator writes the sample document again."""
+    hd.require_devagent()
     require_git()
     clone = clean_clone(tmp_path_factory.mktemp("demo"))
     config = sample_config(clone)

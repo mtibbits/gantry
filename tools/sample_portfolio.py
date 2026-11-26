@@ -146,30 +146,40 @@ def require_pinned(devagent):
         raise Preflight(f"--devagent is devagent {found}; tests/devagent.pin names {tag}")
 
 
-def guard_out(samples) -> Path:
-    """`<samples>/devagent/out`, or Refused; deletes nothing.
+def guard_deletable(base, rel, label) -> Path:
+    """`<base>/<rel>`, or Refused; deletes nothing. `label` names it in a refusal.
 
-    The checks tools/demo_build.py makes before it deletes the demo output:
-    neither the folder nor the one above it is a link, git ignores it (a
-    .gitignore or the clone's .git/info/exclude) and git tracks no file in it.
+    The checks made before a generated folder is deleted (#12 shares them with
+    tools/demo_build.py's devagent fetch folder): neither `base`, nor any folder
+    from it down to the target, is a link; git, run in `base`, ignores the
+    target (a .gitignore or the clone's .git/info/exclude) and tracks no file in it.
     """
-    home = _absolute(samples) / "devagent"
-    out = home / "out"
-    for path in (home, out):
-        if os.path.lexists(path) and _is_link(path):
-            raise Refused(f"{OUT} is, or is under, a link; it is not deleted")
-    cannot = Refused(f"cannot ask git whether {OUT} is ignored; it is not deleted")
-    ran = _git(home, "-c", f"core.excludesFile={os.devnull}", "check-ignore", "-q", "--no-index", "--", "out/.probe")
+    base = _absolute(base)
+    target = base.joinpath(*Path(rel).parts)
+    walk = base
+    for part in ("", *Path(rel).parts):
+        walk = walk / part
+        if os.path.lexists(walk) and _is_link(walk):
+            raise Refused(f"{label} is, or is under, a link; it is not deleted")
+    cannot = Refused(f"cannot ask git whether {label} is ignored; it is not deleted")
+    probe = f"{Path(rel).as_posix()}/.probe"
+    ran = _git(base, "-c", f"core.excludesFile={os.devnull}", "check-ignore", "-q", "--no-index", "--", probe)
     if ran is None or ran.returncode not in (0, 1):
         raise cannot
     if ran.returncode == 1:
-        raise Refused(f"git does not ignore {OUT}; it is not deleted")
-    ran = _git(home, "ls-files", "-z", "--", "out")
+        raise Refused(f"git does not ignore {label}; it is not deleted")
+    ran = _git(base, "ls-files", "-z", "--", Path(rel).as_posix())
     if ran is None or ran.returncode != 0:
         raise cannot
     if ran.stdout:
-        raise Refused(f"git tracks a file in {OUT}; it is not deleted")
-    return out
+        raise Refused(f"git tracks a file in {label}; it is not deleted")
+    return target
+
+
+def guard_out(samples) -> Path:
+    """`<samples>/devagent/out`, or Refused; deletes nothing (guard_deletable's checks,
+    the folder above it included: tools/demo_build.py makes the same before it deletes the demo output)."""
+    return guard_deletable(_absolute(samples) / "devagent", "out", OUT)
 
 
 def make_sample(devagent, samples=SAMPLES) -> Path:

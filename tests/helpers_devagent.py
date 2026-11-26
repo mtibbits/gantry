@@ -17,12 +17,11 @@ from pathlib import Path
 
 import pytest
 
-from devagent_record_fixtures import checkout_version
+from devagent_record_fixtures import TOOLCHAIN, checkout_version
 from devagent_record_fixtures import read_pin as _pin_line
 
 TAG_RE = re.compile(r"^devagent--v([0-9]+\.[0-9]+\.[0-9]+)$")
 VARIABLE = "GANTRY_DEVAGENT_DIR"
-TOOLCHAIN = "needs devagent's own toolchain (bash and GNU coreutils)"
 NOT_CHECKOUT = f"{VARIABLE} is not a devagent checkout (no .claude-plugin/plugin.json version)"
 CI_SUFFIX = " (CI is set, so the devagent contract test fails instead of skipping)"
 

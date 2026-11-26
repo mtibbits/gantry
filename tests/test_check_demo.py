@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 
 import check_demo
+import helpers_devagent as hd
 from gantry.stamp import BUILT_STAMP
 from helpers_config import lands, written_bytes
 from helpers_demo import ROOT, clean_clone, run_child, stderr_of
@@ -103,7 +104,9 @@ CLONE_HISTORY = []  # the demo_out clone's samples/history/out, set by the fixtu
 
 @pytest.fixture(scope="session")
 def demo_out(tmp_path_factory):
-    """The demo built from a clean clone of HEAD; never the real samples/out."""
+    """The demo built from a clean clone of HEAD; never the real samples/out. Its portfolio step runs
+    the devagent checkout GANTRY_DEVAGENT_DIR names (#12)."""
+    hd.require_devagent()
     require_git()
     clone = clean_clone(tmp_path_factory.mktemp("check-demo"))
     ran = run_child(clone, "2031-05-06", "main")
@@ -403,3 +406,16 @@ def test_shows_title_joins_a_boxs_title_lines():
     page = check_demo.Page(render_week(plan, make_result([("alpha", "Issue-1", HOSTILE_TITLE, None)]), STAMP))
     assert not any(HOSTILE_TITLE in text for text in page.texts)
     assert page.shows_title()
+
+
+def test_staged_artifact_holds_no_portfolio_document(demo_out, tmp_path):
+    """The Pages artifact is the demo output folder plus the holding page: the sample document the
+    portfolio step wrote (samples/devagent/out/portfolio/) is never published (#12)."""
+    import pages_artifact
+
+    assert (demo_out.parent / "devagent" / "out" / "portfolio" / "portfolio.json").is_file()
+    stage = tmp_path / "stage"
+    assert pages_artifact.main([str(demo_out), str(stage), "--repo-url", "https://github.com/example-owner/gantry"]) == 0
+    names = [p.relative_to(stage).as_posix() for p in stage.rglob("*") if p.is_file()]
+    assert names and not [n for n in names if n.endswith(".json") and n != "demo/week-plan.json"]
+    assert not [n for n in names if "portfolio" in n]
