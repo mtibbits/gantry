@@ -18,8 +18,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / "tests")]
 
-from gantry.build import site_data  # noqa: E402
+from gantry.build import read_document, site_data  # noqa: E402
 from gantry.config import ConfigError, load_config  # noqa: E402
+from gantry.portfolio_json import PortfolioLoadError  # noqa: E402
 from gantry.inputs import apply_inputs  # noqa: E402
 from gantry.schedule import plan  # noqa: E402
 from gantry.sites import config_roots, load_sites, shown  # noqa: E402
@@ -51,12 +52,14 @@ def main(argv=None):
         config = load_config(args.config)
         roots = config_roots(config, purpose="check")  # for the gantry readers; --out is this tool's own
         sites, _ = load_sites(config, roots)
-    except ConfigError as e:
+        # Each site's nodes from devagent's portfolio JSON, matched as the build matches them (#12).
+        _, sites, projects, _ = read_document(config, sites, roots)
+    except (ConfigError, PortfolioLoadError) as e:
         return _fail(str(e))
     folder = out / "sites"
     built = skipped = leaves = disagreements = 0
     for site in sites:
-        data, problem = site_data(roots, site)
+        data, problem = site_data(roots, site, projects.get(site.name))
         if problem is not None:
             skipped += 1
             continue

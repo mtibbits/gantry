@@ -38,7 +38,7 @@ from helpers_config import (
 )
 from page_safety import HOSTILE, assert_no_external_resources, assert_page_safe
 from page_script.harness import open_page
-from sample_roles import BUSY, NO_WBS, OWN_UNIT, READABLE, SMALL, UNESTIMATED, UNREADABLE
+from sample_roles import BUSY, NO_WBS, NO_WBS_REASON, OWN_UNIT, READABLE, SMALL, UNESTIMATED, UNREADABLE, UNREADABLE_REASON
 from test_samples import ROOT
 from test_worksite_page import by_id, find, text_of, tree
 
@@ -113,13 +113,33 @@ def test_no_finish_line(tmp_path):
 def test_not_built_lines_show_reason(tmp_path):
     t = tree(render_index(sample_build(tmp_path)))
     lines = site_lines(t)
-    for name, reason in ((NO_WBS, "no WBS.md in the planning directory"),
-                         (UNREADABLE, "WBS.md is not valid UTF-8 at byte 88")):
+    for name, reason in ((NO_WBS, NO_WBS_REASON),
+                         (UNREADABLE, UNREADABLE_REASON)):
         li, _ = lines[name]
         assert find(t, "a", within=li) == []
         (span,) = find(t, "span", ("reason",), within=li)
         assert text_of(t, span) == NOT_BUILT.format(reason=reason)
     assert len(find(t, "a", within=by_id(t, "sites"))) == len(READABLE)
+
+
+def test_document_statuses_shown_with_their_reasons(tmp_path):
+    """Each project status in the portfolio JSON a site agrees with (no WBS.md, no devdoc_dir,
+    unreadable) is shown on the index as the document's words and reason (#12)."""
+    import helpers_portfolio as hp
+    from helpers_config import append_bytes, copy_samples
+    from gantry.build import build_all
+    from gantry.config import load_config
+
+    copy = copy_samples(tmp_path)
+    append_bytes(copy / "devagent" / "config.toml", "\n[project.nodir]\nx = 1\n")
+    hp.rewrite_document(copy, lambda doc: hp.append_not_read(doc, "nodir", "no_devdoc_dir", hp.UNSET_REASON))
+    t = tree(render_index(build_all(load_config(copy / "gantry.sample.toml"), samples=copy)))
+    lines = site_lines(t)
+    for name, reason in ((NO_WBS, NO_WBS_REASON), (UNREADABLE, UNREADABLE_REASON),
+                         ("nodir", f"no devdoc_dir: {hp.UNSET_REASON}")):
+        (span,) = find(t, "span", ("reason",), within=lines[name][0])
+        assert text_of(t, span) == NOT_BUILT.format(reason=reason), name
+    assert NO_WBS_REASON == f"no WBS.md: {hp.NO_WBS_REASON}"
 
 
 def test_slots_present_and_empty(tmp_path):
@@ -193,7 +213,7 @@ def test_index_line_with_share(tmp_path, monkeypatch):
     filled = site_lines(tree((out / "index.html").read_bytes().decode("utf-8")))
     assert filled[BUSY][1] == plain + worksite.DOT + "backlog share 31%"
     assert filled[OWN_UNIT][1].endswith(worksite.DOT + "backlog share 21% (includes 5 unestimated leaves)")
-    assert filled[NO_WBS][1] == f"{NO_WBS}{worksite.DOT}not built: no WBS.md in the planning directory"
+    assert filled[NO_WBS][1] == f"{NO_WBS}{worksite.DOT}not built: {NO_WBS_REASON}"
 
 
 def written_headline_and_source(config):

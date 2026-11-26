@@ -29,6 +29,7 @@ from gantry.views.week import render_week
 from helpers_config import copy_samples, demo_build, sample_build, written_bytes
 from page_safety import HOSTILE, RULES, assert_no_external_resources, assert_page_safe
 from page_script.harness import Planted, open_page
+from sample_roles import NO_WBS_REASON, UNREADABLE_REASON
 from test_plan_file import shape_errors
 from test_planner import (CAPACITY_DEP, CAPACITY_INSTALL, CAPACITY_NO_PLAN_CASES, DELETE, EXPECTED_LINES,
                           FIXTURE_NAMES, FIXTURES, MISSING_TOTAL, NO_DECLARATION, NO_PLAN_CASES, PAUSED_C,
@@ -1175,8 +1176,8 @@ def test_data_block_covers_named_leaves(tmp_path):
             tiers = [leaf.models.thinking or None, leaf.models.checking or None]
         assert entries[(site, key)][2:] == [leaf.priority, *tiers], (site, key)
     assert any(rest[3] is not None for rest in entries.values())
-    assert data["not_built"] == [["bakery", "no WBS.md in the planning directory"],
-                                 ["marsh", "WBS.md is not valid UTF-8 at byte 88"]]
+    assert data["not_built"] == [["bakery", NO_WBS_REASON],
+                                 ["marsh", UNREADABLE_REASON]]
 
 
 @pytest.mark.parametrize("name", ["demo", "forty-beyond", "hostile"])

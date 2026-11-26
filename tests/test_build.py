@@ -9,6 +9,8 @@ from datetime import date, datetime, timezone
 
 import pytest
 
+from helpers_config import matched_sites
+
 import helpers_portfolio as hp
 from gantry import build
 from gantry.build import CLASH, build_all, working_day
@@ -30,7 +32,7 @@ from helpers_config import (
     written_bytes,
 )
 from page_safety import HOSTILE, assert_no_external_resources, assert_page_safe
-from sample_roles import BUSY, NO_WBS, OWN_UNIT, READABLE, SMALL, UNESTIMATED, UNREADABLE
+from sample_roles import BUSY, NO_WBS, NO_WBS_REASON, OWN_UNIT, READABLE, SMALL, UNESTIMATED, UNREADABLE, UNREADABLE_REASON
 from test_samples import ROOT
 from test_week_page import placed_nodes
 
@@ -81,9 +83,9 @@ def test_summaries_on_samples(tmp_path):
     summaries = {s.name: s for s in result.summaries}
     assert [s.name for s in result.summaries] == sample_projects()
     assert {n for n, s in summaries.items() if s.status == "built"} == READABLE
-    assert (summaries[NO_WBS].status, summaries[NO_WBS].reason) == ("not_built", "no WBS.md in the planning directory")
+    assert (summaries[NO_WBS].status, summaries[NO_WBS].reason) == ("not_built", NO_WBS_REASON)
     assert (summaries[UNREADABLE].status, summaries[UNREADABLE].reason) == (
-        "not_built", "WBS.md is not valid UTF-8 at byte 88")
+        "not_built", UNREADABLE_REASON)
     assert summaries[NO_WBS].open_leaves is None and summaries[NO_WBS].finish_date is None
     # Hand-derived from samples/harbor (WBS.md and its estimates file, 4 lanes,
     # 6 agent-hours a day): every open leaf has file hours but the one with no
@@ -218,8 +220,8 @@ def test_not_built_sites_listed_exit_0(tmp_path, monkeypatch):
     code, out, _, stderr = demo_build(tmp_path, monkeypatch)
     assert code == 0
     index = (out / "index.html").read_bytes().decode("utf-8")
-    for name, reason in ((NO_WBS, "no WBS.md in the planning directory"),
-                         (UNREADABLE, "WBS.md is not valid UTF-8 at byte 88")):
+    for name, reason in ((NO_WBS, NO_WBS_REASON),
+                         (UNREADABLE, UNREADABLE_REASON)):
         assert f"not built: {reason}" in index
         assert f"gantry: warning: site {name} is not built: {reason}" in stderr.splitlines()
     assert len(list((out / "sites").iterdir())) == 4
@@ -472,8 +474,8 @@ def test_unwritable_output_still_reports_not_built(tmp_path, monkeypatch):
     code, out, stdout, stderr = demo_build(tmp_path, monkeypatch, copy=copy)
     assert (code, stdout) == (1, DEMO_FIRES_LINE + "\n")
     lines = stderr.splitlines()
-    assert f"gantry: warning: site {NO_WBS} is not built: no WBS.md in the planning directory" in lines
-    assert f"gantry: warning: site {UNREADABLE} is not built: WBS.md is not valid UTF-8 at byte 88" in lines
+    assert f"gantry: warning: site {NO_WBS} is not built: {NO_WBS_REASON}" in lines
+    assert f"gantry: warning: site {UNREADABLE} is not built: {UNREADABLE_REASON}" in lines
     assert lines[-1] == f"gantry: error: cannot write {out / 'index.html'}: output_dir is not a folder"
     assert sum("gantry: error:" in line for line in lines) == 1
     assert out.read_bytes() == b"a file, not a folder"
@@ -494,30 +496,32 @@ def test_unwritable_sites_folder_still_writes_index(tmp_path, monkeypatch):
     assert (out / "sites").read_bytes() == b"a file, not a folder"
 
 
-def test_parse_error_isolated(tmp_path, monkeypatch):
-    real = build.read_wbs
+def test_read_step_error_isolated(tmp_path, monkeypatch):
+    """A fault in one site's read step (its inputs, after the document's nodes) stops only that site (#12)."""
+    real = build.apply_inputs
 
-    def read_wbs(roots, path, name):
-        if name == "beta":
-            raise RuntimeError("parser broke")
-        return real(roots, path, name)
+    def apply_inputs(roots, site, data, config):
+        if site.name == "beta":
+            raise RuntimeError("read step broke")
+        return real(roots, site, data, config)
 
-    monkeypatch.setattr(build, "read_wbs", read_wbs)
+    monkeypatch.setattr(build, "apply_inputs", apply_inputs)
     result = build_all(page_tree(tmp_path, ["alpha", "beta"]))
     summaries = {s.name: s for s in result.summaries}
     assert summaries["alpha"].status == "built"
-    assert (summaries["beta"].status, summaries["beta"].reason) == ("not_built", "render error: RuntimeError: parser broke")
+    assert (summaries["beta"].status, summaries["beta"].reason) == ("not_built",
+                                                                    "render error: RuntimeError: read step broke")
 
 
-def test_site_mode_parse_error_is_one_line(tmp_path, monkeypatch):
-    def read_wbs(roots, path, name):
-        raise RuntimeError("parser broke")
+def test_site_mode_read_error_is_one_line(tmp_path, monkeypatch):
+    def apply_inputs(roots, site, data, config):
+        raise RuntimeError("read step broke")
 
-    monkeypatch.setattr(build, "read_wbs", read_wbs)
+    monkeypatch.setattr(build, "apply_inputs", apply_inputs)
     config = write_site_tree(tmp_path, {"alpha": hp.fixture_source("page")})
     code, stdout, stderr = run_main("--config", str(config), "--site", "alpha")
     assert (code, stdout) == (1, "")
-    assert stderr.endswith("gantry: error: --site alpha: cannot build: render error: RuntimeError: parser broke\n")
+    assert stderr.endswith("gantry: error: --site alpha: cannot build: render error: RuntimeError: read step broke\n")
     assert not (tmp_path / "out" / "sites" / "alpha.html").exists()
 
 
@@ -1143,8 +1147,8 @@ def test_week_page_links_land(tmp_path, monkeypatch):
     n = week_link_count(json.loads((out / "week-plan.json").read_bytes()))
     assert n > 0 and len(links) == n
     assert all(lands(out, "week.html", href) for href in links)
-    assert "bakery: not built: no WBS.md in the planning directory" in text
-    assert "marsh: not built: WBS.md is not valid UTF-8 at byte 88" in text
+    assert f"bakery: not built: {NO_WBS_REASON}" in text
+    assert f"marsh: not built: {UNREADABLE_REASON}" in text
 
 
 def test_week_hostile_key_href_lands(tmp_path):
@@ -1500,8 +1504,8 @@ def test_render_sites_missing_key_fails_closed(tmp_path):
     copy = copy_samples(tmp_path)
     config = load_config(copy / "gantry.sample.toml")
     roots = config_roots(config)
-    sites = load_sites(config, roots)[0]
-    inputs = build.read_sites(config, sites, roots=roots)[0]
+    sites, projects = matched_sites(config, roots)
+    inputs = build.read_sites(config, sites, roots=roots, projects=projects)[0]
     _, models, failed = build.render_sites(config, {BUSY: inputs[BUSY]}, "", roots=roots,
                                            catalog=load_catalog(roots, config, sites), records={})
     assert failed == {}
@@ -1845,3 +1849,190 @@ def test_declared_plan_writes_byte_identical_files(tmp_path, monkeypatch):
     assert runs[0] == runs[1]
     assert b"built 2026-01-19 09:00 UTC" in runs[0]["week.html"]
     assert all(str(tmp_path).encode("utf-8") not in data for data in runs[0].values())
+
+
+# --- the build reads devagent's portfolio JSON (#12) ------------------------------------------
+
+import builtins  # noqa: E402
+import io  # noqa: E402
+
+import helpers_devagent as hd  # noqa: E402
+import sample_portfolio as sp  # noqa: E402
+from gantry.build import (  # noqa: E402
+    AGREES,
+    CONFIG_ONLY,
+    DISAGREE,
+    DOCUMENT_ONLY,
+    OUT_OF_DATE,
+    own_status,
+)
+from gantry.trace import sites_not_read  # noqa: E402
+
+PAGE = hp.fixture_source("page")
+
+
+def edit_document(folder, fn):
+    """Replace the write_site_tree document beside folder/devagent.toml with fn(doc), unchecked:
+    a test of a document that disagrees with the tree on purpose."""
+    path = Path(folder) / "portfolio.json"
+    path.write_bytes(sp.dumps(fn(json.loads(path.read_bytes()))))
+
+
+def without(doc, name):
+    doc["projects"] = [p for p in doc["projects"] if p["project"] != name]
+    doc["parse_report"] = [e for e in doc["parse_report"] if e["project"] != name]
+    return doc
+
+
+def test_config_only_and_document_only_projects_are_out_of_date(tmp_path):
+    folder = tmp_path / "tree"
+    config = load_config(write_site_tree(folder, {"alpha": PAGE, "beta": PAGE}))
+    edit_document(folder, lambda doc: hp.append_project(without(doc, "beta"), "gamma", PAGE))
+    result = build_all(config)
+    summaries = {s.name: s for s in result.summaries}
+    assert summaries["alpha"].status == "built"
+    assert (summaries["beta"].status, summaries["beta"].reason) == ("not_built", CONFIG_ONLY)
+    assert CONFIG_ONLY.startswith(OUT_OF_DATE)
+    assert "gamma" not in summaries and list(result.pages) == ["alpha"]
+    assert [w.message for w in result.warnings if w.key == "portfolio_json"] == [DOCUMENT_ONLY.format(
+        config=config.path, name="gamma", devagent_config=config.devagent_config)]
+    # The out-of-date site is not read: the trace names it, and the CLI prints both lines.
+    assert sites_not_read(result.sites, {"beta": CONFIG_ONLY}) == ("beta",)
+    code, _, err = run_main("--config", str(config.path))
+    assert code == 0
+    assert f"gantry: warning: site beta is not built: {CONFIG_ONLY}" in err.splitlines()
+    assert f"gantry: warning: {DOCUMENT_ONLY.format(config=config.path, name='gamma', devagent_config=config.devagent_config)}" in err.splitlines()
+
+
+def test_status_disagreement_lists_both_statuses(tmp_path):
+    folder = tmp_path / "tree"
+    config = load_config(write_site_tree(folder, {"alpha": PAGE, "beta": None, "gamma": PAGE}))
+
+    # devagent read the tree otherwise: no WBS.md for alpha, one for beta.
+    disagree = lambda doc: hp.site_document({"alpha": hp.NotRead("no_wbs", hp.NO_WBS_REASON), "beta": PAGE,
+                                             "gamma": PAGE})  # noqa: E731
+    edit_document(folder, disagree)
+    summaries = {s.name: s for s in build_all(config).summaries}
+    assert summaries["gamma"].status == "built"
+    assert summaries["alpha"].reason == DISAGREE.format(doc="no WBS.md", own="a WBS.md")
+    assert summaries["beta"].reason == DISAGREE.format(doc="WBS.md read", own="no WBS.md")
+    assert summaries["alpha"].reason == ("portfolio JSON and Gantry disagree: the document says no WBS.md; Gantry "
+                                         "finds a WBS.md; use an absolute devdoc_dir and the same devagent config "
+                                         "for both")
+    assert (summaries["alpha"].status, summaries["beta"].status) == ("not_built", "not_built")
+
+
+def test_not_compared_status_keeps_gantrys_reason(tmp_path):
+    """A problem own_status does not class (a devdoc_dir that is not a string) keeps Gantry's own reason,
+    also for a project the document does not hold."""
+    folder = tmp_path / "tree"
+    config = load_config(write_site_tree(folder, {"alpha": PAGE}))
+    append_bytes(folder / "devagent.toml", "\n[project.delta]\ndevdoc_dir = 3\n")
+    site = next(s for s in build.site_list(config)[0] if s.name == "delta")
+    assert own_status(site) is None
+    summaries = {s.name: s for s in build_all(config).summaries}
+    assert (summaries["delta"].status, summaries["delta"].reason) == ("not_built", "devdoc_dir is not a string")
+    assert summaries["alpha"].status == "built"
+
+
+def test_agreeing_not_read_site_keeps_its_problem(tmp_path):
+    """bakery agrees (no WBS.md on both sides): its SiteEntry keeps Gantry's problem, which the fires
+    and the trace read, and its not-built reason is the document's words."""
+    from gantry.fires import site_views
+    from gantry.sites import NO_WBS as NO_WBS_PROBLEM
+
+    result = sample_build(tmp_path)
+    entry = next(s for s in result.sites if s.name == NO_WBS)
+    assert (entry.problem, entry.document_reason) == (NO_WBS_PROBLEM, NO_WBS_REASON)
+    assert next(s for s in result.summaries if s.name == NO_WBS).reason == NO_WBS_REASON
+    view = site_views(result)[NO_WBS]
+    assert (view.wbs, view.reason) == ("absent", NO_WBS_PROBLEM)
+    assert NO_WBS not in sites_not_read(result.sites, {NO_WBS: NO_WBS_REASON, UNREADABLE: UNREADABLE_REASON})
+
+
+def test_sample_statuses_agree_with_site_resolution():
+    """On the samples, devagent's statuses match Gantry's own site resolution: no site is out of date."""
+    from gantry.sites import config_roots, load_sites
+
+    config = load_config(ROOT / "samples" / "gantry.sample.toml")
+    roots = config_roots(config)
+    sites = load_sites(config, roots)[0]
+    document = json.loads(sp.SAMPLES_WRITTEN.read_bytes())
+    statuses = {p["project"]: p["status"] for p in document["projects"]}
+    assert list(statuses) == [s.name for s in sites]
+    for site in sites:
+        assert statuses[site.name] in AGREES[own_status(site)], site.name
+    matched, projects = matched_sites(config, roots, sites)
+    assert [s.problem for s in matched] == [s.problem for s in sites]
+    assert set(projects) == set(statuses)
+
+
+def test_added_project_appears(tmp_path):
+    """D1's new form: a project added to devagent's config is out of date until the aggregator
+    re-runs, then built, with no edit to the Gantry config."""
+    devagent = hd.require_devagent()
+    ferry = "ferry"  # a name the samples do not have
+
+    copy = copy_samples(tmp_path)
+    gantry_config = copy / "gantry.sample.toml"
+    before = gantry_config.read_bytes()
+    append_bytes(copy / "devagent" / "config.toml", f'\n[project.{ferry}]\ndevdoc_dir = "../{SMALL}"\n')
+    config = load_config(gantry_config)
+    summaries = {s.name: s for s in build_all(config).summaries}
+    assert (summaries[ferry].status, summaries[ferry].reason) == ("not_built", CONFIG_ONLY)
+    home = copy / "devagent" / "out"
+    (home / "config.toml").write_bytes((copy / "devagent" / "config.toml").read_bytes())
+    (home / "home").mkdir(exist_ok=True)
+    sp.run_aggregator(devagent, copy / "devagent", home)
+    summaries = {s.name: s for s in build_all(load_config(gantry_config)).summaries}
+    assert summaries[ferry].status == "built"
+    assert gantry_config.read_bytes() == before
+
+
+def test_build_opens_no_working_tree_wbs(tmp_path, monkeypatch):
+    """Every open of a file named WBS.md fails, and the sample build still succeeds (#12, AC 10)."""
+    copy = copy_samples(tmp_path)
+    wbs = copy / SMALL / "WBS.md"
+    real_os_open, real_open = os.open, builtins.open
+
+    def refuse(path):
+        if os.path.basename(os.fspath(path)) == "WBS.md":
+            raise PermissionError(13, "a WBS.md open in the build", os.fspath(path))
+
+    def os_open(path, *args, **kwargs):
+        refuse(path)
+        return real_os_open(path, *args, **kwargs)
+
+    def open_(file, *args, **kwargs):
+        if not isinstance(file, int):
+            refuse(file)
+        return real_open(file, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", os_open)
+    monkeypatch.setattr(builtins, "open", open_)
+    monkeypatch.setattr(io, "open", open_)
+    # The control: an open of a WBS.md fails, by each route.
+    for route in (lambda: os.open(wbs, os.O_RDONLY), lambda: open(wbs, "rb"), lambda: wbs.read_bytes()):
+        with pytest.raises(PermissionError):
+            route()
+    code, out, stdout, stderr = demo_build(tmp_path, monkeypatch, copy=copy)
+    assert code == 0, stderr
+    assert {p.stem for p in (out / "sites").glob("*.html")} == READABLE
+
+
+def test_check_schedulers_reads_the_document(tmp_path, monkeypatch):
+    """tools/check_schedulers.py builds each site from the portfolio JSON, matched as the build matches it."""
+    import check_schedulers
+    from gantry.schedule import plan
+
+    copy = copy_samples(tmp_path)
+    seen = []
+    real = check_schedulers.read_document
+    monkeypatch.setattr(check_schedulers, "read_document",
+                        lambda config, sites, roots: seen.append(config.portfolio_json) or real(config, sites, roots))
+    monkeypatch.setattr(check_schedulers, "run_function",
+                        lambda page, name, args: [[key, list(v)] for key, v in plan(*args).items()])
+    out = tmp_path / "pages"
+    assert check_schedulers.main(["--config", str(copy / "gantry.sample.toml"), "--out", str(out)]) == 0
+    assert seen == [load_config(copy / "gantry.sample.toml").portfolio_json]
+    assert {p.stem for p in (out / "sites").glob("*.html")} == READABLE

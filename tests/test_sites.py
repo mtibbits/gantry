@@ -88,7 +88,8 @@ def test_problem_sites_listed_run_exits_0(tmp_path, capsys):
     captured = capsys.readouterr()
     # The problem sites are not built and say why; the readable ones are built.
     err = captured.err.splitlines()
-    assert f"gantry: warning: site {NODIR} is not built: no devdoc_dir" in err
+    # Its own status agrees with the document's: the line shows the document's words and reason (#12).
+    assert f"gantry: warning: site {NODIR} is not built: no devdoc_dir: {hp.UNSET_REASON}" in err
     assert f"gantry: warning: site {BAD_NAME} is not built: name does not match [A-Za-z0-9][A-Za-z0-9_.-]*" in err
     # The paths of the pages, the week view (#38), strategic.html (#23), the index and the plan file,
     # then the in-trace sample site's trace line (#20), then the fires line (#32): marsh's WBS.md and
@@ -125,10 +126,35 @@ def test_control_character_names_print_escaped(tmp_path, capsys):
     assert "\x1b" not in captured.out + captured.err
     lines = captured.err.split("\n")
     assert lines.pop() == ""
-    # One line per site not built: the two unreadable samples, then the four names.
-    assert len(lines) == len(sites) - len(READABLE)
+    # First the document's own warning: devagent lists "c\nd" as project c, which devagent's config, as
+    # Gantry reads it, does not name (#12). Then one line per site not built: the two unreadable samples,
+    # then the four names, each keeping Gantry's own refusal (a name is not compared with the document).
+    assert lines[0] == (f"gantry: warning: {gantry_config.resolve()}: portfolio JSON out of date with devagent's "
+                        f"config: project c is in the document and not in {(copy / 'devagent' / 'config.toml').resolve()}; "
+                        "re-run devagent's aggregator")
+    assert len(lines) == 1 + len(sites) - len(READABLE)
     prefix, reason = "gantry: warning: site ", " is not built: name does not match [A-Za-z0-9][A-Za-z0-9_.-]*"
     assert lines[-4:] == [prefix + name + reason for name in ("a\\tb", "c\\nd", "e\\x1bf", "g\\x1bh")]
+
+
+def test_control_character_site_names_are_out_of_date_not_matched(tmp_path):
+    """A site name devagent reads otherwise than Gantry (#195 redmr INFO 5) is never matched to a project
+    of another name (#12): "c\nd" keeps Gantry's refusal and devagent's "c" is document-only; "g\x1bh",
+    which devagent does not list, is matched to nothing."""
+    from gantry.build import build_all
+
+    copy = copy_samples(tmp_path)
+    append_bytes(copy / "devagent" / "config.toml", '\n[project."c\\nd"]\nx = 1\n[project]\n"g\\u001bh" = 1\n')
+    hp.rewrite_document(copy, lambda doc: hp.append_not_read(doc, "c", "no_devdoc_dir", hp.UNSET_REASON))
+    result = build_all(cfg.load_config(copy / GANTRY_SAMPLE.name))
+    summaries = {s.name: s for s in result.summaries}
+    for name in ("c\nd", "g\x1bh"):
+        assert (summaries[name].status, summaries[name].reason) == (
+            "not_built", "name does not match [A-Za-z0-9][A-Za-z0-9_.-]*")
+    assert "c" not in summaries
+    (warning,) = [w for w in result.warnings if w.key == "portfolio_json"]
+    assert ": project c is in the document and not in " in warning.message
+    assert "\n" not in warning.message and "\x1b" not in warning.message
 
 
 def test_unmatched_site_table_warns(tmp_path, capsys):

@@ -47,6 +47,11 @@ NO_DEVDOC_DIR = "no devdoc_dir"
 NO_PLANNING_DIR = "planning directory does not exist"
 NO_WBS = "no WBS.md in the planning directory"
 NO_LEAVES = frozenset({NO_DEVDOC_DIR, NO_PLANNING_DIR, NO_WBS})
+# The other problems gantry.build compares with the portfolio JSON's statuses (#12): constants,
+# so the comparison never keys on a spelling.
+EMPTY_DEVDOC_DIR = "devdoc_dir is empty"
+PLANNING_NOT_A_DIRECTORY = "planning directory is not a directory"
+WBS_NOT_A_FILE = "WBS.md is not a file"
 
 
 @dataclass(frozen=True)
@@ -54,6 +59,10 @@ class SiteEntry:
     name: str
     planning_dir: PurePath | None
     problem: str | None
+    # Set by gantry.build.match_sites (#12) for a site devagent's portfolio JSON did not read and
+    # whose status agrees with `problem`: the document's status words and reason, which the index
+    # and every not-built line show. `problem` stays Gantry's own, which the fires and the trace read.
+    document_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -66,6 +75,13 @@ def shown(name: str) -> str:
     """A site name as printed: an invalid name may hold a tab, newline or ESC,
     so it is escaped, and a line stays one line."""
     return name if ID_TOKEN_RE.fullmatch(name) else ascii(name)[1:-1]
+
+
+def one_line(text: str) -> str:
+    """`text` with every character that is not printable (a control character, a line or
+    paragraph separator) escaped as ascii() writes it, so a message from a file Gantry
+    reads (devagent's portfolio JSON, #12) stays one terminal line and moves no cursor."""
+    return "".join(ch if ch.isprintable() else ascii(ch)[1:-1] for ch in text)
 
 
 def _read_devagent(roots, dfile):
@@ -103,13 +119,13 @@ def _stat_problem(roots, planning_dir, site):
     if problem:
         return problem
     if not stat.S_ISDIR(st.st_mode):
-        return "planning directory is not a directory"
+        return PLANNING_NOT_A_DIRECTORY
     wbs, problem = _stat(roots, planning_dir / "WBS.md", NO_WBS, "WBS.md",
                          key="WBS.md", site=site)
     if problem:
         return problem
     if not stat.S_ISREG(wbs.st_mode):
-        return "WBS.md is not a file"
+        return WBS_NOT_A_FILE
     return None
 
 
@@ -127,7 +143,7 @@ def _site(name, table, dfile):
     if not isinstance(raw, str):
         return SiteEntry(name, None, "devdoc_dir is not a string")
     if raw == "":
-        return SiteEntry(name, None, "devdoc_dir is empty")
+        return SiteEntry(name, None, EMPTY_DEVDOC_DIR)
     try:
         planning_dir = resolve_path(raw, dfile.parent, flavour=os.name)
     except PathError as e:

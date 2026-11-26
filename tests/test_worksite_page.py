@@ -46,7 +46,7 @@ from gantry.views.worksite import (
 )
 from gantry.portfolio_json import tag
 from page_safety import CSP_CONTENT, HOSTILE, assert_no_external_resources, assert_page_safe
-from helpers_config import demo_build, page_ids
+from helpers_config import demo_build, matched_sites, page_ids
 from page_script.harness import Planted, open_page, run_function
 from sample_roles import BUSY, OWN_UNIT, READABLE, UNESTIMATED
 from test_samples import ROOT, SAMPLES
@@ -1063,10 +1063,10 @@ def test_schedule_legend_names_p0_beside_p1_p2():
 def inputs_page(site):
     """(inputs, page) of a sample site: the sample config, load_sites, then apply_inputs."""
     config = load_installation(SAMPLES / "gantry.sample.toml")
-    sites, _ = load_sites(config)
-    entry = next(s for s in sites if s.name == site)
     roots = config_roots(config)
-    data, problem = site_data(roots, entry)
+    sites, projects = matched_sites(config, roots)
+    entry = next(s for s in sites if s.name == site)
+    data, problem = site_data(roots, entry, projects.get(site))
     assert problem is None, problem
     inputs = apply_inputs(roots, entry, data, config)
     return inputs, render_page(site, inputs.data, default_unit_hours=config.default_unit_hours, inputs=inputs)

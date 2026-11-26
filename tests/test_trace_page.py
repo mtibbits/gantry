@@ -25,7 +25,7 @@ from gantry.trace import (CATEGORIES, COUNT_FINISHED, COUNT_HELD, COUNT_OPEN, CO
                           REQUIREMENTS_LABEL, build_site_trace, counts_line, load_catalog, page_trace)
 from gantry.views import worksite
 from gantry.views.worksite import BH, BW, ROWH, page_model
-from helpers_config import copy_samples, demo_build, page_ids, sample_build, write_site_tree
+from helpers_config import copy_samples, demo_build, matched_sites, page_ids, sample_build, write_site_tree
 from page_safety import HOSTILE, _strings, assert_no_external_resources, assert_page_safe
 from page_script.harness import Planted, PageScriptError, open_page, run_function
 from sample_roles import BUSY, READABLE, SMALL, UNESTIMATED
@@ -120,9 +120,9 @@ def traced(config_path, site):
     does: site scope, only this site's leaves (a full build widens it, #21)."""
     config = load_config(config_path)
     roots = config_roots(config)
-    sites = load_sites(config, roots)[0]
+    sites, projects = matched_sites(config, roots)
     catalog = load_catalog(roots, config, sites)
-    inputs, reasons = build.read_sites(config, sites, roots=roots)
+    inputs, reasons = build.read_sites(config, sites, roots=roots, projects=projects)
     assert site in inputs, reasons
     trace = build_site_trace(site, inputs[site].data.leaves, catalog)
     return page_trace(trace, catalog, inputs[site].data), trace
@@ -527,8 +527,8 @@ def render_traced(config_path, site, trace=True):
     """(html, model) of one site through build.render_site, stamp "", as the golden was captured."""
     config = load_config(config_path)
     roots = config_roots(config)
-    sites = load_sites(config, roots)[0]
-    inputs = build.read_sites(config, sites, roots=roots)[0][site]
+    sites, projects = matched_sites(config, roots)
+    inputs = build.read_sites(config, sites, roots=roots, projects=projects)[0][site]
     if trace:
         return build.render_site(site, inputs, config, "", catalog=load_catalog(roots, config, sites),
                                  records=NO_RECORDS)

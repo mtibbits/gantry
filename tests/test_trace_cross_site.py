@@ -19,7 +19,7 @@ from gantry.trace import (FOREIGN_SOURCE, INSTALLATION_SCOPE, MESSAGES, ForeignL
                           build_site_trace, load_catalog, page_trace, sites_not_read)
 from gantry.render import CLASS_TOKENS
 from gantry.views import worksite
-from helpers_config import demo_build, write_site_tree
+from helpers_config import demo_build, matched_sites, write_site_tree
 from page_safety import HOSTILE, assert_no_external_resources, assert_page_safe
 from page_script.harness import Planted, open_page, run_function
 from sample_roles import BUSY, NO_WBS, READABLE, SMALL, UNESTIMATED, UNREADABLE
@@ -87,13 +87,35 @@ def test_not_read_is_config_order():
 def test_not_read_samples(real_sample_document):
     config = load_config(GANTRY_SAMPLE)
     roots = config_roots(config)
-    entries = load_sites(config, roots)[0]
-    _, reasons = build.read_sites(config, entries, roots=roots)
+    entries, projects = matched_sites(config, roots)
+    _, reasons = build.read_sites(config, entries, roots=roots, projects=projects)
     assert NO_WBS in reasons
     assert sites_not_read(entries, reasons) == (UNREADABLE,)
 
 
 # --- Task 3: the installation trace -------------------------------------------------
+
+
+def test_out_of_date_site_is_not_read_not_unserved(tmp_path):
+    """A site listed out of date (#12) contributes no leaves: the trace names it in sites_not_read,
+    so what it serves is "not counted", never unserved."""
+    from helpers_config import copy_samples
+
+    copy = copy_samples(tmp_path)
+
+    def drop(doc):
+        doc["projects"] = [p for p in doc["projects"] if p["project"] != BUSY]
+        doc["parse_report"] = [e for e in doc["parse_report"] if e["project"] != BUSY]
+        return hp.refresh_foreign(doc)
+
+    hp.rewrite_document(copy, drop)
+    result = build.build_all(load_config(copy / "gantry.sample.toml"), samples=copy)
+    summaries = {s.name: s for s in result.summaries}
+    assert (summaries[BUSY].status, summaries[BUSY].reason) == ("not_built", build.CONFIG_ONLY)
+    entry_ = next(s for s in result.sites if s.name == BUSY)
+    assert entry_.problem == build.CONFIG_ONLY
+    assert BUSY in sites_not_read(result.sites, {BUSY: build.CONFIG_ONLY})
+    assert BUSY in result.page_models[SMALL]["trace"]["not_read"]
 
 
 def entry(name):
@@ -243,9 +265,9 @@ def sample_installation(config_path=GANTRY_SAMPLE):
     site built."""
     config = load_config(config_path)
     roots = config_roots(config)
-    entries = load_sites(config, roots)[0]
+    entries, projects = matched_sites(config, roots)
     cat = load_catalog(roots, config, entries)
-    inputs, reasons = build.read_sites(config, entries, roots=roots)
+    inputs, reasons = build.read_sites(config, entries, roots=roots, projects=projects)
     traces = {name: build_site_trace(name, i.data.leaves, cat) for name, i in inputs.items()}
     wide = build_installation_trace(entries, inputs, traces, reasons, cat)
     pages = {name: page_trace(t, cat, inputs[name].data, built=frozenset(inputs)) for name, t in wide.items()}

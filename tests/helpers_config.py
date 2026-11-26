@@ -250,6 +250,18 @@ def toml_key(name):
     return '"' + name.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
+def matched_sites(config, roots, sites=None):
+    """(sites, {name: ProjectInput}): devagent's site list (or `sites`) matched with the
+    installation's portfolio JSON as the build matches them (build.read_document, #12)."""
+    from gantry.build import read_document
+    from gantry.sites import load_sites
+
+    if sites is None:
+        sites = load_sites(config, roots)[0]
+    _, matched, projects, _ = read_document(config, sites, roots)
+    return matched, projects
+
+
 def roots_around(*paths):
     """Directory roots at each path's folder, for a test with no installation config (#59)."""
     from gantry.roots import directory_roots

@@ -4,6 +4,8 @@ from dataclasses import replace
 
 import pytest
 
+from helpers_config import matched_sites
+
 import helpers_portfolio as hp
 from gantry import model, portfolio_file
 from gantry.attention import (
@@ -468,10 +470,11 @@ def test_demo_inputs(real_sample_document):
     p = read_portfolio_file(roots, config.portfolio_file, br_namespace=config.requirements.br_namespace)
     m = mapping_in_use(p)
     assert m.source == "portfolio_file"
-    entries = {entry.name: entry for entry in load_sites(config)[0]}
+    matched, projects = matched_sites(config, roots)
+    entries = {entry.name: entry for entry in matched}
 
     def inputs(name):
-        data, problem = site_data(roots, entries[name])
+        data, problem = site_data(roots, entries[name], projects.get(name))
         assert problem is None, problem
         return apply_inputs(roots, entries[name], data, config).data
 
@@ -480,7 +483,8 @@ def test_demo_inputs(real_sample_document):
     found = leaf_attention(zero, quarry, m)
     assert (found.rate, found.tag) == (0, "scored")
     # The sample's mapping, not the default, prices a score: they differ at 2.
-    (two,) = [leaf for leaf in quarry.leaves if leaf.meta.get("h") == '"2"']
+    # `h: "2"` as devagent parses it: the quoted value's text, 2 (#12).
+    (two,) = [leaf for leaf in quarry.leaves if leaf.meta.get("h") == "2"]
     assert m.values[2] != DEFAULT_MAPPING[2]
     assert leaf_attention(two, quarry, m).rate == m.values[2]
 

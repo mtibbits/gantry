@@ -63,6 +63,7 @@ from gantry.build import (
     RECORDS_MISSING,
     build_all,
     clashes,
+    read_document,
     read_records,
     read_site,
     render_reason,
@@ -77,8 +78,9 @@ from gantry.config import ConfigError, error_reason, load_config
 from gantry.fires_list import entry_age, fires_reference, read_fires_list, still_a_fire
 from gantry.planner import CAPACITY_INVALID, INVALID, PLAN_FILE, plan_to_json, write_plan
 from gantry.portfolio_file import PORTFOLIO_LABEL, SECTIONS, format_entry, read_portfolio_file, report_entries
+from gantry.portfolio_json import PortfolioLoadError
 from gantry.roots import OutsideRoots
-from gantry.sites import config_roots, shown
+from gantry.sites import config_roots, one_line, shown
 from gantry.stamp import stamp_text
 from gantry.trace import counts_line, load_catalog
 
@@ -162,16 +164,17 @@ def _utf8_streams():
             stream.reconfigure(encoding="utf-8", errors="backslashreplace", newline="\n")
 
 
-def _build_site(config, roots, sites, name, flag=False):
+def _build_site(config, roots, sites, name, flag=False, projects=None):
     def fail(message):
-        print(f"gantry: error: --site {shown(name)}: {_flagged(message, flag)}", file=sys.stderr)
+        print(f"gantry: error: --site {shown(name)}: {_flagged(one_line(message), flag)}", file=sys.stderr)
         return 1
 
     site = next((s for s in sites if s.name == name), None)
     if site is None:
         return fail(f"no such site in {config.devagent_config}")
-    # The full build's read: its case-clash rule, and a parse error stops only this site.
-    inputs, problem = read_site(site, config, clashes(sites).get(site.name), roots=roots)
+    # The full build's read: its case-clash rule, and a fault stops only this site.
+    inputs, problem = read_site(site, config, clashes(sites).get(site.name), roots=roots,
+                                project=(projects or {}).get(site.name))
     if problem is not None:
         return fail(f"cannot build: {problem}")
     # The trace reads every requirements file and the portfolio file (#20).
@@ -200,9 +203,9 @@ def _build_site(config, roots, sites, name, flag=False):
 
 
 def _warn(warnings):
-    # The site list's and the trace's warnings; the trace reads the files it names (#20).
+    # The site list's, the trace's and the portfolio JSON's warnings; the trace reads the files it names (#20).
     for warning in warnings:
-        print(f"gantry: warning: {warning.message}", file=sys.stderr)
+        print(f"gantry: warning: {one_line(warning.message)}", file=sys.stderr)
 
 
 def _write_plan(result, text):
@@ -244,7 +247,8 @@ def _flagged(text, flag):
 
 
 def _config_error(e, flag):
-    print(f"gantry: error: {_flagged(str(e), flag)}", file=sys.stderr)
+    # A PortfolioLoadError's text quotes the document's own keys: one line (#12).
+    print(f"gantry: error: {_flagged(one_line(str(e)), flag)}", file=sys.stderr)
 
 
 def _build_all(config, *, marker=False):
@@ -252,7 +256,8 @@ def _build_all(config, *, marker=False):
     index writes build.json last, holding the exit code (#35)."""
     try:
         result = build_all(config)
-    except ConfigError as e:
+    except (ConfigError, PortfolioLoadError) as e:
+        # Nothing is written, build.json included: a document that cannot be read builds nothing (#12).
         _config_error(e, marker)
         return 1
     _warn(result.warnings)
@@ -276,10 +281,10 @@ def _build_all(config, *, marker=False):
     for s in result.fires.sources:
         if s.site is None and s.status == "not_read":
             what = "fires not collected" if s.source == FIRES_STEP else f"fires source {s.source} is not read"
-            print(f"gantry: warning: {what}: {s.reason}", file=sys.stderr)
+            print(f"gantry: warning: {what}: {one_line(s.reason)}", file=sys.stderr)
     for s in result.summaries:
         if s.status != "built":
-            print(f"gantry: warning: site {shown(s.name)} is not built: {_flagged(s.reason, marker)}",
+            print(f"gantry: warning: site {shown(s.name)} is not built: {_flagged(one_line(s.reason), marker)}",
                   file=sys.stderr)
     for name, kind in result.thieves_failed.items():
         # One site's thieves that could not be derived read "no data" on its panel; the exit code is unchanged (#29).
@@ -335,11 +340,13 @@ def _build(args):
     try:
         roots = config_roots(config)
         sites, warnings = site_list(config, roots)
-    except ConfigError as e:
+        # The document's own warnings name projects not in devagent's config: never this site (#12).
+        _, sites, projects, _ = read_document(config, sites, roots)
+    except (ConfigError, PortfolioLoadError) as e:
         _config_error(e, flag)
         return 1
     _warn(warnings)
-    return _build_site(config, roots, sites, args.site, flag)
+    return _build_site(config, roots, sites, args.site, flag, projects)
 
 
 # This command reads no WBS.md, so it cannot find the milestone leaf; the full
