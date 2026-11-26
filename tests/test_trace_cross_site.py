@@ -14,7 +14,7 @@ from gantry import build, links, sites
 from gantry.config import load_config
 from gantry.inputs import Inputs
 from gantry.model import SiteData
-from gantry.sites import SiteEntry, config_roots, load_sites
+from gantry.sites import SiteEntry, config_roots
 from gantry.trace import (FOREIGN_SOURCE, INSTALLATION_SCOPE, MESSAGES, ForeignLeaf, build_installation_trace,
                           build_site_trace, load_catalog, page_trace, sites_not_read)
 from gantry.render import CLASS_TOKENS

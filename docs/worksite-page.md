@@ -367,7 +367,9 @@ Gantry finds <Gantry's>; re-run devagent's aggregator, and if they still
 disagree, use an absolute devdoc_dir and the same devagent config for both`
 (most often the document is only stale: a `WBS.md` made or deleted since the
 aggregator ran). None of
-them is built, so leaves and estimates never come from two directories, and
+them is built, so leaves and estimates never come from two directories that
+disagree on whether a `WBS.md` exists (an absolute `devdoc_dir` closes the
+rest), and
 the trace names each in its `sites_not_read`. A project added to devagent's
 config is listed out of date until the aggregator runs again, then built,
 with no edit to the Gantry config (D1).

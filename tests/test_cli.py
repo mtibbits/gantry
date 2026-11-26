@@ -131,7 +131,7 @@ def test_python_m_builds_sample_sites(tmp_path):
     check_written(result.stdout, copy / "out")
 
 
-@pytest.mark.skipif(not shutil.which("gantry"), reason="gantry is not installed on PATH (CI runs it unconditionally)")
+@pytest.mark.skipif(not shutil.which("gantry"), reason="gantry is not installed on PATH (CI runs it on Linux)")
 def test_console_script_builds_sample_sites(tmp_path):
     copy = copy_samples(tmp_path)
     result = subprocess.run(
@@ -1006,7 +1006,6 @@ def test_fires_sample_exits_0():
 
 import json as _json  # noqa: E402
 
-import helpers_portfolio as hp  # noqa: E402
 from helpers_config import snapshot as tree_snapshot  # noqa: E402
 
 

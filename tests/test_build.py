@@ -341,7 +341,7 @@ def test_index_mode_follows_umask(tmp_path):
     assert (tmp_path / "out" / "index.html").stat().st_mode & 0o777 == 0o644
 
 
-def test_added_project_appears(tmp_path, monkeypatch):
+def test_added_project_with_its_document_appears(tmp_path, monkeypatch):
     copy = copy_samples(tmp_path)
     before = (copy / "gantry.sample.toml").read_bytes()
     dunes = hp.source(b"# Dunes\n\n- [ ] Plant the grass {issue: Issue-1}\n", hp.node("Plant the grass", issue="Issue-1"),
@@ -1498,7 +1498,7 @@ def page_tree_site():
 
 
 def test_render_sites_missing_key_fails_closed(tmp_path):
-    from gantry.sites import config_roots, load_sites
+    from gantry.sites import config_roots
     from gantry.trace import load_catalog
 
     copy = copy_samples(tmp_path)

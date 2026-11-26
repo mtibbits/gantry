@@ -5,10 +5,8 @@ import contract).
 """
 
 import io
-import json
 import os
 import posixpath
-import re
 import shutil
 from contextlib import redirect_stderr, redirect_stdout
 from html.parser import HTMLParser

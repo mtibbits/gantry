@@ -25,7 +25,7 @@ from gantry.links import leaf_anchor
 from gantry.model import Estimate, Leaf, Models, Row, SiteData
 from gantry.estimates_file import find_estimates_file, read_estimates_file
 from gantry.roots import directory_roots
-from gantry.sites import SiteEntry, config_roots, load_sites
+from gantry.sites import SiteEntry, config_roots
 from gantry import phases, render
 from gantry.render import CLASS_TOKENS
 from gantry.schedule import limit, plan
