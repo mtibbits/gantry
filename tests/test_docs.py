@@ -722,3 +722,13 @@ def test_docs_state_what_29_shows():
     (row,) = [line for line in config.splitlines() if line.startswith("| `fires_list` |")]
     assert "no page shows them yet" not in row and "strategic page" in row
     assert "no page shows the fires list yet" not in markdown_text(ROOT / "docs" / "fires-list.md")
+
+
+
+def test_windows_installations_are_told_how_to_make_the_portfolio_json():
+    """portfolio_json is required (#12) and devagent's aggregator needs bash and GNU coreutils: the
+    platform section and the update list say how a Windows installation gets the document."""
+    config = " ".join(markdown_text(ROOT / "docs" / "config.md").split())
+    refresh = " ".join(markdown_text(ROOT / "docs" / "refresh-and-serve.md").split())
+    for text in (config, refresh):
+        assert "WSL" in text and "portfolio_json" in text

@@ -144,9 +144,12 @@ def _devagent(root):
     version = tag.removeprefix("devagent--v")
     folder = root / FETCH
     if os.path.lexists(folder):
+        if not os.path.isdir(folder):
+            raise Refused(f"{FETCH} is not a folder; remove it to fetch devagent")
+        # A change in a checkout is someone's edit, at any version: never used, never deleted.
+        if (folder / ".git").exists() and not _clean_checkout(folder):
+            raise Refused(f"{FETCH} holds a change; it is not used or deleted (remove it to fetch again)")
         if _reusable(folder, version, commit):
-            if not _clean_checkout(folder):
-                raise Refused(f"{FETCH} holds a change; it is not used or deleted (remove it to fetch again)")
             return 0
         try:
             target = guard_deletable(root, FETCH, FETCH)
@@ -188,13 +191,21 @@ def output_folder(root) -> Path:
     return Path(os.path.normpath(root / "samples" / value))
 
 
-def _git(root, *args):
+def _run_git(root, *args):
+    """git in `root` with no ambient GIT_* variable and never a credential prompt (a clone of a
+    public repository must fail, not wait on a terminal). OSError is Refused, worded per command."""
     env = {k: v for k, v in os.environ.items() if not k.upper().startswith("GIT_")}
+    env["GIT_TERMINAL_PROMPT"] = "0"
     try:
         return subprocess.run(["git", "-C", str(root), *args], env=env, stdin=subprocess.DEVNULL,
                               capture_output=True)
     except OSError:
-        raise Refused("cannot ask git whether the demo output folder is ignored") from None
+        if args[-2:-1] == ("--",) or "check-ignore" in args or "ls-files" in args:
+            raise Refused("cannot ask git whether the demo output folder is ignored") from None
+        raise Refused(f"cannot run git ({next((a for a in args if not a.startswith('-')), 'git')})") from None
+
+
+_git = _run_git  # the name every step calls; a test replaces it
 
 
 def _is_link(path) -> bool:

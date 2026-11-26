@@ -356,6 +356,13 @@ third-party package at run time; pytest is a development dependency only.
 CI runs the tests on both, on Python 3.11 and the newest release. macOS is
 not tested, though nothing here is meant to prevent it.
 
+`gantry build` needs devagent's portfolio JSON (`portfolio_json`, #12), and
+devagent's aggregator that writes it needs bash and GNU coreutils, which
+Windows does not provide. On Windows, run the aggregator under WSL (or on
+another host that sees the same planning folders) and point `portfolio_json`
+at the document it writes; Gantry itself runs natively. Give every
+`devdoc_dir` absolutely, in the form both sides resolve to the same folder.
+
 ## The Claude Code plugin
 
 The repository is also a thin Claude Code plugin. Load it from a clone and

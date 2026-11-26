@@ -83,8 +83,11 @@ OUT_OF_DATE = "portfolio JSON out of date with devagent's config"
 CONFIG_ONLY = f"{OUT_OF_DATE}: this project is not in the document; re-run devagent's aggregator"
 DOCUMENT_ONLY = ("{config}: " + OUT_OF_DATE + ": project {name} is in the document and not in {devagent_config}; "
                  "re-run devagent's aggregator")
-DISAGREE = ("portfolio JSON and Gantry disagree: the document says {doc}; Gantry finds {own}; "
-            "use an absolute devdoc_dir and the same devagent config for both")
+# Most often the document is only stale (a WBS.md made or deleted since the aggregator ran), so the
+# first remedy is a re-run; a relative devdoc_dir or another devagent config is the lasting cause.
+DISAGREE = ("portfolio JSON out of date or disagreeing with Gantry: the document says {doc}; Gantry finds {own}; "
+            "re-run devagent's aggregator, and if they still disagree, use an absolute devdoc_dir and the same "
+            "devagent config for both")
 # The document's statuses and Gantry's own, as those lines word them.
 DOCUMENT_WORDS = {"read": "WBS.md read", "no_wbs": "no WBS.md", "no_devdoc_dir": "no devdoc_dir",
                   "unreadable": "WBS.md unreadable"}

@@ -1916,9 +1916,13 @@ def test_status_disagreement_lists_both_statuses(tmp_path):
     assert summaries["gamma"].status == "built"
     assert summaries["alpha"].reason == DISAGREE.format(doc="no WBS.md", own="a WBS.md")
     assert summaries["beta"].reason == DISAGREE.format(doc="WBS.md read", own="no WBS.md")
-    assert summaries["alpha"].reason == ("portfolio JSON and Gantry disagree: the document says no WBS.md; Gantry "
-                                         "finds a WBS.md; use an absolute devdoc_dir and the same devagent config "
-                                         "for both")
+    # Most often the document is only stale (a WBS.md made or deleted since the aggregator ran): the
+    # text says out of date, and the first remedy is a re-run (final review, item 1).
+    assert summaries["alpha"].reason == ("portfolio JSON out of date or disagreeing with Gantry: the document says "
+                                         "no WBS.md; Gantry finds a WBS.md; re-run devagent's aggregator, and if "
+                                         "they still disagree, use an absolute devdoc_dir and the same devagent "
+                                         "config for both")
+    assert summaries["alpha"].reason.startswith(OUT_OF_DATE.split(" with ")[0])
     assert (summaries["alpha"].status, summaries["beta"].status) == ("not_built", "not_built")
 
 

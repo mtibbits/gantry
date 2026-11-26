@@ -520,3 +520,46 @@ def test_steps_import_without_script_folder_on_path():
     ran = subprocess.run([sys.executable, "-P", "-B", "-c", code, str(ROOT / "tools" / "demo_build.py")],
                          cwd=ROOT.parent, env=env, capture_output=True, timeout=60)
     assert ran.returncode == 0, ran.stderr.decode("utf-8", "replace")
+
+
+# --- final review fixes (#12) -------------------------------------------------------------
+
+
+def test_file_at_the_fetch_folder_is_refused_naming_no_path(tree, fetches, tmp_path, capsys, monkeypatch):
+    """A file where out/devagent goes is refused in one line, never a traceback with a path."""
+    write(tree, demo_build.FETCH, "not a checkout\n")
+    calls = []
+    monkeypatch.setattr(demo_build, "STEPS", (demo_build.Step("devagent", demo_build._devagent), step("never", calls)))
+    assert demo_build.run(tree) == 1
+    err = capsys.readouterr().err
+    assert err.splitlines() == ["demo_build: out/devagent is not a folder; remove it to fetch devagent",
+                                "demo_build: step devagent failed"]
+    assert str(tmp_path) not in err and calls == [] and fetches["calls"] == []
+    assert (tree / demo_build.FETCH).read_bytes() == b"not a checkout\n"
+
+
+def test_changed_checkout_at_another_commit_is_refused_not_deleted(tree, fetches):
+    """A checkout holding a change is never deleted, whatever version it is at."""
+    old = tree / demo_build.FETCH
+    checkout_at(old, version="0.0.1")
+    edited = write(old, "scripts/portfolio.sh", "echo mine\n")
+    with pytest.raises(demo_build.Refused, match="out/devagent holds a change; it is not used or deleted"):
+        demo_build._devagent(tree)
+    assert edited.read_bytes() == b"echo mine\n" and fetches["calls"] == []
+
+
+def test_clone_never_prompts_and_a_missing_git_is_named(tree, monkeypatch):
+    seen = []
+
+    def run(argv, **kwargs):
+        seen.append(kwargs["env"])
+        raise FileNotFoundError(2, "No such file or directory", "git")
+
+    monkeypatch.setattr(demo_build.subprocess, "run", run)
+    # _run_git is the git runner itself; tests/conftest.py guards the _git name the steps call.
+    with pytest.raises(demo_build.Refused) as refused:
+        demo_build._run_git(tree, "clone", "-q", demo_build.REPO, demo_build.FETCH)
+    assert str(refused.value) == "cannot run git (clone)"
+    assert seen[0]["GIT_TERMINAL_PROMPT"] == "0"
+    with pytest.raises(demo_build.Refused, match="cannot ask git whether the demo output folder is ignored"):
+        demo_build._run_git(tree, "check-ignore", "-q", "x")

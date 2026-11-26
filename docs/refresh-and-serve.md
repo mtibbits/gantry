@@ -303,6 +303,10 @@ update = [
 ```
 
 Name the devagent checkout's `scripts/portfolio.sh` by its absolute path.
+On Windows, where devagent's toolchain does not run, make the step run the
+aggregator under WSL (for example `["wsl.exe", "bash", "<checkout in WSL>/scripts/portfolio.sh"]`, with `wsl.exe` named by its full path) and point `portfolio_json`
+at the document it writes, as [config.md](config.md#supported-platforms)
+says.
 devagent's plugin cache path carries its version, so re-point the step after
 each devagent update. The aggregator writes `<devagent home>/portfolio/portfolio.json`
 (the home is `DA_HOME`, by default `.claude/devagent` in the home folder); the installation

@@ -362,8 +362,11 @@ hold is listed as `portfolio JSON out of date with devagent's config: this
 project is not in the document; re-run devagent's aggregator`; a project
 the document holds and devagent's config does not is a build warning of the
 same words; and a site whose statuses disagree is listed as `portfolio JSON
-and Gantry disagree: the document says <its status>; Gantry finds <Gantry's>;
-use an absolute devdoc_dir and the same devagent config for both`. None of
+out of date or disagreeing with Gantry: the document says <its status>;
+Gantry finds <Gantry's>; re-run devagent's aggregator, and if they still
+disagree, use an absolute devdoc_dir and the same devagent config for both`
+(most often the document is only stale: a `WBS.md` made or deleted since the
+aggregator ran). None of
 them is built, so leaves and estimates never come from two directories, and
 the trace names each in its `sites_not_read`. A project added to devagent's
 config is listed out of date until the aggregator runs again, then built,
