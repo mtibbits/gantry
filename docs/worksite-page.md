@@ -1315,8 +1315,8 @@ byte-identical files, whenever the aggregator wrote the sample document.
 **A stale document still builds.** Gantry never runs the aggregator: a
 `WBS.md` edited after the document was written is not on the pages until
 the aggregator runs again, and the build exits 0. The data-time line is
-the only sign; a check that compares each `WBS.md` with `generated_at` is a
-follow-up.
+the only sign; a check that compares each `WBS.md` with `generated_at` is
+mtibbits/gantry#205.
 
 Sample mode holds when every root the config names resolves inside the
 sample directory: the Gantry config itself, the devagent config, the

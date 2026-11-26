@@ -178,8 +178,8 @@ it, and so does a report with no status at all. For each source:
   and tabs as indentation). devagent does report the first three of these
   as its own kinds (`meta_unreadable`, `unknown_meta_key`), shown on the
   site's page; the fires do not read those kinds yet, so the page lists the
-  line while the status reads `read` and `confirmed_none` can hold (a
-  follow-up makes them fail closed).
+  line while the status reads `read` and `confirmed_none` can hold
+  (mtibbits/gantry#204 makes them fail closed).
   The same shapes hide a STUCK fire: when the leaf a marker names is on
   such a line, or its `issue:` is not read, the marker is counted in
   `stuck_no_open_leaf` with every status `read`.
