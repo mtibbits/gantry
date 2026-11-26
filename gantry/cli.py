@@ -164,7 +164,7 @@ def _utf8_streams():
             stream.reconfigure(encoding="utf-8", errors="backslashreplace", newline="\n")
 
 
-def _build_site(config, roots, sites, name, flag=False, projects=None):
+def _build_site(config, roots, sites, name, flag, projects, document):
     def fail(message):
         print(f"gantry: error: --site {shown(name)}: {_flagged(one_line(message), flag)}", file=sys.stderr)
         return 1
@@ -183,7 +183,8 @@ def _build_site(config, roots, sites, name, flag=False, projects=None):
     # phase rows match.
     records = read_records(roots, [site]).get(site.name, RECORDS_MISSING)
     try:
-        text, m = render_site(site.name, inputs, config, stamp_text(config, roots=roots), catalog=catalog,
+        text, m = render_site(site.name, inputs, config, stamp_text(config, generated_at=document.generated_at, roots=roots),
+                              catalog=catalog,
                               records=records)
     except Exception as e:
         # One line, naming no configured root by its path.
@@ -341,12 +342,12 @@ def _build(args):
         roots = config_roots(config)
         sites, warnings = site_list(config, roots)
         # The document's own warnings name projects not in devagent's config: never this site (#12).
-        _, sites, projects, _ = read_document(config, sites, roots)
+        document, sites, projects, _ = read_document(config, sites, roots)
     except (ConfigError, PortfolioLoadError) as e:
         _config_error(e, flag)
         return 1
     _warn(warnings)
-    return _build_site(config, roots, sites, args.site, flag, projects)
+    return _build_site(config, roots, sites, args.site, flag, projects, document)
 
 
 # This command reads no WBS.md, so it cannot find the milestone leaf; the full

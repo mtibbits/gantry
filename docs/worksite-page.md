@@ -1276,13 +1276,25 @@ works opened from disk and under any path prefix.
 ### The build stamp and sample mode
 
 Every page and the index carry a stamp under their first line. It reads
-`built {when}; data as of {date}`, where `{when}` is the build time in UTC
-(`2026-11-07 14:03 UTC`) and `{date}` the as-of date. In **sample mode** it
-reads `sample data as of {date}` and carries no build time, so two builds of
-the same sample data on the same as-of date write byte-identical files.
+`built {when}; data as of {date}; devagent data written {when}`, where the
+first `{when}` is the build time in UTC (`2026-11-07 14:03 UTC`), `{date}`
+the as-of date, and the second `{when}` the portfolio JSON's `generated_at`,
+when devagent's aggregator wrote the data the page shows (#12). The form
+without the data time, `built {when}; data as of {date}`, is the stamp's
+first part, which every built page starts with. In **sample mode** it
+reads `sample data as of {date}` and carries no build time and no data
+time, so two builds of the same sample data on the same as-of date write
+byte-identical files, whenever the aggregator wrote the sample document.
+
+**A stale document still builds.** Gantry never runs the aggregator: a
+`WBS.md` edited after the document was written is not on the pages until
+the aggregator runs again, and the build exits 0. The data-time line is
+the only sign; a check that compares each `WBS.md` with `generated_at` is a
+follow-up.
 
 Sample mode holds when every root the config names resolves inside the
-sample directory: the Gantry config itself, the devagent config, every
+sample directory: the Gantry config itself, the devagent config, the
+portfolio JSON (`portfolio_json`), every
 planning directory (`devdoc_dir`) it names, `output_dir`, and each other
 configured path (`portfolio_file`, `fires_list`, and each
 `site.<name>.requirements`, `site.<name>.estimates` and

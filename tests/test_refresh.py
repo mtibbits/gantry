@@ -1425,7 +1425,12 @@ def test_failed_aggregator_step_is_the_recorded_failed_step(tmp_path, git_hermet
     assert (r.failed_step.index, r.failed_step.reason) == (2, "exit 1")
     assert repo.document.read_bytes() == before
     assert (repo.refresh_dir / "current").read_bytes() != live_before
-    assert (live(config)[1] / "index.html").is_file()
+    # The new generation shows the OLD document's data time (#12's data-time line).
+    from datetime import datetime, timezone
+
+    written = datetime.fromisoformat(json.loads(before)["generated_at"]).astimezone(timezone.utc)
+    index = (live(config)[1] / "index.html").read_bytes().decode("utf-8")
+    assert f"; devagent data written {written:%Y-%m-%d %H:%M} UTC" in index
 
 
 # --- final review fixes (#35) ----------------------------------------------------------

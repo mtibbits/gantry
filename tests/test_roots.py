@@ -577,8 +577,9 @@ def test_copy_named_samples_outside_the_checkout_is_not_sample_mode(tmp_path):
     assert copy.name == "samples"
     config = load_config(copy / "gantry.sample.toml")
     assert sample_mode(config) is False
-    assert stamp_text(config, now=datetime(2026, 11, 7, 14, 3, tzinfo=timezone.utc)).endswith(
-        "UTC; data as of 2026-01-20")
+    written = datetime(2026, 1, 12, 9, 30, tzinfo=timezone.utc)
+    assert stamp_text(config, generated_at=written, now=datetime(2026, 11, 7, 14, 3, tzinfo=timezone.utc)).endswith(
+        "UTC; data as of 2026-01-20; devagent data written 2026-01-12 09:30 UTC")
 
 
 def _stamp_fixtures(tmp_path):
@@ -611,7 +612,8 @@ def test_stamp_agrees_with_outside(tmp_path, monkeypatch):
         verdicts = {}
         for name, path in fixtures.items():
             config = load_config(path)
-            sample = stamp.stamp_text(config, now=now) == SAMPLE_STAMP.format(date=config.as_of.isoformat())
+            sample = stamp.stamp_text(config, generated_at=now, now=now) == SAMPLE_STAMP.format(
+                date=config.as_of.isoformat())
             assert sample == (outside(config_roots(config), samples) == []), name
             verdicts[name] = sample
         return verdicts

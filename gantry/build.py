@@ -458,7 +458,7 @@ def build_all(config, *, now=None, samples=None) -> BuildResult:
     # The clock is read once: the stamp and the fires' reference time share it.
     if now is None:
         now = datetime.now(timezone.utc)
-    stamp = stamp_text(config, now=now, samples=samples, roots=roots)
+    stamp = stamp_text(config, generated_at=document.generated_at, now=now, samples=samples, roots=roots)
     raw, reasons = read_sites(config, sites, roots=roots, projects=projects)
     # Every site's devagent records, once, before any page (#173): the pages'
     # phase rows and the fire collector share this read.

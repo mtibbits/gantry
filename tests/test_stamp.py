@@ -16,12 +16,15 @@ from gantry import stamp
 from gantry.build import build_all, write_all
 from gantry.config import load_config
 from gantry.roots import directory_roots
-from gantry.stamp import BUILT_STAMP, SAMPLE_STAMP, outside, sample_dir, sample_mode, stamp_text
+from gantry.stamp import BUILT_STAMP, DATA_WRITTEN, SAMPLE_STAMP, outside, sample_dir, sample_mode, stamp_text
 from helpers_config import add_site_key, copy_samples, demo_build, literal, written_bytes
 from sample_roles import BUSY, SMALL
 from test_samples import ROOT
 
 NOW = datetime(2026, 11, 7, 14, 3, tzinfo=timezone.utc)
+# The committed sample document's generated_at (tools/sample_portfolio.py FIXED_TIME, #12).
+WRITTEN = datetime(2026, 1, 12, 9, 30, tzinfo=timezone.utc)
+DATA_LINE = "; devagent data written 2026-01-12 09:30 UTC"
 
 
 def loaded(path):
@@ -122,19 +125,23 @@ def test_no_sample_dir_never_sample_mode(monkeypatch):
 def test_stamp_texts(tmp_path):
     copy = copy_samples(tmp_path)
     config = loaded(copy / "gantry.sample.toml")
-    assert stamp_text(config, now=NOW, samples=copy) == "sample data as of 2026-01-20"
+    assert stamp_text(config, generated_at=WRITTEN, now=NOW, samples=copy) == "sample data as of 2026-01-20"
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
     config = loaded(_move_output(copy, elsewhere))
-    assert stamp_text(config, now=NOW, samples=copy) == "built 2026-11-07 14:03 UTC; data as of 2026-01-20"
+    assert stamp_text(config, generated_at=WRITTEN, now=NOW, samples=copy) == (
+        "built 2026-11-07 14:03 UTC; data as of 2026-01-20; devagent data written 2026-01-12 09:30 UTC")
     with pytest.raises(ValueError):
-        stamp_text(config, now=datetime(2026, 11, 7, 14, 3), samples=copy)
+        stamp_text(config, generated_at=WRITTEN, now=datetime(2026, 11, 7, 14, 3), samples=copy)
+    with pytest.raises(ValueError):
+        stamp_text(config, generated_at=datetime(2026, 1, 12, 9, 30), now=NOW, samples=copy)
 
 
 def test_stamp_doc():
     doc = (ROOT / "docs" / "worksite-page.md").read_bytes().decode("utf-8")
     assert f"`{SAMPLE_STAMP}`" in doc
     assert f"`{BUILT_STAMP}`" in doc
+    assert f"`{BUILT_STAMP}{DATA_WRITTEN}`" in doc
 
 
 # --- repeatability --------------------------------------------------------------------
@@ -163,9 +170,67 @@ def test_outside_root_stamp_has_time(tmp_path):
     elsewhere.mkdir()
     config = load_config(_move_output(copy, elsewhere))
     result = build_all(config, now=NOW, samples=copy)
-    expected = BUILT_STAMP.format(when="2026-11-07 14:03 UTC", date="2026-01-20")
+    expected = BUILT_STAMP.format(when="2026-11-07 14:03 UTC", date="2026-01-20") + DATA_LINE
     assert result.stamp == expected
     result, paths, error = write_all(result)
     assert error is None and len(paths) == 7
     assert result.strategic_error is None
     assert all(expected in Path(path).read_bytes().decode("utf-8") for path in paths)
+
+
+# --- the data-time line (#12) -----------------------------------------------------------
+
+
+def test_stamp_shows_the_documents_time_outside_sample_mode(tmp_path):
+    """Outside sample mode every page and the index show when devagent wrote the document."""
+    copy = copy_samples(tmp_path)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    result = build_all(load_config(_move_output(copy, elsewhere)), now=NOW, samples=copy)
+    assert result.document.generated_at == WRITTEN
+    assert result.stamp.endswith(DATA_LINE) and DATA_WRITTEN.format(when="2026-01-12 09:30 UTC") == DATA_LINE
+    _, paths, error = write_all(result)
+    pages = [path for path in paths if str(path).endswith(".html")]
+    assert error is None and len(pages) == 7
+    assert all(DATA_LINE in Path(path).read_bytes().decode("utf-8") for path in pages)
+
+
+def test_sample_mode_stamp_has_no_data_time(tmp_path):
+    copy = copy_samples(tmp_path)
+    result = build_all(load_config(copy / "gantry.sample.toml"), now=NOW, samples=copy)
+    assert result.stamp == SAMPLE_STAMP.format(date="2026-01-20")
+    assert "devagent data written" not in result.stamp
+
+
+def test_portfolio_json_outside_samples_is_not_sample_mode(tmp_path):
+    """The document is a root: one outside the sample directory ends sample mode, as any root does."""
+    copy = copy_samples(tmp_path)
+    config = copy / "gantry.sample.toml"
+    assert sample_mode(loaded(config), samples=copy) is True
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    moved = elsewhere / "portfolio.json"
+    shutil.copyfile(copy / "devagent" / "out" / "portfolio" / "portfolio.json", moved)
+    text = config.read_bytes().decode("utf-8")
+    old = 'portfolio_json = "devagent/out/portfolio/portfolio.json"'
+    assert old in text
+    config.write_bytes(text.replace(old, f"portfolio_json = {literal(moved)}").encode("utf-8"))
+    assert sample_mode(loaded(config), samples=copy) is False
+    assert stamp_text(loaded(config), generated_at=WRITTEN, now=NOW, samples=copy).endswith(DATA_LINE)
+
+
+def test_site_build_stamp_matches_the_full_build(tmp_path, monkeypatch):
+    """`gantry build --site` stamps its page with the same data-time line as the full build."""
+    from helpers_config import run_main
+
+    copy = copy_samples(tmp_path)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    config = _move_output(copy, elsewhere)
+    monkeypatch.setattr(stamp, "sample_dir", lambda: copy)
+    assert run_main("--config", str(config))[0] == 0
+    out = loaded(config).output_dir
+    full = (Path(out) / "sites" / f"{SMALL}.html").read_bytes().decode("utf-8")
+    assert run_main("--config", str(config), "--site", SMALL)[0] == 0
+    site = (Path(out) / "sites" / f"{SMALL}.html").read_bytes().decode("utf-8")
+    assert DATA_LINE in full and DATA_LINE in site
