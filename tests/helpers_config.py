@@ -303,6 +303,11 @@ def literal(path):
     return f"'{text}'"
 
 
+def toml_commands(update):
+    """An update list as a TOML array of arrays of literal strings."""
+    return "[" + ", ".join("[" + ", ".join(literal(word) for word in command) + "]" for command in update) + "]"
+
+
 def replace_bytes(path, old, new):
     """Replace `old` with `new` in a UTF-8 file, asserting something changed."""
     before = path.read_bytes().decode("utf-8")
