@@ -120,8 +120,6 @@ def tree_hits() -> tuple[tuple[str, int, str, str], ...]:
 ALLOWED = {  # (path relative to tests/, owner or "*"): why
     ("test_wbs_stopgap.py", "*"): "the parser's own tests; #12 deletes them with it",
     ("test_portfolio_json.py", "*"): "#83's reader tests compare against the stopgap's texts",
-    ("test_build.py", "test_parse_error_isolated"): "monkeypatches build.read_wbs; moves with #12",
-    ("test_build.py", "test_site_mode_parse_error_is_one_line"): "monkeypatches build.read_wbs; moves with #12",
     ("test_worksite_page.py", "assert_quarry_lists_bad_h"): "the demo-build cases' helper; moves with #12",
     ("test_priority.py", "test_p0_not_reported_p5_p_minus_1_are"): "stopgap-path smoke: bad_priority from raw text",
     ("test_inputs.py", "test_est_fixture_totals"): "stopgap-path smoke: est.md totals",

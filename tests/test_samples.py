@@ -168,7 +168,8 @@ def test_roles_name_config_projects():
     names = {
         attr: value
         for attr, value in vars(sample_roles).items()
-        if attr.isupper() and isinstance(value, str) and attr != "HOSTILE_TITLE"
+        # HOSTILE_TITLE is a leaf title, and the *_REASON texts are not-built reasons (#12): not site names.
+        if attr.isupper() and isinstance(value, str) and attr != "HOSTILE_TITLE" and not attr.endswith("_REASON")
     }
     assert len(names) == 11, sorted(names)
     for attr in sorted(names):
