@@ -1653,6 +1653,25 @@ def test_devagent_entries_are_panel_lines(tmp_path):
     assert render.esc("devagent parser_note: a whole-file note") in page
 
 
+def test_devagent_message_names_no_root_by_its_path(tmp_path):
+    """A shown devagent entry's message that quotes a configured root's path reaches the site page,
+    under --site too, with the root's label in its place, as on the index (#12)."""
+    folder = tmp_path / "tree"
+    config = write_site_tree(folder, {"alpha": hp.fixture_source("page")})
+    document = folder / "portfolio.json"
+    doc = _json.loads(document.read_bytes())
+    devdoc = next(r.path for r in config_roots(load_installation(config)).roots if r.key == "devdoc_dir")
+    planted = f"cannot stat {devdoc / 'WBS.md'}"
+    doc["parse_report"].append({"project": "alpha", "source_line": 1, "kind": "parser_note", "message": planted})
+    document.write_bytes(hp.sp.dumps(doc))
+    for args in ((), ("--site", "alpha")):
+        code, _, err = run_main("--config", str(config), *args)
+        assert code == 0, err
+        page = (folder / "out" / "sites" / "alpha.html").read_bytes().decode("utf-8")
+        assert "parser_note" in page and "cannot stat" in page
+        assert str(devdoc) not in page
+
+
 def test_hostile_document_strings_are_inert(tmp_path):
     """HOSTILE strings in a status reason, a report message, a devagent kind and a project name only the
     document holds: every page and the index pass the page rules, no markup survives unescaped, and

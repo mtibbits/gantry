@@ -192,7 +192,7 @@ def _build_site(config, roots, sites, name, flag, projects, document):
     try:
         text, m = render_site(site.name, inputs, config, stamp_text(config, generated_at=document.generated_at, roots=roots),
                               catalog=catalog, records=records,
-                              devagent=devagent_by_project(document).get(site.name, []))
+                              devagent=devagent_by_project(document, roots).get(site.name, []))
     except Exception as e:
         # One line, naming no configured root by its path.
         return fail(render_reason(e, roots))

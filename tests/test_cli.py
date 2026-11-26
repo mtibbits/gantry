@@ -179,7 +179,7 @@ def test_write_site_tree_builds_sites(tmp_path, capsys):
                        hp.node("A", issue="Issue-1", depends_on=["b:Issue-1"]), report=(entry,)),
         "b": hp.source(b"- [ ] B {issue: Issue-1, depends_on: [a:Issue-1]}\n",
                        hp.node("B", issue="Issue-1", depends_on=["a:Issue-1"]))})
-    assert main(["build", "--config", str(mutual)]) in (0, 1)
+    assert main(["build", "--config", str(mutual)]) == 0
     page = (tmp_path / "mutual" / "out" / "sites" / "a.html").read_bytes().decode("utf-8")
     assert "devagent dep_cycle: WBS.md line 1: dependency cycle: Issue-1 (line 1), b:Issue-1 (line 1)" in page
 
@@ -1004,8 +1004,6 @@ def test_fires_sample_exits_0():
 
 # --- the portfolio JSON stops the build when it cannot be read (#12) ---------------------------
 
-import json as _json  # noqa: E402
-
 from helpers_config import snapshot as tree_snapshot  # noqa: E402
 
 
@@ -1039,7 +1037,7 @@ def test_missing_document_exits_1_output_unchanged(tmp_path, run):
 
 
 def rewrite(document, fn):
-    doc = _json.loads(document.read_bytes())
+    doc = json.loads(document.read_bytes())
     document.write_bytes(hp.sp.dumps(fn(doc)))
 
 

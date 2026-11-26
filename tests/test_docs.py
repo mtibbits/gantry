@@ -732,3 +732,7 @@ def test_windows_installations_are_told_how_to_make_the_portfolio_json():
     refresh = " ".join(markdown_text(ROOT / "docs" / "refresh-and-serve.md").split())
     for text in (config, refresh):
         assert "WSL" in text and "portfolio_json" in text
+    # A native-Windows Gantry and a WSL aggregator resolve no absolute devdoc_dir to the same folder.
+    assert "run Gantry under WSL" in config and "native-Windows Gantry cannot" in config
+    assert "`gantry refresh` itself under WSL" in refresh
+    assert "wsl.exe" not in refresh

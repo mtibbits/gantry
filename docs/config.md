@@ -358,10 +358,12 @@ not tested, though nothing here is meant to prevent it.
 
 `gantry build` needs devagent's portfolio JSON (`portfolio_json`, #12), and
 devagent's aggregator that writes it needs bash and GNU coreutils, which
-Windows does not provide. On Windows, run the aggregator under WSL (or on
-another host that sees the same planning folders) and point `portfolio_json`
-at the document it writes; Gantry itself runs natively. Give every
-`devdoc_dir` absolutely, in the form both sides resolve to the same folder.
+Windows does not provide. On Windows, run Gantry under WSL as well, beside
+the aggregator, and point `portfolio_json` at the document it writes. A
+native-Windows Gantry cannot use a document a WSL aggregator wrote: Gantry
+refuses a WSL-style absolute `devdoc_dir` as a path for another OS, and
+devagent reads a drive-letter one as relative, so no absolute `devdoc_dir`
+names the same folder to both, and every site would be listed out of date.
 
 ## The Claude Code plugin
 

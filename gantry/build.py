@@ -473,7 +473,7 @@ def build_all(config, *, now=None, samples=None) -> BuildResult:
     traces, trace_failed = site_traces(resolved, catalog, roots)
     traces = build_installation_trace(sites, resolved, traces, {**reasons, **trace_failed}, catalog)
     built = frozenset(name for name in raw if name not in reasons and name not in trace_failed)
-    devagent = devagent_by_project(document)
+    devagent = devagent_by_project(document, roots)
     pages, models, failed = render_sites(config, {name: resolved[name] for name in traces}, stamp, roots=roots,
                                          catalog=catalog, records=records, devagent=devagent, traces=traces,
                                          built=built)
@@ -490,11 +490,12 @@ def build_all(config, *, now=None, samples=None) -> BuildResult:
     return collect_build_fires(result, config, sites, now)
 
 
-def devagent_by_project(document) -> dict:
-    """{project: its shown devagent report entries, in document order} (#12)."""
+def devagent_by_project(document, roots) -> dict:
+    """{project: its shown devagent report entries, in document order} (#12). A message names no
+    root by its path (public_text): it reaches the pages, as the index's unplaced entries do."""
     found = {}
     for entry in document.devagent_report:
-        found.setdefault(entry.project, []).append(entry)
+        found.setdefault(entry.project, []).append(replace(entry, message=public_text(entry.message, roots)))
     return found
 
 
