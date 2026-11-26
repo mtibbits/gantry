@@ -8,23 +8,26 @@ and `--site NAME` writes one site's page
 page is built from ([Reading `WBS.md`](#reading-wbsmd)), what it shows
 ([The page](#the-page)) and how it keeps record values inert
 ([Page safety](#page-safety)). Every Gantry view reads the same parsed data
-(`gantry/model.py`), produced by `gantry.wbs_stopgap.read_wbs` until devagent
-exports its own.
+(`gantry/model.py`), read from devagent's portfolio JSON
+([Reading devagent's portfolio JSON](#reading-devagents-portfolio-json), #12).
 
 ## Reading `WBS.md`
 
-Gantry reads a site's `WBS.md` with devagent's grammar
-(`scripts/lib/wbs-parser.py`), ported rule by rule; it never calls or copies
-devagent's parser. Where Gantry adds a rule (names, the report, links), this
-section says so. Nothing in the file stops the read: what Gantry cannot use
-it reports, and it reads the rest.
+devagent's parser (`scripts/lib/wbs-parser.py`) reads each site's `WBS.md`,
+and its aggregator writes what it read into the portfolio JSON the build
+reads (#12): Gantry opens no working-tree `WBS.md`. This section states the
+grammar devagent applies, as Gantry receives it, and the rules Gantry adds
+(names, the report, links), which it applies to the document's nodes.
+Nothing in the file stops the read: what cannot be used is reported, and the
+rest is read.
 
 ### Bytes and lines
 
-The file is read as bytes and decoded as strict UTF-8. A file that cannot be
-opened or read (`WBS.md cannot be read: <reason>`) or is not valid UTF-8
-(`WBS.md is not valid UTF-8 at byte N`) gives no nodes and one
-`site_unreadable` entry; the message never names the path. A byte-order
+devagent reads the file as bytes and decodes it as strict UTF-8. A file it
+cannot read, or that is not valid UTF-8, is a project with the status
+`unreadable` and devagent's reason (`WBS.md could not be read:
+UnicodeDecodeError: ... at byte N`): no nodes, one `site_unreadable` entry,
+and the site is not built. A byte-order
 mark is kept as text, so a first line that starts with one is not a node.
 CRLF reads exactly like LF. Lines are numbered as Python's `str.splitlines`
 counts them, which is devagent's convention; an editor may count differently
@@ -1436,6 +1439,11 @@ summary and the warnings, as shown.
 
 ## Every site and the index
 
+Run devagent's aggregator (`/devagent:portfolio`) first, so the portfolio
+JSON is current: the build reads every site's nodes from it and never runs
+the aggregator itself. A missing or unreadable document stops the build
+with exit 1 and writes nothing ([Load errors](#load-errors)).
+
 `gantry build --config FILE` builds every site devagent's config names, in
 its config order. It first reads every site and each site's devagent
 records, once, before any page (#173: the pages' phase rows and the fire
@@ -1550,8 +1558,9 @@ path. Seven more lines can follow on stderr:
 `gantry build --config FILE --site NAME` writes only that site's page to
 `<output_dir>/sites/<NAME>.html`, and no index and no plan, and prints the page's
 absolute path, then that site's `trace <site>:` line when the full build
-would print one. It reads only that site's `WBS.md`, inputs and devagent
-records (the site list still checks each planning directory), every
+would print one. It reads the portfolio JSON (that site's project), that
+site's inputs and devagent records (the site list still checks each
+planning directory), every
 requirements file and the portfolio file, which the trace needs. Its
 phase rows equal the full build's on every box both builds draw (#173). It creates `<output_dir>/sites/`
 when it is missing and writes the page the same way. Each of these exits 1

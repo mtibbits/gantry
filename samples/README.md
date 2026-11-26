@@ -29,9 +29,13 @@ public tools (in prose, in the `samples/devagent/` folder name and in
   in two lines: where its capacity comes from, and the token budget.
 - `devagent/out/`: devagent's portfolio JSON over these samples
   (`portfolio/portfolio.json`) and the devagent home it is written from.
-  `tools/sample_portfolio.py` writes it with a devagent checkout; it is
-  git-ignored and never committed. `gantry build` reads `WBS.md` directly
-  until #12 switches it to this document.
+  `tools/sample_portfolio.py` writes it with a devagent checkout (the demo
+  build runs it); it is git-ignored and never committed, and
+  `gantry.sample.toml`'s `portfolio_json` names it: the build reads every
+  sample site from it (#12). After a test session it may hold the committed
+  sample document instead (`tests/fixtures/portfolio/samples.json`, which
+  the tests that build the real samples write there), so a build by hand
+  after a test run reads that copy, not a fresh aggregator run.
 - `gantry.sample.toml`: the sample installation config (#7); its paths are
   relative to `samples/` and its pages go to the ignored `samples/out/`.
 - `<site>/`: one planning folder per site, holding its `WBS.md`.

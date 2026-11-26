@@ -54,7 +54,8 @@ each `'` inside it as `'\''`, and change nothing else.
 Relay the output (stdout and stderr) and the exit status to the user
 unchanged: exit 0 is success, the week view, the strategic page, the
 index and at least one site page were written (sites not built and
-warnings do not change it); 1 is a config error, no site page was written, the index or the
+warnings do not change it); 1 is a config error, devagent's portfolio JSON is missing or
+cannot be read (run `/devagent:portfolio`, then build again), no site page was written, the index or the
 output folder cannot be written, the week page cannot be rendered or
 written, the plan file cannot be written, or strategic.html cannot be
 made or written;

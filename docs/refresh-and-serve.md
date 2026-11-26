@@ -290,8 +290,26 @@ update = [
 ]
 ```
 
-Once Gantry reads devagent's portfolio JSON (#12), devagent's aggregator
-goes after the pulls, so a failed aggregator run is a failed update.
+The build reads devagent's portfolio JSON (#12), so devagent's aggregator
+goes last, after the pulls, and a failed aggregator run is a failed update
+(the build still runs, on the document already there, and its pages show
+that document's data time):
+
+```toml
+update = [
+  ["git", "-C", "<data clone>", "pull", "--ff-only"],
+  ["bash", "<devagent checkout>/scripts/portfolio.sh"],
+]
+```
+
+Name the devagent checkout's `scripts/portfolio.sh` by its absolute path.
+devagent's plugin cache path carries its version, so re-point the step after
+each devagent update. The aggregator writes `<devagent home>/portfolio/portfolio.json`
+(the home is `DA_HOME`, by default `.claude/devagent` in the home folder); the installation
+config's `portfolio_json` names that file. It resolves a relative
+`devdoc_dir` against the folder it runs in, the installation config's
+folder, so give every `devdoc_dir` absolutely
+([config.md](config.md#sites)).
 
 - **Nothing commits to these copies on the build machine.** Then a pull can
   always fast-forward; one that cannot (`--ff-only` refuses it) is a failed

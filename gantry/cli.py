@@ -6,8 +6,9 @@
 (<output_dir>/week.html, #38), the strategic page
 (<output_dir>/strategic.html, #23) and the index, plans the week and writes
 the plan to <output_dir>/week-plan.json (#61); with
-`--site` it builds that one page, no week view, no strategic page, no index and no plan, reading that site's
-WBS.md, inputs and devagent records (#173), every requirements file and the portfolio file. Both
+`--site` it builds that one page, no week view, no strategic page, no index and no plan, reading that site
+from devagent's portfolio JSON (#12), its inputs and devagent records (#173), every requirements file and
+the portfolio file. Both
 print each written file's path, then a `trace <site>:` line for each written
 page whose site is in the trace or whose trace report has an entry (#20);
 the full build then prints one `fires:` line, the count of fires and of
@@ -32,7 +33,8 @@ docs/refresh-and-serve.md). Exit codes:
 - 0: the full build wrote the week view, the strategic page, the index and
   at least one site page; `--site` wrote its page; `portfolio` found no
   report entry;
-- 1: a config error; the full build wrote no site page (the index is still
+- 1: a config error, or devagent's portfolio JSON missing, unreadable, not
+  JSON or of another schema major (nothing is written); the full build wrote no site page (the index is still
   written) or cannot write the index or the output folder, the week page
   cannot be rendered or written, the plan file cannot be written, or
   strategic.html cannot be made or written; `--site` names no
@@ -99,7 +101,7 @@ CAPACITY_INVALID_LINE = "gantry: warning: devagent's capacity declaration is inv
 def _parser():
     parser = argparse.ArgumentParser(
         prog="gantry",
-        description="Build planning pages from devagent WBS files.",
+        description="Build planning pages from devagent's portfolio JSON.",
     )
     commands = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
     build = commands.add_parser(

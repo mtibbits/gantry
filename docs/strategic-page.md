@@ -259,7 +259,8 @@ uncommitted `WBS.md` are the only labelled parts that count toward a flag:
 a STUCK marker is a fire wherever it is read, so the unplanned-work count
 includes it and says how many came from STUCK markers; and the glyphs the
 WIP and unknown-dependencies counts read are the working-tree `WBS.md`'s,
-so when that file has uncommitted changes, or could not be checked against
+as devagent's aggregator read it into the portfolio JSON (#12), so when that
+file has uncommitted changes, or could not be checked against
 its commit, both lines carry the label. Every other labelled part is
 information beside the value.
 
@@ -411,8 +412,8 @@ build found, in report order, as `{section}: {entry}`. The section is
 `the portfolio file`, `business requirements` or `settings`, and the entry
 is the line `gantry portfolio` prints for it
 ([portfolio-file.md](portfolio-file.md#checking-the-file)), the milestone
-leaf's check included: a full build reads every site's `WBS.md`, so it can
-look for the leaf. With no entry it reads `nothing missing or unreadable`.
+leaf's check included: a full build reads every site's leaves (from
+devagent's portfolio JSON, #12), so it can look for the leaf. With no entry it reads `nothing missing or unreadable`.
 The file is always named "the portfolio file", never by its path.
 
 ## When the page cannot be written

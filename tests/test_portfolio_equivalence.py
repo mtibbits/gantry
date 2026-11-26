@@ -633,9 +633,10 @@ def test_pin_move_recipe_names_the_new_tools_and_files(capsys):
                  "tests/fixtures/portfolio/samples.json", "tests/fixtures/portfolio/samples_provenance.json",
                  "tests/fixtures/expected_leaves/", "tests/fixtures/devagent_records/written/"):
         assert name in part, name
-    # This issue moved no pin, and reading projects[].issues is #12's alone.
+    # #83 moved no pin; #12 reads the JSON's nodes, and reading projects[].issues is a follow-up of #12's.
     assert "#83" not in text
-    assert "Gantry reads that JSON (#12)" in " ".join(text.split())
+    flat = " ".join(text.split())
+    assert "Gantry reads that JSON for every site's nodes (#12)" in flat and "a follow-up issue filed from #12" in flat
 
 
 def test_readmes_cover_the_portfolio_tests():

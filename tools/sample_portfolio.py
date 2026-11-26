@@ -72,8 +72,8 @@ OUT = "devagent/out"  # the sample devagent home, relative to the samples folder
 FIXED_TIME = "2026-01-12T09:30:00Z"
 NOT_CHECKOUT = "--devagent is not a devagent checkout (no .claude-plugin/plugin.json version)"
 
-# One project per WBS text, in this order: the shape fixtures the stopgap
-# parser is tested with, then the shapes where the two readers differ.
+# One project per WBS text, in this order: the parser tests' shape fixtures,
+# the shapes where Gantry's former stopgap reader differed (#83), and the fires tests' lines (#12).
 FIXTURE_SOURCES = {
     **{name: f"tests/fixtures/wbs/{name}.md" for name in (
         "cycle", "empty", "fences", "ids", "nesting", "not_utf8", "page", "priority", "refs", "rows", "states")},
