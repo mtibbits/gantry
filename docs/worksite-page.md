@@ -690,7 +690,8 @@ chain is **the critical path** under the network
 summary, Two limits, the finish marks and the gantt's `aria-label`. When
 other leaves are critical too, the critical path line adds
 `(one of the chains with slack 0; also critical: {keys})`
-naming them in network order. A schedule bar's detail reads
+naming them in the network's topological order, ties in WBS order. A
+schedule bar's detail reads
 `critical (slack 0), on the critical path`
 for a leaf on the named chain and
 `critical (slack 0), off the named critical path`
@@ -887,18 +888,19 @@ plan's end into a day number in one of two ways.
   gantt's `aria-label` round half up to a whole day, so they can read day 0
   for a plan that ends in its first half day. Python (`_round`) and the page
   script (`Math.round`) round alike, so the server's summary and the
-  script's agree. The finish marks' tooltips also say "around" but show one
-  decimal (`ends around day 1.3`).
+  script's agree. The finish marks' tooltips also say "around" but show up
+  to one decimal (`ends around day 1.3`).
 - A day the plan ends **in** rounds up, never below 1 (`plan_finish_day`,
   and `gantryTrace.endDay` in the page script): the index's
   `finishes working day {day}`, at the default 4 lanes, and the path box's
   end-day line, at the chosen lane count.
 
 So a plan that needs 8 agent-hours ends around working day 1 on the page
-and in working day 2 on the index. The index is written by a full build
-only; a `gantry build --site` build writes the page and no index. The
+and in working day 2 on the index. When the plan schedules any work, the
 schedule's prose says so:
 `The index page gives this plan's finish as the working day it ends in at the default {lanes}, counted up; the summary below rounds to the nearest day, so at {lanes} the index can read one day later.`
+The index is written by a full build only; a `gantry build --site` build
+writes the page and no index.
 
 ### Unestimated leaves and their labels
 

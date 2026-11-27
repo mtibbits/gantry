@@ -579,6 +579,7 @@ def test_page_texts_present():
     assert NO_LEAVES in empty
     done = visible_text(render_page("alpha", hp.site(hp.node("Done", glyph="x", issue="Issue-1")), default_unit_hours=6))
     assert NO_OPEN in done
+    assert "The index page gives" not in done
 
 
 def bands(t, node):
@@ -1519,12 +1520,13 @@ def test_schedule_detail_off_chain_critical_leaf(node, tmp_path):
 
 
 def test_hours_note_same_means_same_leaves():
-    assert model(data=hp.site(*FOUR))["network"]["heaviest"] == {"keys": ["Issue-2", "Issue-3"], "hours": 48.0,
-                                                                "same": False}
+    assert model(data=hp.site(*FOUR), unit=6)["network"]["heaviest"] == {"keys": ["Issue-2", "Issue-3"],
+                                                                        "hours": 12.0, "same": False}
     page = page_for(data=hp.site(*FOUR))
     t = tree(page)
-    assert " ".join(text_of(t, by_id(t, "hours-note")).split()) == ("Weighting each leaf by its hours picks a different chain: "
-                                                  "Issue-2 → Issue-3, 12 h end to end; includes 2 unestimated leaves.")
+    note = " ".join(text_of(t, by_id(t, "hours-note")).split())
+    assert note == ("Weighting each leaf by its hours picks a different chain: "
+                    "Issue-2 → Issue-3, 12 h end to end; includes 2 unestimated leaves.")
     assert "picks the same chain" not in visible_text(page)
 
 
@@ -1579,6 +1581,7 @@ def test_all_held_out_site_says_so():
     page = visible_text(render_page("alpha", data, default_unit_hours=6))
     assert worksite.ALL_HELD in page
     assert NO_OPEN not in page
+    assert "The index page gives" not in page
 
 
 def test_critical_cross_link_stays_dashed():

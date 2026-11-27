@@ -1271,7 +1271,7 @@ def render_model(m, *, stamp="") -> str:
         SITE_UNEST=unest["site"],
         PATH_UNEST=unest["path"],
         SUMMARY=m["summary"],
-        INDEX_DAY=INDEX_DAY.format(lanes=_lanes_text(LANES_DEFAULT)),
+        INDEX_DAY=INDEX_DAY.format(lanes=_lanes_text(LANES_DEFAULT)) if m["finish_day"] is not None else "",
         LIMITS_SVG=limits_svg,
         LIMITS_CAPTION=limits_caption,
         DATES=_count_line(unest["site"], DATES, DATES_ONE) if unest["site"] else "",
