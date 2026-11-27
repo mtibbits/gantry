@@ -700,6 +700,15 @@ def test_module_docstring_names_its_first_callers():
     assert "read_portfolio(roots, path)" in text and "gantry/build.py" in text
 
 
+def test_actuals_part_names_its_first_caller():
+    # The actuals part is not provisional: #25 is its first caller, in its docstring and the doc's reader section.
+    assert "#25" in ActualsInput.__doc__ and "provisional" not in ActualsInput.__doc__.lower()
+    text = (hp.sp.ROOT / "docs" / "worksite-page.md").read_text(encoding="utf-8")
+    start = text.index("\n## Reading devagent's portfolio JSON\n")
+    reader = text[start:text.index("\n## ", start + 1)]
+    assert "#25" in reader and "provisional" not in reader.lower()
+
+
 # --- nodes into Leaf, Row and SiteData (Task 4) ----------------------------------------------
 
 

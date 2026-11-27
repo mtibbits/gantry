@@ -22,8 +22,9 @@ actuals_unavailable message starts with, is written as
 devagent-home/actuals.json (#213). --check
 writes nothing: it regenerates all four and prints one line per file that
 differs or is missing. Run --fixtures before tools/update_expected_leaves.py
-when the pin moves. --fixtures is for Linux and macOS, where CI regenerates
-the fixtures: the path is replaced as this tool passed it to the aggregator.
+when the pin moves. --fixtures is for Linux, where CI checks the fixtures
+(macOS is untested; not Windows): the path is replaced as this tool passed it
+to the aggregator.
 
 Exit 0 done; 1 the aggregator failed, a folder was refused, or --check found
 a difference; 2 a usage error, no bash, or --devagent is not a devagent
@@ -396,7 +397,7 @@ def build_parser():
     parser.add_argument("--devagent", help="a devagent checkout (default: GANTRY_DEVAGENT_DIR)")
     parser.add_argument("--samples", help="the samples folder (default: this checkout's samples/)")
     parser.add_argument("--fixtures", action="store_true",
-                        help="write the test fixtures, not the sample document (Linux and macOS)")
+                        help="write the test fixtures, not the sample document (Linux; macOS untested)")
     parser.add_argument("--check", action="store_true", help="with --fixtures: compare, write nothing")
     return parser
 

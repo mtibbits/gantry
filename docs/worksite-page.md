@@ -527,7 +527,8 @@ path each `actuals_unavailable` message starts with: the throwaway devagent
 home's `actuals.json`, an absolute path that differs on every run (#213).
 The sample document of the first form is devagent's own and keeps that
 path; the reader consumes those entries
-([Report sources](#report-sources)). `--fixtures` is for Linux and macOS.
+([Report sources](#report-sources)). `--fixtures` is for Linux, where CI
+checks the fixtures; macOS is untested.
 `tools/update_expected_leaves.py` writes both snapshot
 sets; for the sample set it runs the aggregator on a temporary copy of
 `samples/`. Each `--check` writes nothing and prints one line per file that
