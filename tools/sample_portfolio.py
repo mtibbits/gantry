@@ -13,8 +13,8 @@ existing out/ is deleted only when it is not a link, git ignores it and git
 tracks no file in it.
 
 --fixtures writes tests/fixtures/portfolio/written.json, the aggregator's
-document over the WBS texts in FIXTURE_SOURCES with `generated_at` set to a
-fixed time, and provenance.json beside it; then samples.json, the
+document over the WBS texts in FIXTURE_SOURCES (with FIXTURE_STEP_MODELS's
+tables) with `generated_at` set to a fixed time, and provenance.json beside it; then samples.json, the
 aggregator's document over a copy of samples/ with the same fixed time, and
 samples_provenance.json, the sha256 of each input it read (#84). --check
 writes nothing: it regenerates all four and prints one line per file that
@@ -82,7 +82,15 @@ FIXTURE_SOURCES = {
     "edges": "tests/fixtures/portfolio/edges.md",
     # The fires tests' lines (#12): line 1 one clean leaf, then each P0 and STUCK shape they restate.
     "fires": "tests/fixtures/portfolio/fires.md",
+    # One node per model-key role (#14): a malformed key on a parent row and on leaves, finished
+    # and open leaves; `models_project` reads the same text beside a project step_models table.
+    "models": "tests/fixtures/portfolio/models.md",
+    "models_project": "tests/fixtures/portfolio/models.md",
 }
+
+# A [project.<name>.step_models] table written after that project's table (#14): the
+# aggregator then gives each class without a legal leaf key `{value, source: "project"}`.
+FIXTURE_STEP_MODELS = {"models_project": {"checking": "opus"}}
 
 # run_bash runs from, and writes its driver into, the folder it is given. So
 # the aggregator gets a private folder there and this script moves to the
@@ -256,6 +264,9 @@ def fixture_document(devagent) -> bytes:
             folder.mkdir(parents=True)
             (folder / "WBS.md").write_bytes((ROOT / source).read_bytes())
             tables.append(f'[project.{name}]\ndevdoc_dir = "site/{name}"\n')
+            if name in FIXTURE_STEP_MODELS:
+                values = "".join(f'{key} = "{value}"\n' for key, value in FIXTURE_STEP_MODELS[name].items())
+                tables.append(f"[project.{name}.step_models]\n{values}")
         (da_home / "config.toml").write_bytes("\n".join(tables).encode("utf-8"))
         document = run_aggregator(devagent, cwd, da_home)
         doc = json.loads(document.read_bytes().decode("utf-8"))
@@ -263,17 +274,17 @@ def fixture_document(devagent) -> bytes:
     return dumps(doc)
 
 
-def _provenance(devagent, document, key, value) -> bytes:
+def _provenance(devagent, document, **fields) -> bytes:
     doc = json.loads(document.decode("utf-8"))
     return dumps({"pin": read_pin(), "devagent_version": checkout_version(devagent),
-                  "schema_version": doc["schema_version"], "generated_at": doc["generated_at"], key: value})
+                  "schema_version": doc["schema_version"], "generated_at": doc["generated_at"], **fields})
 
 
 def provenance(devagent, document=None) -> bytes:
     """Where written.json came from; `document` is fixture_document's bytes, made here when not given."""
     if document is None:
         document = fixture_document(devagent)
-    return _provenance(devagent, document, "sources", dict(FIXTURE_SOURCES))
+    return _provenance(devagent, document, sources=dict(FIXTURE_SOURCES), step_models=FIXTURE_STEP_MODELS)
 
 
 def sample_fixture_document(devagent, samples=SAMPLES) -> bytes:
@@ -310,7 +321,7 @@ def stale_inputs(samples=SAMPLES) -> list[str]:
 
 def sample_provenance(devagent, document) -> bytes:
     """What samples.json was made from; `document` is sample_fixture_document's bytes."""
-    return _provenance(devagent, document, "inputs", sample_inputs())
+    return _provenance(devagent, document, inputs=sample_inputs())
 
 
 def _counts(document):

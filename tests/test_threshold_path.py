@@ -572,7 +572,7 @@ def hostile_threshold_site(tmp_path):
         hostile_leaf(h[1], h[1], 3, title=h[3], satisfies="alpha:FR-1", objective="alpha:FR-1"),
         hostile_leaf("Issue-4", "Issue-4", 4, satisfies="alpha:FR-1", objective=h[5]),
     )
-    data = SiteData(leaves, (), ((h[1], "Issue-2"), ("Issue-2", "Issue-1")), (), ())
+    data = SiteData(leaves, (), ((h[1], "Issue-2"), ("Issue-2", "Issue-1")), (), (), schema_models=True)
     trace = page_trace(build_site_trace("alpha", leaves, catalog), catalog, data)
     page = w.render_page("alpha", data, default_unit_hours=6, trace=trace)
     malformed = (f"WBS.md line 4: objective: entry {h[5]!r} is not a full requirement ID "

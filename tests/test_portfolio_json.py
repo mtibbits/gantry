@@ -23,8 +23,8 @@ from gantry import portfolio_json as pj
 from gantry.attention import check_h, read_h
 from gantry.deps import refs
 from gantry.est_rules import classify_est
-from gantry.model import (REPORT_KINDS, STATE_GLYPHS, Leaf, ParsedValue, ReportEntry, Row, SiteData, meta_scalar,
-                          meta_values, report_order)
+from gantry.model import (REPORT_KINDS, STATE_GLYPHS, Leaf, Models, ParsedValue, ReportEntry, Row, SiteData,
+                          meta_scalar, meta_values, report_order)
 from gantry.portfolio_json import (DevagentEntry, PortfolioInput, PortfolioLoadError, ProjectInput, map_document,
                                    read_portfolio)
 from gantry.priority import rank
@@ -83,6 +83,7 @@ def test_consumers_take_parsed_values():
 
 # written.json's projects, by index: the order of tools/sample_portfolio.py's FIXTURE_SOURCES.
 CYCLE, EMPTY, FENCES, IDS, NESTING, NOT_UTF8 = range(6)
+MODELS, MODELS_PROJECT = 15, 16  # #14's two projects, last in FIXTURE_SOURCES
 AGAIN = "Run devagent's aggregator again (/devagent:portfolio)."
 
 
@@ -162,30 +163,165 @@ def test_newer_minor_with_unknown_fields_is_read(tmp_path):
     assert hp.read_doc(tmp_path, doc) == plain
 
 
-def test_models_field_is_not_read():
-    # Schema 1.2 gives every leaf a `models` object. The reader does not use it (#14 will), so a
-    # 1.1 document, which has none, and a 1.2 document with any value there read alike.
+# The models fixture (#14): tests/fixtures/portfolio/models.md, read as two projects.
+MODELS_LINES = {"Epic": 1, "Both": 2, "Think only": 3, "Bad alone": 4, "Bad beside legal": 5, "Inherit": 6,
+                "Done keyed": 7, "No keys": 8}
+# The leaf keys the fixture gives each leaf, legal ones only.
+MODELS_KEYS = {"Both": {"thinking": "fable", "checking": "sonnet"}, "Think only": {"thinking": "sonnet"},
+               "Bad alone": {}, "Bad beside legal": {"checking": "fable"}, "Inherit": {"thinking": "inherit"},
+               "Done keyed": {"checking": "opus"}, "No keys": {}}
+LEAF_BAD = 'thinking "gpt" is not one of: sonnet opus haiku fable inherit; the key counts as absent'
+
+
+def test_pinned_aggregator_models_contract():
+    # What the pinned aggregator writes for model keys (#14): a legal leaf key is a `wbs` class, the
+    # project's step_models fill the other classes as `project`, a malformed leaf key is one bad_model
+    # entry at its line, and a parent row's key (legal or not) reaches no entry at all: the gap
+    # mtibbits/devagent#1236 reports. A later pin that closes it fails here first.
     doc = hp.written_doc()
-    plain = map_document(doc)
-    leaves = [n for p in doc["projects"] for n in p["nodes"] if n["leaf"]]
-    assert len(leaves) == 121 and all(list(n["models"]) == ["thinking", "checking"] for n in leaves)
-    assert not any("models" in n for p in doc["projects"] for n in p["nodes"] if not n["leaf"])
-    for node in leaves:
-        node["models"] = {"thinking": "<script>", "checking": ["x"]}
-    assert map_document(doc) == plain
-    for node in leaves:
-        del node["models"]
-    doc["schema_version"] = "1.1"
-    assert dataclasses.replace(map_document(doc), schema_version="1.2") == plain
+    by_name = {p["project"]: p for p in doc["projects"]}
+    for name, project_checking in (("models", None), ("models_project", {"value": "opus", "source": "project"})):
+        nodes = {n["text"]: n for n in by_name[name]["nodes"]}
+        assert sorted(nodes) == sorted(MODELS_LINES), name
+        assert {t: n["source_line"] for t, n in nodes.items()} == MODELS_LINES, name
+        assert "models" not in nodes["Epic"] and not nodes["Epic"]["leaf"], name
+        for text, keys in MODELS_KEYS.items():
+            want = {cls: {"value": keys[cls], "source": "wbs"} if cls in keys else None
+                    for cls in ("thinking", "checking")}
+            if "checking" not in keys:
+                want["checking"] = project_checking
+            assert nodes[text]["models"] == want, (name, text)
+        entries = [e for e in doc["parse_report"] if e["project"] == name]
+        assert [(e["kind"], e["source_line"], e["message"]) for e in entries if e["kind"] == "bad_model"] == [
+            ("bad_model", MODELS_LINES["Bad alone"], LEAF_BAD),
+            ("bad_model", MODELS_LINES["Bad beside legal"], LEAF_BAD)]
+        assert not [e for e in entries if e["kind"] == "parser_warning"], name
+        assert not [e for e in entries if e["source_line"] == MODELS_LINES["Epic"]], name
+
+
+MODEL_TOKENS = "sonnet opus haiku fable inherit"
+# A model-key parser warning in the pinned parser's words (MODEL_WARNING), which no release reports today.
+MODEL_KEY_WARNING = "line {line}: {cls} 'gpt' is not one of: " + MODEL_TOKENS
+CONFIG_BAD = 'step_models.checking "gpt" is not one of: sonnet opus haiku fable inherit; models.checking is null'
+
+
+def test_model_key_warnings_suppressed_on_leaves_only():
+    lines = MODELS_LINES
+    planted = [(lines["Bad alone"], "thinking"), (lines["Bad beside legal"], "thinking"),
+               (lines["Bad beside legal"], "checking"), (lines["Epic"], "thinking"), (lines["No keys"], "thinking")]
+    doc = hp.written_doc()
+    doc["parse_report"] += [entry("models", line, "parser_warning", MODEL_KEY_WARNING.format(line=line, cls=cls))
+                            for line, cls in planted]
+    got = map_document(doc)
+    warned = [(e.line, e.message) for e in got.devagent_report if e.project == "models" and e.kind == "parser_warning"]
+    # On a leaf holding the key beside devagent's bad_model for it: suppressed. On a leaf whose bad_model
+    # names the other key (Bad beside legal's legal checking), on the row, and on a leaf without the key:
+    # shown as written.
+    assert warned == [(lines["Bad beside legal"], MODEL_KEY_WARNING.format(line=lines["Bad beside legal"],
+                                                                           cls="checking")),
+                      (lines["Epic"], MODEL_KEY_WARNING.format(line=lines["Epic"], cls="thinking")),
+                      (lines["No keys"], MODEL_KEY_WARNING.format(line=lines["No keys"], cls="thinking"))]
+    assert [e.line for e in got.devagent_report if e.project == "models" and e.kind == "bad_model"] == [
+        lines["Bad alone"], lines["Bad beside legal"]]
+
+
+def test_bad_model_shown_once_each():
+    doc = hp.written_doc()
+    doc["parse_report"].append(entry("models_project", None, "bad_model", CONFIG_BAD))
+    got = map_document(doc)
+    for name in ("models", "models_project"):
+        for line in (MODELS_LINES["Bad alone"], MODELS_LINES["Bad beside legal"]):
+            assert got.devagent_report.count(DevagentEntry(name, line, "bad_model", LEAF_BAD)) == 1, (name, line)
+    assert got.devagent_report.count(DevagentEntry("models_project", None, "bad_model", CONFIG_BAD)) == 1
+    assert sum(e.kind == "bad_model" for e in got.devagent_report) == 5
+    assert all(e.kind != "bad_model" for p in got.projects for e in p.data.report)
+
+
+def models_of(got, name):
+    """{leaf title: Leaf.models} of project `name`."""
+    return {leaf.title: leaf.models for leaf in project(got, name).data.leaves}
+
+
+def without_models(got):
+    """`got` as an older minor reads it: schema_models False, and no leaf with models (#14)."""
+    projects = []
+    for p in got.projects:
+        leaves = tuple(dataclasses.replace(leaf, models=None) for leaf in p.data.leaves)
+        data = dataclasses.replace(p.data, leaves=leaves, schema_models=False)
+        projects.append(dataclasses.replace(p, data=data))
+    return dataclasses.replace(got, projects=tuple(projects))
+
+
+def test_wbs_classes_become_leaf_models():
+    got = map_document(hp.written_doc())
+    wbs = {
+        "Both": Models("fable", "sonnet", "wbs", ("wbs", "wbs")),
+        "Think only": Models("sonnet", None, "wbs", ("wbs", None)),
+        "Bad alone": None,
+        "Bad beside legal": Models(None, "fable", "wbs", (None, "wbs")),
+        "Inherit": Models("inherit", None, "wbs", ("wbs", None)),
+        "Done keyed": Models(None, "opus", "wbs", (None, "wbs")),
+        "No keys": None,
+    }
+    assert models_of(got, "models") == wbs
+    # Beside a wbs class, the project's checking class is a tier; alone it is not (round-1 resolution 1).
+    assert models_of(got, "models_project") == {
+        **wbs, "Think only": Models("sonnet", "opus", "wbs", ("wbs", "project")),
+        "Inherit": Models("inherit", "opus", "wbs", ("wbs", "project"))}
+    assert sum(m is not None for m in wbs.values()) == 5
+    for p in got.projects:
+        if p.name not in ("models", "models_project"):
+            assert all(leaf.models is None for leaf in p.data.leaves), p.name
+        assert p.data.schema_models is True, p.name
+
+
+def test_non_wbs_sources():
+    def both(thinking, checking):
+        doc = hp.set_models(hp.written_doc(), "models", 2, thinking=thinking, checking=checking)
+        return models_of(map_document(doc), "models")["Both"]
+
+    assert both(("opus", "project"), ("sonnet", "project")) is None
+    assert both(("opus", "wbs"), ("sonnet", "config")) == Models("opus", None, "wbs", ("wbs", None))
+    assert both(("opus", "config"), None) is None
+    # The match is case-sensitive.
+    assert both(("opus", "WBS"), None) is None
+
+
+def test_wbs_value_outside_tokens_is_kept():
+    doc = hp.set_models(hp.written_doc(), "models", 2, thinking=("sonnet-5", "wbs"), checking=None)
+    assert models_of(map_document(doc), "models")["Both"] == Models("sonnet-5", None, "wbs", ("wbs", None))
+
+
+def test_schema_models_flag_by_minor():
+    for minor in ("1.2", "1.9"):
+        doc = hp.written_doc()
+        doc["schema_version"] = minor
+        got = map_document(doc)
+        assert all(p.data.schema_models is True for p in got.projects), minor
+        assert models_of(got, "models")["Both"] == Models("fable", "sonnet", "wbs", ("wbs", "wbs"))
+    for minor in ("1.1", "1.0"):
+        doc = hp.written_doc()
+        doc["schema_version"] = minor
+        got = map_document(doc)
+        assert all(p.data.schema_models is False for p in got.projects), minor
+        assert all(leaf.models is None for p in got.projects for leaf in p.data.leaves), minor
+        # At an older minor the field is unknown: garbage there is ignored, not checked.
+        doc = hp.written_doc()
+        doc["schema_version"] = minor
+        doc["projects"][MODELS]["nodes"][1]["models"] = "x"
+        assert map_document(doc).schema_version == minor
 
 
 def test_older_minor_is_read(tmp_path):
     plain = hp.read_doc(tmp_path, hp.written_doc())
-    doc = hp.written_doc()
-    doc["schema_version"] = "1.0"
-    got = hp.read_doc(tmp_path, doc)
-    assert got.schema_version == "1.0"
-    assert dataclasses.replace(got, schema_version="1.2") == plain
+    for minor in ("1.0", "1.1"):
+        doc = hp.written_doc()
+        doc["schema_version"] = minor
+        got = hp.read_doc(tmp_path, doc)
+        assert got.schema_version == minor
+        # The same data, without the tiers 1.2 carries: nothing else differs.
+        assert dataclasses.replace(got, schema_version="1.2") == without_models(plain)
+        assert got != dataclasses.replace(plain, schema_version=minor)
 
 
 def test_missing_or_outside_roots_document_names_path_and_remedy(tmp_path):
@@ -409,6 +545,16 @@ SCHEMA_ROWS = (
      "not an integer from 1 to 999999999 or null"),
     ("an entry's kind is empty", _set(ENTRY + ("kind",), ""), "$.parse_report[0].kind", "not a non-empty string"),
     ("an entry's message is null", _set(ENTRY + ("message",), None), "$.parse_report[0].message", "not a string"),
+    # A leaf's models (#14), checked at minor 2 and later.
+    ("models is a list", _set(NODE + ("models",), []), f"{NODE_AT}.models", "not an object"),
+    ("no thinking class", _drop(NODE + ("models", "thinking")), f"{NODE_AT}.models.thinking",
+     "not an object or null"),
+    ("a checking class is a string", _set(NODE + ("models", "checking"), "opus"), f"{NODE_AT}.models.checking",
+     "not an object or null"),
+    ("a class's value is empty", _set(NODE + ("models", "thinking"), {"value": "", "source": "wbs"}),
+     f"{NODE_AT}.models.thinking.value", "not a non-empty string"),
+    ("a class's source is a number", _set(NODE + ("models", "checking"), {"value": "opus", "source": 1}),
+     f"{NODE_AT}.models.checking.source", "not a string"),
     # Pass 2: parent links.
     ("a missing parent", _set(NODE + ("parent",), "nope"), f"{NODE_AT}.parent", "names no node"),
     ("a parent in another project", _set(NODE + ("parent",), "n1"), f"{NODE_AT}.parent",
@@ -420,15 +566,15 @@ SCHEMA_ROWS = (
      "nests deeper than 64 levels"),
     ("a chain 5,000 deep", _set(("projects", EMPTY, "nodes"), chain(5000)), "$.projects[1].nodes[64].parent",
      "nests deeper than 64 levels"),
-    ("shapes are checked before parent links", _both_passes, "$.parse_report[70].message", "not a string"),
+    ("shapes are checked before parent links", _both_passes, "$.parse_report[74].message", "not a string"),
 )
 
 
 def test_schema_breaking_documents(tmp_path):
-    assert len(SCHEMA_ROWS) == 66
+    assert len(SCHEMA_ROWS) == 71
     doc = hp.written_doc()
     assert (doc["projects"][IDS]["nodes"][1]["id"], doc["projects"][IDS]["nodes"][0]["id"]) == ("n13", "n12")
-    assert doc["projects"][CYCLE]["nodes"][0]["id"] == "n1" and len(doc["parse_report"]) == 71
+    assert doc["projects"][CYCLE]["nodes"][0]["id"] == "n1" and len(doc["parse_report"]) == 75
     assert ", ".join(repr(g) for g in STATE_GLYPHS) == GLYPHS
     seen = set()
     for what, change, where, problem in SCHEMA_ROWS:
@@ -443,7 +589,7 @@ def test_schema_breaking_documents(tmp_path):
             map_document(doc)
         assert str(info.value) == schema_text("the portfolio document", where, problem), what
     # Distinct (field, problem) pairs, array indexes aside: the plan asks for at least 30.
-    assert len(seen) == 36
+    assert len(seen) == 41
 
 
 def test_deepest_allowed_chain_is_read(tmp_path):
@@ -460,7 +606,7 @@ SWEEP_TARGETS = (
     ("projects", IDS, "status_reason"), ("projects", NOT_UTF8, "status_reason"), ("projects", IDS, "nodes"),
     NODE, NODE + ("id",), NODE + ("parent",), NODE + ("text",), NODE + ("glyph",), NODE + ("state",),
     NODE + ("source_line",), NODE + ("issue",), NODE + ("meta",), NODE + ("meta", "issue"),
-    NODE + ("meta", "priority"),
+    NODE + ("meta", "priority"), NODE + ("models",), NODE + ("models", "thinking"), NODE + ("models", "checking"),
     ENTRY, ENTRY + ("project",), ENTRY + ("source_line",), ENTRY + ("kind",), ENTRY + ("message",),
 )
 
@@ -479,9 +625,9 @@ def test_type_sweep_raises_only_load_errors():
             else:
                 assert isinstance(got, PortfolioInput), (target, value)
                 read += 1
-    assert read + refused == len(SWEEP_TARGETS) * len(SWEEP_VALUES) == 162
-    # Most are refused; the 21 read are legal values (a null parent, any message text, an empty list, ...).
-    assert (read, refused) == (21, 141)
+    assert read + refused == len(SWEEP_TARGETS) * len(SWEEP_VALUES) == 180
+    # Most are refused; the 23 read are legal values (a null parent, any message text, an empty list, ...).
+    assert (read, refused) == (23, 157)
 
 
 def test_each_key_removed_raises_only_load_errors():
@@ -658,7 +804,7 @@ def test_meta_holds_parsed_values_in_document_order():
     assert type(lights.deps[0].raw) is ParsedValue
 
 
-META_COUNTS = (138, 187, 45, 25)  # nodes, scalar values, list values, leaf priorities
+META_COUNTS = (154, 221, 45, 25)  # nodes, scalar values, list values, leaf priorities
 
 
 def shape(data):
@@ -726,16 +872,18 @@ def test_statuses_are_returned_as_written():
     got = map_document(doc)
     unreadable = project(got, "not_utf8")
     assert (unreadable.status, unreadable.reason) == ("unreadable", reason)
-    assert unreadable.data == SiteData((), (), (), (), (ReportEntry("not_utf8", None, "site_unreadable", reason),))
+    assert unreadable.data == SiteData((), (), (), (), (ReportEntry("not_utf8", None, "site_unreadable", reason),),
+                                       schema_models=True)
     empty = project(got, "empty")
     assert (empty.status, empty.reason) == ("read", None)
-    assert empty.data == SiteData((), (), (), (), (ReportEntry("empty", None, "no_nodes", "WBS.md has no node lines"),))
+    assert empty.data == SiteData((), (), (), (), (ReportEntry("empty", None, "no_nodes", "WBS.md has no node lines"),),
+                                  schema_models=True)
     for status in ("no_wbs", "no_devdoc_dir"):
         doc = hp.written_doc()
         doc["projects"][EMPTY].update(status=status, status_reason=f"reason for {status}")
         other = project(map_document(doc), "empty")
         assert (other.status, other.reason) == (status, f"reason for {status}")
-        assert other.data == SiteData((), (), (), (), ())
+        assert other.data == SiteData((), (), (), (), (), schema_models=True)
     assert {p.status for p in got.projects} == {"read", "unreadable"}
 
 
@@ -750,7 +898,7 @@ def test_map_document_equals_read_portfolio(tmp_path):
     read = hp.read_doc(tmp_path, hp.written_doc())
     again = mapped()
     assert read == again
-    assert len(read.projects) == 15 and sum(len(p.data.leaves) + len(p.data.rows) for p in read.projects) == 138
+    assert len(read.projects) == 17 and sum(len(p.data.leaves) + len(p.data.rows) for p in read.projects) == 154
 
 
 def test_reader_imports_no_parser_of_its_own():
@@ -800,7 +948,8 @@ def test_disposition_constants():
     assert pj.SUPPRESSED_ALWAYS == ("h_malformed",)
     assert pj.CYCLE_MEMBER_RE.pattern == (r"(?:^|, |: )(?:(?P<project>[A-Za-z0-9][A-Za-z0-9_.-]*):)?(?P<key>[^ ,()]+) "
                                           r"\(line (?P<line>[0-9]{1,9})\)")
-    assert pj.WARNED_KEY_RE.pattern == r"(?:line [0-9]{1,9}: )?(priority|depends_on|satisfies|objective|h) "
+    assert pj.WARNED_KEY_RE.pattern == (
+        r"(?:line [0-9]{1,9}: )?(priority|depends_on|satisfies|objective|h|thinking|checking) ")
     members = [(m.group("project"), m.group("key"), m.group("line")) for m in pj.CYCLE_MEMBER_RE.finditer(
         "dependency cycle: Issue-1 (line 2), beta:Issue-1 (line 4), 1.3 (line 12)")]
     assert members == [(None, "Issue-1", "2"), ("beta", "Issue-1", "4"), (None, "1.3", "12")]
@@ -810,7 +959,7 @@ def test_every_entry_has_one_disposition():
     doc = hp.written_doc()
     got = map_document(doc)
     names = [p["project"] for p in doc["projects"]]
-    later = ("edges", "fires")  # #83's own source, and #12's
+    later = ("edges", "fires", "models", "models_project")  # #83's own source, #12's, and #14's two
     earlier = [n for n in names if n not in later]
     # devagent_report is a sub-sequence of parse_report, unchanged and in document order.
     written = [as_shown(raw) for raw in doc["parse_report"]]
@@ -830,13 +979,18 @@ def test_every_entry_has_one_disposition():
         ("rows", 9, "dep_cycle"), ("rows", 13, "parent_done_leaf_pending")]
     # With `edges`: four near misses and two unresolved refs mapped; two est_unparseable, an
     # issue_malformed and a meta_unreadable shown.
-    assert partition(names) == (71, 31, 28, 12)
+    assert partition(names) == (75, 31, 28, 16)
     assert partition(["edges"]) == (10, 6, 0, 4)
     # With `fires` (#12): five issue-less leaves and seven near misses mapped; two meta_unreadable and an
     # unknown_meta_key shown (the kinds the fires do not read yet).
     assert partition(["fires"]) == (15, 12, 0, 3)
     assert [(e.line, e.kind) for e in got.devagent_report if e.project == "fires"] == [
         (12, "meta_unreadable"), (13, "unknown_meta_key"), (16, "meta_unreadable")]
+    # With `models` and `models_project` (#14): two bad_model entries each, shown.
+    for name in ("models", "models_project"):
+        assert partition([name]) == (2, 0, 0, 2)
+        assert [(e.line, e.kind) for e in got.devagent_report if e.project == name] == [
+            (4, "bad_model"), (5, "bad_model")]
     # What is suppressed, by devagent's kind: each is an entry Gantry's own passes report.
     gone = {}
     kept = set(got.devagent_report)
@@ -954,7 +1108,7 @@ def test_edge_entries_are_shown():
     for before in plain.projects:
         if before.name != "empty":
             assert project(got, before.name).data == before.data
-    assert project(got, "empty").data == SiteData((), (), (), (), ())
+    assert project(got, "empty").data == SiteData((), (), (), (), (), schema_models=True)
 
 
 def test_bad_priority_and_malformed_entry_appear_once():
@@ -1111,6 +1265,13 @@ def test_hostile_strings_are_returned_unchanged(tmp_path):
             assert DevagentEntry(text, 3, text, text) in got.devagent_report
             # A mapped near miss carries devagent's message, whole, after Gantry's line prefix.
             assert [e.message for e in at(project(got, "ids").data, 12)] == [f"WBS.md line 12: {text}"]
+    # A wbs model value and a bad_model message (#14), each returned as written.
+    for text in HOSTILE:
+        doc = hp.set_models(hp.written_doc(), "models", 2, thinking=(text, "wbs"), checking=None)
+        doc["parse_report"].append(entry("models", 6, "bad_model", text))
+        for got in (map_document(doc), hp.read_doc(tmp_path, doc)):
+            assert models_of(got, "models")["Both"] == Models(text, None, "wbs", ("wbs", None))
+            assert shown_at(got, "models", 6) == [("bad_model", text)]
 
 
 def _constants(path, names):
@@ -1127,13 +1288,15 @@ def _constants(path, names):
 def test_warned_key_re_matches_the_pinned_parser_texts():
     checkout = hd.require_devagent()
     texts = _constants(checkout / "scripts" / "lib" / "wbs-parser.py",
-                       ("PRIORITY_WARNING", "NAMESPACED_WARNING", "H_WARNING"))
-    assert sorted(texts) == ["H_WARNING", "NAMESPACED_WARNING", "PRIORITY_WARNING"]
+                       ("PRIORITY_WARNING", "NAMESPACED_WARNING", "H_WARNING", "MODEL_WARNING"))
+    assert sorted(texts) == ["H_WARNING", "MODEL_WARNING", "NAMESPACED_WARNING", "PRIORITY_WARNING"]
     cases = (
         (texts["PRIORITY_WARNING"].format("P5"), "priority"),
         (texts["NAMESPACED_WARNING"].format("satisfies", "x"), "satisfies"),
         (texts["NAMESPACED_WARNING"].format("objective", "x"), "objective"),
         (texts["H_WARNING"].format("high"), "h"),
+        (texts["MODEL_WARNING"].format("thinking", "gpt", MODEL_TOKENS), "thinking"),
+        (texts["MODEL_WARNING"].format("checking", "gpt", MODEL_TOKENS), "checking"),
     )
     for text, key in cases:
         for message in (text, f"line 4: {text}"):

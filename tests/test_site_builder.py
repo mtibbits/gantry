@@ -40,7 +40,7 @@ def kinds(data, kind):
 def test_auto_report_matches_devagent_on_the_written_fixture():
     doc = hp.written_doc()
     read = [p for p in doc["projects"] if p["status"] == "read"]
-    assert len(read) == 14
+    assert len(read) == 16
     for project in read:
         name = project["project"]
         made = sorted((e["source_line"], e["kind"], e["message"]) for e in hp.auto_report(project))

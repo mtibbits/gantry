@@ -1,0 +1,307 @@
+{
+  "pin": "devagent--v3.4.0",
+  "schema_version": "1.2",
+  "site": "models_project",
+  "status": "read",
+  "reason": null,
+  "nodes": [
+    {
+      "line": 1,
+      "row": true,
+      "key": "Issue-1",
+      "issue": "Issue-1",
+      "outline": "1",
+      "title": "Epic",
+      "glyph": " ",
+      "state": "pending",
+      "open": null,
+      "priority": null,
+      "epic": null,
+      "parent": null,
+      "meta": {
+        "issue": "Issue-1",
+        "thinking": "gpt"
+      },
+      "depends_on": [],
+      "rank": null,
+      "est": null,
+      "h": null,
+      "satisfies": [],
+      "objective": [],
+      "models": null
+    },
+    {
+      "line": 2,
+      "row": false,
+      "key": "Issue-2",
+      "issue": "Issue-2",
+      "outline": "1.1",
+      "title": "Both",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": "Issue-1",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-2",
+        "thinking": "fable",
+        "checking": "sonnet"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": [],
+      "models": [
+        "fable",
+        "sonnet",
+        "wbs",
+        [
+          "wbs",
+          "wbs"
+        ]
+      ]
+    },
+    {
+      "line": 3,
+      "row": false,
+      "key": "Issue-3",
+      "issue": "Issue-3",
+      "outline": "1.2",
+      "title": "Think only",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": "Issue-1",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-3",
+        "thinking": "sonnet"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": [],
+      "models": [
+        "sonnet",
+        "opus",
+        "wbs",
+        [
+          "wbs",
+          "project"
+        ]
+      ]
+    },
+    {
+      "line": 4,
+      "row": false,
+      "key": "Issue-4",
+      "issue": "Issue-4",
+      "outline": "1.3",
+      "title": "Bad alone",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": "Issue-1",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-4",
+        "thinking": "gpt"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": [],
+      "models": null
+    },
+    {
+      "line": 5,
+      "row": false,
+      "key": "Issue-5",
+      "issue": "Issue-5",
+      "outline": "1.4",
+      "title": "Bad beside legal",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": "Issue-1",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-5",
+        "thinking": "gpt",
+        "checking": "fable"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": [],
+      "models": [
+        null,
+        "fable",
+        "wbs",
+        [
+          null,
+          "wbs"
+        ]
+      ]
+    },
+    {
+      "line": 6,
+      "row": false,
+      "key": "Issue-6",
+      "issue": "Issue-6",
+      "outline": "1.5",
+      "title": "Inherit",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": "Issue-1",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-6",
+        "thinking": "inherit"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": [],
+      "models": [
+        "inherit",
+        "opus",
+        "wbs",
+        [
+          "wbs",
+          "project"
+        ]
+      ]
+    },
+    {
+      "line": 7,
+      "row": false,
+      "key": "Issue-7",
+      "issue": "Issue-7",
+      "outline": "1.6",
+      "title": "Done keyed",
+      "glyph": "x",
+      "state": "done",
+      "open": false,
+      "priority": null,
+      "epic": "Issue-1",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-7",
+        "checking": "opus"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": [],
+      "models": [
+        null,
+        "opus",
+        "wbs",
+        [
+          null,
+          "wbs"
+        ]
+      ]
+    },
+    {
+      "line": 8,
+      "row": false,
+      "key": "Issue-8",
+      "issue": "Issue-8",
+      "outline": "1.7",
+      "title": "No keys",
+      "glyph": " ",
+      "state": "pending",
+      "open": true,
+      "priority": null,
+      "epic": "Issue-1",
+      "parent": null,
+      "meta": {
+        "issue": "Issue-8"
+      },
+      "depends_on": [],
+      "rank": 3,
+      "est": [
+        "absent",
+        null,
+        null,
+        null,
+        null
+      ],
+      "h": null,
+      "satisfies": [],
+      "objective": [],
+      "models": null
+    }
+  ],
+  "links": [],
+  "held_out": [],
+  "report": [],
+  "devagent": [
+    [
+      4,
+      "bad_model",
+      "thinking \"gpt\" is not one of: sonnet opus haiku fable inherit; the key counts as absent"
+    ],
+    [
+      5,
+      "bad_model",
+      "thinking \"gpt\" is not one of: sonnet opus haiku fable inherit; the key counts as absent"
+    ]
+  ]
+}

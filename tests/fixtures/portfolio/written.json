@@ -7274,6 +7274,882 @@
           "non_time": {}
         }
       }
+    },
+    {
+      "project": "models",
+      "status": "read",
+      "status_reason": null,
+      "wbs_title": "",
+      "nodes": [
+        {
+          "id": "n139",
+          "parent": null,
+          "depth": 1,
+          "leaf": false,
+          "text": "Epic",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 1,
+          "issue": "Issue-1",
+          "meta": {
+            "issue": "Issue-1",
+            "thinking": "gpt"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": null,
+          "ready_via_parent_row": null
+        },
+        {
+          "id": "n140",
+          "parent": "n139",
+          "depth": 2,
+          "leaf": true,
+          "text": "Both",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 2,
+          "issue": "Issue-2",
+          "meta": {
+            "issue": "Issue-2",
+            "thinking": "fable",
+            "checking": "sonnet"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": {
+              "value": "fable",
+              "source": "wbs"
+            },
+            "checking": {
+              "value": "sonnet",
+              "source": "wbs"
+            }
+          }
+        },
+        {
+          "id": "n141",
+          "parent": "n139",
+          "depth": 2,
+          "leaf": true,
+          "text": "Think only",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 3,
+          "issue": "Issue-3",
+          "meta": {
+            "issue": "Issue-3",
+            "thinking": "sonnet"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": {
+              "value": "sonnet",
+              "source": "wbs"
+            },
+            "checking": null
+          }
+        },
+        {
+          "id": "n142",
+          "parent": "n139",
+          "depth": 2,
+          "leaf": true,
+          "text": "Bad alone",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 4,
+          "issue": "Issue-4",
+          "meta": {
+            "issue": "Issue-4",
+            "thinking": "gpt"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
+        },
+        {
+          "id": "n143",
+          "parent": "n139",
+          "depth": 2,
+          "leaf": true,
+          "text": "Bad beside legal",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 5,
+          "issue": "Issue-5",
+          "meta": {
+            "issue": "Issue-5",
+            "thinking": "gpt",
+            "checking": "fable"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": {
+              "value": "fable",
+              "source": "wbs"
+            }
+          }
+        },
+        {
+          "id": "n144",
+          "parent": "n139",
+          "depth": 2,
+          "leaf": true,
+          "text": "Inherit",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 6,
+          "issue": "Issue-6",
+          "meta": {
+            "issue": "Issue-6",
+            "thinking": "inherit"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": {
+              "value": "inherit",
+              "source": "wbs"
+            },
+            "checking": null
+          }
+        },
+        {
+          "id": "n145",
+          "parent": "n139",
+          "depth": 2,
+          "leaf": true,
+          "text": "Done keyed",
+          "state": "done",
+          "glyph": "x",
+          "source_line": 7,
+          "issue": "Issue-7",
+          "meta": {
+            "issue": "Issue-7",
+            "checking": "opus"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": false,
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": {
+              "value": "opus",
+              "source": "wbs"
+            }
+          }
+        },
+        {
+          "id": "n146",
+          "parent": "n139",
+          "depth": 2,
+          "leaf": true,
+          "text": "No keys",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 8,
+          "issue": "Issue-8",
+          "meta": {
+            "issue": "Issue-8"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
+        }
+      ],
+      "issues": [
+        {
+          "issue": "Issue-1",
+          "nodes": [
+            "n139"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-2",
+          "nodes": [
+            "n140"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-3",
+          "nodes": [
+            "n141"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-4",
+          "nodes": [
+            "n142"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-5",
+          "nodes": [
+            "n143"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-6",
+          "nodes": [
+            "n144"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-7",
+          "nodes": [
+            "n145"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-8",
+          "nodes": [
+            "n146"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        }
+      ],
+      "rollup": {
+        "by_state": {
+          "pending": {
+            "leaves": 6,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 6
+          },
+          "done": {
+            "leaves": 1,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 1
+          },
+          "skipped": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "stuck": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "in_progress": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "blocked_external": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "parked": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          }
+        },
+        "remaining": {
+          "leaves": 6,
+          "estimated": 0,
+          "estimated_derived": 0,
+          "unestimated": 6,
+          "low_hours": 0,
+          "high_hours": 0,
+          "non_time": {}
+        }
+      }
+    },
+    {
+      "project": "models_project",
+      "status": "read",
+      "status_reason": null,
+      "wbs_title": "",
+      "nodes": [
+        {
+          "id": "n147",
+          "parent": null,
+          "depth": 1,
+          "leaf": false,
+          "text": "Epic",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 1,
+          "issue": "Issue-1",
+          "meta": {
+            "issue": "Issue-1",
+            "thinking": "gpt"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": null,
+          "ready_via_parent_row": null
+        },
+        {
+          "id": "n148",
+          "parent": "n147",
+          "depth": 2,
+          "leaf": true,
+          "text": "Both",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 2,
+          "issue": "Issue-2",
+          "meta": {
+            "issue": "Issue-2",
+            "thinking": "fable",
+            "checking": "sonnet"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": {
+              "value": "fable",
+              "source": "wbs"
+            },
+            "checking": {
+              "value": "sonnet",
+              "source": "wbs"
+            }
+          }
+        },
+        {
+          "id": "n149",
+          "parent": "n147",
+          "depth": 2,
+          "leaf": true,
+          "text": "Think only",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 3,
+          "issue": "Issue-3",
+          "meta": {
+            "issue": "Issue-3",
+            "thinking": "sonnet"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": {
+              "value": "sonnet",
+              "source": "wbs"
+            },
+            "checking": {
+              "value": "opus",
+              "source": "project"
+            }
+          }
+        },
+        {
+          "id": "n150",
+          "parent": "n147",
+          "depth": 2,
+          "leaf": true,
+          "text": "Bad alone",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 4,
+          "issue": "Issue-4",
+          "meta": {
+            "issue": "Issue-4",
+            "thinking": "gpt"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": {
+              "value": "opus",
+              "source": "project"
+            }
+          }
+        },
+        {
+          "id": "n151",
+          "parent": "n147",
+          "depth": 2,
+          "leaf": true,
+          "text": "Bad beside legal",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 5,
+          "issue": "Issue-5",
+          "meta": {
+            "issue": "Issue-5",
+            "thinking": "gpt",
+            "checking": "fable"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": {
+              "value": "fable",
+              "source": "wbs"
+            }
+          }
+        },
+        {
+          "id": "n152",
+          "parent": "n147",
+          "depth": 2,
+          "leaf": true,
+          "text": "Inherit",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 6,
+          "issue": "Issue-6",
+          "meta": {
+            "issue": "Issue-6",
+            "thinking": "inherit"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": {
+              "value": "inherit",
+              "source": "wbs"
+            },
+            "checking": {
+              "value": "opus",
+              "source": "project"
+            }
+          }
+        },
+        {
+          "id": "n153",
+          "parent": "n147",
+          "depth": 2,
+          "leaf": true,
+          "text": "Done keyed",
+          "state": "done",
+          "glyph": "x",
+          "source_line": 7,
+          "issue": "Issue-7",
+          "meta": {
+            "issue": "Issue-7",
+            "checking": "opus"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": false,
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": {
+              "value": "opus",
+              "source": "wbs"
+            }
+          }
+        },
+        {
+          "id": "n154",
+          "parent": "n147",
+          "depth": 2,
+          "leaf": true,
+          "text": "No keys",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 8,
+          "issue": "Issue-8",
+          "meta": {
+            "issue": "Issue-8"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": {
+              "value": "opus",
+              "source": "project"
+            }
+          }
+        }
+      ],
+      "issues": [
+        {
+          "issue": "Issue-1",
+          "nodes": [
+            "n147"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-2",
+          "nodes": [
+            "n148"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-3",
+          "nodes": [
+            "n149"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-4",
+          "nodes": [
+            "n150"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-5",
+          "nodes": [
+            "n151"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-6",
+          "nodes": [
+            "n152"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-7",
+          "nodes": [
+            "n153"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-8",
+          "nodes": [
+            "n154"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        }
+      ],
+      "rollup": {
+        "by_state": {
+          "pending": {
+            "leaves": 6,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 6
+          },
+          "done": {
+            "leaves": 1,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 1
+          },
+          "skipped": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "stuck": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "in_progress": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "blocked_external": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "parked": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          }
+        },
+        "remaining": {
+          "leaves": 6,
+          "estimated": 0,
+          "estimated_derived": 0,
+          "unestimated": 6,
+          "low_hours": 0,
+          "high_hours": 0,
+          "non_time": {}
+        }
+      }
     }
   ],
   "parse_report": [
@@ -7702,6 +8578,30 @@
       "source_line": 16,
       "kind": "meta_unreadable",
       "message": "'{' with no closing '}'; the text after it is item text, not metadata"
+    },
+    {
+      "project": "models",
+      "source_line": 4,
+      "kind": "bad_model",
+      "message": "thinking \"gpt\" is not one of: sonnet opus haiku fable inherit; the key counts as absent"
+    },
+    {
+      "project": "models",
+      "source_line": 5,
+      "kind": "bad_model",
+      "message": "thinking \"gpt\" is not one of: sonnet opus haiku fable inherit; the key counts as absent"
+    },
+    {
+      "project": "models_project",
+      "source_line": 4,
+      "kind": "bad_model",
+      "message": "thinking \"gpt\" is not one of: sonnet opus haiku fable inherit; the key counts as absent"
+    },
+    {
+      "project": "models_project",
+      "source_line": 5,
+      "kind": "bad_model",
+      "message": "thinking \"gpt\" is not one of: sonnet opus haiku fable inherit; the key counts as absent"
     }
   ]
 }

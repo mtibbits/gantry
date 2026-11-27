@@ -33,6 +33,7 @@ from gantry.model import (
     FINISHED_GLYPHS,
     STATE_GLYPHS,
     Leaf,
+    Models,
     ParsedValue,
     ReportEntry,
     Row,
@@ -46,8 +47,15 @@ from gantry.roots import OutsideRoots, read_bytes_confined
 SCHEMA_ID = "devagent-portfolio"
 # The schema the pinned devagent release writes (tests/devagent.pin). Another
 # major is refused; any minor of this major is read, and a field the reader
-# does not use is ignored: 1.2's `models` is one (#14 reads it).
+# does not use is ignored. A field a later minor added is checked and read
+# only from that minor on: at a lower one it is unknown.
 MAJOR, MINOR = 1, 2
+# The minor that added each leaf's `models` (#14).
+MODELS_MINOR = 2
+# The classes of a leaf's `models`, in the document's order (not render's tier names).
+MODEL_KEYS = ("thinking", "checking")
+# The JSON sources a leaf's tiers are read from: a leaf with no `wbs` class has none (#14).
+TIER_SOURCES = ("wbs", "project")
 MAX_DEPTH = 64  # the deepest a node may nest
 # The deepest the JSON text may nest, counted before decoding: since Python 3.14
 # the decoder's own limit is the C stack, so its verdict differs by host and
@@ -109,7 +117,7 @@ SKIPPED_LINE = "WBS.md line {line}: {message}"
 CYCLE_MEMBER_RE = re.compile(r"(?:^|, |: )(?:(?P<project>[A-Za-z0-9][A-Za-z0-9_.-]*):)?(?P<key>[^ ,()]+) "
                              r"\(line (?P<line>[0-9]{1,9})\)")
 # The key a parser warning is about, in the forms devagent's parser words them (used with match).
-WARNED_KEY_RE = re.compile(r"(?:line [0-9]{1,9}: )?(priority|depends_on|satisfies|objective|h) ")
+WARNED_KEY_RE = re.compile(r"(?:line [0-9]{1,9}: )?(priority|depends_on|satisfies|objective|h|thinking|checking) ")
 
 
 class PortfolioLoadError(Exception):
@@ -293,7 +301,21 @@ def _need(ok, where, problem):
         raise _Problem(where, problem)
 
 
-def _check_node(node, where, ids, lines):
+def _check_models(models, where):
+    """A node's `models`: an object whose classes are each null or {value, source}.
+
+    Extra keys are ignored; a value is never checked against devagent's model
+    tokens, nor a source against a list (#14)."""
+    _need(isinstance(models, dict), where, "not an object")
+    for cls in MODEL_KEYS:
+        choice = models.get(cls, _ABSENT)
+        _need(choice is None or isinstance(choice, dict), f"{where}.{cls}", "not an object or null")
+        if choice is not None:
+            _need(_is_filled(choice.get("value")), f"{where}.{cls}.value", "not a non-empty string")
+            _need(isinstance(choice.get("source"), str), f"{where}.{cls}.source", "not a string")
+
+
+def _check_node(node, where, ids, lines, models_ok):
     _need(isinstance(node, dict), where, "not an object")
     node_id = node.get("id")
     _need(_is_filled(node_id), f"{where}.id", "not a non-empty string")
@@ -316,10 +338,13 @@ def _check_node(node, where, ids, lines):
     for key, value in meta.items():
         ok = isinstance(value, str) or (isinstance(value, list) and all(isinstance(v, str) for v in value))
         _need(ok, f"{where}.meta.{key}", "not a string or a list of strings")
+    if models_ok and "models" in node:
+        _check_models(node["models"], f"{where}.models")
 
 
 def _check_shapes(doc, source):
-    """Pass 1: every field the reader uses has its shape, in document order."""
+    """Pass 1: every field the reader uses has its shape, in document order.
+    (generated_at, whether the minor carries leaf `models`)."""
     _need(isinstance(doc, dict), "$", "not an object")
     _need(doc.get("schema") == SCHEMA_ID and isinstance(doc.get("schema"), str), "$.schema", f'not "{SCHEMA_ID}"')
     version = doc.get("schema_version")
@@ -327,6 +352,7 @@ def _check_shapes(doc, source):
     _need(match is not None, "$.schema_version", "not MAJOR.MINOR")
     if int(match.group(1)) != MAJOR:
         raise _error("version", source, found=version)
+    models_ok = int(match.group(2)) >= MODELS_MINOR
     when = doc.get("generated_at")
     problem = "not an RFC 3339 UTC time"
     _need(isinstance(when, str) and TIME_RE.fullmatch(when) is not None, "$.generated_at", problem)
@@ -357,7 +383,7 @@ def _check_shapes(doc, source):
         _need(read or not nodes, f"{where}.nodes", "not empty on a project that is not read")
         lines = set()
         for j, node in enumerate(nodes):
-            _check_node(node, f"{where}.nodes[{j}]", ids, lines)
+            _check_node(node, f"{where}.nodes[{j}]", ids, lines, models_ok)
     report = doc.get("parse_report")
     _need(isinstance(report, list), "$.parse_report", "not a list")
     for k, entry in enumerate(report):
@@ -368,7 +394,7 @@ def _check_shapes(doc, source):
         _need(line is None or _is_line(line), f"{where}.source_line", "not an integer from 1 to 999999999 or null")
         _need(_is_filled(entry.get("kind")), f"{where}.kind", "not a non-empty string")
         _need(isinstance(entry.get("message"), str), f"{where}.message", "not a string")
-    return generated
+    return generated, models_ok
 
 
 def _check_parents(doc):
@@ -407,10 +433,12 @@ def tag(value):
 class _Node:
     """One node of a read project while it is named and built."""
 
-    __slots__ = ("line", "glyph", "title", "meta", "issue", "parent", "outline", "children", "key", "dep_index")
+    __slots__ = ("line", "glyph", "title", "meta", "issue", "parent", "outline", "children", "key", "dep_index",
+                 "models")
 
     def __init__(self, raw, parent, outline):
         self.line, self.glyph, self.title = raw["source_line"], raw["glyph"], raw["text"]
+        self.models = raw.get("models")
         self.issue, self.parent, self.outline = raw["issue"], parent, outline
         # New containers: the document is never changed. Key order is the document's.
         self.meta = {key: tag(value) for key, value in raw["meta"].items()}
@@ -423,7 +451,7 @@ class _Site:
     """A read project's nodes and Gantry's own findings about them."""
 
     __slots__ = ("name", "nodes", "by_line", "first", "leaves", "rows", "links", "held_out", "report", "cycles",
-                 "dep_rank")
+                 "dep_rank", "models_ok", "bad_models")
 
 
 def _scan(raw_nodes):
@@ -483,6 +511,20 @@ def _top(node):
     return node
 
 
+def _leaf_models(raw):
+    """A leaf's tiers from its `models` (#14): None unless a class's source is
+    "wbs". Then a "wbs" or "project" class gives its value and source, and any
+    other source, or null, gives None for both. Values are kept as written."""
+    if raw is None:
+        return None
+    choices = [raw[cls] for cls in MODEL_KEYS]
+    if not any(c is not None and c["source"] == "wbs" for c in choices):
+        return None
+    kept = [c if c is not None and c["source"] in TIER_SOURCES else None for c in choices]
+    values = [None if c is None else c["value"] for c in kept]
+    return Models(values[0], values[1], "wbs", tuple(None if c is None else c["source"] for c in kept))
+
+
 def _build(site):
     leaves, rows = [], []
     for node in site.nodes:
@@ -498,14 +540,16 @@ def _build(site):
         epic = _top(node).key if node.parent is not None else None
         leaves.append(Leaf(node.key, node.issue, node.outline, node.title, node.glyph, state,
                            node.glyph not in FINISHED_GLYPHS, priority, refs(node.meta, site.name), node.meta, epic,
-                           node.line))
+                           node.line, models=_leaf_models(node.models) if site.models_ok else None))
     site.leaves, site.rows = tuple(leaves), tuple(rows)
 
 
-def _read_site(name, raw_nodes):
-    """A read project's nodes, named and built, with Gantry's own report entries."""
+def _read_site(name, raw_nodes, models_ok):
+    """A read project's nodes, named and built, with Gantry's own report entries.
+    `models_ok`: whether the document's minor carries leaf `models`."""
     site = _Site()
-    site.name, site.report, site.cycles, site.dep_rank = name, [], None, {}
+    site.name, site.report, site.cycles, site.dep_rank, site.models_ok = name, [], None, {}, models_ok
+    site.bad_models = set()  # (line, key) of each leaf bad_model entry, filled by map_document
     site.nodes = _scan(raw_nodes)
     site.by_line = {node.line: node for node in site.nodes}
     _name(site)
@@ -523,7 +567,7 @@ def _site_data(site):
     # A mapped unresolved_ref keeps its place in the node's depends_on, as Gantry's
     # own reader orders them, not the order devagent's report gives them.
     report = sorted(site.report, key=lambda entry: (report_order(entry), site.dep_rank.get(entry, 0)))
-    return SiteData(site.leaves, site.rows, site.links, site.held_out, tuple(report))
+    return SiteData(site.leaves, site.rows, site.links, site.held_out, tuple(report), site.models_ok)
 
 
 # --- devagent's report entries ----------------------------------------------------------------
@@ -574,7 +618,9 @@ def _dispose(site, entry):
     reports the same thing about the same node: gantry.deps (cycle,
     malformed_ref), gantry.crosssite (the foreign kinds), gantry.inputs
     (est_unparseable), gantry.attention (bad_h), gantry.trace (satisfies,
-    objective) or this module (bad_priority).
+    objective) or this module (bad_priority). The one exception is a leaf's
+    thinking or checking warning: devagent's own bad_model entry for that key
+    on that line covers it, and that entry is shown (#14).
     """
     kind, line, message = entry["kind"], entry["source_line"], entry["message"]
     named = kind in MAPPED or kind in SUPPRESSED_ALWAYS or kind in SUPPRESSED_BY_RULE
@@ -621,11 +667,15 @@ def _dispose(site, entry):
             if sorted(int(m.group("line")) for m in members) in _cycle_lines(site):
                 return SUPPRESSED
     elif kind == "parser_warning":
-        # A defence: no devagent release words a warning about these keys today.
+        # A defence: no devagent release words a warning about these keys today. A leaf's
+        # thinking or checking warning goes only beside devagent's bad_model for that key on that
+        # line (#14), which is shown; a row's model key is reported nowhere at the pin
+        # (mtibbits/devagent#1236), so its warning is shown.
         match = WARNED_KEY_RE.match(message)
         key = match.group(1) if match else None
         if key in node.meta and (key in ("priority", "h") or (key == "depends_on" and is_leaf and is_open)
-                                 or (key in ("satisfies", "objective") and is_leaf)):
+                                 or (key in ("satisfies", "objective") and is_leaf)
+                                 or (key in MODEL_KEYS and is_leaf and (line, key) in site.bad_models)):
             return SUPPRESSED
     return SHOWN
 
@@ -634,12 +684,16 @@ def map_document(doc, *, source=DEFAULT_SOURCE) -> PortfolioInput:
     """A parsed portfolio document as a PortfolioInput. `doc` is never changed;
     `source` names it in an error."""
     try:
-        generated = _check_shapes(doc, source)
+        generated, models_ok = _check_shapes(doc, source)
         _check_parents(doc)
     except _Problem as e:
         raise _error("schema", source, where=e.where, problem=e.problem) from None
-    sites = {raw["project"]: _read_site(raw["project"], raw["nodes"])
+    sites = {raw["project"]: _read_site(raw["project"], raw["nodes"], models_ok)
              for raw in doc["projects"] if raw["status"] == "read"}
+    for entry in doc["parse_report"]:
+        site = sites.get(entry["project"])
+        if site is not None and entry["kind"] == "bad_model" and entry["source_line"] is not None:
+            site.bad_models.add((entry["source_line"], entry["message"].split(" ", 1)[0]))
     shown = []
     for entry in doc["parse_report"]:
         site = sites.get(entry["project"])
@@ -656,6 +710,6 @@ def map_document(doc, *, source=DEFAULT_SOURCE) -> PortfolioInput:
         else:
             # devagent's reason, as written.
             report = (ReportEntry(name, None, "site_unreadable", reason),) if status == "unreadable" else ()
-            data = SiteData((), (), (), (), report)
+            data = SiteData((), (), (), (), report, models_ok)
         projects.append(ProjectInput(name, status, reason, data))
     return PortfolioInput(tuple(projects), tuple(shown), generated, doc["schema_version"])

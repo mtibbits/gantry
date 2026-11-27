@@ -33,6 +33,13 @@ backend = "github"
 repo = "sample_owner/orchard"
 dir_prefix = "Issue-"
 
+# Project-level model tiers: devagent gives each orchard leaf these classes
+# with source "project". Orchard has no WBS.md model key, so no leaf has a
+# wbs class and Gantry shows none of them (#14).
+[project.orchard.step_models]
+thinking = "opus"
+checking = "sonnet"
+
 [project.quarry]
 devdoc_dir = "../quarry"
 default_baseline = "origin/main"

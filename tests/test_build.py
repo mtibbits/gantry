@@ -91,10 +91,11 @@ def test_summaries_on_samples(tmp_path):
     # 6 agent-hours a day): every open leaf has file hours but the one with no
     # issue:, which has an est: (the demo week plan's leaf, #61); the plan ends
     # at 70 h, in working day 12 (Wednesday 2026-02-04), and the report lines
-    # are that leaf's missing issue: and Issue-14's missing priority.
+    # are that leaf's missing issue:, Issue-14's missing priority and the count
+    # of leaves whose tiers came from the estimates file (#14).
     harbor = summaries[BUSY]
     assert (harbor.open_leaves, harbor.finish_day, harbor.finish_date, harbor.report_count,
-            harbor.unestimated_count) == (9, 12, date(2026, 2, 4), 2, 0)
+            harbor.unestimated_count) == (9, 12, date(2026, 2, 4), 3, 0)
     assert summaries[UNESTIMATED].unestimated_count > 0
     for name in READABLE:
         s, inputs = summaries[name], result.inputs[name]

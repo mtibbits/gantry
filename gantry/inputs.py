@@ -5,7 +5,13 @@ what the site records, and computes the site's totals:
 
 - hours: a time est: on the leaf, then its estimates-file row's hours, then
   the default unit (`unestimated`);
-- model tiers, effort and flags: the leaf's estimates-file row, if any.
+- model tiers: the portfolio JSON's, for a leaf with a `wbs` class
+  (gantry/portfolio_json.py, #14); for any other leaf its estimates-file
+  row's, if a tier cell is filled. Each leaf has one source: a class the
+  JSON leaves out is never filled from the row. `models_from_estimates_file`
+  counts the open leaves whose tiers came from a row;
+- effort and flags: the leaf's estimates-file row, if any, whatever the
+  source of its tiers.
 
 The totals cover the leaves the schedule plans (`scheduled`): open and not
 held out by a cycle. Every input that is missing or bad is a report entry.
@@ -20,6 +26,8 @@ from gantry.estimates_file import find_estimates_file, read_estimates_file
 from gantry.model import Estimate, Leaf, Models, ReportEntry, SiteData, Totals, report_order
 
 NO_TIERS = "no per-leaf model tiers recorded"
+# The report's no_model_tiers text when the document's schema carries no `models` (#14).
+NO_TIERS_SCHEMA = NO_TIERS + "; the portfolio document's schema version carries no model tiers (they arrive in 1.2)"
 UNEST_WHAT = {"absent": "no est:", "placeholder": "a placeholder est:", "non_time": "a non-time est:",
               "unparseable": "an unparseable est:"}
 MESSAGES = {
@@ -29,6 +37,8 @@ MESSAGES = {
                    "default unit",
     "no_priority": "{n} open leaves have no priority and count as P3",
     "no_priority_one": "1 open leaf has no priority and counts as P3",
+    "models_from_estimates_file": "model tiers from the estimates file: {n} leaves",
+    "models_from_estimates_file_one": "model tiers from the estimates file: 1 leaf",
     "unmatched": "estimates file {name!r} line {line}: #{n} names no WBS.md line",
     "leading_zero": "; it has a leading zero, so it is read as Issue-{n}, not Issue-{bare}",
 }
@@ -104,6 +114,7 @@ def apply_inputs(roots, site, data, config) -> Inputs:
 
     held = set(data.held_out)
     leaves = []
+    from_file = 0  # open leaves whose tiers came from their row, held-out ones included
     for leaf in data.leaves:
         if not leaf.open:
             leaves.append(leaf)
@@ -118,9 +129,10 @@ def apply_inputs(roots, site, data, config) -> Inputs:
             estimate = Estimate(row.lo_h, row.hi_h, "estimates_file", value.kind, effort)
         else:
             estimate = Estimate(unit, unit, "default", value.kind, effort)
-        models = None
-        if row is not None and (row.thinking or row.checking):
+        models = leaf.models if leaf.models is not None and leaf.models.source == "wbs" else None
+        if models is None and row is not None and (row.thinking or row.checking):
             models = Models(row.thinking, row.checking, "estimates_file")
+            from_file += 1
         leaves.append(replace(leaf, estimate=estimate, models=models, flags=row.flags if row else None))
         if value.kind == "unparseable":
             report.append(ReportEntry(site.name, leaf.line, "est_unparseable", MESSAGES["est_unparseable"].format(
@@ -133,10 +145,15 @@ def apply_inputs(roots, site, data, config) -> Inputs:
     if no_priority:
         message = MESSAGES["no_priority_one"] if no_priority == 1 else MESSAGES["no_priority"].format(n=no_priority)
         report.append(ReportEntry(site.name, None, "no_priority", message))
+    if from_file:
+        message = (MESSAGES["models_from_estimates_file_one"] if from_file == 1
+                   else MESSAGES["models_from_estimates_file"].format(n=from_file))
+        report.append(ReportEntry(site.name, None, "models_from_estimates_file", message))
     data = replace(data, leaves=tuple(leaves))
     work = scheduled(data)
     if not has_tiers(work):
-        report.append(ReportEntry(site.name, None, "no_model_tiers", NO_TIERS))
+        message = NO_TIERS if data.schema_models else NO_TIERS_SCHEMA
+        report.append(ReportEntry(site.name, None, "no_model_tiers", message))
     report = data.report + tuple(report)
     data = replace(data, report=tuple(sorted(report, key=report_order)))
     return Inputs(data, site_totals(work, unit), source)
