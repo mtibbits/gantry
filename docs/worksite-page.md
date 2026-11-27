@@ -704,11 +704,12 @@ heaviest chain, even one of equal hours, is named.
 ### Rolling wave
 
 A leaf keeps its full box when it is
-[critical](#critical-leaves-and-the-critical-path) (slack 0), its own priority as written
-is P0 or P1 (not its effective priority), it is in progress (`~`), or the schedule
-starts it within 10 working days (60 agent-hours at 6 a day) at the default
-4 lanes. Every other leaf is a circle whose area is its hours. "Every leaf
-as a box" shows them all as boxes; "Rolling wave" returns.
+[critical](#critical-leaves-and-the-critical-path) (slack 0), its own
+priority as written is P0 or P1 (not its effective priority), it is in
+progress (`~`), or the schedule starts it within 10 working days
+(60 agent-hours at 6 a day) at the default 4 lanes. Every other leaf is a
+circle whose area is its hours. "Every leaf as a box" shows them all as
+boxes; "Rolling wave" returns.
 
 ### The model band and table
 
@@ -846,8 +847,8 @@ and, when the site's N is above 0, adds ` The total includes {n} unestimated lea
 `With {lanes}, all open work ends around working day {end} and the critical chain around day {crit}. The chain alone needs {chain} days; the work spread evenly across the lanes needs {even}. The lanes are busy {busy}% of the time.`
 "Critical chain" here is the critical path the network names
 ([Critical leaves and the critical path](#critical-leaves-and-the-critical-path));
-its day numbers follow [Day numbers](#day-numbers). A site where no open leaf waits on another has no chain: the summary
-reads
+its day numbers follow [Day numbers](#day-numbers). A site where no open
+leaf waits on another has no chain: the summary reads
 `With {lanes}, all open work ends around working day {end}. No open leaf waits on another, so there is no critical chain; the work spread evenly across the lanes needs {even}. The lanes are busy {busy}% of the time.`,
 the chain row of Two limits says `none: no open leaf waits on another` and
 draws no bar, and its caption reads
@@ -1528,9 +1529,10 @@ gives, joined by ` · `:
 
 The finish day is the working day the plan ends in
 ([Day numbers](#day-numbers)): a plan that needs 8 agent-hours at 6 a day
-ends in day 2, which the page's summary calls around working day 1. Working days run Monday to Friday, and
-the as-of date is working day 1, even on a weekend; so a plan that ends in
-day 3 from Tuesday 2026-01-20 finishes on Thursday 2026-01-22.
+ends in day 2, which the page's summary calls "around working day 1".
+Working days run Monday to Friday, and the as-of date is working day 1,
+even on a weekend; so a plan that ends in day 3 from Tuesday 2026-01-20
+finishes on Thursday 2026-01-22.
 
 A site that was not built shows its name and `not built: {reason}` instead,
 and has no link. The index has three slots. The strategic page fills two
