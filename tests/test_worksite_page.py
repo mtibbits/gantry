@@ -1488,7 +1488,9 @@ def test_fork_critical_path_is_one_chain():
     text = text_of(t, by_id(t, "detail"))
     assert "Issue-1 → Issue-2" in text and "Issue-2 → Issue-3" not in text
     assert "picks the same chain, 12 h end to end" in text
-    assert chain_line(t) == "Critical path (2 slots): Issue-1 → Issue-2 " + worksite.CHAIN_OTHERS.format(keys="Issue-3")
+    line = chain_line(t)
+    assert "Issue-3" in line
+    assert line == "Critical path (2 slots): Issue-1 → Issue-2 " + worksite.CHAIN_OTHERS.format(keys="Issue-3")
 
 
 FOUR = (hp.node("A", issue="Issue-1"), hp.node("C", issue="Issue-2"),
@@ -1550,7 +1552,9 @@ def test_critical_line_names_every_critical_leaf():
     m = model(data=hp.site(*FOUR), unit=6)
     assert m["network"]["critical"] == ["Issue-1", "Issue-2", "Issue-3", "Issue-4"]
     assert m["network"]["path"] == ["Issue-1", "Issue-4"]
-    assert chain_line(tree(render_model(m))) == "Critical path (2 slots): Issue-1 → Issue-4 " + worksite.CHAIN_OTHERS.format(keys="Issue-2, Issue-3")
+    line = chain_line(tree(render_model(m)))
+    assert all(k in line for k in m["network"]["critical"])
+    assert line == "Critical path (2 slots): Issue-1 → Issue-4 " + worksite.CHAIN_OTHERS.format(keys="Issue-2, Issue-3")
 
 
 def test_critical_line_without_split_is_unchanged():
