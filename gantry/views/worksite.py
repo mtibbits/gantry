@@ -1207,7 +1207,7 @@ def _embedded(m):
     """The page model the page embeds: each leaf's phase reason dropped, so the
     data carries only look names (#173); the reason is in the box's tooltip.
     `all_clear` is dropped too: only the render reads it (#14)."""
-    return {**{k: v for k, v in m.items() if k not in ("all_clear", "leaves")},
+    return {**{k: v for k, v in m.items() if k != "all_clear"},
             "leaves": [{k: v for k, v in leaf.items() if k != "phases_why"} for leaf in m["leaves"]]}
 
 
