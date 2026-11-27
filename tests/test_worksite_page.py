@@ -882,6 +882,22 @@ def test_wave_caption_names_p0():
     assert "every leaf whose own priority is P0 or P1" in visible_text(page_for())
 
 
+def test_wave_prose_says_slack_0():
+    t = tree(page_for())
+    (wave,) = [i for i in find(t, "p", ["prose"]) if text_of(t, i).startswith("Rolling wave keeps")]
+    prose = " ".join(text_of(t, wave).split())
+    assert "every critical leaf (slack 0)" in prose
+    assert "for the critical path" not in prose
+
+
+def test_intro_says_slack_0():
+    t = tree(page_for(data=hp.site(*FOUR)))
+    (intro,) = [i for i in find(t, "p") if "A network of every open leaf" in text_of(t, i)]
+    text = " ".join(text_of(t, intro).split())
+    assert "slack 0" in text
+    assert "the chain with no slack" not in text
+
+
 def test_p0_site_model_has_no_p0_note(tmp_path):
     m = model_with(est_inputs(tmp_path))
     assert p0_of(m) == ["Issue-20", "Issue-21"]
@@ -1061,11 +1077,12 @@ def test_priority_markers_in_both_groupings(node, tmp_path):
 
 
 def test_schedule_legend_names_p0_beside_p1_p2():
-    t = tree(page_for())
+    t = tree(page_for(data=hp.site(*FOUR)))
     (legend,) = [i for i in find(t, "div", ["legend"]) if "P1 or P2" in text_of(t, i)]
     spans = [text_of(t, i).strip() for i in find(t, "span", within=legend)]
     assert spans[-2:] == ["P1 or P2", "P0"]
-    assert spans[:2] == ["bar shade: thinking model", "critical chain"]
+    assert spans[:2] == ["bar shade: thinking model", "critical, slack 0"]
+    assert "critical chain" not in spans
 
 
 # --- the sample sites, built as the CLI builds them (#10) ---------------------------------
