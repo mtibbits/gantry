@@ -481,6 +481,14 @@ the pinned release writes. When the sample devagent config or a sample
 `WBS.md` changes, a test there fails and names the command that regenerates
 it; other changes under `samples/` reach only the gated byte check.
 
+The committed fixtures hold only null actuals slots: the fixture runs have
+no actuals file, so each project carries one `actuals_unavailable` entry
+instead. One more test that needs a checkout (#213) covers a filled slot.
+It gives the pinned aggregator a usable `actuals.json` in its throwaway
+home, built from the two example slots of devagent's own
+`docs/portfolio-schema.md` (a filled one and the empty form), and reads the
+document devagent writes: both slots read with the values the file holds.
+
 What changed when the build switched readers (#12): devagent words an
 unreadable `WBS.md`, and a near-miss line, in its own text, and its
 near-miss rule decides which lines are reported. At the pinned release

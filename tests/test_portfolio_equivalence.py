@@ -10,10 +10,12 @@ variable, and fail under CI without it.
 
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -30,6 +32,7 @@ from helpers_config import sample_projects, written_bytes
 from helpers_docs import heading_anchors, markdown_text, section
 from sample_roles import NO_WBS, READABLE, UNREADABLE
 from test_devagent_contract import fake_checkout
+from test_portfolio_json import _constants
 from test_samples import ROOT, SAMPLES, git_work_tree, needs_git
 
 # U1: what devagent says of the sample site whose WBS.md is not UTF-8.
@@ -823,3 +826,74 @@ def test_changelog_entry_points_at_the_section():
     entry = markdown_text(ROOT / "CHANGELOG.md")
     assert "gantry/portfolio_json.py" in entry and "`gantry build` does not use it yet" in " ".join(entry.split())
     assert "docs/worksite-page.md#reading-devagents-portfolio-json" in entry
+
+
+# --- gated: slots devagent filled, and its message (#213) --------------------------------------
+
+EXAMPLE_BLOCK_RE = re.compile(r"^```json\n(.*?)^```$", re.S | re.M)
+
+
+def actuals_examples(checkout):
+    """The JSON blocks between the actuals-example markers of the pinned docs/portfolio-schema.md."""
+    text = (checkout / "docs" / "portfolio-schema.md").read_bytes().decode("utf-8")
+    assert text.count("<!-- actuals-example:start -->") == text.count("<!-- actuals-example:end -->") == 1
+    part = text.split("<!-- actuals-example:start -->")[1].split("<!-- actuals-example:end -->")[0]
+    return [json.loads(block) for block in EXAMPLE_BLOCK_RE.findall(part)]
+
+
+def slot_keys(slot):
+    """The key sets of a filled slot, level by level."""
+    return (sorted(slot), [sorted(row) for row in slot["milestones"]], [sorted(row) for row in slot["sessions"]],
+            sorted(slot["time"]), sorted(slot["tokens"]), [sorted(row) for row in slot["tokens"]["raw"]])
+
+
+def test_devagent_filled_slots_are_read(tmp_path):
+    """The pinned aggregator, given a usable actuals.json in its throwaway home, copies each issue's object
+    into its slot; the reader reads the document devagent writes, with the values the file holds."""
+    checkout = hd.require_devagent()
+    # devagent's own examples: a filled slot, then the empty form. Exactly two.
+    filled, empty = actuals_examples(checkout)
+    assert empty == hp.EMPTY_SLOT
+    cwd = tmp_path / "tree"
+    (cwd / "plans").mkdir(parents=True)
+    (cwd / "plans" / "WBS.md").write_bytes(
+        b"- [ ] One {issue: Issue-1}\n- [ ] Two {issue: Issue-2}\n- [ ] Three {issue: Issue-3}\n")
+    home = cwd / "da"
+    (home / "home").mkdir(parents=True)
+    (home / "config.toml").write_bytes(b'[project.alpha]\ndevdoc_dir = "plans"\n')
+    # A file devagent calls usable: its version, an all-projects document, and a time within seven days.
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    stamp = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+    (home / "actuals.json").write_bytes(sp.dumps({
+        "actuals_version": "1.0", "generated_at": stamp, "inputs": {"project": None},
+        "issues": [{"project": "alpha", "issue": "Issue-1", "actuals": filled},
+                   {"project": "alpha", "issue": "Issue-2", "actuals": empty}],
+        "projects": [], "unassigned": []}))
+    document = sp.run_aggregator(checkout, cwd, home)
+    doc = json.loads(document.read_bytes().decode("utf-8"))
+    # The slots are devagent's copies of the file's objects; an issue the file has no row for is null.
+    (project,) = doc["projects"]
+    assert {item["issue"]: item["actuals"] for item in project["issues"]} == {
+        "Issue-1": filled, "Issue-2": empty, "Issue-3": None}
+    assert doc["actuals"] == {"actuals_version": "1.0", "generated_at": stamp, "unassigned": []}
+    assert doc["schema_version"] == "1.3" and doc["parse_report"] == []
+    got = read_portfolio(directory_roots([cwd]), document)
+    assert got.actuals.wired is True and got.actuals.generated_at == now and got.actuals.report == ()
+    assert list(got.actuals.issues.items()) == [
+        (("alpha", "Issue-1"), pj.IssueActuals(("h1",), 610.0, 4980.5, 2029120.0, (
+            pj.EventRow("2026-11-01T14:02:11Z", "opened"), pj.EventRow("2026-11-02 09:15", "step_done"),
+            pj.EventRow("2026-11-03T18:40:00Z", "mr_merged")))),
+        (("alpha", "Issue-2"), pj.IssueActuals((), None, None, None, None)),
+    ]
+    assert [leaf.key for leaf in got.projects[0].data.leaves] == ["Issue-1", "Issue-2", "Issue-3"]
+    assert got.devagent_report == ()
+    # The test builder's slot has the example's keys at every level, so a builder test states devagent's shape.
+    assert slot_keys(hp.slot()) == slot_keys(filled)
+    assert slot_keys(filled)[0] == ["milestones", "sessions", "time", "tokens"]
+
+
+def test_actuals_message_is_the_tags():
+    checkout = hd.require_devagent()
+    texts = _constants(checkout / "scripts" / "lib" / "portfolio.py", ("ACTUALS_MISSING",))
+    assert texts == {"ACTUALS_MISSING": hp.ACTUALS_MISSING}
+    assert texts["ACTUALS_MISSING"].format(path=sp.ACTUALS_PLACEHOLDER) == PLACEHOLDER_MESSAGE
