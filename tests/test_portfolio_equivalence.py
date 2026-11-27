@@ -376,7 +376,7 @@ def test_aggregator_writes_only_under_out(sample_document):
 SNAPSHOT_KEYS = ["pin", "schema_version", "site", "status", "reason", "nodes", "links", "held_out", "report",
                  "devagent"]
 NODE_KEYS = ["line", "row", "key", "issue", "outline", "title", "glyph", "state", "open", "priority", "epic",
-             "parent", "meta", "depends_on", "rank", "est", "h", "satisfies", "objective"]
+             "parent", "meta", "depends_on", "rank", "est", "h", "satisfies", "objective", "models"]
 
 
 def committed(name, fixture=False):
@@ -418,13 +418,14 @@ def test_snapshot_records_what_each_consumer_reads():
         "priority": None, "epic": "1", "parent": None,
         "meta": {"issue": "Issue-9", "h": "4", "depends_on": ["harbor:Issue-7"]},
         "depends_on": [["harbor:Issue-7", "foreign", "harbor", "Issue-7"]],
-        "rank": 3, "est": ["absent", None, None, None, None], "h": 4, "satisfies": [], "objective": []}
+        "rank": 3, "est": ["absent", None, None, None, None], "h": 4, "satisfies": [], "objective": [],
+        "models": None}
     assert list(node["meta"]) == ["issue", "h", "depends_on"]
     # A row: what only a leaf has is null.
     rows = [n for n in committed("rows", fixture=True)["nodes"] if n["row"]]
     assert len(rows) == 5
     for row in rows:
-        assert [row[key] for key in ("open", "epic", "rank", "est", "h")] == [None] * 5
+        assert [row[key] for key in ("open", "epic", "rank", "est", "h", "models")] == [None] * 6
         assert (row["satisfies"], row["objective"]) == ([], [])
     build = next(r for r in rows if r["line"] == 5)
     assert (build["priority"], build["parent"], build["depends_on"]) == ("high", None, [["Issue-1", "local", "rows",
@@ -436,6 +437,10 @@ def test_snapshot_records_what_each_consumer_reads():
     est = {n["line"]: n["est"] for n in committed("est", fixture=True)["nodes"]}
     assert est[4] == ["time", 3.0, 3.0, 3.0, "h"] and est[6] == ["non_time", None, None, 2.5, "pr"]
     assert est[7] == ["unparseable", None, None, None, None] and est[20] == ["placeholder", None, None, None, None]
+    # A leaf's tiers (#14): [thinking, checking, source, each class's source]; a row of models.md has none.
+    models = {n["line"]: n["models"] for n in committed("models_project", fixture=True)["nodes"]}
+    assert models[1] is None and models[4] is None and models[8] is None
+    assert models[3] == ["sonnet", "opus", "wbs", ["wbs", "project"]]
     # The entries devagent's reader shows, per site.
     assert committed("cycle", fixture=True)["devagent"] == [
         [7, "dep_cycle", "dependency cycle: Issue-6 (line 7), Issue-7 (line 8)"]]

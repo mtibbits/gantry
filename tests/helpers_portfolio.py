@@ -289,6 +289,30 @@ def append_nodes(doc, project_name, *nodes) -> dict:
     return out
 
 
+# set_models's marker for a class whose key is dropped from `models` (#14).
+ABSENT = object()
+
+
+def set_models(doc, project_name, line, *, thinking, checking) -> dict:
+    """`doc` with the `models` of the node on `line` of `project_name` set, in place (#14).
+
+    Each class is None (null), `(value, source)` or ABSENT (the key dropped).
+    The node gets a `models` object when it has none. Returns `doc`."""
+    proj = next((p for p in doc["projects"] if p["project"] == project_name), None)
+    if proj is None:
+        raise ValueError(f"the document holds no project {project_name!r}")
+    node = next((n for n in proj["nodes"] if n["source_line"] == line), None)
+    if node is None:
+        raise ValueError(f"project {project_name!r} has no node on line {line}")
+    models = node.setdefault("models", {})
+    for cls, value in (("thinking", thinking), ("checking", checking)):
+        if value is ABSENT:
+            models.pop(cls, None)
+        else:
+            models[cls] = None if value is None else {"value": value[0], "source": value[1]}
+    return doc
+
+
 # --- document-carrying sources (#195) ---------------------------------------------------------
 # A build-side test writes a WBS.md and, beside it, the portfolio document #12's build
 # will read. A Source carries both: the bytes, and the nodes devagent reads from them.

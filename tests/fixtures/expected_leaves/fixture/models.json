@@ -27,7 +27,8 @@
       "est": null,
       "h": null,
       "satisfies": [],
-      "objective": []
+      "objective": [],
+      "models": null
     },
     {
       "line": 2,
@@ -58,7 +59,16 @@
       ],
       "h": null,
       "satisfies": [],
-      "objective": []
+      "objective": [],
+      "models": [
+        "fable",
+        "sonnet",
+        "wbs",
+        [
+          "wbs",
+          "wbs"
+        ]
+      ]
     },
     {
       "line": 3,
@@ -88,7 +98,16 @@
       ],
       "h": null,
       "satisfies": [],
-      "objective": []
+      "objective": [],
+      "models": [
+        "sonnet",
+        null,
+        "wbs",
+        [
+          "wbs",
+          null
+        ]
+      ]
     },
     {
       "line": 4,
@@ -118,7 +137,8 @@
       ],
       "h": null,
       "satisfies": [],
-      "objective": []
+      "objective": [],
+      "models": null
     },
     {
       "line": 5,
@@ -149,7 +169,16 @@
       ],
       "h": null,
       "satisfies": [],
-      "objective": []
+      "objective": [],
+      "models": [
+        null,
+        "fable",
+        "wbs",
+        [
+          null,
+          "wbs"
+        ]
+      ]
     },
     {
       "line": 6,
@@ -179,7 +208,16 @@
       ],
       "h": null,
       "satisfies": [],
-      "objective": []
+      "objective": [],
+      "models": [
+        "inherit",
+        null,
+        "wbs",
+        [
+          "wbs",
+          null
+        ]
+      ]
     },
     {
       "line": 7,
@@ -209,7 +247,16 @@
       ],
       "h": null,
       "satisfies": [],
-      "objective": []
+      "objective": [],
+      "models": [
+        null,
+        "opus",
+        "wbs",
+        [
+          null,
+          "wbs"
+        ]
+      ]
     },
     {
       "line": 8,
@@ -238,7 +285,8 @@
       ],
       "h": null,
       "satisfies": [],
-      "objective": []
+      "objective": [],
+      "models": null
     }
   ],
   "links": [],

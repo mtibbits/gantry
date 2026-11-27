@@ -367,7 +367,7 @@ def hostile_site():
     )
     rows = (Row(EPIC, EPIC, "1", h[4], " ", "pending", 1, None, {}),)
     links = ((h[7], h[1]), (h[1], h[2]), (h[2], "Issue-4"))
-    return SiteData(leaves, rows, links, (), ())
+    return SiteData(leaves, rows, links, (), (), schema_models=True)
 
 
 # Shown on the base page: the keys, titles, epic name, priority and tier;
@@ -402,7 +402,7 @@ def test_hostile_h_values_listed_safely():
     """
     leaves = tuple(_leaf(f"Issue-{n}", f"Issue-{n}", str(n), "Plain", None, n,
                          meta={"issue": tag(f"Issue-{n}"), "h": tag(h)}) for n, h in enumerate(HOSTILE, start=1))
-    data = check_h(SiteData(leaves, (), (), (), ()), "alpha")
+    data = check_h(SiteData(leaves, (), (), (), (), schema_models=True), "alpha")
     embedded = assert_page_safe(render_page("alpha", data, default_unit_hours=6), HOSTILE)
     assert embedded["panel"] == [H_MESSAGES["bad_h"].format(line=leaf.line, raw=leaf.meta["h"], key=leaf.key)
                                  for leaf in leaves]
@@ -1559,7 +1559,7 @@ def test_worksite_box_cuts_and_wraps():
         _leaf("Issue-2", "Issue-2", "1.2", "Short", EPIC, 3),
     )
     rows = (Row(EPIC, EPIC, "1", "Epic", " ", "pending", 1, None, {}),)
-    t = tree(render_page("alpha", SiteData(leaves, rows, ((key, "Issue-2"),), (), ()), default_unit_hours=6))
+    t = tree(render_page("alpha", SiteData(leaves, rows, ((key, "Issue-2"),), (), (), schema_models=True), default_unit_hours=6))
     (node,) = [i for i in find(t, "g", ["node"]) if t.elements[i]["attrs"].get("data-item") == key]
     (full,) = find(t, "g", ["full-form"], within=node)
 

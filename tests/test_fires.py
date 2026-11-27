@@ -153,7 +153,7 @@ def fake_result(*specs):
     for s in specs:
         entries.append(SiteEntry(s.name, PurePath("plan", s.name) if s.planning else None, s.problem))
         if s.read:
-            data = s.data or model.SiteData(s.leaves, (), (), (), s.report)
+            data = s.data or model.SiteData(s.leaves, (), (), (), s.report, schema_models=True)
             inputs[s.name] = SimpleNamespace(data=data)
             summaries.append(SiteSummary(s.name, "built"))
         else:
@@ -203,7 +203,7 @@ def test_p0_open_states_are_fires(state):
 
 def test_p0_inherited_is_not_a_fire():
     leaves = [leaf("Issue-1", "pending", "P0"), leaf("Issue-2", "pending", "P1")]
-    data = model.SiteData(tuple(leaves), (), (("Issue-2", "Issue-1"),), (), ())
+    data = model.SiteData(tuple(leaves), (), (("Issue-2", "Issue-1"),), (), (), schema_models=True)
     report = p0(fake_result(site("harbor", data=data)))
     assert [f.leaf_key for f in report.fires] == ["Issue-1"]
 

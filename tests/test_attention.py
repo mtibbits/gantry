@@ -94,7 +94,7 @@ def make_leaf(key="Issue-1", line=1, meta=None, **fields):
 
 
 def site_of(*leaves, rows=()):
-    return SiteData(tuple(leaves), tuple(rows), (), (), ())
+    return SiteData(tuple(leaves), tuple(rows), (), (), (), schema_models=True)
 
 
 # --- h: ----------------------------------------------------------------------

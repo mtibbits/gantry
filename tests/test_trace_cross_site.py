@@ -123,7 +123,7 @@ def entry(name):
 
 
 def inputs_of(leaves):
-    return Inputs(SiteData(tuple(leaves), (), (), (), ()), None, None)
+    return Inputs(SiteData(tuple(leaves), (), (), (), (), schema_models=True), None, None)
 
 
 def installation_trace(cat, leaves, *, order=None, unbuilt=None):
@@ -690,7 +690,7 @@ def hostile_foreign_site(tmp_path):
     beta = (hostile_leaf(HOSTILE[0], HOSTILE[0], 1, title=HOSTILE[2], satisfies="alpha:FR-1"),
             hostile_leaf("__proto__", "__proto__", 2, title=HOSTILE[4], satisfies="alpha:FR-1"))
     found, _ = installation_trace(cat, {"alpha": [own], "beta": list(beta)})
-    data = SiteData((own,), (), (), (), ())
+    data = SiteData((own,), (), (), (), (), schema_models=True)
     trace = page_trace(found["alpha"], cat, data, built=frozenset({"alpha", "beta"}))
     page = worksite.render_page("alpha", data, default_unit_hours=6, trace=trace)
     return page, trace, [HOSTILE[0], HOSTILE[2], HOSTILE[4], "__proto__"]

@@ -32,7 +32,8 @@
       ],
       "h": null,
       "satisfies": [],
-      "objective": []
+      "objective": [],
+      "models": null
     },
     {
       "line": 16,
@@ -61,7 +62,8 @@
       ],
       "h": null,
       "satisfies": [],
-      "objective": []
+      "objective": [],
+      "models": null
     },
     {
       "line": 18,
@@ -90,7 +92,8 @@
       ],
       "h": null,
       "satisfies": [],
-      "objective": []
+      "objective": [],
+      "models": null
     }
   ],
   "links": [],

@@ -116,10 +116,19 @@ class Estimate:
 
 @dataclass(frozen=True)
 class Models:
-    """A leaf's model tiers (#10), as written; None when not recorded."""
+    """A leaf's model tiers (#10, #14), as written; None when not recorded.
+
+    `source` is where the leaf's tiers came from, for the whole leaf: "wbs"
+    (the portfolio JSON's `models`, when at least one class is from the
+    leaf's own WBS.md key) or "estimates_file" (the estimates file's row).
+    `classes` is record-only: each class's source in the JSON ("wbs",
+    "project" or None), or None when the tiers came from the row. Tests and
+    the expected-leaves snapshots read it; no production code does.
+    """
     thinking: str | None
     checking: str | None
-    source: str  # "estimates_file"
+    source: str  # "wbs" or "estimates_file"
+    classes: tuple[str | None, str | None] | None = None
 
 
 @dataclass(frozen=True)
@@ -167,6 +176,9 @@ class SiteData:
     links: tuple[tuple[str, str], ...]
     held_out: tuple[str, ...]
     report: tuple[ReportEntry, ...]
+    # Whether the portfolio document's schema carries leaf `models` (minor 2
+    # and later, #14). No default: every builder states it.
+    schema_models: bool
 
 
 class ParsedValue(str):

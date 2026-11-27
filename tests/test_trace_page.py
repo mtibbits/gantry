@@ -741,7 +741,7 @@ def hostile_trace_site(tmp_path):
         hostile_leaf("__proto__", "__proto__", 10, satisfies="alpha:FR-90"),
     )
     links = (("Issue-1", "Issue-2"), ("Issue-2", "Issue-3"), ("Issue-1", h[1]))
-    data = SiteData(leaves, (), links, (), ())
+    data = SiteData(leaves, (), links, (), (), schema_models=True)
     trace = page_trace(build_site_trace("alpha", leaves, catalog), catalog, data)
     page = worksite.render_page("alpha", data, default_unit_hours=6, trace=trace)
     planted = [r.text for r in kept] + [h[1], h[2], h[0], h[10], h[5], "__proto__"]

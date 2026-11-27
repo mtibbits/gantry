@@ -54,6 +54,14 @@ def _value(raw):
     return [str(v) for v in raw] if isinstance(raw, list) else str(raw)
 
 
+def _models(models):
+    """A leaf's tiers as the reader maps them (#14): null, or [thinking, checking, source, classes]."""
+    if models is None:
+        return None
+    return [models.thinking, models.checking, models.source,
+            None if models.classes is None else list(models.classes)]
+
+
 def _node(node, site, namespaces):
     is_row = isinstance(node, Row)
     priority = node.meta.get("priority") if is_row else node.priority
@@ -67,13 +75,14 @@ def _node(node, site, namespaces):
     deps = refs(node.meta, site) if is_row else node.deps
     out["depends_on"] = [[ref.raw, ref.kind, ref.site, ref.issue] for ref in deps]
     if is_row:
-        out.update(rank=None, est=None, h=None, satisfies=[], objective=[])
+        out.update(rank=None, est=None, h=None, satisfies=[], objective=[], models=None)
         return out
     est = classify_est(node.meta.get("est"))
     satisfied, _ = trace.satisfies_ids(node, namespaces)
     objective, _ = trace.objective_ids(node, satisfied, namespaces)
     out.update(rank=rank(node.priority), est=[est.kind, est.lo_h, est.hi_h, est.number, est.unit], h=read_h(node),
-               satisfies=[str(rid) for rid in satisfied], objective=[str(rid) for rid in objective])
+               satisfies=[str(rid) for rid in satisfied], objective=[str(rid) for rid in objective],
+               models=_models(node.models))
     return out
 
 
