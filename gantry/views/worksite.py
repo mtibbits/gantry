@@ -666,7 +666,7 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None, built
             "critical": list(net.critical),
             "path": list(path),
             "near": [[s, near[s]] for s in sorted(near)],
-            "heaviest": {"keys": list(chain), "hours": chain_total, "same": bool(path) and chain_total == sum(hours[k][0] for k in path)},
+            "heaviest": {"keys": list(chain), "hours": chain_total, "same": bool(path) and tuple(chain) == tuple(path)},
         },
         "panel": panel,
         # Whether nothing is missing or unreadable: every panel line is informational (#14).

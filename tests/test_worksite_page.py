@@ -1456,6 +1456,7 @@ def test_fork_critical_path_is_one_chain():
     assert m["network"]["critical"] == ["Issue-1", "Issue-2", "Issue-3"]
     assert m["network"]["path"] == ["Issue-1", "Issue-2"]
     assert m["network"]["heaviest"]["same"] is True
+    assert m["network"]["heaviest"]["keys"] == m["network"]["path"]
     t = tree(page_for(data=hp.site(*FORK)))
     (detail,) = [i for i in find(t, "div") if t.elements[i]["attrs"].get("id") == "detail"]
     text = text_of(t, detail)
@@ -1491,6 +1492,17 @@ def test_schedule_detail_off_chain_critical_leaf(node, tmp_path):
             off = page.query("#gdetail")[0].text
             assert "on the critical path" not in off, key
             assert worksite.CRIT_OFF_PATH in off, key
+
+
+def test_hours_note_same_means_same_leaves():
+    assert model(data=hp.site(*FOUR))["network"]["heaviest"] == {"keys": ["Issue-2", "Issue-3"], "hours": 48.0,
+                                                                "same": False}
+    page = page_for(data=hp.site(*FOUR))
+    t = tree(page)
+    (note,) = [i for i in find(t, "div") if t.elements[i]["attrs"].get("id") == "hours-note"]
+    assert " ".join(text_of(t, note).split()) == ("Weighting each leaf by its hours picks a different chain: "
+                                                  "Issue-2 → Issue-3, 12 h end to end; includes 2 unestimated leaves.")
+    assert "picks the same chain" not in visible_text(page)
 
 
 def test_four_leaf_split_reaches_the_rule():
