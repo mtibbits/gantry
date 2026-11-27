@@ -29,7 +29,7 @@ import sample_portfolio as sp
 from gantry import deps
 from gantry.model import STATE_GLYPHS
 from gantry.portfolio_json import map_document
-from helpers_config import _stopgap_agreement, copy_samples
+from helpers_config import copy_samples
 
 DOC_NAME = "portfolio.json"
 
@@ -226,6 +226,24 @@ def drop_lines(doc, *lines) -> dict:
                 raise ValueError(f"line {n['source_line']} depends on {ref.issue}, which is dropped")
     out["parse_report"] = [e for e in out["parse_report"]
                            if e["project"] != proj["project"] or e["source_line"] not in lines]
+    return out
+
+
+def keep_lines(doc, *lines) -> dict:
+    """drop_lines' complement (#12): a copy of a one-project `doc` holding only the nodes on `lines`
+    and the report entries on them (and those with no line). A line need not hold a node: a near
+    miss's entry is kept with it. A kept node whose parent is not kept raises ValueError."""
+    out = copy.deepcopy(doc)
+    (proj,) = out["projects"]
+    keep = set(lines)
+    kept = [n for n in proj["nodes"] if n["source_line"] in keep]
+    ids = {n["id"] for n in kept}
+    for n in kept:
+        if n["parent"] is not None and n["parent"] not in ids:
+            raise ValueError(f"line {n['source_line']}: its parent is not kept")
+    proj["nodes"] = kept
+    out["parse_report"] = [e for e in out["parse_report"] if e["project"] != proj["project"]
+                           or e["source_line"] is None or e["source_line"] in keep]
     return out
 
 
@@ -486,10 +504,7 @@ def document_path(copy) -> Path:
 def rewrite_document(copy, fn):
     """Replace the portfolio document of `copy` (document_path: an install() copy, a write_site_tree
     folder or a samples copy) with fn(the parsed document), for a test that edits the copy's WBS.md or
-    config (#195, #197); an edit that changes nothing fails. Each read project of the new document is
-    then checked against its WBS.md in the copy, as write_site_tree checks its sites."""
-    import tomllib
-
+    config (#195, #197); an edit that changes nothing fails."""
     copy = Path(copy)
     path = document_path(copy)
     before = path.read_bytes()
@@ -498,16 +513,6 @@ def rewrite_document(copy, fn):
     after = sp.dumps(new)
     assert after != before, "rewrite_document: the document did not change"
     path.write_bytes(after)
-    # A devdoc_dir resolves against the copy beside devagent.toml, against devagent/ in a samples copy.
-    home, config = ((copy, copy / "devagent.toml") if path.parent == copy
-                    else (copy / "devagent", copy / "devagent" / "config.toml"))
-    try:
-        tables = tomllib.loads(config.read_bytes().decode("utf-8"))["project"]
-        _stopgap_agreement(copy, path, {p["project"]: (home / tables[p["project"]]["devdoc_dir"] / "WBS.md").read_bytes()
-                                        for p in new["projects"] if p["status"] == "read"}, who="rewrite_document")
-    except BaseException:
-        path.write_bytes(before)  # the check reads the written file; a failed rewrite leaves the old document
-        raise
 
 
 def append_not_read(doc, name, status, reason) -> dict:

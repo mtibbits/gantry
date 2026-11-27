@@ -10,7 +10,8 @@ is made, what the check holds it to, and how the deploy is guarded (#45).
 
 - **Samples only.** Every input is under `samples/`: the sample config
   `samples/gantry.sample.toml`, the sample devagent config and planning
-  folders, and the sample WBS.md history. The demo is never built from a real
+  folders, the sample WBS.md history, and devagent's portfolio JSON over the
+  samples, which the demo build writes there with devagent's own aggregator. The demo is never built from a real
   installation, and a copy of the samples anywhere else is not sample mode
   (docs/config.md).
 - **A pinned date.** The sample config's `as_of` fixes the planning date, and
@@ -21,24 +22,60 @@ is made, what the check holds it to, and how the deploy is guarded (#45).
 
     python tools/demo_build.py
 
-The tool deletes and recreates the demo output folder (`output_dir` of the
-sample config, `samples/out`), then runs its steps in order:
+The tool checks its preconditions, deletes and recreates the demo output
+folder (`output_dir` of the sample config, `samples/out`), then runs its
+steps in order:
 
 1. **sample history**: `tools/sample_history.py`, which rebuilds the sample
    WBS.md history repository under `samples/history/out` (docs/wbs-history.md);
-2. **build**: `gantry build --config samples/gantry.sample.toml`, in process.
+2. **devagent**: devagent at the release `tests/devagent.pin` names (below);
+3. **sample portfolio**: `tools/sample_portfolio.py`, which runs that
+   devagent's own aggregator over the samples and writes the document the
+   sample config's `portfolio_json` names,
+   `samples/devagent/out/portfolio/portfolio.json`
+   ([worksite-page.md](worksite-page.md#the-tools-and-the-pin));
+4. **build**: `gantry build --config samples/gantry.sample.toml`, in process.
 
 The steps are the tuple `STEPS` in `tools/demo_build.py`. An issue that adds a
-preparation step (#12's portfolio steps, say) inserts it into `STEPS` before
-`build`, and its own tests cover it. The issue asks that a step needing a
-program beyond Python and git check the program is on the path and stop the
-run naming it. Neither step here needs one, so no such check exists yet: the
-change that adds the first such step (#12's) adds the check with it.
+preparation step inserts it into `STEPS` before `build`, and its own tests
+cover it. The demo always runs the pinned aggregator; there is no committed
+document to fall back on (#12).
+
+**Preconditions,** checked before anything is deleted, so a refusal leaves
+the previous demo as it was:
+
+- **Windows is refused**: `demo_build: the sample portfolio step needs
+  devagent's own toolchain (bash and GNU coreutils), which Windows does not
+  provide; see docs/demo.md`. The demo build is proven on Linux only.
+- **bash must be on the path**: `demo_build: bash is not on the path; the
+  sample portfolio step needs it`.
+- With no `GANTRY_DEVAGENT_DIR`, **git must ignore the fetch folder**,
+  `out/devagent` under the gantry root (the repository's `out/` rule).
+
+**Where devagent comes from.** With `GANTRY_DEVAGENT_DIR` set, its checkout
+is used and nothing is fetched (the portfolio step refuses one at another
+release). Otherwise the tool clones the pinned tag,
+`git clone -q --depth 1 --branch <pin> https://github.com/mtibbits/devagent out/devagent`,
+and refuses the clone unless its `HEAD` is the commit the fixtures were
+written at (`devagent_commit` in
+`tests/fixtures/devagent_records/written/Issue-6/provenance.json`), so a
+moved tag cannot change the demo unseen. A later run reuses `out/devagent`
+when it is at the pinned version and that commit with no change in it; one
+that holds a change is refused, never used or deleted; any other is deleted
+under the same checks as the portfolio step's own folder (not a link, git
+ignores it, git tracks no file in it) and fetched again. No message names
+an absolute path.
 
 The clone tests build from a depth-1 clone of the committed `HEAD`, so they
 fail, asking for a commit, while `tools/`, `gantry/` or `samples/` holds an
 uncommitted edit or an untracked file: about 40 tests in
-`tests/test_demo_build.py` and `tests/test_check_demo.py`. While iterating on
+`tests/test_demo_build.py` and `tests/test_check_demo.py`. They run the
+portfolio step with the devagent checkout `GANTRY_DEVAGENT_DIR` names, so
+they skip without one (and fail under `CI`, as the contract test does); no
+test fetches devagent. A by-hand `gantry build --config
+samples/gantry.sample.toml` after a test session reads whatever document is
+in `samples/devagent/out/`: the tests that build the real samples write the
+committed `tests/fixtures/portfolio/samples.json` there. While iterating on
 uncommitted work there, leave them out with
 `--ignore tests/test_demo_build.py --ignore tests/test_check_demo.py`, then
 commit and run the whole suite.
@@ -138,8 +175,7 @@ the page CSP, as every Gantry page does. The stage folder must be absent or
 empty, and `--repo-url` must be an https repository URL.
 
 What comes later has owners: the website replaces the holding page at the
-root (#89), the demo gains an "About Gantry" link (#90), and the sample
-portfolio steps join `STEPS` (#12).
+root (#89), and the demo gains an "About Gantry" link (#90).
 
 ## The workflow
 

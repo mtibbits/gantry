@@ -166,8 +166,10 @@ class _Page:
         leaf = self.leaves.get((site, key))
         if (site, key) not in self.named:
             tiers = (leafbox.model_tiers(leaf.models) if leaf else None) or [None, None]
-            self.named[(site, key)] = [site, key, leaf.title if leaf else None, leaf.meta.get("est") if leaf else None,
-                                       leaf.priority if leaf else None, *tiers]
+            # As text (#12): a list value shows as `[a, b]`, as on the worksite page.
+            self.named[(site, key)] = [site, key, leaf.title if leaf else None,
+                                       render.meta_text(leaf.meta.get("est")) if leaf else None,
+                                       render.meta_text(leaf.priority) if leaf else None, *tiers]
         return leaf.title if leaf is not None and leaf.title else key
 
     def link(self, site, key, inner=None):

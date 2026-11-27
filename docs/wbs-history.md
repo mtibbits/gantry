@@ -17,9 +17,9 @@ signatures below ([strategic-page.md](strategic-page.md#time-thieves)). When git
 cannot answer, the result is **no data** with a reason, never an error that
 stops the build.
 
-The reader never builds on the stopgap parser (`gantry/wbs_stopgap.py`), and
-never on any WBS tree parser: it is a line scanner over committed versions,
-so #12 can delete the stopgap without waiting on it.
+The reader never builds on a WBS tree parser: it is a line scanner over
+committed versions. The build's nodes are devagent's portfolio JSON (#12),
+and this history is the one place Gantry reads `WBS.md` text itself.
 
 ## Leaf lines
 

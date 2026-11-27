@@ -8,23 +8,26 @@ and `--site NAME` writes one site's page
 page is built from ([Reading `WBS.md`](#reading-wbsmd)), what it shows
 ([The page](#the-page)) and how it keeps record values inert
 ([Page safety](#page-safety)). Every Gantry view reads the same parsed data
-(`gantry/model.py`), produced by `gantry.wbs_stopgap.read_wbs` until devagent
-exports its own.
+(`gantry/model.py`), read from devagent's portfolio JSON
+([Reading devagent's portfolio JSON](#reading-devagents-portfolio-json), #12).
 
 ## Reading `WBS.md`
 
-Gantry reads a site's `WBS.md` with devagent's grammar
-(`scripts/lib/wbs-parser.py`), ported rule by rule; it never calls or copies
-devagent's parser. Where Gantry adds a rule (names, the report, links), this
-section says so. Nothing in the file stops the read: what Gantry cannot use
-it reports, and it reads the rest.
+devagent's parser (`scripts/lib/wbs-parser.py`) reads each site's `WBS.md`,
+and its aggregator writes what it read into the portfolio JSON the build
+reads (#12): Gantry opens no working-tree `WBS.md`. This section states the
+grammar devagent applies, as Gantry receives it, and the rules Gantry adds
+(names, the report, links), which it applies to the document's nodes.
+Nothing in the file stops the read: what cannot be used is reported, and the
+rest is read.
 
 ### Bytes and lines
 
-The file is read as bytes and decoded as strict UTF-8. A file that cannot be
-opened or read (`WBS.md cannot be read: <reason>`) or is not valid UTF-8
-(`WBS.md is not valid UTF-8 at byte N`) gives no nodes and one
-`site_unreadable` entry; the message never names the path. A byte-order
+devagent reads the file as bytes and decodes it as strict UTF-8. A file it
+cannot read, or that is not valid UTF-8, is a project with the status
+`unreadable` and devagent's reason (`WBS.md could not be read:
+UnicodeDecodeError: ... at byte N`): no nodes, one `site_unreadable` entry,
+and the site is not built. A byte-order
 mark is kept as text, so a first line that starts with one is not a node.
 CRLF reads exactly like LF. Lines are numbered as Python's `str.splitlines`
 counts them, which is devagent's convention; an editor may count differently
@@ -186,9 +189,9 @@ in this table's order.
 | `bad_priority` | a node's `priority:` is not `P0`–`P4` | treats it as P3 and lists the value |
 | `cycle` | open leaves depend on each other in a loop | lists the members |
 | `waits_on_cycle` | an open leaf is in, or waits on, a cycle | shows the leaf as held out, with no effective priority |
-| `skipped_line` | `- [X] text`, `- [] text`, `- [ ]`, `- [ ] ` or `- [x]text`: a node-shaped line that is not a node (`- [xx] text`, `-[x] text`, `* [ ] text` and a link item with two or more characters of text are not reported; `- [1](url)` is). Once the build reads devagent's portfolio JSON (#12), devagent's rule decides instead. At the release `tests/devagent.pin` names, devagent's rule is a list marker `-`, `*` or `+` after any spaces or tabs, optional spaces or tabs, then an opening bracket, unless it opens an inline link whose text is neither empty nor one state glyph. So `- [xx] text`, `-[x] text`, `* [ ] text` and `+ [ ] text` are reported, and a link item whose text is neither empty nor one state glyph (`- [1](url)` included) and a `- [X] text` line indented with no-break spaces are not ([Reading devagent's portfolio JSON](#reading-devagents-portfolio-json); `tests/fixtures/expected_leaves/known_differences.json` lists each difference the fixtures hold) | lists the line |
+| `skipped_line` | a line devagent's near-miss rule reports (its `near_miss_line`): at the release `tests/devagent.pin` names, a list marker `-`, `*` or `+` after any spaces or tabs, optional spaces or tabs, then an opening bracket, unless it opens an inline link whose text is neither empty nor one state glyph. So `- [X] text`, `- [] text`, `- [ ]text`, `- [xx] text`, `-[x] text`, `* [ ] text` and `+ [ ] text` are reported, and a link item whose text is neither empty nor one state glyph (`- [1](url)` included) and a line indented with no-break spaces are not. The message is `WBS.md line N: ` and devagent's own text ([Reading devagent's portfolio JSON](#reading-devagents-portfolio-json), #12) | lists the line |
 | `no_nodes` | the file has no node lines | shows an empty site |
-| `site_unreadable` | `WBS.md` cannot be opened, read or decoded as UTF-8 | shows the site as unreadable, with the reason |
+| `site_unreadable` | devagent's portfolio JSON gives the project status `unreadable` (its `WBS.md` could not be read or decoded as UTF-8, or is not a file) | not built: the index shows `WBS.md unreadable: ` and devagent's reason |
 | `no_estimates_file` | the site has no estimates file, or its `estimates` key is `false` | reads hours and tiers from `est:` and the default unit only |
 | `estimates_ignored` | a discovered `estimates-*.md` file is not the one read: an earlier date, the same date and an earlier name, no date, or a date that is not a valid date | lists the file and why |
 | `estimates_unreadable` | the configured file does not exist, or the file cannot be opened, is not valid UTF-8, or leads outside the configured roots | continues as if the site had no estimates file |
@@ -208,9 +211,12 @@ in this table's order.
 devagent writes one JSON document over every configured project's `WBS.md`
 (`/devagent:portfolio`, its `scripts/portfolio.sh`; schema 1.2 at the release
 `tests/devagent.pin` names). `gantry/portfolio_json.py` reads that document
-into the parsed data the sections above describe. `gantry build` does not
-use it yet: the build still reads each `WBS.md` itself, and #12 switches it.
-Until then tests hold the two readers equal ([The snapshots](#the-snapshots)).
+into the parsed data the sections above describe, and `gantry build` reads
+every site from it, once per run, through the installation config's
+`portfolio_json` ([config.md](config.md#keys)): devagent's parser is the one
+`WBS.md` reader (#12). Gantry names, links and reports what it reads, and
+opens no working-tree `WBS.md`. Run devagent's aggregator before the build;
+Gantry never runs it.
 
 ### What the reader returns
 
@@ -231,8 +237,8 @@ Until then tests hold the two readers equal ([The snapshots](#the-snapshots)).
 - `generated_at`, the document's time in UTC, and `schema_version` as
   written.
 
-The document is never changed. Both signatures are provisional until #12 or
-#84 calls them.
+The document is never changed. The build calls `read_portfolio`, the test
+builder `map_document`.
 
 ### Load errors
 
@@ -242,7 +248,7 @@ starts with the path, and its `kind` is one of four:
 | `kind` | When | What the message says |
 |---|---|---|
 | `unreadable` | the file does not exist | to run devagent's aggregator first (`/devagent:portfolio`) |
-| `unreadable` | the file is outside the configured roots | that it is outside them, with no remedy until #12 gives the document a config key |
+| `unreadable` | the file is outside the configured roots | that it is outside them (the path `portfolio_json` names is always a root) |
 | `unreadable` | any other failed read | the system's reason |
 | `not_json` | the bytes are not UTF-8, or not JSON: a syntax error, `NaN` or `Infinity`, a number that is too long, or nesting deeper than 100 levels (counted by the reader, so every Python version and host agrees) | the cause, in one fixed text each, and to run the aggregator again |
 | `version` | `schema_version` names another major than 1 | both versions: the document's, and `major 1 (schema 1.2)` |
@@ -258,10 +264,10 @@ project's reason, an entry's line). A key used twice in one JSON
 object, a project name or node id used twice, and a source line used twice
 in one project are refused. Then it checks parent links: a parent is a node
 of the same project on an earlier line, and no node nests deeper than 64
-levels. Gantry's own `WBS.md` reader has no depth limit, and a load error
-stops the whole document, so one project nested deeper than 64 levels
-stops every site once #12 switches the build. A parent cycle always breaks the earlier-line rule, so no document
-makes the reader loop.
+levels. A load error stops the whole document, so one project nested deeper
+than 64 levels stops every site: `gantry build` exits 1 naming the place
+(`$.projects[i].nodes[j].parent`) and writes nothing. A parent cycle always
+breaks the earlier-line rule, so no document makes the reader loop.
 
 ### Names and metadata
 
@@ -283,14 +289,14 @@ devagent has already parsed each `meta` value into a string or a list of
 strings. The reader stores each string as a `ParsedValue`, a `str` subclass
 in `gantry/model.py`, and each list as a list of them, in the document's key
 order. `meta_value`, `meta_scalar` and `meta_values` return those shapes as
-they are and read no quote or bracket a second time. A plain `str`, which
-only Gantry's own `WBS.md` reader stores, still gets the raw-text reading.
-The tag is on the value, so every consumer that reads `meta` and
-`priority` through the accessors gets the same value from either reader.
-A consumer that takes the value as stored (the page's metadata, the week
-page's `est`, and the `{raw!r}` in the `bad_priority`, `bad_h` and
-`est_unparseable` texts) sees a list or an unquoted string instead; #12
-settles those.
+they are and read no quote or bracket a second time, a plain `str` included
+(#12 removed the raw-text reading with Gantry's own parser). A page shows a
+value through one helper, `render.meta_text`: a list as `[a, b]`, a string
+as devagent parsed it, at every page sink of a leaf's metadata, priority
+and `est:` (the worksite page's data, the week page's named leaves); a rank
+or an `est:` class still reads the stored value. The `{raw!r}` in the
+`bad_priority`, `bad_h` and `est_unparseable` texts prints the stored value
+as Python writes it: `['3', '4']` for a list.
 
 ### Report sources
 
@@ -333,8 +339,46 @@ Each project's status is returned as devagent wrote it: `read`, `no_wbs`,
 `no_devdoc_dir` or `unreadable`, with devagent's reason for the last three.
 Only a `read` project has nodes. An `unreadable` project gets one
 `site_unreadable` entry carrying devagent's reason as written; the sample
-site whose `WBS.md` is not UTF-8 has that status. Comparing these statuses
-with Gantry's own site list is #12's.
+site whose `WBS.md` is not UTF-8 has that status.
+
+The build compares each status with Gantry's own site resolution (a
+`devdoc_dir`, an accepted name, and whether a `WBS.md` exists in the
+planning directory, checked without reading it):
+
+| Gantry finds | Agrees with the document's |
+|---|---|
+| a `WBS.md` | `read`, `unreadable` |
+| no `WBS.md` | `no_wbs` |
+| no `devdoc_dir`, an empty one, or a planning directory that is missing or not a directory | `no_devdoc_dir` |
+| a `WBS.md` that is not a file | `unreadable` |
+| any other problem (an invalid name, a `devdoc_dir` that is not a string ...) | not compared: Gantry's own reason stands |
+
+A site whose statuses agree is built from its project's nodes, or, when the
+document did not read it, is not built and shows the document's words and
+reason (`no WBS.md: the devdoc dir has no WBS.md`) on the index and in every
+not-built line; the fires and the trace still read Gantry's own problem.
+**Out of date.** A site of devagent's config that the document does not
+hold is listed as `portfolio JSON out of date with devagent's config: this
+project is not in the document; re-run devagent's aggregator`; a project
+the document holds and devagent's config does not is a build warning of the
+same words; and a site whose statuses disagree is listed as `portfolio JSON
+out of date or disagreeing with Gantry: the document says <its status>;
+Gantry finds <Gantry's>; re-run devagent's aggregator, and if they still
+disagree, use an absolute devdoc_dir and the same devagent config for both`
+(most often the document is only stale: a `WBS.md` made or deleted since the
+aggregator ran). None of
+them is built, so leaves and estimates never come from two directories that
+disagree on whether a `WBS.md` exists (an absolute `devdoc_dir` closes the
+rest), and
+the trace names each in its `sites_not_read`. A project added to devagent's
+config is listed out of date until the aggregator runs again, then built,
+with no edit to the Gantry config (D1).
+
+devagent's shown entries are lines of their site's "Missing or unreadable"
+panel: `devagent <kind>: WBS.md line <n>: <message>`, or
+`devagent <kind>: <message>` for an entry with no line. One about a project
+with no page in the build is listed among the index's warnings as
+`<project>: devagent <kind>: ...`, and the build prints one count line.
 
 ### The snapshots
 
@@ -348,21 +392,17 @@ two sets:
 
 - `<site>.json` for each of the six sample sites, read from the document
   the pinned devagent release writes over `samples/`;
-- `fixture/<project>.json` for each of the 14 projects of
+- `fixture/<project>.json` for each of the 15 projects of
   `tests/fixtures/portfolio/written.json`. That file is the same release's
-  document over the `WBS.md` texts Gantry's own reader is tested with, plus
-  one text of shapes where the two readers differ.
+  document over the `WBS.md` texts the parser tests read: the 13 Gantry's
+  own reader was tested with until #12 deleted it, `edges` (shapes where
+  the two readers differed) and `fires` (the fires tests' lines).
 
-Three tests in `tests/test_portfolio_equivalence.py` stand on them:
+Two tests in `tests/test_portfolio_equivalence.py` stand on them:
 
-1. The reader against the 14 fixture snapshots, byte for byte. It needs no
+1. The reader against the 15 fixture snapshots, byte for byte. It needs no
    devagent checkout, so it runs on every CI leg.
-2. Gantry's own `WBS.md` reader against the snapshots, on the five sample
-   sites with a `WBS.md` (marsh, which neither reader can read, among them)
-   and on the 14 fixture projects. Every difference must
-   be an entry of `known_differences.json` in the same folder, and every
-   entry must still occur. This test goes when #12 deletes that reader.
-3. The reader against the six sample snapshots, on a document made during
+2. The reader against the six sample snapshots, on a document made during
    the test. It needs a devagent checkout (below).
 
 `tests/test_site_builder.py` also checks the committed sample document,
@@ -372,25 +412,16 @@ the pinned release writes. When the sample devagent config or a sample
 `WBS.md` changes, a test there fails and names the command that regenerates
 it; other changes under `samples/` reach only the gated byte check.
 
-`known_differences.json` is kept by hand. Today it holds thirteen entries.
-On the sample sites the one difference is a report text; across both
-sets, no link or held-out key differs. devagent words an
-unreadable `WBS.md`, and a near-miss line, in its own text. And the two
-readers disagree on which lines are near misses: at the pinned release,
-devagent's reader reports
-`- [xx] text`, `-[x] text`, `* [ ] text` and `+ [ ] text`,
-and does not report a link item with one character of text that is not a
-state glyph, such as `- [1](url)`, which Gantry's reader reports, nor a
-`- [X] text` line indented with no-break spaces.
-devagent's reading wins, so the `skipped_line` row of
-[The report](#the-report) changes when #12 switches the build. Two more
-shapes, in the fixture's `edges` text, change a leaf. A list `issue:` gives
-`no_issue` under Gantry's own reader, and devagent's `issue_malformed`,
-shown as written, under the portfolio reader. An unclosed `h: [3` gives no
-score and `bad_h` under Gantry's own reader, and the score 3 under the
-portfolio reader. And a bad `priority:` that is a list or quoted shows in
-the `bad_priority` text as Python writes the stored value: `'[P1, P2]'`
-under Gantry's own reader, `['P1', 'P2']` under the portfolio reader.
+What changed when the build switched readers (#12): devagent words an
+unreadable `WBS.md`, and a near-miss line, in its own text, and its
+near-miss rule decides which lines are reported. At the pinned release
+`- [xx] text`, `-[x] text`, `* [ ] text` and `+ [ ] text` are reported, and
+a link item with one character of text that is not a state glyph, such as
+`- [1](url)`, and a `- [X] text` line indented with no-break spaces are not
+(the `skipped_line` row of [The report](#the-report)). A list `issue:` is
+devagent's `issue_malformed`, shown as written; an unclosed `h: [3` scores
+3; and a bad `priority:` that is a list shows in the `bad_priority` text as
+`['P1', 'P2']`.
 
 ### The tools and the pin
 
@@ -1276,13 +1307,25 @@ works opened from disk and under any path prefix.
 ### The build stamp and sample mode
 
 Every page and the index carry a stamp under their first line. It reads
-`built {when}; data as of {date}`, where `{when}` is the build time in UTC
-(`2026-11-07 14:03 UTC`) and `{date}` the as-of date. In **sample mode** it
-reads `sample data as of {date}` and carries no build time, so two builds of
-the same sample data on the same as-of date write byte-identical files.
+`built {when}; data as of {date}; devagent data written {when}`, where the
+first `{when}` is the build time in UTC (`2026-11-07 14:03 UTC`), `{date}`
+the as-of date, and the second `{when}` the portfolio JSON's `generated_at`,
+when devagent's aggregator wrote the data the page shows (#12). The form
+without the data time, `built {when}; data as of {date}`, is the stamp's
+first part, which every built page starts with. In **sample mode** it
+reads `sample data as of {date}` and carries no build time and no data
+time, so two builds of the same sample data on the same as-of date write
+byte-identical files, whenever the aggregator wrote the sample document.
+
+**A stale document still builds.** Gantry never runs the aggregator: a
+`WBS.md` edited after the document was written is not on the pages until
+the aggregator runs again, and the build exits 0. The data-time line is
+the only sign; a check that compares each `WBS.md` with `generated_at` is
+mtibbits/gantry#205.
 
 Sample mode holds when every root the config names resolves inside the
-sample directory: the Gantry config itself, the devagent config, every
+sample directory: the Gantry config itself, the devagent config, the
+portfolio JSON (`portfolio_json`), every
 planning directory (`devdoc_dir`) it names, `output_dir`, and each other
 configured path (`portfolio_file`, `fires_list`, and each
 `site.<name>.requirements`, `site.<name>.estimates` and
@@ -1401,6 +1444,11 @@ summary and the warnings, as shown.
 
 ## Every site and the index
 
+Run devagent's aggregator (`/devagent:portfolio`) first, so the portfolio
+JSON is current: the build reads every site's nodes from it and never runs
+the aggregator itself. A missing or unreadable document stops the build
+with exit 1 and writes nothing ([Load errors](#load-errors)).
+
 `gantry build --config FILE` builds every site devagent's config names, in
 its config order. It first reads every site and each site's devagent
 records, once, before any page (#173: the pages' phase rows and the fire
@@ -1515,8 +1563,9 @@ path. Seven more lines can follow on stderr:
 `gantry build --config FILE --site NAME` writes only that site's page to
 `<output_dir>/sites/<NAME>.html`, and no index and no plan, and prints the page's
 absolute path, then that site's `trace <site>:` line when the full build
-would print one. It reads only that site's `WBS.md`, inputs and devagent
-records (the site list still checks each planning directory), every
+would print one. It reads the portfolio JSON (that site's project), that
+site's inputs and devagent records (the site list still checks each
+planning directory), every
 requirements file and the portfolio file, which the trace needs. Its
 phase rows equal the full build's on every box both builds draw (#173). It creates `<output_dir>/sites/`
 when it is missing and writes the page the same way. Each of these exits 1

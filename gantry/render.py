@@ -174,6 +174,17 @@ def hours_text(hours) -> str:
     return hundredths(hours) + " h"
 
 
+def meta_text(value):
+    """A metadata value as a page shows it (#12): a list as `[a, b]`, a string as devagent parsed
+    it, None as None. Every page sink of a leaf's meta, priority and est takes it; classification
+    (a rank, an est: class) reads the stored value."""
+    if value is None:
+        return None
+    if isinstance(value, list):
+        return "[" + ", ".join(str(item) for item in value) + "]"
+    return str(value)
+
+
 def non_time_text(raw):
     """A non-time est: value as text ("2.5 pr"), or None."""
     value = classify_est(raw)

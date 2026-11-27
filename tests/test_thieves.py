@@ -112,19 +112,23 @@ def machine_parts(thief):
 # --- WIP (AC1) ---------------------------------------------------------------------------------
 
 
-def test_thieves_imports_no_stopgap():
-    forbidden = "gantry." + "wbs_" + "stopgap"
+def test_thieves_imports_no_wbs_reader():
+    """The thieves read the build's result and WBS.md's git history, never a WBS.md: thieves.py imports
+    neither devagent's document reader nor a parser (#12 deleted Gantry's own). The scan sees thieves'
+    real imports, so it cannot pass on a module that no longer exists."""
+    forbidden = {"gantry.portfolio_json", "gantry.model"}
     tree = ast.parse((ROOT / "gantry" / "thieves.py").read_bytes().decode("utf-8"))
-    seen = 0
+    found = set()
     for item in ast.walk(tree):
         if isinstance(item, ast.ImportFrom):
-            seen += 1
-            names = [item.module or ""] + [f"{item.module}.{a.name}" for a in item.names]
-            assert not any(n == forbidden or n.startswith(forbidden + ".") for n in names), names
-            assert not (item.module == "gantry" and any(a.name == "wbs_" + "stopgap" for a in item.names))
+            found.add(item.module or "")
+            found |= {f"{item.module}.{a.name}" for a in item.names}
         elif isinstance(item, ast.Import):
-            assert not any(a.name == forbidden or a.name.startswith(forbidden + ".") for a in item.names)
-    assert seen >= 1
+            found |= {a.name for a in item.names}
+    assert {"gantry.wbs_history", "gantry.fires", "gantry.deps"} <= {n.split(".", 2)[0] + "." + n.split(".", 2)[1]
+                                                                    for n in found if n.startswith("gantry.")}
+    assert not forbidden & found and not any("stopgap" in n for n in found)
+    assert not (ROOT / "gantry" / ("wbs_" + "stopgap.py")).exists()
 
 
 def test_thieves_imports_no_view_and_reads_no_clock():

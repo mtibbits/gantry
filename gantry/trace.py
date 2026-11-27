@@ -4,8 +4,8 @@ the requirements catalog (#19). docs/requirements-format.md states the rules.
 A leaf's `satisfies:` is read from the parsed leaf's `meta` through
 gantry.model.meta_values, and each entry through gantry.requirements.parse_id
 with no default namespace: there is one reading of a meta value and one ID
-grammar. This module never reads WBS.md and never imports the stopgap parser,
-so #12 changes the accessor, not this module.
+grammar. This module never reads WBS.md: the leaves are devagent's reading
+(gantry/portfolio_json.py, #12).
 
 load_catalog reads every in-trace site's requirements file and, when
 portfolio_file is set, the portfolio file's business requirements, once per

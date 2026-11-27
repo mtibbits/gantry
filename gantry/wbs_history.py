@@ -9,8 +9,8 @@ planning repository, through one repository rule and one isolated git helper.
 - `history_repository`: the one rule for which repository answers.
 
 When git cannot answer, the result is a `NoData` with a reason; nothing here
-raises for a site. It is a line scanner, not a WBS parser, and never builds
-on the stopgap parser (#12 deletes it). docs/wbs-history.md states the rules.
+raises for a site. It is a line scanner of WBS.md's git history, not a WBS
+parser: the build's nodes are devagent's (#12). docs/wbs-history.md states the rules.
 The time thieves (#29, gantry.thieves) bind the signatures.
 """
 

@@ -17,8 +17,8 @@ Two sets are written under tests/fixtures/expected_leaves/:
   tests/fixtures/portfolio/written.json, mapped with map_document.
 
 --check writes nothing and prints one line per file that differs, is missing
-or is extra. known_differences.json in the same folder is kept by hand: it
-lists each place where Gantry's own WBS.md reader differs from a snapshot.
+or is extra. A snapshot is what the build reads (#12: Gantry has no reader of
+its own).
 
 Exit 0 done; 1 a difference, an extra file, a failed aggregator or a document
 the reader refuses; 2 a usage error, no bash, or --devagent is not a devagent
@@ -28,8 +28,6 @@ checkout at the pinned release. docs/worksite-page.md states the rules.
 import argparse
 import os
 import sys
-from collections import Counter
-from itertools import zip_longest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -42,20 +40,18 @@ from gantry import trace  # noqa: E402
 from gantry.attention import read_h  # noqa: E402
 from gantry.deps import refs  # noqa: E402
 from gantry.est_rules import classify_est  # noqa: E402
-from gantry.model import Row, meta_value  # noqa: E402
+from gantry.model import Row  # noqa: E402
 from gantry.portfolio_json import PortfolioLoadError, map_document, read_portfolio  # noqa: E402
 from gantry.priority import rank  # noqa: E402
 from gantry.roots import directory_roots  # noqa: E402
 
 OUT = ROOT / "tests" / "fixtures" / "expected_leaves"
 FIXTURE_OUT = OUT / "fixture"
-KNOWN = OUT / "known_differences.json"
 
 
 def _value(raw):
-    """A metadata value through gantry.model's accessor, in JSON's types."""
-    value = meta_value(raw)
-    return [str(v) for v in value] if isinstance(value, list) else str(value)
+    """A metadata value as devagent parsed it, in JSON's types."""
+    return [str(v) for v in raw] if isinstance(raw, list) else str(raw)
 
 
 def _node(node, site, namespaces):
@@ -108,59 +104,6 @@ def snapshots(portfolio, pin) -> dict:
             for p in portfolio.projects}
 
 
-def _line(line):
-    return "null" if line is None else str(line)
-
-
-def diff_snapshots(stopgap, snapshot) -> list:
-    """[(where, stopgap value, snapshot value)] for each difference between two snapshots.
-
-    Compared: the status, the nodes by line and field (`meta` with its key
-    order), the links, the held-out keys, and the report, whose entries pair
-    by line and kind: an entry both sides hold pairs with itself, the rest
-    pair in message order, and an entry with no partner has None opposite.
-    When both sides hold the same entries for a line and kind in another
-    order, one `.order` difference lists each side's messages.
-    The pin, schema version, reason and devagent entries are not compared:
-    Gantry's own WBS.md reader has none of them.
-    """
-    found = []
-
-    def whole(field):
-        if stopgap[field] != snapshot[field]:
-            found.append((field, stopgap[field], snapshot[field]))
-
-    whole("status")
-    mine = {node["line"]: node for node in stopgap["nodes"]}
-    theirs = {node["line"]: node for node in snapshot["nodes"]}
-    for line in sorted(mine.keys() | theirs.keys()):
-        a, b = mine.get(line), theirs.get(line)
-        if a is None or b is None:
-            found.append((f"nodes[{line}]", a, b))
-            continue
-        for field in dict.fromkeys([*a, *b]):
-            x, y = a.get(field), b.get(field)
-            same = x == y
-            if same and field == "meta":
-                same = list(x.items()) == list(y.items())
-            if not same:
-                found.append((f"nodes[{line}].{field}", x, y))
-    whole("links")
-    whole("held_out")
-    groups = {}
-    for side, report in enumerate((stopgap["report"], snapshot["report"])):
-        for line, kind, message in report:
-            groups.setdefault((line, kind), ([], []))[side].append(message)
-    for (line, kind), (a, b) in sorted(groups.items(), key=lambda item: (item[0][0] is not None, item[0][0] or 0,
-                                                                         item[0][1])):
-        mine, theirs = Counter(a), Counter(b)
-        left, right = sorted((mine - theirs).elements()), sorted((theirs - mine).elements())
-        found += [(f"report[{_line(line)}, {kind}]", x, y) for x, y in zip_longest(left, right)]
-        if mine == theirs and a != b:
-            found.append((f"report[{_line(line)}, {kind}].order", a, b))
-    return found
-
-
 def expected_fixtures() -> dict:
     """{project: snapshot bytes} for the committed written.json; no aggregator is run."""
     doc = sample_portfolio.written_doc()
@@ -187,9 +130,8 @@ def _extra(made):
     found = []
     for folder, prefix in ((OUT, ""), (FIXTURE_OUT, f"{FIXTURE_OUT.name}/")):
         if folder.is_dir():
-            # The hand-kept list sits beside the sample snapshots.
             found += [prefix + p.name for p in sorted(folder.iterdir())
-                      if p.is_file() and prefix + p.name not in made and prefix + p.name != KNOWN.name]
+                      if p.is_file() and prefix + p.name not in made]
     return found
 
 

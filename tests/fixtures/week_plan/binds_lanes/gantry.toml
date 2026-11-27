@@ -1,7 +1,9 @@
 # A fictional installation for the week planner's tests (#61).
 # Paths are relative to this file's folder.
-config_version = 1
+config_version = 2
 devagent_config = "devagent.toml"
+# Written beside the copy's devagent.toml by the tests' install() (#197).
+portfolio_json = "portfolio.json"
 output_dir = "out"
 as_of = 2026-01-19
 portfolio_file = "portfolio.md"

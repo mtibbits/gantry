@@ -6,8 +6,9 @@
 (<output_dir>/week.html, #38), the strategic page
 (<output_dir>/strategic.html, #23) and the index, plans the week and writes
 the plan to <output_dir>/week-plan.json (#61); with
-`--site` it builds that one page, no week view, no strategic page, no index and no plan, reading that site's
-WBS.md, inputs and devagent records (#173), every requirements file and the portfolio file. Both
+`--site` it builds that one page, no week view, no strategic page, no index and no plan, reading that site
+from devagent's portfolio JSON (#12), its inputs and devagent records (#173), every requirements file and
+the portfolio file. Both
 print each written file's path, then a `trace <site>:` line for each written
 page whose site is in the trace or whose trace report has an entry (#20);
 the full build then prints one `fires:` line, the count of fires and of
@@ -32,7 +33,8 @@ docs/refresh-and-serve.md). Exit codes:
 - 0: the full build wrote the week view, the strategic page, the index and
   at least one site page; `--site` wrote its page; `portfolio` found no
   report entry;
-- 1: a config error; the full build wrote no site page (the index is still
+- 1: a config error, or devagent's portfolio JSON missing, unreadable, not
+  JSON or of another schema major (nothing is written); the full build wrote no site page (the index is still
   written) or cannot write the index or the output folder, the week page
   cannot be rendered or written, the plan file cannot be written, or
   strategic.html cannot be made or written; `--site` names no
@@ -63,6 +65,8 @@ from gantry.build import (
     RECORDS_MISSING,
     build_all,
     clashes,
+    devagent_by_project,
+    read_document,
     read_records,
     read_site,
     render_reason,
@@ -77,14 +81,19 @@ from gantry.config import ConfigError, error_reason, load_config
 from gantry.fires_list import entry_age, fires_reference, read_fires_list, still_a_fire
 from gantry.planner import CAPACITY_INVALID, INVALID, PLAN_FILE, plan_to_json, write_plan
 from gantry.portfolio_file import PORTFOLIO_LABEL, SECTIONS, format_entry, read_portfolio_file, report_entries
+from gantry.portfolio_json import PortfolioLoadError
 from gantry.roots import OutsideRoots
-from gantry.sites import config_roots, shown
+from gantry.sites import config_roots, one_line, shown
 from gantry.stamp import stamp_text
 from gantry.trace import counts_line, load_catalog
+from gantry.views.index import devagent_unplaced
 
 # The full build's last stdout line (#32): how many fires, and how many sources
 # were not fully read. It names no fire; docs/daily-screen.md#fires states it.
 FIRES_LINE = "fires: {n}; sources not fully read: {m}"
+# devagent's shown report entries about a project with no page (#12): counted here, listed on the index.
+UNPLACED_LINE = ("gantry: warning: portfolio JSON: {n} devagent report {entries} a project with no page; "
+                 "the index lists them")
 # An invalid devagent capacity declaration (#39) is not used, its pauses included; {count} is
 # "1 violation" or "N violations".
 CAPACITY_INVALID_LINE = "gantry: warning: devagent's capacity declaration is invalid ({count}); it is not used"
@@ -93,7 +102,7 @@ CAPACITY_INVALID_LINE = "gantry: warning: devagent's capacity declaration is inv
 def _parser():
     parser = argparse.ArgumentParser(
         prog="gantry",
-        description="Build planning pages from devagent WBS files.",
+        description="Build planning pages from devagent's portfolio JSON.",
     )
     commands = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
     build = commands.add_parser(
@@ -162,16 +171,17 @@ def _utf8_streams():
             stream.reconfigure(encoding="utf-8", errors="backslashreplace", newline="\n")
 
 
-def _build_site(config, roots, sites, name, flag=False):
+def _build_site(config, roots, sites, name, flag, projects, document):
     def fail(message):
-        print(f"gantry: error: --site {shown(name)}: {_flagged(message, flag)}", file=sys.stderr)
+        print(f"gantry: error: --site {shown(name)}: {_flagged(one_line(message), flag)}", file=sys.stderr)
         return 1
 
     site = next((s for s in sites if s.name == name), None)
     if site is None:
         return fail(f"no such site in {config.devagent_config}")
-    # The full build's read: its case-clash rule, and a parse error stops only this site.
-    inputs, problem = read_site(site, config, clashes(sites).get(site.name), roots=roots)
+    # The full build's read: its case-clash rule, and a fault stops only this site.
+    inputs, problem = read_site(site, config, clashes(sites).get(site.name), roots=roots,
+                                project=projects.get(site.name))
     if problem is not None:
         return fail(f"cannot build: {problem}")
     # The trace reads every requirements file and the portfolio file (#20).
@@ -180,8 +190,9 @@ def _build_site(config, roots, sites, name, flag=False):
     # phase rows match.
     records = read_records(roots, [site]).get(site.name, RECORDS_MISSING)
     try:
-        text, m = render_site(site.name, inputs, config, stamp_text(config, roots=roots), catalog=catalog,
-                              records=records)
+        text, m = render_site(site.name, inputs, config, stamp_text(config, generated_at=document.generated_at, roots=roots),
+                              catalog=catalog, records=records,
+                              devagent=devagent_by_project(document, roots).get(site.name, []))
     except Exception as e:
         # One line, naming no configured root by its path.
         return fail(render_reason(e, roots))
@@ -200,9 +211,9 @@ def _build_site(config, roots, sites, name, flag=False):
 
 
 def _warn(warnings):
-    # The site list's and the trace's warnings; the trace reads the files it names (#20).
+    # The site list's, the trace's and the portfolio JSON's warnings; the trace reads the files it names (#20).
     for warning in warnings:
-        print(f"gantry: warning: {warning.message}", file=sys.stderr)
+        print(f"gantry: warning: {one_line(warning.message)}", file=sys.stderr)
 
 
 def _write_plan(result, text):
@@ -244,7 +255,8 @@ def _flagged(text, flag):
 
 
 def _config_error(e, flag):
-    print(f"gantry: error: {_flagged(str(e), flag)}", file=sys.stderr)
+    # A PortfolioLoadError's text quotes the document's own keys: one line (#12).
+    print(f"gantry: error: {_flagged(one_line(str(e)), flag)}", file=sys.stderr)
 
 
 def _build_all(config, *, marker=False):
@@ -252,7 +264,8 @@ def _build_all(config, *, marker=False):
     index writes build.json last, holding the exit code (#35)."""
     try:
         result = build_all(config)
-    except ConfigError as e:
+    except (ConfigError, PortfolioLoadError) as e:
+        # Nothing is written, build.json included: a document that cannot be read builds nothing (#12).
         _config_error(e, marker)
         return 1
     _warn(result.warnings)
@@ -276,11 +289,15 @@ def _build_all(config, *, marker=False):
     for s in result.fires.sources:
         if s.site is None and s.status == "not_read":
             what = "fires not collected" if s.source == FIRES_STEP else f"fires source {s.source} is not read"
-            print(f"gantry: warning: {what}: {s.reason}", file=sys.stderr)
+            print(f"gantry: warning: {what}: {one_line(s.reason)}", file=sys.stderr)
     for s in result.summaries:
         if s.status != "built":
-            print(f"gantry: warning: site {shown(s.name)} is not built: {_flagged(s.reason, marker)}",
+            print(f"gantry: warning: site {shown(s.name)} is not built: {_flagged(one_line(s.reason), marker)}",
                   file=sys.stderr)
+    unplaced = len(devagent_unplaced(result))
+    if unplaced:
+        print(UNPLACED_LINE.format(n=unplaced, entries="entry names" if unplaced == 1 else "entries name"),
+              file=sys.stderr)
     for name, kind in result.thieves_failed.items():
         # One site's thieves that could not be derived read "no data" on its panel; the exit code is unchanged (#29).
         print(f"gantry: warning: site {shown(name)}: {thieves.THIEVES_FAILED.format(type=kind)}", file=sys.stderr)
@@ -335,17 +352,19 @@ def _build(args):
     try:
         roots = config_roots(config)
         sites, warnings = site_list(config, roots)
-    except ConfigError as e:
+        # The document's own warnings name projects not in devagent's config: never this site (#12).
+        document, sites, projects, _ = read_document(config, sites, roots)
+    except (ConfigError, PortfolioLoadError) as e:
         _config_error(e, flag)
         return 1
     _warn(warnings)
-    return _build_site(config, roots, sites, args.site, flag)
+    return _build_site(config, roots, sites, args.site, flag, projects, document)
 
 
-# This command reads no WBS.md, so it cannot find the milestone leaf; the full
+# This command reads no site's leaves, so it cannot find the milestone leaf; the full
 # build reads every site and runs report_entries with each site's issue:
 # values, and the strategic page lists the result (#23, docs/portfolio-file.md).
-MILESTONE_NOTE = ("note: the milestone leaf is not checked here (this command reads no WBS.md); a full gantry build "
+MILESTONE_NOTE = ("note: the milestone leaf is not checked here (this command reads no site's leaves); a full gantry build "
                   "checks it and lists the result on the strategic page")
 
 
@@ -373,7 +392,7 @@ def _portfolio(args):
               "to check a portfolio file (docs/portfolio-file.md)", file=sys.stderr)
         return 1
     portfolio = read_portfolio_file(roots, config.portfolio_file, br_namespace=config.requirements.br_namespace)
-    # It reads no WBS.md, so no issues_by_site: the milestone leaf is not checked.
+    # It reads no site's leaves, so no issues_by_site: the milestone leaf is not checked.
     entries = report_entries(portfolio, site_names)
     for section in (None, *SECTIONS):
         group = [e for e in entries if e.section == section]

@@ -23,6 +23,7 @@ from typing import NamedTuple
 import pytest
 
 from gantry.roots import gantry_root
+import helpers_portfolio as hp
 from helpers_config import install_sample_document, written_bytes
 from test_samples import GANTRY_SAMPLE
 
@@ -237,8 +238,12 @@ def _devagent(config_file):
 def _installation(config_file, devagent_rel):
     config_file = Path(config_file)
     config_file.parent.mkdir(parents=True, exist_ok=True)
-    config_file.write_bytes(f'config_version = 1\ndevagent_config = "{devagent_rel}"\noutput_dir = "out"\n'
+    config_file.write_bytes(f'config_version = 2\ndevagent_config = "{devagent_rel}"\nportfolio_json = "portfolio.json"\n'
+                            f'output_dir = "out"\n'
                             .encode("utf-8"))
+    # devagent's reading of the planted site, beside the config (#12).
+    planted = hp.source(PLANTED_WBS.encode("utf-8"), hp.node("PLANTED", issue="Issue-1"), start=2)
+    (config_file.parent / "portfolio.json").write_bytes(hp.sp.dumps(hp.site_document({"planted": planted})))
 
 
 def plant(p):
@@ -272,6 +277,18 @@ def copy_with_history(folder):
     shutil.copytree(SAMPLES, copy, ignore=lambda d, names: ["out"] if Path(d) in top else [])
     install_sample_document(copy)
     return copy
+
+
+def document_file(config_path):
+    """The config's portfolio JSON, resolved (#12): the one file the build reads every site's nodes from."""
+    from gantry.config import load_config
+
+    return canon(Path(load_config(config_path).portfolio_json))
+
+
+def document_opens(record, document):
+    return {canon(_path(e, record)) for e in record["events"]
+            if e["event"] == "open" and _path(e, record) is not None and canon(_path(e, record)) == document}
 
 
 def wbs_files(config_path):
@@ -332,9 +349,11 @@ def test_demo_build_reads_only_samples_and_the_package(demo_runs):
     found = violations(record, **kwargs)
     assert found == [], describe(found)
     assert set(BY_NAME) <= used_by_name(record, **kwargs)
-    expected = wbs_files(GANTRY_SAMPLE)
-    assert expected
-    assert wbs_opens(record) == expected
+    # The build opens no working-tree WBS.md (#12): every site's nodes come from the portfolio JSON.
+    assert wbs_files(GANTRY_SAMPLE)
+    assert wbs_opens(record) == set()
+    document = document_file(GANTRY_SAMPLE)
+    assert document_opens(record, document) == {document}
     assert any(e["event"] == "open" and _path(e, record) is not None and inside(_path(e, record), PACKAGE)
                and any(g[0] == "roots.py" for g in e["gantry"]) for e in record["events"])
 
@@ -355,9 +374,10 @@ def test_control_copy_outside_the_sample_directory_is_seen(demo_runs):
     record = demo_runs["control"].record
     assert demo_runs["control"].code == 0
     assert record["hook_errors"] == 0
-    expected = wbs_files(demo_runs["copy"] / "gantry.sample.toml")
-    assert expected
-    assert wbs_opens(record) == expected
+    config = demo_runs["copy"] / "gantry.sample.toml"
+    assert wbs_files(config) and wbs_opens(record) == set()
+    expected = {document_file(config)}
+    assert document_opens(record, *expected) == expected
     found = violations(record, **demo_kwargs(demo_runs["folders"].values()))
     outside = {canon(_path(item, record)) for reason, item in found
                if reason == "outside" and _path(item, record) is not None}

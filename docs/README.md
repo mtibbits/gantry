@@ -7,7 +7,7 @@ and how to try the demo.
   roots a build may read and write, supported platforms and the Claude Code
   plugin.
 - [concepts.md](concepts.md): the ideas behind Gantry, for a public reader.
-- [worksite-page.md](worksite-page.md): how Gantry reads a site's `WBS.md`,
+- [worksite-page.md](worksite-page.md): how Gantry reads a site from devagent's portfolio JSON,
   what it reports, and what the worksite page and the index show.
 - [strategic-page.md](strategic-page.md): the strategic page, each site's
   intended share against its backlog share under the requirements it serves,

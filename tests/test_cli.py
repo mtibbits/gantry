@@ -24,6 +24,7 @@ from helpers_config import (
     append_bytes,
     copy_samples,
     demo_build,
+    install_sample_document,
     replace_bytes,
     run_main,
     sample_projects,
@@ -32,7 +33,7 @@ from helpers_config import (
     written_bytes,
 )
 from page_safety import assert_page_safe
-from sample_roles import BUSY, NO_WBS, NOT_BUILT, READABLE, SMALL, UNREADABLE
+from sample_roles import BUSY, NOT_BUILT, NO_WBS, NO_WBS_REASON, READABLE, SMALL, UNREADABLE, UNREADABLE_REASON
 from test_portfolio_file import EVERY_FIXTURE
 from test_samples import ROOT
 
@@ -130,7 +131,7 @@ def test_python_m_builds_sample_sites(tmp_path):
     check_written(result.stdout, copy / "out")
 
 
-@pytest.mark.skipif(not shutil.which("gantry"), reason="gantry is not installed on PATH (CI runs it unconditionally)")
+@pytest.mark.skipif(not shutil.which("gantry"), reason="gantry is not installed on PATH (CI runs it on Linux)")
 def test_console_script_builds_sample_sites(tmp_path):
     copy = copy_samples(tmp_path)
     result = subprocess.run(
@@ -161,37 +162,26 @@ def test_write_site_tree_builds_sites(tmp_path, capsys):
         "fires: 0; sources not fully read: 2"]  # no fires_list; beta has no node line
     assert "14 open leaves" in (out / "index.html").read_bytes().decode("utf-8")
     assert NO_LEAVES in (out / "sites" / "beta.html").read_bytes().decode("utf-8")
-    # The agreement check (#195): a document that reads the text otherwise fails the write.
-    with pytest.raises(AssertionError, match=r"nodes\[1\]\.state"):
-        write_site_tree(tmp_path / "bad", {"a": hp.source(b"- [x] A {issue: Issue-1}\n",
-                                                          hp.node("A", issue="Issue-1"))})
-    with pytest.raises(AssertionError, match=r"nodes\[1\]\.meta"):
-        write_site_tree(tmp_path / "nometa", {"a": hp.source(b"- [ ] A {issue: Issue-1, est: 3h}\n",
-                                                             hp.node("A", issue="Issue-1"))})
-    write_site_tree(tmp_path / "edges", {"alpha": hp.fixture_source("edges")})  # all three exempt directions
+    # The build reads the document, not the text (#12): a Source's nodes are what the page shows.
+    bad = write_site_tree(tmp_path / "bad", {"a": hp.source(b"- [x] A {issue: Issue-1}\n",
+                                                            hp.node("A", issue="Issue-1"))})
+    assert main(["build", "--config", str(bad)]) == 0
+    assert "1 open leaf" in (tmp_path / "bad" / "out" / "index.html").read_bytes().decode("utf-8")
+    write_site_tree(tmp_path / "edges", {"alpha": hp.fixture_source("edges")})
     write_site_tree(tmp_path / "unreadable", {"alpha": hp.fixture_source("not_utf8")})
     doc = hp.read_doc(tmp_path / "unreadable", (tmp_path / "unreadable" / "portfolio.json").read_bytes())
     assert [p.status for p in doc.projects] == ["unreadable"]
-    # A cross-project dep_cycle entry (#197) must be a cycle Gantry finds across the sites: two sites
-    # whose leaves wait on each other, the entry where devagent homes it (its first member's project).
+    # A cross-project dep_cycle entry (#197) is devagent's: shown as it wrote it, on its project's page
+    # (#12); Gantry's own cycle finder decides what the pages plan. No check ties the two any more.
     entry = (1, "dep_cycle", "dependency cycle: Issue-1 (line 1), b:Issue-1 (line 1)")
-
-    def mutual(entry):
-        return {"a": hp.source(b"- [ ] A {issue: Issue-1, depends_on: [b:Issue-1]}\n",
-                               hp.node("A", issue="Issue-1", depends_on=["b:Issue-1"]), report=(entry,)),
-                "b": hp.source(b"- [ ] B {issue: Issue-1, depends_on: [a:Issue-1]}\n",
-                               hp.node("B", issue="Issue-1", depends_on=["a:Issue-1"]))}
-
-    invented = hp.Source(hp.DONE_SITE.text, hp.DONE_SITE.nodes, (entry,))
-    with pytest.raises(AssertionError, match=r"cross-project dep_cycle"):
-        write_site_tree(tmp_path / "invented", {"a": invented, "b": hp.DONE_SITE})
-    with pytest.raises(AssertionError, match=r"cross-project dep_cycle"):
-        write_site_tree(tmp_path / "member", mutual((1, "dep_cycle", "dependency cycle: Issue-1 (line 1), "
-                                                                     "b:Issue-1 (line 2)")))
-    write_site_tree(tmp_path / "mutual", mutual(entry))
-    with pytest.raises(AssertionError, match=r"does not parse as devagent's cycle message"):
-        write_site_tree(tmp_path / "spaced", mutual((1, "dep_cycle", "dependency cycle: a b<c>&é (line 1), "
-                                                                     "b:Issue-1 (line 1)")))
+    mutual = write_site_tree(tmp_path / "mutual", {
+        "a": hp.source(b"- [ ] A {issue: Issue-1, depends_on: [b:Issue-1]}\n",
+                       hp.node("A", issue="Issue-1", depends_on=["b:Issue-1"]), report=(entry,)),
+        "b": hp.source(b"- [ ] B {issue: Issue-1, depends_on: [a:Issue-1]}\n",
+                       hp.node("B", issue="Issue-1", depends_on=["a:Issue-1"]))})
+    assert main(["build", "--config", str(mutual)]) == 0
+    page = (tmp_path / "mutual" / "out" / "sites" / "a.html").read_bytes().decode("utf-8")
+    assert "devagent dep_cycle: WBS.md line 1: dependency cycle: Issue-1 (line 1), b:Issue-1 (line 1)" in page
 
 
 # --- build --output-dir and its completion marker (#35) -------------------------
@@ -375,8 +365,8 @@ def leftovers(folder):
 def test_site_unreadable_writes_no_page(tmp_path, capsys):
     copy = copy_samples(tmp_path)
     config = copy / "gantry.sample.toml"
-    for name, reason in ((UNREADABLE, "WBS.md is not valid UTF-8 at byte 88"),
-                         (NO_WBS, "no WBS.md in the planning directory")):
+    for name, reason in ((UNREADABLE, UNREADABLE_REASON),
+                         (NO_WBS, NO_WBS_REASON)):
         code, out, err = site_build(capsys, config, name)
         assert (code, out) == (1, "")
         assert err == f"gantry: error: --site {name}: cannot build: {reason}\n"
@@ -565,6 +555,7 @@ def launcher_copy(tmp_path):
     skip = shutil.ignore_patterns("out", "__pycache__")
     for part in ("gantry", "tools", "samples"):
         shutil.copytree(ROOT / part, copy / part, ignore=skip)
+    install_sample_document(copy / "samples")  # the sample config's portfolio JSON (#12)
     return copy
 
 
@@ -776,7 +767,7 @@ def test_trace_warning_escapes_name(tmp_path, capsys):
 # --- gantry portfolio (#22) ----------------------------------------------------
 
 PORTFOLIO_FIXTURES = ROOT / "tests" / "fixtures" / "portfolio_file"
-MILESTONE_NOTE = ("note: the milestone leaf is not checked here (this command reads no WBS.md); a full gantry build "
+MILESTONE_NOTE = ("note: the milestone leaf is not checked here (this command reads no site's leaves); a full gantry build "
                   "checks it and lists the result on the strategic page")
 
 
@@ -1009,3 +1000,99 @@ def test_fires_sample_exits_0():
         "status: read",
         "",
     ]
+
+
+# --- the portfolio JSON stops the build when it cannot be read (#12) ---------------------------
+
+from helpers_config import snapshot as tree_snapshot  # noqa: E402
+
+
+def document_tree(tmp_path):
+    """(config path, document path, out folder) of a one-site tree with an old build in out/."""
+    folder = tmp_path / "tree"
+    config = write_site_tree(folder, {"alpha": hp.fixture_source("page")})
+    out = folder / "out"
+    assert run_main("--config", str(config))[0] == 0
+    return config, folder / "portfolio.json", out
+
+
+RUNS = {
+    "full": lambda config, tmp: (),
+    "site": lambda config, tmp: ("--site", "alpha"),
+    "output-dir": lambda config, tmp: ("--output-dir", str(tmp / "gen")),
+}
+
+
+@pytest.mark.parametrize("run", list(RUNS))
+def test_missing_document_exits_1_output_unchanged(tmp_path, run):
+    config, document, out = document_tree(tmp_path)
+    document.unlink()
+    before = tree_snapshot(out)
+    code, stdout, stderr = run_main("--config", str(config), *RUNS[run](config, tmp_path))
+    assert (code, stdout) == (1, "")
+    assert stderr == (f"gantry: error: {document}: devagent's portfolio JSON does not exist. Run devagent's "
+                      "aggregator first (/devagent:portfolio).\n")
+    assert tree_snapshot(out) == before
+    assert not (tmp_path / "gen").exists() and not (out / "build.json").exists()
+
+
+def rewrite(document, fn):
+    doc = json.loads(document.read_bytes())
+    document.write_bytes(hp.sp.dumps(fn(doc)))
+
+
+def test_unknown_major_exits_1_naming_both_versions(tmp_path):
+    config, document, out = document_tree(tmp_path)
+    rewrite(document, lambda doc: {**doc, "schema_version": "2.0"})
+    before = tree_snapshot(out)
+    code, _, stderr = run_main("--config", str(config))
+    assert code == 1
+    assert stderr == (f'gantry: error: {document}: portfolio schema_version "2.0" is not supported: Gantry reads '
+                      "major 1 (schema 1.2)\n")
+    assert tree_snapshot(out) == before
+
+
+@pytest.mark.parametrize("data, says", [
+    (b"{not json", "is not valid JSON: syntax error at line 1 column 2"),
+    (b'{"schema": "devagent-portfolio", "schema_version": "1.2"}\n',
+     "not a portfolio document Gantry can read: $.generated_at: not an RFC 3339 UTC time"),
+])
+def test_not_json_or_schema_break_exits_1(tmp_path, data, says):
+    config, document, out = document_tree(tmp_path)
+    document.write_bytes(data)
+    before = tree_snapshot(out)
+    code, _, stderr = run_main("--config", str(config))
+    assert code == 1 and stderr.startswith(f"gantry: error: {document}: ") and says in stderr, stderr
+    assert stderr.count("\n") == 1 and tree_snapshot(out) == before
+
+
+def test_too_deep_project_stops_the_build_naming_its_place(tmp_path):
+    config, document, _ = document_tree(tmp_path)
+    nodes = [hp.node(f"N{depth}") for depth in range(66)]
+    chain = nodes[-1]
+    for parent in reversed(nodes[:-1]):
+        chain = {**parent, "children": [chain]}
+    rewrite(document, lambda doc: hp.document(hp.project("alpha", chain)))
+    code, _, stderr = run_main("--config", str(config))
+    assert code == 1
+    assert stderr == (f"gantry: error: {document}: not a portfolio document Gantry can read: "
+                      "$.projects[0].nodes[64].parent: nests deeper than 64 levels\n")
+
+
+def test_document_reason_with_control_chars_is_escaped_on_stderr(tmp_path):
+    """devagent's status_reason and a schema problem's place reach stderr as one line, no control character."""
+    config, document, _ = document_tree(tmp_path)
+    folder = document.parent
+    (folder / "1").mkdir()
+    (folder / "devagent.toml").write_bytes((folder / "devagent.toml").read_bytes() + b'[project.beta]\ndevdoc_dir = "1"\n')
+    rewrite(document, lambda doc: hp.append_not_read(doc, "beta", "no_wbs", "no WBS.md\x1b[2J\nhere "))
+    code, _, stderr = run_main("--config", str(config))
+    assert code == 0
+    assert "gantry: warning: site beta is not built: no WBS.md: no WBS.md\\x1b[2J\\nhere\\u2028\n" in stderr
+    assert "\x1b" not in stderr and " " not in stderr
+    rewrite(document, lambda doc: {**doc, "projects": [{**doc["projects"][0], "nodes": [
+        {**doc["projects"][0]["nodes"][0], "meta": {"k\x1b\n": 1}}, *doc["projects"][0]["nodes"][1:]]},
+        *doc["projects"][1:]]})
+    code, _, stderr = run_main("--config", str(config))
+    assert code == 1 and stderr.count("\n") == 1 and "\x1b" not in stderr
+    assert "$.projects[0].nodes[0].meta.k\\x1b\\n: not a string or a list of strings" in stderr

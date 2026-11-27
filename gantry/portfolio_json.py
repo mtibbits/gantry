@@ -8,10 +8,11 @@ devagent writes one JSON document over every configured project's WBS.md
 
 read_portfolio loads the file under the run's roots and checks it;
 map_document does the same checks and mapping on a document that is already
-parsed. `gantry build` does not call either yet. The first callers are #12
-(the build switch) and #84 (the test builder), and both signatures are
-provisional until one of them binds. `tag(value)` gives one meta value the
-parsed shape the reader stores, for a test that builds such a leaf by hand.
+parsed. `gantry build` reads every site through read_portfolio, once per run
+(gantry/build.py, #12), and the test builder (tests/helpers_portfolio.py, #84)
+through map_document: it is the one WBS.md reader Gantry has. `tag(value)`
+gives one meta value the parsed shape the reader stores, for a test that
+builds such a leaf by hand.
 
 Neither entry point raises anything but PortfolioLoadError, whatever the
 file or the document holds: every walk here is a loop, never a recursion, and
@@ -64,7 +65,7 @@ LOAD_MESSAGES = {
     "missing": "{source}: devagent's portfolio JSON does not exist. Run devagent's aggregator first "
                "(/devagent:portfolio).",
     "unreadable": "{source}: cannot read devagent's portfolio JSON: {reason}",
-    # No remedy yet: no config key names the document until #12, and roots come only from path keys.
+    # The config key portfolio_json (#12) names the document, so it is a root of every build.
     "outside": "{source}: devagent's portfolio JSON is outside the configured roots",
     "not_json": "{source}: devagent's portfolio JSON is not valid JSON: {reason}. Run devagent's aggregator again "
                 "(/devagent:portfolio).",
@@ -81,8 +82,7 @@ NOT_JSON = {
     "constant": "NaN or Infinity is not JSON",
 }
 GLYPH_LIST = ", ".join(repr(glyph) for glyph in STATE_GLYPHS)
-# The texts of gantry/wbs_stopgap.py's entries of the same kinds, copied: this
-# module never imports the stopgap, which #12 deletes.
+# Gantry's own texts for the kinds it reports itself (first written by the stopgap parser #12 deleted).
 MESSAGES = {
     "key_collision": "WBS.md line {line}: outline position {outline!r} is the issue: id on "
                      "line {other}; this node is named {key!r}",
@@ -449,8 +449,8 @@ def _scan(raw_nodes):
 
 
 def _name(site):
-    """Key every node as gantry/wbs_stopgap.py does: the first holder of each
-    issue by the issue, every other node by its outline position."""
+    """Key every node by the identity rule (D2): the first holder of each issue
+    by the issue, every other node by its outline position."""
     first = {}
     for node in site.nodes:
         if node.issue is not None and node.issue not in first:

@@ -200,10 +200,10 @@ EXCEPTIONS = {
     ("gantry/refresh.py", "msvcrt.LK_NBLCK"): REFRESH,
 }
 
-# Every module the scan must parse: the 27 under gantry/ at 39f4afa. A later
-# issue may extend this list but not shrink it by accident: an issue that
-# deletes a kept module (#12 deletes gantry/wbs_stopgap.py) removes it from KEPT
-# and BASELINE in the same reviewed change, and fixes BASELINE's count.
+# Every module the scan must parse: the 27 under gantry/ at 39f4afa, less
+# the stopgap parser, which #12 deleted. A later issue may extend this list
+# but not shrink it by accident: an issue that deletes a kept module removes it
+# from KEPT and BASELINE in the same reviewed change, and fixes BASELINE's count.
 KEPT = frozenset({
     "gantry/__init__.py",
     "gantry/__main__.py",
@@ -230,7 +230,6 @@ KEPT = frozenset({
     "gantry/stamp.py",
     "gantry/trace.py",
     "gantry/wbs_history.py",
-    "gantry/wbs_stopgap.py",
     "gantry/views/__init__.py",
     "gantry/views/index.py",
     "gantry/views/worksite.py",
@@ -941,13 +940,13 @@ BASELINE = frozenset({
     "gantry/estimates_file.py", "gantry/inputs.py", "gantry/links.py", "gantry/model.py",
     "gantry/network.py", "gantry/portfolio_file.py", "gantry/priority.py", "gantry/render.py",
     "gantry/requirements.py", "gantry/roots.py", "gantry/schedule.py", "gantry/sites.py",
-    "gantry/stamp.py", "gantry/trace.py", "gantry/wbs_history.py", "gantry/wbs_stopgap.py",
+    "gantry/stamp.py", "gantry/trace.py", "gantry/wbs_history.py",
     "gantry/views/__init__.py", "gantry/views/index.py", "gantry/views/worksite.py",
 })
 
 
 def test_kept_list_holds_the_39f4afa_modules():
-    assert len(BASELINE) == 27
+    assert len(BASELINE) == 26  # 27 at 39f4afa; #12 deleted the stopgap parser
     assert KEPT >= BASELINE
     for file in KEPT:
         assert (ROOT / file).is_file(), file

@@ -38,7 +38,7 @@ from helpers_config import (
 )
 from page_safety import HOSTILE, assert_no_external_resources, assert_page_safe
 from page_script.harness import open_page
-from sample_roles import BUSY, NO_WBS, OWN_UNIT, READABLE, SMALL, UNESTIMATED, UNREADABLE
+from sample_roles import BUSY, NO_WBS, NO_WBS_REASON, OWN_UNIT, READABLE, SMALL, UNESTIMATED, UNREADABLE, UNREADABLE_REASON
 from test_samples import ROOT
 from test_worksite_page import by_id, find, text_of, tree
 
@@ -113,13 +113,33 @@ def test_no_finish_line(tmp_path):
 def test_not_built_lines_show_reason(tmp_path):
     t = tree(render_index(sample_build(tmp_path)))
     lines = site_lines(t)
-    for name, reason in ((NO_WBS, "no WBS.md in the planning directory"),
-                         (UNREADABLE, "WBS.md is not valid UTF-8 at byte 88")):
+    for name, reason in ((NO_WBS, NO_WBS_REASON),
+                         (UNREADABLE, UNREADABLE_REASON)):
         li, _ = lines[name]
         assert find(t, "a", within=li) == []
         (span,) = find(t, "span", ("reason",), within=li)
         assert text_of(t, span) == NOT_BUILT.format(reason=reason)
     assert len(find(t, "a", within=by_id(t, "sites"))) == len(READABLE)
+
+
+def test_document_statuses_shown_with_their_reasons(tmp_path):
+    """Each project status in the portfolio JSON a site agrees with (no WBS.md, no devdoc_dir,
+    unreadable) is shown on the index as the document's words and reason (#12)."""
+    import helpers_portfolio as hp
+    from helpers_config import append_bytes, copy_samples
+    from gantry.build import build_all
+    from gantry.config import load_config
+
+    copy = copy_samples(tmp_path)
+    append_bytes(copy / "devagent" / "config.toml", "\n[project.nodir]\nx = 1\n")
+    hp.rewrite_document(copy, lambda doc: hp.append_not_read(doc, "nodir", "no_devdoc_dir", hp.UNSET_REASON))
+    t = tree(render_index(build_all(load_config(copy / "gantry.sample.toml"), samples=copy)))
+    lines = site_lines(t)
+    for name, reason in ((NO_WBS, NO_WBS_REASON), (UNREADABLE, UNREADABLE_REASON),
+                         ("nodir", f"no devdoc_dir: {hp.UNSET_REASON}")):
+        (span,) = find(t, "span", ("reason",), within=lines[name][0])
+        assert text_of(t, span) == NOT_BUILT.format(reason=reason), name
+    assert NO_WBS_REASON == f"no WBS.md: {hp.NO_WBS_REASON}"
 
 
 def test_slots_present_and_empty(tmp_path):
@@ -193,7 +213,7 @@ def test_index_line_with_share(tmp_path, monkeypatch):
     filled = site_lines(tree((out / "index.html").read_bytes().decode("utf-8")))
     assert filled[BUSY][1] == plain + worksite.DOT + "backlog share 31%"
     assert filled[OWN_UNIT][1].endswith(worksite.DOT + "backlog share 21% (includes 5 unestimated leaves)")
-    assert filled[NO_WBS][1] == f"{NO_WBS}{worksite.DOT}not built: no WBS.md in the planning directory"
+    assert filled[NO_WBS][1] == f"{NO_WBS}{worksite.DOT}not built: {NO_WBS_REASON}"
 
 
 def written_headline_and_source(config):
@@ -410,3 +430,66 @@ def test_no_plan_index_still_links_week(tmp_path):
     assert lands(out, "index.html", "week.html")
     t = tree((out / "week.html").read_bytes().decode("utf-8"))
     assert text_of(t, by_id(t, "no-plan")) == "no week plan: no portfolio_file is configured"
+
+
+# --- devagent's entries about a project with no page (#12) --------------------------------------
+
+
+def _with_entries(folder, *entries):
+    import json
+
+    import helpers_portfolio as hp
+
+    path = folder / "portfolio.json"
+    doc = json.loads(path.read_bytes())
+    doc["parse_report"] += [{"project": p, "source_line": line, "kind": kind, "message": message}
+                            for p, line, kind, message in entries]
+    path.write_bytes(hp.sp.dumps(doc))
+
+
+def test_unplaced_devagent_entries_are_on_the_index(tmp_path):
+    import helpers_portfolio as hp
+    from helpers_config import run_main, write_site_tree
+    from gantry.views.index import UNPLACED_KEY
+
+    folder = tmp_path / "tree"
+    config = write_site_tree(folder, {"alpha": hp.fixture_source("page"), "beta": None})
+    _with_entries(folder, ("beta", None, "parser_note", "beta has no page"), ("alpha", 1, "parser_note", "on alpha"))
+    code, _, err = run_main("--config", str(config))
+    assert code == 0
+    index = (folder / "out" / "index.html").read_bytes().decode("utf-8")
+    t = tree(index)
+    warnings = [text_of(t, li) for li in find(t, "li", within=by_id(t, "warnings"))]
+    assert warnings == ["beta: devagent parser_note: beta has no page"]
+    data = assert_page_safe(index, [])
+    assert {"key": UNPLACED_KEY, "text": "beta: devagent parser_note: beta has no page"} in data["warnings"]
+    assert ("gantry: warning: portfolio JSON: 1 devagent report entry names a project with no page; "
+            "the index lists them") in err.splitlines()
+
+
+def test_entry_for_a_site_that_loses_its_page_is_on_the_index(tmp_path, monkeypatch):
+    """A site whose page fails to write loses its page after the render: its entries move to the index."""
+    import helpers_portfolio as hp
+    from gantry import build
+    from gantry.build import build_all, write_all
+    from gantry.config import load_config
+    from helpers_config import write_site_tree
+
+    folder = tmp_path / "tree"
+    config = load_config(write_site_tree(folder, {"alpha": hp.fixture_source("page"), "beta": hp.fixture_source("page")}))
+    _with_entries(folder, ("beta", 1, "parser_note", "on beta"))
+    real = build.write_page
+
+    def write_page(roots, where, name, text):
+        if name == "beta":
+            raise PermissionError(13, "Permission denied")
+        return real(roots, where, name, text)
+
+    monkeypatch.setattr(build, "write_page", write_page)
+    result = build_all(config)
+    assert "devagent parser_note: WBS.md line 1: on beta" in result.page_models["beta"]["panel"]
+    result, _, error = write_all(result)
+    assert error is None and "beta" not in result.pages
+    t = tree((folder / "out" / "index.html").read_bytes().decode("utf-8"))
+    assert [text_of(t, li) for li in find(t, "li", within=by_id(t, "warnings"))] == [
+        "beta: devagent parser_note: WBS.md line 1: on beta"]

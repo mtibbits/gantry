@@ -1204,7 +1204,11 @@ def test_test_workflow_installs_node():
         at = hits[0]
     assert "os: [ubuntu-latest, windows-latest]" in lines
     assert 'python: ["3.11", "3.x"]' in lines
-    assert not [line for line in lines if line.startswith(("if:", "- if:"))]
+    # The only conditional steps are the two Linux-only demo steps (#12): the sample portfolio
+    # needs devagent's toolchain, and the console-script build reads that document.
+    guarded = [lines[n + 1] for n, line in enumerate(lines) if line.startswith(("if:", "- if:"))]
+    assert [line for line in lines if line.startswith(("if:", "- if:"))] == ["- if: runner.os == 'Linux'"] * 2
+    assert guarded == ["run: python tools/sample_portfolio.py", "run: gantry build --config samples/gantry.sample.toml"]
     assert not [line for line in lines if "run:" in line and "&&" in line]
 
 

@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from helpers_devagent import VARIABLE
 from helpers_history import git, shallow_clone
 from test_samples import git as plain_git
 
@@ -42,11 +43,19 @@ def child_env(pythonpath):
     return env
 
 
+# A child demo run never fetches devagent (#12): with no checkout named, it gets this one, which
+# does not exist, so its portfolio step fails instead of reaching the network.
+NO_CHECKOUT = "no-devagent-checkout"
+
+
 def run_child(root, day, mode, *, cwd=None):
     """demo_build_runner.py ROOT DAY MODE in a child: the CompletedProcess (bytes)."""
+    env = child_env(root)
+    if not env.get(VARIABLE):
+        env[VARIABLE] = str(Path(root).parent / NO_CHECKOUT)
     try:
         return subprocess.run([sys.executable, "-P", "-B", str(RUNNER), str(root), str(day), mode],
-                              cwd=cwd or root, env=child_env(root), capture_output=True, timeout=CHILD_TIMEOUT)
+                              cwd=cwd or root, env=env, capture_output=True, timeout=CHILD_TIMEOUT)
     except subprocess.TimeoutExpired:
         pytest.fail(f"the child did not finish in {CHILD_TIMEOUT} s", pytrace=False)
 

@@ -1,7 +1,7 @@
 """devagent's portfolio JSON as test data (#83): the tool that makes it, the gate and the fixture.
 
 tests/fixtures/portfolio/written.json is the pinned devagent release's own
-document over WBS texts the stopgap parser is already tested with. The
+document over the WBS texts the parser tests read (#12 deleted Gantry's own). The
 ungated tests read the committed bytes, so they run on every leg. The gated
 tests run the pinned aggregator from a devagent checkout (GANTRY_DEVAGENT_DIR,
 tests/helpers_devagent.py): they skip on Windows and locally without the
@@ -24,7 +24,7 @@ import helpers_portfolio as hp
 import sample_portfolio as sp
 import update_expected_leaves as ue
 from gantry import portfolio_json as pj
-from gantry.portfolio_json import ProjectInput, map_document, read_portfolio
+from gantry.portfolio_json import map_document, read_portfolio
 from gantry.roots import directory_roots
 from helpers_config import sample_projects, written_bytes
 from helpers_docs import heading_anchors, markdown_text, section
@@ -35,10 +35,11 @@ from test_samples import ROOT, SAMPLES, git_work_tree, needs_git
 # U1: what devagent says of the sample site whose WBS.md is not UTF-8.
 MARSH_REASON = "WBS.md could not be read: UnicodeDecodeError: invalid continuation byte at byte 88"
 # The fixture's totals, as the pinned aggregator wrote them.
-FIXTURE_NODES = 130
-FIXTURE_ENTRIES = 56
-# The 13 sources the stopgap's tests already read; `edges` is this issue's own.
+FIXTURE_NODES = 138
+FIXTURE_ENTRIES = 71
+# The 13 sources the stopgap's tests read before #12 deleted it; `edges` is #83's own, `fires` #12's.
 EARLIER_SOURCES = 13
+LATER_SOURCES = ("edges", "fires")
 
 
 def resolved(path):
@@ -267,9 +268,10 @@ def test_fixtures_mode_writes_or_checks(tmp_path, monkeypatch, capsys):
 # --- the written fixture (Task 2) -------------------------------------------------------------
 
 
-def test_fixture_sources_are_the_stopgaps_own(tmp_path):
+def test_fixture_sources_are_listed(tmp_path):
     assert list(sp.FIXTURE_SOURCES) == ["cycle", "empty", "fences", "ids", "nesting", "not_utf8", "page", "priority",
-                                        "refs", "rows", "states", "est", "h_values", "edges"]
+                                        "refs", "rows", "states", "est", "h_values", "edges", "fires"]
+    assert sp.FIXTURE_SOURCES["fires"] == "tests/fixtures/portfolio/fires.md"
     for name, source in sp.FIXTURE_SOURCES.items():
         assert (ROOT / source).is_file(), name
     assert sp.FIXTURE_SOURCES["est"] == "tests/fixtures/inputs/est.md"
@@ -285,12 +287,14 @@ def test_written_fixture_shape():
     doc = hp.written_doc()
     assert hp.written_doc() is not doc
     assert [p["project"] for p in doc["projects"]] == list(sp.FIXTURE_SOURCES)
-    assert len(doc["projects"]) == 14
+    assert len(doc["projects"]) == 15
     assert sum(len(p["nodes"]) for p in doc["projects"]) == FIXTURE_NODES
     assert len(doc["parse_report"]) == FIXTURE_ENTRIES
-    # Before `edges` the 13 earlier sources gave 122 nodes and 46 entries.
-    assert sum(len(p["nodes"]) for p in doc["projects"] if p["project"] != "edges") == 122
-    assert sum(e["project"] != "edges" for e in doc["parse_report"]) == 46
+    # The 13 earlier sources give 122 nodes and 46 entries; `fires` adds 8 nodes and 15 entries (#12).
+    assert sum(len(p["nodes"]) for p in doc["projects"] if p["project"] not in LATER_SOURCES) == 122
+    assert sum(e["project"] not in LATER_SOURCES for e in doc["parse_report"]) == 46
+    assert sum(len(p["nodes"]) for p in doc["projects"] if p["project"] == "fires") == 8
+    assert sum(e["project"] == "fires" for e in doc["parse_report"]) == 15
     assert doc["generated_at"] == sp.FIXED_TIME == "2026-01-12T09:30:00Z"
     by_name = {p["project"]: p for p in doc["projects"]}
     assert by_name["not_utf8"]["status"] == "unreadable"
@@ -366,9 +370,6 @@ SNAPSHOT_KEYS = ["pin", "schema_version", "site", "status", "reason", "nodes", "
                  "devagent"]
 NODE_KEYS = ["line", "row", "key", "issue", "outline", "title", "glyph", "state", "open", "priority", "epic",
              "parent", "meta", "depends_on", "rank", "est", "h", "satisfies", "objective"]
-# The sites the stopgap can be compared on: bakery has no WBS.md for it to read.
-COMPARED = [site for site in ("harbor", "orchard", "quarry", "lighthouse", "marsh") if site in READABLE | {UNREADABLE}]
-NEAR_MISS_WHY = ("NEAR_MISS_RE", "SKIP_RE")
 
 
 def committed(name, fixture=False):
@@ -376,45 +377,13 @@ def committed(name, fixture=False):
     return json.loads(path.read_bytes().decode("utf-8"))
 
 
-def known(which):
-    entries = json.loads(ue.KNOWN.read_bytes().decode("utf-8"))
-    assert all(list(e) == ["set", "site", "where", "stopgap", "snapshot", "why"] for e in entries)
-    assert all(e["set"] in ("samples", "fixtures") and e["why"].strip() for e in entries)
-    return [e for e in entries if e["set"] == which]
-
-
-def stopgap_snapshot(site, path, namespaces):
-    """The stopgap's reading of one WBS.md in the snapshot's form: read, or unreadable with its reason."""
-    from gantry.wbs_stopgap import read_wbs
-
-    data = read_wbs(directory_roots([path.parent]), path, site)
-    unreadable = [e.message for e in data.report if e.kind == "site_unreadable"]
-    wrapped = ProjectInput(site, "unreadable" if unreadable else "read", unreadable[0] if unreadable else None, data)
-    return ue.snapshot_of(wrapped, (), pin=hd.read_pin()[0], schema_version="1.2", namespaces=namespaces)
-
-
-def differences(which, sites, source_of, namespaces, fixture):
-    """Every difference between the stopgap's reading and the committed snapshots, as known-differences rows."""
-    found, nodes = [], 0
-    for site in sites:
-        snapshot = committed(site, fixture)
-        nodes += len(snapshot["nodes"])
-        for where, mine, theirs in ue.diff_snapshots(stopgap_snapshot(site, source_of(site), namespaces), snapshot):
-            found.append({"set": which, "site": site, "where": where, "stopgap": mine, "snapshot": theirs})
-    return found, nodes
-
-
-def without_why(entries):
-    return [{k: v for k, v in e.items() if k != "why"} for e in entries]
-
-
 def test_snapshot_set_is_the_sample_config():
     tag, _ = hd.read_pin()
     assert sorted(p.name for p in ue.OUT.iterdir()) == sorted(
-        [f"{site}.json" for site in sample_projects()] + ["fixture", "known_differences.json"])
+        [f"{site}.json" for site in sample_projects()] + ["fixture"])
     assert len(sample_projects()) == 6
     assert sorted(p.name for p in ue.FIXTURE_OUT.iterdir()) == sorted(f"{name}.json" for name in sp.FIXTURE_SOURCES)
-    assert len(sp.FIXTURE_SOURCES) == 14
+    assert len(sp.FIXTURE_SOURCES) == 15
     for name, fixture in [(s, False) for s in sample_projects()] + [(n, True) for n in sp.FIXTURE_SOURCES]:
         snapshot = committed(name, fixture)
         assert list(snapshot) == SNAPSHOT_KEYS, name
@@ -479,90 +448,6 @@ def test_reader_matches_the_fixture_snapshots():
     assert sum(len(committed(name, fixture=True)["nodes"]) for name in made) == FIXTURE_NODES
 
 
-def test_stopgap_matches_the_snapshots_but_for_known_differences():
-    assert sorted(COMPARED) == sorted(READABLE | {UNREADABLE}) and len(COMPARED) == 5
-    namespaces = frozenset(sample_projects())
-    found, nodes = differences("samples", COMPARED, lambda site: SAMPLES / site / "WBS.md", namespaces, fixture=False)
-    assert nodes == 52
-    # Exactly the list: an unlisted difference fails, and so does a listed one that no longer occurs.
-    assert found == without_why(known("samples"))
-    assert [(e["site"], e["where"]) for e in found] == [(UNREADABLE, "report[null, site_unreadable]")]
-
-
-def test_reader_matches_the_stopgap_on_the_written_fixture():
-    names = list(sp.FIXTURE_SOURCES)
-    found, nodes = differences("fixtures", names, lambda name: ROOT / sp.FIXTURE_SOURCES[name], frozenset(names),
-                               fixture=True)
-    assert (len(names), nodes) == (14, FIXTURE_NODES)
-    assert sum(len(committed(n, fixture=True)["nodes"]) for n in names if n != "edges") == 122
-    assert found == without_why(known("fixtures"))
-    assert [(e["site"], e["where"]) for e in found] == [
-        ("ids", "report[10, skipped_line]"), ("ids", "report[11, skipped_line]"),
-        ("not_utf8", "report[null, site_unreadable]"), ("edges", "nodes[13].h"),
-        ("edges", "report[2, skipped_line]"), ("edges", "report[3, skipped_line]"),
-        ("edges", "report[4, skipped_line]"), ("edges", "report[5, skipped_line]"),
-        ("edges", "report[7, skipped_line]"),
-        ("edges", "report[12, no_issue]"), ("edges", "report[14, bad_priority]"),
-        ("edges", "report[15, bad_priority]")]
-    # Where the two readers disagree on which lines are near misses, devagent's reading wins.
-    edges = {e["where"]: e for e in known("fixtures") if e["site"] == "edges"}
-    for line in (2, 3, 4, 5):
-        only_devagent = edges[f"report[{line}, skipped_line]"]
-        assert only_devagent["stopgap"] is None and only_devagent["snapshot"].startswith(f"WBS.md line {line}: ")
-    assert edges["report[7, skipped_line]"]["snapshot"] is None and edges["report[7, skipped_line]"]["stopgap"]
-    for e in known("fixtures"):
-        if "skipped_line" in e["where"]:
-            assert all(name in e["why"] for name in NEAR_MISS_WHY), e["where"]
-
-
-def test_diff_snapshots_sees_each_field():
-    def one(change):
-        mine, theirs = committed("ids", fixture=True), committed("ids", fixture=True)
-        change(mine)
-        return ue.diff_snapshots(mine, theirs)
-
-    def node(snapshot, line):
-        return next(n for n in snapshot["nodes"] if n["line"] == line)
-
-    assert one(lambda s: None) == []
-    assert one(lambda s: node(s, 3).update(title="Changed")) == [("nodes[3].title", "Changed", "Dock")]
-    assert one(lambda s: node(s, 3).update(key="1.1")) == [("nodes[3].key", "1.1", "Issue-Fork-2")]
-    assert one(lambda s: node(s, 3)["meta"].update(priority="P1")) == [
-        ("nodes[3].meta", {"issue": "Issue-Fork-2", "priority": "P1"}, {"issue": "Issue-Fork-2", "priority": "P0"})]
-    reordered = one(lambda s: node(s, 3).update(meta={"priority": "P0", "issue": "Issue-Fork-2"}))
-    assert [where for where, _, _ in reordered] == ["nodes[3].meta"]
-    assert reordered[0][1] == reordered[0][2] and list(reordered[0][1]) != list(reordered[0][2])
-    assert one(lambda s: node(s, 3).update(rank=3)) == [("nodes[3].rank", 3, 0)]
-
-    def reword(s):
-        s["report"] = [[line, kind, "Reworded" if kind == "bad_priority" else text] for line, kind, text in s["report"]]
-
-    assert one(reword) == [("report[4, bad_priority]", "Reworded", "WBS.md line 4: priority 'P9' is not P0, P1, P2, "
-                                                                   "P3 or P4; it counts as P3")]
-    removed = one(lambda s: s["nodes"].remove(node(s, 6)))
-    assert removed == [("nodes[6]", None, node(committed("ids", fixture=True), 6))]
-    assert one(lambda s: s["links"].pop()) == [
-        ("links", [["Issue-Fork-2", "Issue-3"]], [["Issue-Fork-2", "Issue-3"], ["Issue-3", "Issue-4"]])]
-    assert one(lambda s: s["held_out"].append("Issue-3")) == [("held_out", ["Issue-3"], [])]
-    assert one(lambda s: s.update(status="unreadable")) == [("status", "unreadable", "read")]
-    # A report entry on one side only has null opposite; two of a kind on one line pair in message order.
-    extra = one(lambda s: s["report"].append([9, "unresolved_ref", "A third"]))
-    assert extra == [("report[9, unresolved_ref]", "A third", None)]
-
-    def swap(s):
-        at = [i for i, (line, kind, _) in enumerate(s["report"]) if (line, kind) == (9, "unresolved_ref")]
-        assert len(at) == 2
-        s["report"][at[0]], s["report"][at[1]] = s["report"][at[1]], s["report"][at[0]]
-
-    theirs = [text for line, kind, text in committed("ids", fixture=True)["report"]
-              if (line, kind) == (9, "unresolved_ref")]
-    assert one(swap) == [("report[9, unresolved_ref].order", theirs[::-1], theirs)]
-    assert one(lambda s: s["report"].append([None, "no_nodes", "WBS.md has no node lines"])) == [
-        ("report[null, no_nodes]", "WBS.md has no node lines", None)]
-    # What the stopgap cannot know is not compared.
-    assert one(lambda s: s.update(pin="x", schema_version="9.9", reason="why", devagent=[[1, "k", "m"]])) == []
-
-
 def test_dump_is_devagents_form():
     assert sp.dumps({"a": [1, None], "é": "ü"}) == '{\n  "a": [\n    1,\n    null\n  ],\n  "é": "ü"\n}\n'.encode("utf-8")
 
@@ -574,7 +459,7 @@ def test_snapshot_tool_checks_and_writes(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(ue, "expected", lambda devagent: dict(samples))
     argv = ["--devagent", str(checkout)]
     assert ue.main(argv + ["--check"]) == 0
-    assert capsys.readouterr().out == "update_expected_leaves: 20 snapshots match\n"
+    assert capsys.readouterr().out == "update_expected_leaves: 21 snapshots match\n"
     # A copy of the folder with one file changed, one missing and one extra in each set.
     out = tmp_path / "expected_leaves"
     shutil.copytree(ue.OUT, out)
@@ -598,7 +483,7 @@ def test_snapshot_tool_checks_and_writes(tmp_path, monkeypatch, capsys):
     # Writing restores every expected file and leaves the list and the extra files alone.
     assert ue.main(argv) == 1
     assert capsys.readouterr().out.splitlines() == [
-        "update_expected_leaves: wrote 20 snapshots",
+        "update_expected_leaves: wrote 21 snapshots",
         "update_expected_leaves: ferry.json: extra",
         "update_expected_leaves: fixture/old.json: extra",
     ]
@@ -698,7 +583,7 @@ def test_doc_states_the_reader_rules(capsys):
     assert lines.index("## The report") < lines.index(READER_HEADING) < lines.index("## The optional inputs")
     assert "reading-devagents-portfolio-json" in heading_anchors(text)
     for name in ("tools/sample_portfolio.py", "tools/update_expected_leaves.py", "tests/devagent.pin",
-                 "GANTRY_DEVAGENT_DIR", "known_differences.json", "tests/fixtures/expected_leaves/",
+                 "GANTRY_DEVAGENT_DIR", "tests/fixtures/expected_leaves/",
                  "tests/fixtures/portfolio/written.json", "`ParsedValue`", "`read_portfolio(roots, path)`",
                  "`map_document(doc)`", "`PortfolioLoadError`", "`devagent_report`", "`meta`",
                  "devagent-formats.md#fixtures-and-the-contract-test", "#12"):
@@ -725,11 +610,12 @@ def test_doc_states_the_reader_rules(capsys):
     assert not parses(shlex.split("python3 tools/sample_portfolio.py --check --devagent x"))
     assert not parses(shlex.split("python3 tools/update_expected_leaves.py --fixtures"))
     capsys.readouterr()
-    # The doc's count of known differences is the list's.
-    assert len(known("samples")) + len(known("fixtures")) == 13 and "Today it holds thirteen entries" in flat
-    # The skipped_line row says how devagent's reader differs.
+    # No known-differences list remains: there is one reader (#12).
+    gone = "known_" + "differences.json"
+    assert gone not in flat and "provisional" not in flat and "does not use it yet" not in flat
+    # The skipped_line row states devagent's near-miss rule.
     (row,) = [line for line in lines if line.startswith("| `skipped_line` |")]
-    assert "known_differences.json" in row and "#12" in row
+    assert "devagent" in row and gone not in row
 
 
 def test_pin_move_recipe_names_the_new_tools_and_files(capsys):
@@ -745,12 +631,12 @@ def test_pin_move_recipe_names_the_new_tools_and_files(capsys):
     capsys.readouterr()
     for name in ("tests/fixtures/portfolio/written.json", "tests/fixtures/portfolio/provenance.json",
                  "tests/fixtures/portfolio/samples.json", "tests/fixtures/portfolio/samples_provenance.json",
-                 "tests/fixtures/expected_leaves/", "known_differences.json",
-                 "tests/fixtures/devagent_records/written/"):
+                 "tests/fixtures/expected_leaves/", "tests/fixtures/devagent_records/written/"):
         assert name in part, name
-    # This issue moved no pin, and reading projects[].issues is #12's alone.
+    # #83 moved no pin; #12 reads the JSON's nodes, and reading projects[].issues is a follow-up of #12's.
     assert "#83" not in text
-    assert "Gantry reads that JSON (#12)" in " ".join(text.split())
+    flat = " ".join(text.split())
+    assert "Gantry reads that JSON for every site's nodes (#12)" in flat and "a follow-up issue filed from #12" in flat
 
 
 def test_readmes_cover_the_portfolio_tests():

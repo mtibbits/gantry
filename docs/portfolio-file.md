@@ -34,7 +34,7 @@ business requirements
   line 14: duplicate_id: life:BR-2 is also defined on line 12; the first definition is kept
 settings
   line 31: bad_value: capacity.agent_lanes: must be an integer, 0 or more, not a boolean; it is not set
-note: the milestone leaf is not checked here (this command reads no WBS.md); a full gantry build checks it and lists the result on the strategic page
+note: the milestone leaf is not checked here (this command reads no site's leaves); a full gantry build checks it and lists the result on the strategic page
 2 entries
 ```
 
@@ -42,9 +42,9 @@ A line is `line N: ` (when the entry has a line), the kind (an advisory
 kind is marked ` (advisory)`), the key path (when the entry has one) and the
 message. An entry about the whole file is grouped under `the portfolio
 file`. The `note:` line is printed only when a milestone is set: the
-command reads no `WBS.md`, so it cannot look for the milestone's leaf. A
-full `gantry build` reads every site's `WBS.md`, checks the milestone leaf
-and lists the result on the strategic page (#23).
+command reads no site's leaves, so it cannot look for the milestone's leaf.
+A full `gantry build` reads every site from devagent's portfolio JSON,
+checks the milestone leaf and lists the result on the strategic page (#23).
 
 It exits 0 when there are no entries and 1 when there is any entry, an
 advisory one included. It also exits 1 on a config error and when the config

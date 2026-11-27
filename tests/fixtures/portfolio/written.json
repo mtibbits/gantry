@@ -6921,6 +6921,359 @@
           "non_time": {}
         }
       }
+    },
+    {
+      "project": "fires",
+      "status": "read",
+      "status_reason": null,
+      "wbs_title": "",
+      "nodes": [
+        {
+          "id": "n131",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "Pour the slab",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 1,
+          "issue": "Issue-1",
+          "meta": {
+            "issue": "Issue-1"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
+        },
+        {
+          "id": "n132",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "Fix the crane",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 2,
+          "issue": null,
+          "meta": {
+            "priority": "p0"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
+        },
+        {
+          "id": "n133",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "Fix the crane",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 3,
+          "issue": null,
+          "meta": {
+            "priority": "PO"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
+        },
+        {
+          "id": "n134",
+          "parent": null,
+          "depth": 1,
+          "leaf": false,
+          "text": "Rebuild the quay",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 10,
+          "issue": "Issue-5",
+          "meta": {
+            "issue": "Issue-5"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": null,
+          "ready_via_parent_row": null
+        },
+        {
+          "id": "n135",
+          "parent": "n134",
+          "depth": 2,
+          "leaf": true,
+          "text": "Pour the slab",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 11,
+          "issue": "Issue-6",
+          "meta": {
+            "issue": "Issue-6"
+          },
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
+        },
+        {
+          "id": "n136",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "Fix the crane {priority: P0} today",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 12,
+          "issue": null,
+          "meta": {},
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
+        },
+        {
+          "id": "n137",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "Fix the crane",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 13,
+          "issue": null,
+          "meta": {
+            "Priority": "P0"
+          },
+          "meta_unknown_keys": [
+            "Priority"
+          ],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
+        },
+        {
+          "id": "n138",
+          "parent": null,
+          "depth": 1,
+          "leaf": true,
+          "text": "Fix the crane {priority: P0",
+          "state": "pending",
+          "glyph": " ",
+          "source_line": 16,
+          "issue": null,
+          "meta": {},
+          "meta_unknown_keys": [],
+          "est": {
+            "raw": null,
+            "class": "absent",
+            "low_hours": null,
+            "high_hours": null,
+            "quantity": null,
+            "unit": null,
+            "src": null
+          },
+          "satisfies": [],
+          "h": null,
+          "depends_on": [],
+          "ready": true,
+          "ready_via_parent_row": false,
+          "models": {
+            "thinking": null,
+            "checking": null
+          }
+        }
+      ],
+      "issues": [
+        {
+          "issue": "Issue-1",
+          "nodes": [
+            "n131"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-5",
+          "nodes": [
+            "n134"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        },
+        {
+          "issue": "Issue-6",
+          "nodes": [
+            "n135"
+          ],
+          "stuck": null,
+          "checklist": "absent",
+          "next_step": null,
+          "next_step_number": null
+        }
+      ],
+      "rollup": {
+        "by_state": {
+          "pending": {
+            "leaves": 7,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 7
+          },
+          "done": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "skipped": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "stuck": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "in_progress": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "blocked_external": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          },
+          "parked": {
+            "leaves": 0,
+            "estimated": 0,
+            "estimated_derived": 0,
+            "unestimated": 0
+          }
+        },
+        "remaining": {
+          "leaves": 7,
+          "estimated": 0,
+          "estimated_derived": 0,
+          "unestimated": 7,
+          "low_hours": 0,
+          "high_hours": 0,
+          "non_time": {}
+        }
+      }
     }
   ],
   "parse_report": [
@@ -7259,6 +7612,96 @@
       "source_line": 13,
       "kind": "meta_unreadable",
       "message": "'h' opens '[' with no ']'; the rest of the block is read as its value"
+    },
+    {
+      "project": "fires",
+      "source_line": 2,
+      "kind": "leaf_no_issue",
+      "message": "leaf 'Fix the crane' has no issue"
+    },
+    {
+      "project": "fires",
+      "source_line": 3,
+      "kind": "leaf_no_issue",
+      "message": "leaf 'Fix the crane' has no issue"
+    },
+    {
+      "project": "fires",
+      "source_line": 4,
+      "kind": "near_miss_line",
+      "message": "looks like a node but is not one: - [ ]Fix the crane {priority: P0}"
+    },
+    {
+      "project": "fires",
+      "source_line": 5,
+      "kind": "near_miss_line",
+      "message": "looks like a node but is not one: - [X] Fix the crane {priority: P0}"
+    },
+    {
+      "project": "fires",
+      "source_line": 6,
+      "kind": "near_miss_line",
+      "message": "looks like a node but is not one: * [ ] Fix the crane {issue: Issue-7}"
+    },
+    {
+      "project": "fires",
+      "source_line": 7,
+      "kind": "near_miss_line",
+      "message": "looks like a node but is not one: - [ ]Fix the crane {issue: Issue-7}"
+    },
+    {
+      "project": "fires",
+      "source_line": 8,
+      "kind": "near_miss_line",
+      "message": "looks like a node but is not one: - [X] Fix the crane {issue: Issue-7}"
+    },
+    {
+      "project": "fires",
+      "source_line": 9,
+      "kind": "near_miss_line",
+      "message": "looks like a node but is not one: - [ ]Fix the crane"
+    },
+    {
+      "project": "fires",
+      "source_line": 12,
+      "kind": "leaf_no_issue",
+      "message": "leaf 'Fix the crane {priority: P0} today' has no issue"
+    },
+    {
+      "project": "fires",
+      "source_line": 12,
+      "kind": "meta_unreadable",
+      "message": "a '{...}' block that is not at the end of the line, or holds a brace, is item text, not metadata"
+    },
+    {
+      "project": "fires",
+      "source_line": 13,
+      "kind": "leaf_no_issue",
+      "message": "leaf 'Fix the crane' has no issue"
+    },
+    {
+      "project": "fires",
+      "source_line": 13,
+      "kind": "unknown_meta_key",
+      "message": "unknown metadata key 'Priority'"
+    },
+    {
+      "project": "fires",
+      "source_line": 14,
+      "kind": "near_miss_line",
+      "message": "looks like a node but is not one: * [ ] Fix the crane {priority: P0}"
+    },
+    {
+      "project": "fires",
+      "source_line": 16,
+      "kind": "leaf_no_issue",
+      "message": "leaf 'Fix the crane {priority: P0' has no issue"
+    },
+    {
+      "project": "fires",
+      "source_line": 16,
+      "kind": "meta_unreadable",
+      "message": "'{' with no closing '}'; the text after it is item text, not metadata"
     }
   ]
 }

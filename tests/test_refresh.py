@@ -13,6 +13,7 @@ import sys
 import textwrap
 import time
 from contextlib import contextmanager
+from pathlib import PurePath
 
 import pytest
 
@@ -28,9 +29,13 @@ from gantry.refresh import (
     run_step,
 )
 from gantry.roots import LinkRefused, OutsideRoots, directory_roots
-from helpers_config import copy_samples, literal, write_config, write_site_tree, written_bytes
+import helpers_devagent as hd
+from helpers.run_aggregator import command as aggregator_command
+from helpers_config import copy_samples, literal, toml_commands, write_config, write_site_tree, written_bytes
 from helpers_links import link_dir, symlink
 from test_samples import ROOT, git_env
+
+import sample_portfolio as SP  # noqa: E402
 
 WINDOWS = os.name == "nt"
 
@@ -653,11 +658,6 @@ def append(tmp_path):
     return lambda n, code=0: [sys.executable, str(path), str(n), str(code)]
 
 
-def toml_commands(update):
-    """An update list as a TOML array of arrays of literal strings."""
-    return "[" + ", ".join("[" + ", ".join(literal(word) for word in command) + "]" for command in update) + "]"
-
-
 def installation(tmp_path, update=(), refresh_dir='"refresh"'):
     """A loaded config with a [refresh] table whose dir does not exist yet."""
     from gantry.config import load_config
@@ -1109,18 +1109,31 @@ def test_windows_open_file_defers_the_delete(tmp_path, stand_in, file_holder):
 # --- Task 8: gantry refresh and the real build ------------------------------------------
 
 
-def absolute_sample_config(tmp_path, update=()):
+def absolute_sample_config(tmp_path, update=(), aggregator=None):
     """(config path, samples copy): a config outside the copy, every path
-    absolute, reading the copy's sites, with a [refresh] table."""
+    absolute, reading the copy's sites, with a [refresh] table.
+
+    Its portfolio JSON is where devagent's aggregator writes it with the copy's
+    devagent/ folder as its home (DA_HOME), so the aggregator reads the same
+    devagent config Gantry does; the committed sample document is placed there
+    first. With `aggregator` a devagent checkout, the aggregator is the last
+    update step (tests/helpers/run_aggregator.py, #12)."""
     import tomllib
 
     copy = copy_samples(tmp_path)
     raw = tomllib.loads((copy / "gantry.sample.toml").read_bytes().decode("utf-8"))
     inst = tmp_path / "inst"
     inst.mkdir()
+    home = copy / "devagent"
+    document = home.joinpath(*SP.DOCUMENT)
+    document.parent.mkdir(parents=True)
+    document.write_bytes(SP.SAMPLES_WRITTEN.read_bytes())
+    if aggregator is not None:
+        update = [*update, aggregator_command(aggregator, home, home)]
     lines = [
-        "config_version = 1",
+        "config_version = 2",
         f"devagent_config = {literal(copy / raw['devagent_config'])}",
+        f"portfolio_json = {literal(document)}",
         f"output_dir = {literal(inst / 'out')}",
         f"as_of = {raw['as_of'].isoformat()}",
         f"portfolio_file = {literal(copy / raw['portfolio_file'])}",
@@ -1163,12 +1176,30 @@ def minimal_env(tmp_path):
     return env
 
 
+def generated_at(copy):
+    """The `generated_at` of the copy's portfolio JSON (absolute_sample_config's)."""
+    return json.loads(copy.joinpath("devagent", *SP.DOCUMENT).read_bytes())["generated_at"]
+
+
 def test_sample_config_refresh(tmp_path, capsys):
+    """The refresh runs the aggregator, then builds (#12): the document is the aggregator's, not the placed one."""
+    path, copy = absolute_sample_config(tmp_path, aggregator=hd.require_devagent())
+    assert_sample_refresh(path, capsys)
+    assert generated_at(copy) != SP.FIXED_TIME
+
+
+def test_sample_config_refresh_on_the_placed_document(tmp_path, capsys):
+    """The refresh job alone, on the committed document: no aggregator, every host."""
+    path, copy = absolute_sample_config(tmp_path)
+    assert_sample_refresh(path, capsys)
+    assert generated_at(copy) == SP.FIXED_TIME
+
+
+def assert_sample_refresh(path, capsys):
     from gantry.build import marker_bytes
     from gantry.cli import main
     from sample_roles import NOT_BUILT, READABLE
 
-    path, _ = absolute_sample_config(tmp_path)
     config = loaded(path)
     assert main(["refresh", "--config", str(path)]) == 0, capsys.readouterr().err
     current, generation = live(config)
@@ -1178,7 +1209,7 @@ def test_sample_config_refresh(tmp_path, capsys):
     assert len(READABLE) == 4 and pages == set(READABLE) and not pages & NOT_BUILT
     index = (generation / "index.html").read_bytes().decode("utf-8")
     assert "built " in index and "sample data as of" not in index
-    assert not (tmp_path / "inst" / "out").exists()
+    assert not (path.parent / "out").exists()
 
 
 def test_failed_update_still_builds_and_swaps(tmp_path):
@@ -1211,9 +1242,10 @@ def test_removed_project_has_no_page_after_the_next_refresh(tmp_path, capsys):
     from gantry.cli import main
     from sample_roles import READABLE, SMALL
 
-    path, copy = absolute_sample_config(tmp_path)
+    path, copy = absolute_sample_config(tmp_path, aggregator=hd.require_devagent())
     config = loaded(path)
     assert main(["refresh", "--config", str(path)]) == 0, capsys.readouterr().err
+    assert generated_at(copy) != SP.FIXED_TIME
     assert (live(config)[1] / "sites" / f"{SMALL}.html").is_file()
     devagent = copy / "devagent" / "config.toml"
     text = devagent.read_bytes().decode("utf-8")
@@ -1227,12 +1259,25 @@ def test_removed_project_has_no_page_after_the_next_refresh(tmp_path, capsys):
 
 
 def test_refresh_in_a_minimal_environment(tmp_path):
-    path, _ = absolute_sample_config(tmp_path)
+    """The aggregator step runs with only an empty PATH: its argv names every program absolutely and
+    carries the search path the aggregator gets (tests/helpers/run_aggregator.py)."""
+    path, copy = absolute_sample_config(tmp_path, aggregator=hd.require_devagent())
     work = tmp_path / "work"
     work.mkdir()
     result = launch(path, minimal_env(tmp_path), work)
     assert result.returncode == 0, result.stderr
     assert ID_SHAPE.fullmatch(live(loaded(path))[0])
+    assert generated_at(copy) != SP.FIXED_TIME
+
+
+def test_refresh_in_a_minimal_environment_on_the_placed_document(tmp_path):
+    path, copy = absolute_sample_config(tmp_path)
+    work = tmp_path / "work"
+    work.mkdir()
+    result = launch(path, minimal_env(tmp_path), work)
+    assert result.returncode == 0, result.stderr
+    assert ID_SHAPE.fullmatch(live(loaded(path))[0])
+    assert generated_at(copy) == SP.FIXED_TIME
 
 
 @pytest.mark.skipif(not WINDOWS, reason="taskkill.exe is a Windows program")
@@ -1294,12 +1339,21 @@ def test_refresh_repo_shape(tmp_path, git_hermetic):
     config = loaded(repo.config)
     assert config.refresh.update == (("git", "-C", str(repo.data), "pull", "--ff-only"),)
     assert not repo.refresh_dir.exists() and repo.wbs().is_file()
+    assert config.portfolio_json == PurePath(repo.document) and repo.document.is_file()
+    assert (repo.da_home / "config.toml").read_bytes() == (repo.config.parent / "devagent.toml").read_bytes()
+    # With a devagent checkout, the aggregator is the second update step.
+    with_aggregator = make_refresh_repo(tmp_path / "two", aggregator=tmp_path / "devagent")
+    update = loaded(with_aggregator.config).refresh.update
+    assert len(update) == 2 and update[0][:2] == ("git", "-C")
+    assert update[1] == tuple(aggregator_command(tmp_path / "devagent", with_aggregator.config.parent,
+                                                 with_aggregator.da_home))
 
 
 def test_end_to_end_pull_then_unreachable_remote(tmp_path, git_hermetic, capsys):
+    """The pull, then the aggregator, then the build (#12): the page shows the pushed title."""
     from helpers.refresh_repo import make_refresh_repo
 
-    repo = make_refresh_repo(tmp_path)
+    repo = make_refresh_repo(tmp_path, aggregator=hd.require_devagent())
     config = loaded(repo.config)
     repo.push_title("Keep the lamp log", "Keep the lamp journal")
     assert refresh.refresh(config, step_timeout_seconds=120) == 0, capsys.readouterr().err
@@ -1320,6 +1374,7 @@ def test_end_to_end_pull_then_unreachable_remote(tmp_path, git_hermetic, capsys)
 
 
 def test_stale_index_lock_fails_the_update_until_removed(tmp_path, git_hermetic, capsys):
+    """The pull's own failure, on the placed document (no aggregator): the data clone's WBS.md is what moves."""
     from helpers.refresh_repo import make_refresh_repo
 
     repo = make_refresh_repo(tmp_path)
@@ -1329,11 +1384,53 @@ def test_stale_index_lock_fails_the_update_until_removed(tmp_path, git_hermetic,
     lock = repo.data / ".git" / "index.lock"
     lock.write_bytes(b"")
     assert refresh.refresh(config, step_timeout_seconds=120) == 1
-    assert "Keep the lamp log" in page(config, repo.site) and "Keep the lamp journal" not in page(config, repo.site)
+    assert record(config).failed_step.index == 1
+    assert b"Keep the lamp journal" not in repo.wbs().read_bytes()
     assert b"index.lock" in (repo.refresh_dir / "last-run.log").read_bytes()
     lock.unlink()
     assert refresh.refresh(config, step_timeout_seconds=120) == 0, capsys.readouterr().err
-    assert "Keep the lamp journal" in page(config, repo.site)
+    assert b"Keep the lamp journal" in repo.wbs().read_bytes()
+
+
+def test_end_to_end_pull_then_unreachable_remote_on_the_placed_document(tmp_path, git_hermetic, capsys):
+    """The refresh job's record of a pull that cannot reach its remote, with no aggregator step."""
+    from helpers.refresh_repo import make_refresh_repo
+
+    repo = make_refresh_repo(tmp_path)
+    config = loaded(repo.config)
+    assert refresh.refresh(config, step_timeout_seconds=120) == 0, capsys.readouterr().err
+    first = record(config)
+    repo.break_remote()
+    assert refresh.refresh(config, step_timeout_seconds=120) == 1
+    r = record(config)
+    assert r.ok is False and r.steps_run == 1
+    assert (r.failed_step.index, r.failed_step.program) == (1, "git")
+    assert r.last_ok_at == first.attempted_at
+
+
+def test_failed_aggregator_step_is_the_recorded_failed_step(tmp_path, git_hermetic, capsys):
+    """A failed aggregator is update step 2: the build still runs on the document already there, and is
+    swapped in (#35's rule for a failed update)."""
+    from helpers.refresh_repo import make_refresh_repo
+
+    repo = make_refresh_repo(tmp_path, aggregator=hd.require_devagent())
+    config = loaded(repo.config)
+    assert refresh.refresh(config, step_timeout_seconds=120) == 0, capsys.readouterr().err
+    before = repo.document.read_bytes()
+    live_before = (repo.refresh_dir / "current").read_bytes()
+    repo.break_aggregator()
+    assert refresh.refresh(config, step_timeout_seconds=120) == 1
+    r = record(config)
+    assert r.ok is False and r.steps_run == 2
+    assert (r.failed_step.index, r.failed_step.reason) == (2, "exit 1")
+    assert repo.document.read_bytes() == before
+    assert (repo.refresh_dir / "current").read_bytes() != live_before
+    # The new generation shows the OLD document's data time (#12's data-time line).
+    from datetime import datetime, timezone
+
+    written = datetime.fromisoformat(json.loads(before)["generated_at"]).astimezone(timezone.utc)
+    index = (live(config)[1] / "index.html").read_bytes().decode("utf-8")
+    assert f"; devagent data written {written:%Y-%m-%d %H:%M} UTC" in index
 
 
 # --- final review fixes (#35) ----------------------------------------------------------

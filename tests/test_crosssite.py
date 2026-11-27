@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 
+from helpers_config import matched_sites
+
 import helpers_portfolio as hp
 from gantry import build
 from gantry.build import CLASH, build_all, read_sites, site_list, write_all
@@ -44,7 +46,7 @@ from helpers_config import (
 )
 from page_safety import HOSTILE, assert_no_external_resources, assert_page_safe
 from page_script.harness import open_page
-from sample_roles import BUSY, NO_WBS, OWN_UNIT, SMALL, UNESTIMATED, UNREADABLE
+from sample_roles import BUSY, NO_WBS, NO_WBS_REASON, OWN_UNIT, SMALL, UNESTIMATED, UNREADABLE, UNREADABLE_REASON
 from test_samples import ROOT
 from test_worksite_page import ancestors, by_key, find, model_with, text_of, tree, with_leaf
 
@@ -75,8 +77,8 @@ def read_tree(tmp_path, sites):
     """(sites, inputs, reasons) for a synthetic tree; `sites` maps a name to its WBS.md as an hp.Source (or None)."""
     config = load_config(write_site_tree(tmp_path, sites))
     roots = config_roots(config)
-    entries, _ = site_list(config, roots)
-    inputs, reasons = read_sites(config, entries, roots=roots)
+    entries, projects = matched_sites(config, roots, site_list(config, roots)[0])
+    inputs, reasons = read_sites(config, entries, roots=roots, projects=projects)
     return entries, inputs, reasons
 
 
@@ -162,9 +164,10 @@ NOT_UTF8 = b"- [ ] Pour {issue: Issue-1}\n\xff\n"
 BAD_BYTE = NOT_UTF8.index(b"\xff")  # outside the f-string: 3.11 forbids backslashes in its expressions
 UNRESOLVED = {
     "no_wbs": ({"beta": None}, "beta:Issue-1",
-               NOT_BUILT.format(site="beta", reason="no WBS.md in the planning directory")),
+               NOT_BUILT.format(site="beta", reason=f"no WBS.md: {hp.NO_WBS_REASON}")),
     "not_utf8": ({"beta": hp.source(NOT_UTF8)}, "beta:Issue-1",
-                 NOT_BUILT.format(site="beta", reason=f"WBS.md is not valid UTF-8 at byte {BAD_BYTE}")),
+                 NOT_BUILT.format(site="beta", reason="WBS.md unreadable: " + hp.UNREADABLE_REASON.format(
+                     reason="invalid start byte", start=BAD_BYTE))),
     "clash": ({"beta": GOOD_BETA, "Beta": GOOD_BETA}, "Beta:Issue-1",
               NOT_BUILT.format(site="Beta", reason=CLASH.format(earlier="beta"))),
     "no_issue": ({"beta": GOOD_BETA}, "beta:Issue-9", NO_ISSUE.format(site="beta", issue="Issue-9")),
@@ -703,9 +706,9 @@ def test_sample_absent_unresolved(tmp_path):
     cases = {
         f"{ABSENT_SITE}:Issue-2": ("absent", None),
         f"{SMALL}:Issue-40": ("unresolved", NO_ISSUE.format(site=SMALL, issue="Issue-40")),
-        f"{NO_WBS}:Issue-1": ("unresolved", NOT_BUILT.format(site=NO_WBS, reason="no WBS.md in the planning directory")),
+        f"{NO_WBS}:Issue-1": ("unresolved", NOT_BUILT.format(site=NO_WBS, reason=NO_WBS_REASON)),
         f"{UNREADABLE}:Issue-2": ("unresolved", NOT_BUILT.format(site=UNREADABLE,
-                                                                  reason="WBS.md is not valid UTF-8 at byte 88")),
+                                                                  reason=UNREADABLE_REASON)),
     }
     report = result.inputs[OWN_UNIT].data.report
     for raw, (status, reason) in cases.items():

@@ -1,5 +1,11 @@
 """The full build: read every site, then render every read site (#11).
 
+Every site's nodes come from devagent's portfolio JSON (#12), read once per
+run through gantry.portfolio_json.read_portfolio: no working-tree WBS.md is
+opened. match_sites pairs each site of devagent's config with its project in
+the document, and lists a site whose project is missing, or whose status
+disagrees with Gantry's own site resolution, as out of date.
+
 build_all reads each site in devagent's config order, reads every site's
 devagent records once (#173: the pages' phase rows and the fires share
 them), traces each site it read and widens the traces to the installation
@@ -37,15 +43,27 @@ from gantry.inputs import Inputs, apply_inputs
 from gantry.model import ForeignOutcome
 from gantry.planner import WeekPlan, plan_week
 from gantry.portfolio_file import Portfolio, PortfolioEntry, report_entries
+from gantry.portfolio_json import PortfolioInput, read_portfolio
 from gantry.requirements import in_trace_sites
 from gantry.roots import OutsideRoots, Roots, mkdir_confined, stat_confined, write_confined
-from gantry.sites import SiteEntry, SiteWarning, config_roots, load_sites
+from gantry.sites import (
+    EMPTY_DEVDOC_DIR,
+    NO_DEVDOC_DIR,
+    NO_PLANNING_DIR,
+    NO_WBS,
+    PLANNING_NOT_A_DIRECTORY,
+    WBS_NOT_A_FILE,
+    SiteEntry,
+    SiteWarning,
+    config_roots,
+    load_sites,
+    shown,
+)
 from gantry.stamp import public_text, stamp_text
 from gantry.trace import build_installation_trace, build_site_trace, counts_line, load_catalog, page_trace
 from gantry.views import strategic as views_strategic
 from gantry.views import week, worksite
 from gantry.views.index import render_index
-from gantry.wbs_stopgap import read_wbs
 
 CLASH = "name clashes with {earlier} on a case-insensitive file system"
 RENDER_ERROR = "render error: {type}: {message}"
@@ -59,6 +77,27 @@ WEEK_RENDER_ERROR_BARE = "cannot render week.html: {type}"
 STRATEGIC_WRITE_ERROR = "cannot write strategic.html: {why}"
 STRATEGIC_RENDER_ERROR = "cannot render strategic.html: {type}: {message}"
 STRATEGIC_RENDER_ERROR_BARE = "cannot render strategic.html: {type}"
+
+# A site devagent's config and the portfolio JSON do not agree on (#12): not built, listed with why.
+OUT_OF_DATE = "portfolio JSON out of date with devagent's config"
+CONFIG_ONLY = f"{OUT_OF_DATE}: this project is not in the document; re-run devagent's aggregator"
+DOCUMENT_ONLY = ("{config}: " + OUT_OF_DATE + ": project {name} is in the document and not in {devagent_config}; "
+                 "re-run devagent's aggregator")
+# Most often the document is only stale (a WBS.md made or deleted since the aggregator ran), so the
+# first remedy is a re-run; a relative devdoc_dir or another devagent config is the lasting cause.
+DISAGREE = ("portfolio JSON out of date or disagreeing with Gantry: the document says {doc}; Gantry finds {own}; "
+            "re-run devagent's aggregator, and if they still disagree, use an absolute devdoc_dir and the same "
+            "devagent config for both")
+# The document's statuses and Gantry's own, as those lines word them.
+DOCUMENT_WORDS = {"read": "WBS.md read", "no_wbs": "no WBS.md", "no_devdoc_dir": "no devdoc_dir",
+                  "unreadable": "WBS.md unreadable"}
+OWN_WORDS = {"wbs": "a WBS.md", "no_wbs": "no WBS.md", "no_devdoc_dir": "no planning directory",
+             "not_file": "a WBS.md that is not a file"}
+# Gantry's own status -> the document statuses that agree with it.
+AGREES = {"wbs": ("read", "unreadable"), "no_wbs": ("no_wbs",), "no_devdoc_dir": ("no_devdoc_dir",),
+          "not_file": ("unreadable",)}
+_OWN = {None: "wbs", NO_WBS: "no_wbs", NO_DEVDOC_DIR: "no_devdoc_dir", EMPTY_DEVDOC_DIR: "no_devdoc_dir",
+        NO_PLANNING_DIR: "no_devdoc_dir", PLANNING_NOT_A_DIRECTORY: "no_devdoc_dir", WBS_NOT_A_FILE: "not_file"}
 
 # The completion marker (#35): the last file a full build with --output-dir
 # writes, holding the build's exit code, so `gantry refresh` can tell a build
@@ -129,6 +168,8 @@ class BuildResult:
     # Set by write_all (#29): {built site: exception type name} for each site whose time thieves
     # could not be derived; its panel shows five no-data thieves and the build warns.
     thieves_failed: dict[str, str] = field(default_factory=dict)
+    # devagent's portfolio JSON as the run read it, once (#12).
+    document: PortfolioInput | None = None
 
 
 def site_list(config, roots=None):
@@ -177,27 +218,76 @@ def _write_week(result, out):
     return result, out / week.PAGE
 
 
-def site_data(roots, site):
-    """(data, None) for a site a page can be built from, else (None, why not)."""
+def own_status(site) -> str | None:
+    """Gantry's own status of a site (#12): "wbs", "no_wbs", "no_devdoc_dir" or "not_file", from its
+    SiteEntry.problem; None for any other problem, which is not compared with the document."""
+    return _OWN.get(site.problem)
+
+
+def match_sites(config, sites, document):
+    """(sites, {name: ProjectInput}, warnings): each site of devagent's config paired with its
+    project in the portfolio JSON `document` (#12), in config order.
+
+    A site whose own status (own_status) the document's agrees with gets its project; one the
+    document did not read also keeps its problem and gets its document_reason. A site with no
+    project in the document, or whose statuses disagree, is out of date: its problem is replaced
+    by why, and it has no project. A site whose problem is not compared keeps it, whatever the
+    document holds. Each project in the document and not in devagent's config is a warning."""
+    by_name = {project.name: project for project in document.projects}
+    out, projects = [], {}
+    for site in sites:
+        own = own_status(site)
+        project = by_name.get(site.name)
+        if own is None:
+            out.append(site)
+        elif project is None:
+            out.append(replace(site, problem=CONFIG_ONLY))
+        elif project.status not in AGREES[own]:
+            out.append(replace(site, problem=DISAGREE.format(doc=DOCUMENT_WORDS[project.status], own=OWN_WORDS[own])))
+        else:
+            projects[site.name] = project
+            if project.status != "read":
+                site = replace(site, document_reason=f"{DOCUMENT_WORDS[project.status]}: {project.reason}")
+            out.append(site)
+    names = {site.name for site in sites}
+    warnings = [SiteWarning("portfolio_json", DOCUMENT_ONLY.format(config=config.path, name=shown(project.name),
+                                                                   devagent_config=config.devagent_config))
+                for project in document.projects if project.name not in names]
+    return out, projects, warnings
+
+
+def read_document(config, sites, roots):
+    """(document, sites, {name: ProjectInput}, warnings): the portfolio JSON read once under the
+    run's roots and matched to `sites`. PortfolioLoadError propagates: nothing is built from a
+    document that cannot be read."""
+    document = read_portfolio(roots, config.portfolio_json)
+    matched, projects, warnings = match_sites(config, sites, document)
+    return document, matched, projects, warnings
+
+
+def site_data(roots, site, project):
+    """(data, None) for a site a page can be built from, else (None, why not). `project` is the
+    site's ProjectInput (match_sites), or None for a site that has none."""
     if site.problem is not None:
-        return None, site.problem
-    data = read_wbs(roots, site.planning_dir / "WBS.md", site.name)
-    unreadable = [e for e in data.report if e.kind == "site_unreadable"]
-    if unreadable:
-        return None, unreadable[0].message
-    return data, None
+        return None, site.document_reason or site.problem
+    if project is None:
+        return None, CONFIG_ONLY
+    if project.status != "read":
+        return None, site.document_reason
+    return project.data, None
 
 
-def read_site(site, config, earlier, *, roots):
+def read_site(site, config, earlier, *, roots, project):
     """(inputs, None) for a site that can be rendered, else (None, reason).
 
-    Its data is read, given its inputs, then checked for bad `h:` values (#36).
+    Its data is the portfolio JSON's (`project`, #12), given its inputs, then checked for bad `h:`
+    values (#36).
     """
     if earlier is not None:
         return None, CLASH.format(earlier=earlier)
-    # Parsing too is per site: a parser that throws on one WBS.md stops only that site.
+    # Per site: a fault in one site's inputs stops only that site.
     try:
-        data, problem = site_data(roots, site)
+        data, problem = site_data(roots, site, project)
         if problem is not None:
             return None, public_text(problem, roots)
         inputs = apply_inputs(roots, site, data, config)
@@ -218,28 +308,30 @@ def site_traces(inputs, catalog, roots):
     return traces, failed
 
 
-def render_site(name, inputs, config, stamp, *, catalog, records, trace=None, built=frozenset()):
+def render_site(name, inputs, config, stamp, *, catalog, records, devagent, trace=None, built=frozenset()):
     """(html, page model) of one read site. `trace` is its installation
     trace in a full build (#21); without one (a --site build) its trace is
     built here from the run's `catalog` (#20), and a fault in it raises, which
     the caller's `try` makes this site's render error. `built` is the set of
     sites with a page in this build, which the page may link to. `records`
     is the site's SiteRecords, read before any page (#173), or
-    phases.NO_RECORDS for a page with no phase rows."""
+    phases.NO_RECORDS for a page with no phase rows. `devagent` is the site's
+    shown entries of devagent's parse report (#12), panel lines on the page."""
     if trace is None:
         trace = build_site_trace(name, inputs.data.leaves, catalog, rows=inputs.data.rows)
     trace = page_trace(trace, catalog, inputs.data, built=built)
     m = worksite.page_model(name, inputs.data, default_unit_hours=config.default_unit_hours, inputs=inputs,
-                            trace=trace, built=built, br_namespace=catalog.br_namespace, records=records)
+                            trace=trace, built=built, br_namespace=catalog.br_namespace, records=records,
+                            devagent=tuple(devagent))
     return worksite.render_model(m, stamp=stamp), m
 
 
-def read_sites(config, sites, *, roots):
-    """({name: inputs}, {name: reason}) over every site, in config order."""
+def read_sites(config, sites, *, roots, projects):
+    """({name: inputs}, {name: reason}) over every site, in config order; `projects` is match_sites'."""
     earlier = clashes(sites)
     inputs, reasons = {}, {}
     for site in sites:
-        found, reason = read_site(site, config, earlier.get(site.name), roots=roots)
+        found, reason = read_site(site, config, earlier.get(site.name), roots=roots, project=projects.get(site.name))
         if found is not None:
             inputs[site.name] = found
         else:
@@ -247,7 +339,7 @@ def read_sites(config, sites, *, roots):
     return inputs, reasons
 
 
-def render_sites(config, inputs, stamp, *, roots, catalog, records, traces=None, built=frozenset()):
+def render_sites(config, inputs, stamp, *, roots, catalog, records, devagent, traces=None, built=frozenset()):
     """({name: html}, {name: page model}, {name: reason}) over the read sites, each in its own try.
     `traces` is the full build's {name: installation trace} (#21); `records`
     its {name: SiteRecords} (#173). A site missing from `records` draws
@@ -258,6 +350,7 @@ def render_sites(config, inputs, stamp, *, roots, catalog, records, traces=None,
         try:
             pages[name], models[name] = render_site(name, site_inputs, config, stamp, catalog=catalog,
                                                     records=records.get(name, RECORDS_MISSING),
+                                                    devagent=devagent.get(name, ()),
                                                     trace=(traces or {}).get(name), built=built)
         except Exception as e:
             reasons[name] = render_reason(e, roots)
@@ -305,7 +398,7 @@ def _trace_sites(trace) -> set[str]:
 
 
 def rerender_failed(config, raw, sites, reasons, resolved, foreign, pages, models, failed, stamp, *, roots,
-                    catalog, records, traces=None):
+                    catalog, records, devagent, traces=None):
     """Re-resolve and re-render after render failures, until no new page fails (#68).
 
     `resolved` and `foreign` are resolve_foreign's result for the last
@@ -332,7 +425,7 @@ def rerender_failed(config, raw, sites, reasons, resolved, foreign, pages, model
                    if any(o.target_site in new for o in foreign[name])
                    or (traces is not None and not _trace_sites(traces[name]).isdisjoint(new))}
         again, remodels, new = render_sites(config, waiting, stamp, roots=roots, catalog=catalog, records=records,
-                                            traces=traces, built=built)
+                                            devagent=devagent, traces=traces, built=built)
         pages.update(again)
         models.update(remodels)
     return resolved, foreign
@@ -358,6 +451,9 @@ def build_all(config, *, now=None, samples=None) -> BuildResult:
     """
     roots = config_roots(config)
     sites, warnings = site_list(config, roots)
+    # devagent's portfolio JSON, once per run (#12): every site's nodes. PortfolioLoadError propagates.
+    document, sites, projects, document_warnings = read_document(config, sites, roots)
+    warnings = warnings + document_warnings
     # devagent's capacity declaration, once per run (#39): the week plan is
     # made from it. It is in the devagent config the site list was just read
     # from, so a file that cannot be read again is a ConfigError, as there.
@@ -368,8 +464,8 @@ def build_all(config, *, now=None, samples=None) -> BuildResult:
     # The clock is read once: the stamp and the fires' reference time share it.
     if now is None:
         now = datetime.now(timezone.utc)
-    stamp = stamp_text(config, now=now, samples=samples, roots=roots)
-    raw, reasons = read_sites(config, sites, roots=roots)
+    stamp = stamp_text(config, generated_at=document.generated_at, now=now, samples=samples, roots=roots)
+    raw, reasons = read_sites(config, sites, roots=roots, projects=projects)
     # Every site's devagent records, once, before any page (#173): the pages'
     # phase rows and the fire collector share this read.
     records = read_records(roots, sites)
@@ -377,19 +473,30 @@ def build_all(config, *, now=None, samples=None) -> BuildResult:
     traces, trace_failed = site_traces(resolved, catalog, roots)
     traces = build_installation_trace(sites, resolved, traces, {**reasons, **trace_failed}, catalog)
     built = frozenset(name for name in raw if name not in reasons and name not in trace_failed)
+    devagent = devagent_by_project(document, roots)
     pages, models, failed = render_sites(config, {name: resolved[name] for name in traces}, stamp, roots=roots,
-                                         catalog=catalog, records=records, traces=traces, built=built)
+                                         catalog=catalog, records=records, devagent=devagent, traces=traces,
+                                         built=built)
     resolved, foreign = rerender_failed(config, raw, sites, reasons, resolved, foreign, pages, models,
                                         {**trace_failed, **failed}, stamp, roots=roots, catalog=catalog,
-                                        records=records, traces=traces)
+                                        records=records, devagent=devagent, traces=traces)
     summaries = tuple(_summary(s.name, resolved[s.name], models[s.name], config.as_of) if s.name in pages
                       else not_built(s.name, reasons[s.name]) for s in sites)
     result = BuildResult(config, tuple(sites), tuple(warnings), resolved, pages, summaries, stamp, roots, foreign,
-                         portfolio=catalog.portfolio, page_models=models, records=records)
+                         portfolio=catalog.portfolio, page_models=models, records=records, document=document)
     result = replace(result, portfolio_entries=_portfolio_entries(result))
     # The plan is made from the rendered sites: a worksite page does not get it.
     result = replace(result, plan=plan_week(result, result.portfolio, config, capacity=capacity))
     return collect_build_fires(result, config, sites, now)
+
+
+def devagent_by_project(document, roots) -> dict:
+    """{project: its shown devagent report entries, in document order} (#12). A message names no
+    root by its path (public_text): it reaches the pages, as the index's unplaced entries do."""
+    found = {}
+    for entry in document.devagent_report:
+        found.setdefault(entry.project, []).append(replace(entry, message=public_text(entry.message, roots)))
+    return found
 
 
 def read_records(roots, sites) -> dict:

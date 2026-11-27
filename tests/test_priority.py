@@ -18,9 +18,10 @@ RANK_TABLE = [
     ("P0", 0), ("P1", 1), ("P2", 2), ("P3", 3), ("P4", 4),
     (None, 3), ("P5", 3), ("P-1", 3), ("P7", 3), ("p1", 3), ("[P1]", 3),
     ("P" + "9" * 5000, 3),
-    ('"P2"', 2), ("[P1", 1),
+    # devagent has already read quotes and brackets: a stored value holding them is that text (#12).
+    ('"P2"', 3), ("[P1", 3),
 ]
-INVALID = {None, "P5", "P-1", "P7", "p1", "[P1]", "P" + "9" * 5000}
+INVALID = {None, "P5", "P-1", "P7", "p1", "[P1]", "P" + "9" * 5000, '"P2"', "[P1"}
 
 
 @pytest.mark.parametrize(("raw", "expected"), RANK_TABLE)
@@ -75,7 +76,7 @@ P0_TEXT = """- [ ] First {issue: Issue-1, priority: P1}
 - [ ] Odd {issue: Issue-5, priority: P5}
 - [ ] Odder {issue: Issue-6, priority: P-1}
 """
-# P0_TEXT as devagent reads it; the smoke test below keeps the text on the stopgap path.
+# P0_TEXT as devagent reads it (#12: the build reads nothing else).
 P0_NODES = (
     hp.node("First", issue="Issue-1", priority="P1"),
     hp.node("Second", issue="Issue-2", priority="P0"),
@@ -104,9 +105,7 @@ def test_p0_inherited_by_prerequisite():
 
 
 def test_p0_not_reported_p5_p_minus_1_are():
-    from gantry.wbs_stopgap import parse_wbs
-
-    data = parse_wbs(P0_TEXT, "alpha")
+    data = hp.site(*P0_NODES)
     found = [e for e in data.report if e.kind == "bad_priority"]
     assert [e.line for e in found] == [5, 6]
     assert "'P5'" in found[0].message and "'P-1'" in found[1].message

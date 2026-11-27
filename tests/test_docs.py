@@ -338,7 +338,9 @@ def test_quickstart_usage(argv):
     assert exc.value.code == 2
 
 
-WINDOWS_LINE = r"`py -3 tools\demo_build.py`"
+WINDOWS_LINE = r"`py -3 tools\demo_build.py`"  # gone since #12; the test proves it stays gone
+PREREQUISITES = ("Prerequisites: Python 3.11 or later as `python3`, git, bash, and network access to github.com: "
+                 "the demo build fetches devagent at a pinned release and runs it (see [docs/demo.md](docs/demo.md)).")
 
 
 def test_readme_quickstart():
@@ -354,9 +356,10 @@ def test_readme_quickstart():
     assert note.startswith("<!--") and ".github/workflows/quickstart.yml" in note and "tests/test_docs.py" in note
     prerequisites = [line for line in lines[:begin] if line.startswith("Prerequisites:")]
     assert len(prerequisites) == 1
-    for needed in ("Python 3.11 or later", "`python3`", "git"):
-        assert needed in prerequisites[0]
-    assert any(WINDOWS_LINE in line for line in unfenced_lines(readme) if line)
+    assert prerequisites[0] == PREREQUISITES
+    # The demo build runs devagent's aggregator, which Windows cannot run (#12): no Windows line.
+    assert not any(WINDOWS_LINE in line for line in unfenced_lines(readme) if line)
+    assert "py -3 tools" not in readme
     assert demo_build.output_folder(ROOT).relative_to(ROOT).as_posix() in readme
 
 
@@ -719,3 +722,17 @@ def test_docs_state_what_29_shows():
     (row,) = [line for line in config.splitlines() if line.startswith("| `fires_list` |")]
     assert "no page shows them yet" not in row and "strategic page" in row
     assert "no page shows the fires list yet" not in markdown_text(ROOT / "docs" / "fires-list.md")
+
+
+
+def test_windows_installations_are_told_how_to_make_the_portfolio_json():
+    """portfolio_json is required (#12) and devagent's aggregator needs bash and GNU coreutils: the
+    platform section and the update list say how a Windows installation gets the document."""
+    config = " ".join(markdown_text(ROOT / "docs" / "config.md").split())
+    refresh = " ".join(markdown_text(ROOT / "docs" / "refresh-and-serve.md").split())
+    for text in (config, refresh):
+        assert "WSL" in text and "portfolio_json" in text
+    # A native-Windows Gantry and a WSL aggregator resolve no absolute devdoc_dir to the same folder.
+    assert "run Gantry under WSL" in config and "native-Windows Gantry cannot" in config
+    assert "`gantry refresh` itself under WSL" in refresh
+    assert "wsl.exe" not in refresh

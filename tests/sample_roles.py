@@ -25,3 +25,7 @@ HISTORY_LESS = UNESTIMATED  # a WBS.md and no `history` key
 READABLE = frozenset({BUSY, OWN_UNIT, UNESTIMATED, SMALL})
 NOT_BUILT = frozenset({NO_WBS, UNREADABLE})
 HOSTILE_TITLE = 'Render <b>this</b> & "that" as text'
+# The two not-built sample sites' reasons as every not-built line shows them (#12): the portfolio
+# JSON's status words, then devagent's status_reason (tests/fixtures/portfolio/samples.json).
+NO_WBS_REASON = "no WBS.md: the devdoc dir has no WBS.md"
+UNREADABLE_REASON = "WBS.md unreadable: WBS.md could not be read: UnicodeDecodeError: invalid continuation byte at byte 88"

@@ -49,7 +49,8 @@ Rules 1 to 4 need no private data. CI and the hook both run them.
    on a public repo are public.
 4. **Ignore rules.** `git check-ignore --no-index` must ignore a probe file in
    the output folder `samples/gantry.sample.toml` names, in
-   `samples/history/out/` and in `samples/devagent/out/`, and must not ignore
+   `samples/history/out/`, in `samples/devagent/out/` and in `out/devagent/`
+   (the demo build's devagent fetch folder, #12), and must not ignore
    `samples/gantry.sample.toml`, `samples/devagent/config.toml` or any tracked
    file. Only a tracked `.gitignore` counts: `.git/info/exclude` and
    `core.excludesFile` are local to one clone, so they can neither hide a

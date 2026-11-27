@@ -1,7 +1,10 @@
 # Every name here is fictional: gantry's sample installation (#7).
 # Paths are relative to this file's folder (samples/).
-config_version = 1
+config_version = 2
 devagent_config = "devagent/config.toml"
+# devagent's portfolio JSON over the sample devagent config: tools/sample_portfolio.py
+# writes it (the demo build runs it, docs/demo.md).
+portfolio_json = "devagent/out/portfolio/portfolio.json"
 output_dir = "out"
 as_of = 2026-01-20
 portfolio_file = "portfolio.md"

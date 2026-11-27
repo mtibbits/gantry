@@ -25,7 +25,7 @@ from gantry.links import leaf_anchor
 from gantry.model import Estimate, Leaf, Models, Row, SiteData
 from gantry.estimates_file import find_estimates_file, read_estimates_file
 from gantry.roots import directory_roots
-from gantry.sites import SiteEntry, config_roots, load_sites
+from gantry.sites import SiteEntry, config_roots
 from gantry import phases, render
 from gantry.render import CLASS_TOKENS
 from gantry.schedule import limit, plan
@@ -46,7 +46,7 @@ from gantry.views.worksite import (
 )
 from gantry.portfolio_json import tag
 from page_safety import CSP_CONTENT, HOSTILE, assert_no_external_resources, assert_page_safe
-from helpers_config import demo_build, page_ids
+from helpers_config import demo_build, matched_sites, page_ids
 from page_script.harness import Planted, open_page, run_function
 from sample_roles import BUSY, OWN_UNIT, READABLE, UNESTIMATED
 from test_samples import ROOT, SAMPLES
@@ -417,9 +417,7 @@ def built_panel(out, site):
 
 def assert_quarry_lists_bad_h(copy, panel):
     """Of every bad_h message quarry's h: values could give, the panel lists only Issue-7's."""
-    from gantry.wbs_stopgap import read_wbs
-
-    data = read_wbs(directory_roots([copy]), copy / UNESTIMATED / "WBS.md", UNESTIMATED)
+    data = hp.sample_site(UNESTIMATED)
     held = [n for n in (*data.leaves, *data.rows) if "h" in n.meta]
     assert len(held) == 4
     possible = {H_MESSAGES[kind].format(line=n.line, raw=n.meta["h"], key=n.key)
@@ -1063,10 +1061,10 @@ def test_schedule_legend_names_p0_beside_p1_p2():
 def inputs_page(site):
     """(inputs, page) of a sample site: the sample config, load_sites, then apply_inputs."""
     config = load_installation(SAMPLES / "gantry.sample.toml")
-    sites, _ = load_sites(config)
-    entry = next(s for s in sites if s.name == site)
     roots = config_roots(config)
-    data, problem = site_data(roots, entry)
+    sites, projects = matched_sites(config, roots)
+    entry = next(s for s in sites if s.name == site)
+    data, problem = site_data(roots, entry, projects.get(site))
     assert problem is None, problem
     inputs = apply_inputs(roots, entry, data, config)
     return inputs, render_page(site, inputs.data, default_unit_hours=config.default_unit_hours, inputs=inputs)
@@ -1574,3 +1572,136 @@ def test_worksite_box_cuts_and_wraps():
     assert texts("band-t") == ["think sonnet-4…", "check haiku-4-…"]
     assert [t.elements[i]["classes"] for i in find(t, "text", ["band-t"], within=full)] == [
         ["band-t", "m-other"], ["band-t", "m-other"]]
+
+
+# --- devagent's metadata and report entries on the page (#12) ----------------------------------
+
+import json as _json  # noqa: E402
+
+from gantry.build import build_all, write_all  # noqa: E402
+from helpers_config import run_main, write_site_tree  # noqa: E402
+
+LISTED = hp.source(b"# Plan\n- [ ] A {issue: Issue-1, priority: [P0, P1], est: [2h, 3h], note: \"quoted, text\"}\n"
+                   b"- [ ] B {issue: Issue-2, priority: P1, est: 4h}\n",
+                   hp.node("A", issue="Issue-1", priority=["P0", "P1"], est=["2h", "3h"], note="quoted, text"),
+                   hp.node("B", issue="Issue-2", priority="P1", est="4h"), start=2)
+
+
+def listed_build(tmp_path, **extra):
+    config = load_installation(write_site_tree(tmp_path / "tree", {"alpha": LISTED}, **extra))
+    result, paths, error = write_all(build_all(config))
+    assert error is None
+    return result, config
+
+
+def page_leaf(page, key):
+    data = assert_page_safe(page, [])
+    return next(leaf for leaf in data["leaves"] if leaf["key"] == key)
+
+
+def test_metadata_shows_list_and_quoted_values(tmp_path):
+    result, config = listed_build(tmp_path)
+    leaf = page_leaf(result.pages["alpha"], "Issue-1")
+    meta = dict(leaf["meta"])
+    assert meta["priority"] == "[P0, P1]" and meta["est"] == "[2h, 3h]"
+    assert meta["note"] == "quoted, text"  # devagent's parse: no quotes to read again
+    assert dict(page_leaf(result.pages["alpha"], "Issue-2")["meta"])["est"] == "4h"
+
+
+def test_list_priority_is_text_at_every_sink(tmp_path):
+    """A list priority is text on the worksite data, in the leaf box and in the week page's `named` rows."""
+    result, config = listed_build(tmp_path)
+    page = result.pages["alpha"]
+    assert page_leaf(page, "Issue-1")["priority"] == "[P0, P1]"
+    assert page_leaf(page, "Issue-2")["priority"] == "P1"
+    # The leaf box reads the page data's priority, which is text: the box cuts it as any priority.
+    assert leafbox.box("Issue-1", page_leaf(page, "Issue-1")["priority"], "A", None).priority == leafbox.cut(
+        "[P0, P1]", leafbox.PRIORITY_MAX)
+    # The week page's named row (its data block's `leaves` entry and its box) for each leaf it names.
+    from gantry.views import week
+
+    named = week._Page(result.plan, result)
+    for key in ("Issue-1", "Issue-2"):
+        named.title("alpha", key)
+    assert named.named[("alpha", "Issue-1")][3:5] == ["[2h, 3h]", "[P0, P1]"]
+    assert named.named[("alpha", "Issue-2")][3:5] == ["4h", "P1"]
+    assert all(isinstance(v, str) for v in named.named[("alpha", "Issue-1")][3:5])
+
+
+def test_devagent_entries_are_panel_lines(tmp_path):
+    from gantry.views.worksite import DEVAGENT_LINE, DEVAGENT_LINE_BARE
+
+    folder = tmp_path / "tree"
+    shown_entries = ((2, "unknown_meta_key", "unknown metadata key 'note'"), (None, "parser_note", "a whole-file note"))
+    source = hp.Source(LISTED.text, LISTED.nodes, shown_entries[:1])
+    config = load_installation(write_site_tree(folder, {"alpha": source}))
+    document = folder / "portfolio.json"
+    doc = _json.loads(document.read_bytes())
+    doc["parse_report"].append({"project": "alpha", "source_line": None, "kind": "parser_note",
+                                "message": "a whole-file note"})
+    document.write_bytes(hp.sp.dumps(doc))
+    result = build_all(config)
+    panel = result.page_models["alpha"]["panel"]
+    assert DEVAGENT_LINE.format(kind="unknown_meta_key", line=2, message="unknown metadata key 'note'") in panel
+    assert DEVAGENT_LINE_BARE.format(kind="parser_note", message="a whole-file note") in panel
+    assert "devagent unknown_meta_key: WBS.md line 2: unknown metadata key 'note'" in panel
+    assert next(s for s in result.summaries if s.name == "alpha").report_count == len(panel)
+    # The --site build shows the same lines.
+    code, _, _ = run_main("--config", str(config.path), "--site", "alpha")
+    assert code == 0
+    page = (folder / "out" / "sites" / "alpha.html").read_bytes().decode("utf-8")
+    assert render.esc("devagent parser_note: a whole-file note") in page
+
+
+def test_devagent_message_names_no_root_by_its_path(tmp_path):
+    """A shown devagent entry's message that quotes a configured root's path reaches the site page,
+    under --site too, with the root's label in its place, as on the index (#12)."""
+    folder = tmp_path / "tree"
+    config = write_site_tree(folder, {"alpha": hp.fixture_source("page")})
+    document = folder / "portfolio.json"
+    doc = _json.loads(document.read_bytes())
+    devdoc = next(r.path for r in config_roots(load_installation(config)).roots if r.key == "devdoc_dir")
+    planted = f"cannot stat {devdoc / 'WBS.md'}"
+    doc["parse_report"].append({"project": "alpha", "source_line": 1, "kind": "parser_note", "message": planted})
+    document.write_bytes(hp.sp.dumps(doc))
+    for args in ((), ("--site", "alpha")):
+        code, _, err = run_main("--config", str(config), *args)
+        assert code == 0, err
+        page = (folder / "out" / "sites" / "alpha.html").read_bytes().decode("utf-8")
+        assert "parser_note" in page and "cannot stat" in page
+        assert str(devdoc) not in page
+
+
+def test_hostile_document_strings_are_inert(tmp_path):
+    """HOSTILE strings in a status reason, a report message, a devagent kind and a project name only the
+    document holds: every page and the index pass the page rules, no markup survives unescaped, and
+    stderr stays one line per message with no control character (#12)."""
+    folder = tmp_path / "tree"
+    config = write_site_tree(folder, {"alpha": hp.fixture_source("page"), "beta": None})
+    document = folder / "portfolio.json"
+    doc = _json.loads(document.read_bytes())
+    beta = next(p for p in doc["projects"] if p["project"] == "beta")
+    beta["status_reason"] = HOSTILE[4] + "\x1b[2J\n"
+    doc["projects"].append({"project": HOSTILE[0], "status": "no_wbs", "status_reason": "x", "nodes": []})
+    doc["parse_report"] += [
+        {"project": "alpha", "source_line": 1, "kind": HOSTILE[2], "message": HOSTILE[3]},
+        {"project": HOSTILE[0], "source_line": None, "kind": "parser_note", "message": HOSTILE[10]},
+    ]
+    document.write_bytes(hp.sp.dumps(doc))
+    code, _, err = run_main("--config", str(config))
+    assert code == 0, err
+    out = folder / "out"
+    pages = {p.relative_to(out).as_posix(): p.read_bytes().decode("utf-8") for p in out.rglob("*.html")}
+    assert {"index.html", "sites/alpha.html"} <= set(pages)
+    for name, page in pages.items():
+        assert_page_safe(page, [])
+        for raw in ("<script>gantrypwn", "<img src=x onerror", "<svg onload", "</title></style>"):
+            assert raw not in page, (name, raw)
+    alpha, index = pages["sites/alpha.html"], pages["index.html"]
+    assert "gantrypwn(3)" in alpha and "gantrypwn(4)" in alpha  # the kind and the message, as text
+    assert "gantrypwn(5)" in index  # beta's status reason
+    assert "gantrypwn(1)" in index and "gantrypwn(8)" in index  # the document-only name, its entry
+    assert "\x1b" not in err and " " not in err
+    lines = err.splitlines()
+    assert any("site beta is not built: no WBS.md: ' onmouseover='gantrypwn(5)\\x1b[2J\\n" in line for line in lines)
+    assert any("project <script>gantrypwn(1)</script> is in the document and not in" in line for line in lines)

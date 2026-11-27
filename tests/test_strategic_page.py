@@ -15,7 +15,7 @@ from gantry.views.strategic import pct
 from helpers_config import append_bytes, replace_bytes, sample_projects, toml_key, write_site_tree
 from helpers_strategic import page_data, placement_line, placement_problems, thieves_line
 from page_safety import HOSTILE, assert_no_external_resources, assert_page_safe
-from sample_roles import BUSY, NO_WBS, OWN_UNIT, SMALL, UNESTIMATED, UNREADABLE
+from sample_roles import BUSY, NO_WBS, NO_WBS_REASON, OWN_UNIT, SMALL, UNESTIMATED, UNREADABLE, UNREADABLE_REASON
 from test_index_page import data_strings
 from test_samples import ROOT
 from test_strategic import ESTIMATES_ROW, samples, with_estimates_row
@@ -23,8 +23,6 @@ from test_worksite_page import by_id, find, text_of, tree
 
 BR_TEXTS = ["Keep the harbor safe to work in, all year round.", "Keep the market supplied every week.",
             "Bring in a full harvest each autumn."]
-NO_WBS_REASON = "no WBS.md in the planning directory"
-UNREADABLE_REASON = "WBS.md is not valid UTF-8 at byte 88"
 SECTION_LABELS = {None: "the portfolio file", "business requirements": "business requirements",
                   "settings": "settings"}
 

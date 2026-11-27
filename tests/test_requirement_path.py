@@ -12,6 +12,8 @@ from dataclasses import replace
 
 import pytest
 
+from helpers_config import matched_sites
+
 import gantry.path
 import helpers_portfolio as hp
 from gantry import build
@@ -42,9 +44,9 @@ def site_read(config_path, site):
     """(page_trace, SiteData) of one site, read and joined as the build does."""
     config = load_config(config_path)
     roots = config_roots(config)
-    sites = load_sites(config, roots)[0]
+    sites, projects = matched_sites(config, roots)
     catalog = load_catalog(roots, config, sites)
-    inputs, reasons = build.read_sites(config, sites, roots=roots)
+    inputs, reasons = build.read_sites(config, sites, roots=roots, projects=projects)
     assert site in inputs, reasons
     data = inputs[site].data
     return page_trace(build_site_trace(site, data.leaves, catalog), catalog, data), data
@@ -459,9 +461,9 @@ PATH_KEYS = ["state", "lines", "order", "chain", "targets", "end_day", "incomple
 def test_path_keys_exact_and_argument_unchanged(real_sample_document):
     config = load_config(GANTRY_SAMPLE)
     roots = config_roots(config)
-    sites = load_sites(config, roots)[0]
+    sites, projects = matched_sites(config, roots)
     catalog = load_catalog(roots, config, sites)
-    inputs = build.read_sites(config, sites, roots=roots)[0][SMALL]
+    inputs = build.read_sites(config, sites, roots=roots, projects=projects)[0][SMALL]
     trace = page_trace(build_site_trace(SMALL, inputs.data.leaves, catalog), catalog, inputs.data)
     before = copy.deepcopy(trace)
     m = page_model(SMALL, inputs.data, default_unit_hours=6, inputs=inputs, trace=trace)

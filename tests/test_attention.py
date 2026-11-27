@@ -4,6 +4,8 @@ from dataclasses import replace
 
 import pytest
 
+from helpers_config import matched_sites
+
 import helpers_portfolio as hp
 from gantry import model, portfolio_file
 from gantry.attention import (
@@ -96,27 +98,6 @@ def site_of(*leaves, rows=()):
 
 
 # --- h: ----------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("i", range(len(H_CASES)), ids=CASE_IDS)
-def test_h_text_forms(i):
-    # A smoke test of the stopgap path (#84): h_values.md's quoted forms as the raw text the stopgap keeps.
-    from gantry.wbs_stopgap import parse_wbs
-
-    written, _, expected = H_CASES[i]
-    data = parse_wbs((FIXTURES / "h_values.md").read_bytes().decode("utf-8"), SITE)
-    leaf = case_leaf(data, i)
-    assert leaf.meta["h"] == written
-    assert read_h(leaf) == expected
-    found = entries_on(check_h(data, SITE), leaf.line)
-    if expected is not None:
-        assert found == []
-        return
-    assert len(found) == 1
-    entry = found[0]
-    assert (entry.site, entry.line) == (SITE, leaf.line)
-    assert entry.message == bad_h_message(leaf, written)
-    assert repr(leaf.key) in entry.message and repr(written) in entry.message
 
 
 @pytest.mark.parametrize("i", range(len(H_CASES)), ids=CASE_IDS)
@@ -459,7 +440,6 @@ def test_demo_inputs(real_sample_document):
     from gantry.build import site_data
     from gantry.config import load_config
     from gantry.inputs import apply_inputs
-    from gantry.sites import load_sites
     from sample_roles import BUSY, UNESTIMATED
     from test_samples import SAMPLES
 
@@ -468,10 +448,11 @@ def test_demo_inputs(real_sample_document):
     p = read_portfolio_file(roots, config.portfolio_file, br_namespace=config.requirements.br_namespace)
     m = mapping_in_use(p)
     assert m.source == "portfolio_file"
-    entries = {entry.name: entry for entry in load_sites(config)[0]}
+    matched, projects = matched_sites(config, roots)
+    entries = {entry.name: entry for entry in matched}
 
     def inputs(name):
-        data, problem = site_data(roots, entries[name])
+        data, problem = site_data(roots, entries[name], projects.get(name))
         assert problem is None, problem
         return apply_inputs(roots, entries[name], data, config).data
 
@@ -480,7 +461,8 @@ def test_demo_inputs(real_sample_document):
     found = leaf_attention(zero, quarry, m)
     assert (found.rate, found.tag) == (0, "scored")
     # The sample's mapping, not the default, prices a score: they differ at 2.
-    (two,) = [leaf for leaf in quarry.leaves if leaf.meta.get("h") == '"2"']
+    # `h: "2"` as devagent parses it: the quoted value's text, 2 (#12).
+    (two,) = [leaf for leaf in quarry.leaves if leaf.meta.get("h") == "2"]
     assert m.values[2] != DEFAULT_MAPPING[2]
     assert leaf_attention(two, quarry, m).rate == m.values[2]
 
@@ -526,3 +508,15 @@ def test_bad_h_row_points_to_week_plan():
 
 def test_readme_points_to_week_plan():
     assert "[docs/week-plan.md](docs/week-plan.md)" in (ROOT / "README.md").read_bytes().decode("utf-8")
+
+
+def test_bad_h_text_for_list_and_quoted_values():
+    """The stored value is printed with repr (#12, item 2): a list as a list, a string as devagent parsed it."""
+    import helpers_portfolio as hp
+    from gantry.attention import check_h
+
+    site = hp.site(hp.node("A", issue="Issue-1", h=["3", "4"]), hp.node("B", issue="Issue-2", h='"2" x'))
+    assert [e.message for e in check_h(site, "alpha").report if e.kind == "bad_h"] == [
+        "WBS.md line 1: h: ['3', '4'] on 'Issue-1' is not one digit from 0 to 4; it is not used",
+        "WBS.md line 2: h: '\"2\" x' on 'Issue-2' is not one digit from 0 to 4; it is not used",
+    ]

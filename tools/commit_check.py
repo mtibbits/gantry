@@ -235,7 +235,7 @@ def decode_blob(data):
 SAMPLE_CONFIG = "samples/gantry.sample.toml"
 SAMPLE_ROOT = "samples"
 PROBE_NAME = "commit-check-probe"
-FIXED_PROBE_DIRS = ("samples/history/out", "samples/devagent/out")
+FIXED_PROBE_DIRS = ("samples/history/out", "samples/devagent/out", "out/devagent")
 MUST_NOT_IGNORE = (SAMPLE_CONFIG, "samples/devagent/config.toml")
 # Absolute, rooted, drive-letter or home-relative (#42's test uses the same test).
 ABSOLUTE_START_RE = re.compile("^(?:[" + SEP + BACK * 2 + "~]|[A-Za-z]:)")

@@ -499,15 +499,20 @@ pin and a test holds it equal to `tests/devagent.pin`:
   `tests/fixtures/portfolio/samples_provenance.json`: its document over
   `samples/`, which the sample-site unit tests read, and the hash of each
   input (`tools/sample_portfolio.py --fixtures` writes all four).
-- `tests/fixtures/expected_leaves/`: the six sample snapshots and the 14
+- `tests/fixtures/expected_leaves/`: the six sample snapshots and the 15
   under `fixture/` (`tools/update_expected_leaves.py`). Run it after the
   line above, since the fixture snapshots are read from `written.json`.
-  `known_differences.json` in that folder is kept by hand; review it against
-  the new snapshots.
+- The fixture snapshots and the tests that quote a report message: three
+  of the reader's rules key on devagent's message text (a near miss's
+  `WBS.md line N: ` text, the `depends_on '<entry>'` a `dep_unresolved` is
+  about, a `dep_cycle`'s members). They fail soft, as a shown entry, so a
+  reworded message changes no page silently: `update_expected_leaves.py
+  --check` reddens and names each snapshot it moved (#12).
 
-A pin move also re-runs the build-side differential that
-`tests/helpers_config.py` names (#195), since the build-side test sources
-model devagent's report entries by hand and no gated test re-checks them.
+A pin move also re-runs the build-side differential that #195's and #197's
+pull requests describe, since the build-side test sources
+(`tests/helpers_portfolio.py`, `tests/fixtures/week_plan/trees.json`) model
+devagent's reading by hand and no gated test re-checks them all.
 
 [worksite-page.md](worksite-page.md#reading-devagents-portfolio-json)
 describes the portfolio fixture, the snapshots and their tests.
@@ -540,11 +545,12 @@ Gantry has asked devagent for a per-issue stuck flag and next-step field in
 its portfolio JSON (mtibbits/devagent#725, emitted by mtibbits/devagent#726).
 devagent writes them, as each issue's `stuck`, `checklist`, `next_step` and
 `next_step_number` under `projects[].issues`; Gantry does not read them yet.
-Once Gantry reads that JSON (#12), **whether an
+Gantry reads that JSON for every site's nodes (#12), so **whether an
 issue is STUCK**, **the STUCK marker's reason and time** (`stuck` holds
 `step`, `reason` and `since`) and **its next step** can come from there.
 The portfolio reader (`gantry/portfolio_json.py`) reads the document's
-nodes and report today and not its per-issue entries (`projects[].issues`);
-reading those is #12's. **The parked state, whether a checklist shows
+nodes and report and not its per-issue entries (`projects[].issues`);
+reading those, and narrowing this module's adapter, is mtibbits/gantry#202,
+a follow-up issue filed from #12. **The parked state, whether a checklist shows
 progress, and the plan's next task** stay with this module unless devagent
 emits them too. The callers' types do not change shape when a source moves.

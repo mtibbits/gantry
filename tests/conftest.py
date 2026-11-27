@@ -60,3 +60,22 @@ def real_sample_document():
         pytest.skip("the gantry root is not a git work tree")
     sp.guard_out(SAMPLES)
     return install_sample_document(SAMPLES)
+
+
+@pytest.fixture(autouse=True)
+def _no_devagent_fetch(monkeypatch):
+    """No test fetches devagent (#12): an in-process demo step that would clone fails the test.
+
+    tests/test_demo_build.py's `fetches` fixture replaces the clone with a local fake; a
+    child demo run always has GANTRY_DEVAGENT_DIR set (tests/helpers_demo.py run_child)."""
+    import demo_build
+
+    real = demo_build._git
+
+    def guarded(root, *args):
+        if args[:1] == ("clone",):
+            pytest.fail("a test would fetch devagent; set GANTRY_DEVAGENT_DIR or use the fetches fixture",
+                        pytrace=False)
+        return real(root, *args)
+
+    monkeypatch.setattr(demo_build, "_git", guarded)

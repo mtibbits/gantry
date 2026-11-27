@@ -32,9 +32,7 @@ A live demo, built only from fictional sample projects, is at
 
 ## Try it
 
-Prerequisites: Python 3.11 or later as `python3`, and git. Today the demo
-needs nothing else; a later step that needs another program checks for it
-and names it (see [docs/demo.md](docs/demo.md)).
+Prerequisites: Python 3.11 or later as `python3`, git, bash, and network access to github.com: the demo build fetches devagent at a pinned release and runs it (see [docs/demo.md](docs/demo.md)).
 
 <!-- Editor note: .github/workflows/quickstart.yml runs the second block below verbatim on a fresh clone, and tests/test_docs.py pins both blocks and the lines around them. -->
 <!-- quickstart:begin -->
@@ -53,9 +51,8 @@ python3 tools/demo_build.py
 ```
 
 The script prints the demo's output folder last (`samples/out`); open
-`index.html` there in a browser.
-
-On Windows, run `py -3 tools\demo_build.py` in place of the second block.
+`index.html` there in a browser. The demo build is proven on Linux; it
+refuses Windows, where devagent's toolchain does not run.
 
 <!-- quickstart:end -->
 
@@ -458,7 +455,7 @@ will be read when the maintainer can. Security reports go through
 | git | 2.45 | Latest: on every change, the git on the CI runners, Ubuntu and Windows, which may trail git's latest release; each release records the git it ran on. Oldest: stated from git's release notes, not yet tested: 2.45 is the oldest git that honours `GIT_NO_LAZY_FETCH` (see [Your data stays private](#your-data-stays-private)). |
 | Claude Code | Not yet stated | At every release: the plugin check under [Checks every release runs](#checks-every-release-runs), on the latest release. |
 | bash | Not yet stated | `/gantry:build` runs its launcher with bash. On every change: the launcher's tests, with the bash on the Ubuntu CI runner. At every release: the plugin check, with the bash Claude Code uses there. |
-| devagent | 3.4.0 | Gantry reads the `WBS.md` files, config and records devagent writes. Latest: the maintainer's own installation runs the latest devagent release. Oldest: on every change, on the Ubuntu CI runners, the contract test runs devagent's own record writers at the release `tests/devagent.pin` names (3.4.0) and compares their output with Gantry's fixtures ([devagent-formats.md](docs/devagent-formats.md#fixtures-and-the-contract-test)), and the portfolio tests run its aggregator over Gantry's `WBS.md` fixtures and samples and compare what Gantry reads from its portfolio JSON with committed snapshots ([worksite-page.md](docs/worksite-page.md#reading-devagents-portfolio-json)); the config format is not yet tested against it. The capacity declaration in that config is tested at the same release: on every change, on the Ubuntu CI runners, the agreement test runs devagent's own capacity reader on Gantry's config fixtures and compares what it prints with what Gantry reads from the same files ([devagent-formats.md](docs/devagent-formats.md#the-capacity-declaration)). |
+| devagent | 3.4.0 | Gantry reads the portfolio JSON (devagent's reading of every `WBS.md`), config and records devagent writes. Latest: the maintainer's own installation runs the latest devagent release. Oldest: on every change, on the Ubuntu CI runners, the contract test runs devagent's own record writers at the release `tests/devagent.pin` names (3.4.0) and compares their output with Gantry's fixtures ([devagent-formats.md](docs/devagent-formats.md#fixtures-and-the-contract-test)), and the portfolio tests run its aggregator over Gantry's `WBS.md` fixtures and samples and compare what Gantry reads from its portfolio JSON with committed snapshots ([worksite-page.md](docs/worksite-page.md#reading-devagents-portfolio-json)); the config format is not yet tested against it. The capacity declaration in that config is tested at the same release: on every change, on the Ubuntu CI runners, the agreement test runs devagent's own capacity reader on Gantry's config fixtures and compares what it prints with what Gantry reads from the same files ([devagent-formats.md](docs/devagent-formats.md#the-capacity-declaration)). |
 
 Until a tool's oldest version is stated, only its latest release is
 supported. That moves with each upstream release and is not a break.
@@ -469,8 +466,8 @@ the version rule.
 devagent needs one more rule. Gantry's full function needs devagent's
 latest release. With an older supported devagent, every page still builds,
 and anything that needs a newer devagent contract is shown as missing,
-never filled in by Gantry. For example, without devagent's portfolio JSON
-Gantry reads `WBS.md` instead, and gets none of what only the JSON carries.
+never filled in by Gantry. For example, a field a newer portfolio JSON
+carries and the pinned one does not (model tiers, #14) is shown as missing.
 A new Gantry feature that needs a newer devagent contract is not a break.
 
 ## License

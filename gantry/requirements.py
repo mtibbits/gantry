@@ -10,8 +10,7 @@ prose, except an ID-shaped item that is not a requirement (one after a `>` or a
 no-break space included), a statement-shaped item that is not a statement, or an
 HTML comment the reader does not hide, which is reported.
 The module has its own meta-block reader and fence pairing and shares no code
-with gantry/wbs_stopgap.py or gantry/model.py, so #12 can delete the stopgap
-freely. docs/requirements-format.md states the rules.
+with gantry/model.py or a WBS.md reader. docs/requirements-format.md states the rules.
 """
 
 import re
