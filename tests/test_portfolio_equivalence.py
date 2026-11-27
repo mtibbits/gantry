@@ -266,6 +266,96 @@ def test_fixtures_mode_writes_or_checks(tmp_path, monkeypatch, capsys):
     assert capsys.readouterr().out == "sample_portfolio: written.json: differs from what devagent writes\n"
 
 
+# --- the fixtures' placeholder for devagent's home path (#213) --------------------------------
+
+STALE_ACTUALS = ("{path} was generated at 2026-01-01T00:00:00Z, more than 7 days before this document; "
+                 "actuals are empty; run /devagent:actuals")
+
+
+def test_fixture_home_path_is_replaced(tmp_path):
+    home = tmp_path / "throwaway" / "da"
+    text = sp.home_text(home)  # DA_HOME as run_aggregator passes it, which devagent echoes
+    assert text == sp.posix(Path(os.path.abspath(home))) and commit_check.ABSOLUTE_START_RE.match(text)
+    path = f"{text}/actuals.json"
+    doc = hp.document(hp.project("alpha", hp.node("A")), hp.project("beta", hp.node("B")),
+                      report=[("alpha", 1, "parser_note", "kept as written")])
+    doc = hp.unavailable(doc, hp.ACTUALS_MISSING.format(path=path), projects=["alpha"])
+    doc = hp.unavailable(doc, STALE_ACTUALS.format(path=path), projects=["beta"])
+    before = json.loads(sp.dumps(doc))
+    assert sp.fix_home_path(doc, home) is doc
+    # Both messages start with the placeholder, and the rest of each message is as devagent wrote it.
+    assert sp.ACTUALS_PLACEHOLDER == "devagent-home/actuals.json"
+    assert [e["message"] for e in doc["parse_report"] if e["kind"] == "actuals_unavailable"] == [
+        "devagent-home/actuals.json does not exist; actuals are empty; run /devagent:actuals",
+        "devagent-home/actuals.json was generated at 2026-01-01T00:00:00Z, more than 7 days before this document; "
+        "actuals are empty; run /devagent:actuals"]
+    # The entry count, every other entry and every other field are unchanged.
+    assert len(doc["parse_report"]) == len(before["parse_report"]) == 5
+    for now, then in zip(doc["parse_report"], before["parse_report"]):
+        if then["kind"] == "actuals_unavailable":
+            assert now == {**then, "message": sp.ACTUALS_PLACEHOLDER + then["message"].removeprefix(path)}
+        else:
+            assert now == then
+    assert {key: value for key, value in doc.items() if key != "parse_report"} == {
+        key: value for key, value in before.items() if key != "parse_report"}
+    assert text not in sp.dumps(doc).decode("utf-8")
+    # A home path left anywhere else is refused, in a text that names no path: in another kind's message,
+    # in a project's reason, or a second time in an actuals message.
+    for spoil in (lambda d: d["parse_report"][-1].update(message=f"see {text}/state"),
+                  lambda d: d["projects"][0].update(status_reason=f"{text}/x"),
+                  lambda d: d["parse_report"][0].update(message=f"{path} is not {text}/other")):
+        spoiled = json.loads(sp.dumps(before))
+        spoil(spoiled)
+        with pytest.raises(sp.Refused) as info:
+            sp.fix_home_path(spoiled, home)
+        assert str(info.value) == "devagent's home path would reach a fixture"
+    # An actuals message that does not name the home's file is refused too: nothing passes unreplaced.
+    for message in ("somewhere/actuals.json does not exist", f"{text}-other/actuals.json does not exist",
+                    "devagent-home/actuals.json does not exist; actuals are empty; run /devagent:actuals"):
+        spoiled = json.loads(sp.dumps(before))
+        spoiled["parse_report"][0]["message"] = message
+        with pytest.raises(sp.Refused) as info:
+            sp.fix_home_path(spoiled, home)
+        assert str(info.value) == "an actuals_unavailable message does not name devagent's home path"
+    # A document with no such entry (devagent before 3.5.0, or one built without actuals) is left as it is.
+    plain = hp.document(hp.project("alpha", hp.node("A")))
+    assert sp.fix_home_path(json.loads(sp.dumps(plain)), home) == plain
+    # The tool's rule, narrowed: the sample document of the first form is devagent's own.
+    flat = " ".join(sp.__doc__.split())
+    assert "No absolute path reaches a file --fixtures writes" in flat
+    assert "No absolute path reaches any file this tool writes" not in flat
+    assert "name the sample home's actuals.json by its absolute path" in flat and sp.ACTUALS_PLACEHOLDER in flat
+
+
+def test_fixture_documents_carry_the_placeholder(tmp_path, monkeypatch):
+    """Both --fixtures documents go through fix_home_path; the sample document of the first form does not."""
+    homes = []
+
+    def aggregator(devagent, cwd, da_home):
+        homes.append(sp.home_text(da_home))
+        made = hp.unavailable(hp.document(hp.project("alpha", hp.node("A"))),
+                              hp.ACTUALS_MISSING.format(path=f"{homes[-1]}/actuals.json"))
+        document = Path(da_home).joinpath(*sp.DOCUMENT)
+        document.parent.mkdir(parents=True)
+        document.write_bytes(sp.dumps(made))
+        return document
+
+    monkeypatch.setattr(sp, "run_aggregator", aggregator)
+    want = "devagent-home/actuals.json does not exist; actuals are empty; run /devagent:actuals"
+    for make in (sp.fixture_document, sp.sample_fixture_document):
+        data = make(tmp_path / "da")
+        doc = json.loads(data.decode("utf-8"))
+        assert [e["message"] for e in doc["parse_report"] if e["kind"] == "actuals_unavailable"] == [want], make
+        assert doc["generated_at"] == sp.FIXED_TIME and homes[-1] not in data.decode("utf-8")
+    assert len(homes) == 2 and all(commit_check.ABSOLUTE_START_RE.match(home) for home in homes)
+    # The first form keeps devagent's document: its message names the sample home by its absolute path.
+    copy = hp.copy_samples(tmp_path / "copy", document=False)
+    kept = json.loads(sp.make_sample(tmp_path / "da", copy).read_bytes().decode("utf-8"))
+    assert [e["message"] for e in kept["parse_report"] if e["kind"] == "actuals_unavailable"] == [
+        hp.ACTUALS_MISSING.format(path=f"{homes[-1]}/actuals.json")]
+    assert homes[-1] == sp.home_text(copy / "devagent" / "out")
+
+
 # --- the written fixture (Task 2) -------------------------------------------------------------
 
 

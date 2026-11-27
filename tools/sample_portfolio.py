@@ -16,17 +16,22 @@ tracks no file in it.
 document over the WBS texts in FIXTURE_SOURCES (with FIXTURE_STEP_MODELS's
 tables) with `generated_at` set to a fixed time, and provenance.json beside it; then samples.json, the
 aggregator's document over a copy of samples/ with the same fixed time, and
-samples_provenance.json, the sha256 of each input it read (#84). --check
+samples_provenance.json, the sha256 of each input it read (#84). In both
+documents the throwaway devagent home's actuals.json path, which each
+actuals_unavailable message starts with, is written as
+devagent-home/actuals.json (#213). --check
 writes nothing: it regenerates all four and prints one line per file that
 differs or is missing. Run --fixtures before tools/update_expected_leaves.py
-when the pin moves.
+when the pin moves. --fixtures is for Linux and macOS, where CI regenerates
+the fixtures: the path is replaced as this tool passed it to the aggregator.
 
 Exit 0 done; 1 the aggregator failed, a folder was refused, or --check found
 a difference; 2 a usage error, no bash, or --devagent is not a devagent
 checkout at the pinned release. The aggregator runs offline with five environment names (PATH,
 HOME, DA_HOME, TZ, LC_ALL) and every path made absolute first. No absolute
-path reaches any file this tool writes. docs/worksite-page.md states the
-rules.
+path reaches a file --fixtures writes. The sample document is devagent's own:
+at schema 1.3 its actuals_unavailable messages name the sample home's
+actuals.json by its absolute path. docs/worksite-page.md states the rules.
 
 It imports nothing from gantry, so it runs before any install.
 """
@@ -70,6 +75,10 @@ SAMPLES_PROVENANCE = FIXTURES / "samples_provenance.json"
 DOCUMENT = ("portfolio", "portfolio.json")
 OUT = "devagent/out"  # the sample devagent home, relative to the samples folder
 FIXED_TIME = "2026-01-12T09:30:00Z"
+# What a committed fixture holds in place of `<the throwaway devagent home>/actuals.json`, the
+# absolute path devagent's actuals_unavailable messages start with (#213).
+ACTUALS_PLACEHOLDER = "devagent-home/actuals.json"
+ACTUALS_KIND = "actuals_unavailable"
 NOT_CHECKOUT = "--devagent is not a devagent checkout (no .claude-plugin/plugin.json version)"
 
 # One project per WBS text, in this order: the parser tests' shape fixtures,
@@ -107,6 +116,11 @@ def _absolute_path_list(value):
     return os.pathsep.join(os.path.abspath(entry) for entry in value.split(os.pathsep) if entry)
 
 
+def home_text(da_home) -> str:
+    """`da_home` as run_aggregator passes it in DA_HOME; devagent echoes it unchanged in its messages."""
+    return posix(_absolute(da_home))
+
+
 def run_aggregator(devagent, cwd, da_home) -> Path:
     """Run `<devagent>/scripts/portfolio.sh` in `cwd` with `da_home` as devagent's home; the document's path.
 
@@ -119,7 +133,7 @@ def run_aggregator(devagent, cwd, da_home) -> Path:
     with tempfile.TemporaryDirectory(prefix="sample-portfolio-") as scratch:
         tmp = Path(scratch)
         env = writer_env(tmp)
-        env.update(PATH=_absolute_path_list(env["PATH"]), HOME=posix(da_home / "home"), DA_HOME=posix(da_home))
+        env.update(PATH=_absolute_path_list(env["PATH"]), HOME=posix(da_home / "home"), DA_HOME=home_text(da_home))
         bash = os.path.abspath(find_bash(env))
         proc = run_bash(bash, tmp, env, RUNNER, [posix(cwd), posix(devagent / "scripts" / "portfolio.sh")])
     if proc.returncode != 0:
@@ -248,8 +262,30 @@ def compare(items, differs="differs"):
     return lines
 
 
+def fix_home_path(doc, da_home) -> dict:
+    """`doc` with devagent's actuals.json path, `<da_home>/actuals.json`, written as
+    ACTUALS_PLACEHOLDER in every actuals_unavailable message, in place (#213); returns `doc`.
+
+    `da_home` is the devagent home run_aggregator was given. Refused when such a message
+    does not hold the path, and when the home's path is still anywhere in the document
+    afterwards: no fixture is written with it."""
+    home = home_text(da_home)
+    path = f"{home}/actuals.json"
+    for entry in doc["parse_report"]:
+        if entry["kind"] != ACTUALS_KIND:
+            continue
+        if path not in entry["message"]:
+            raise Refused("an actuals_unavailable message does not name devagent's home path")
+        entry["message"] = entry["message"].replace(path, ACTUALS_PLACEHOLDER, 1)
+    # Compared as JSON writes it, so a path holding a quote or a backslash is found too.
+    if json.dumps(home, ensure_ascii=False)[1:-1] in json.dumps(doc, ensure_ascii=False):
+        raise Refused("devagent's home path would reach a fixture")
+    return doc
+
+
 def fixture_document(devagent) -> bytes:
-    """The aggregator's document over FIXTURE_SOURCES, `generated_at` fixed.
+    """The aggregator's document over FIXTURE_SOURCES, `generated_at` fixed
+    and devagent's home path replaced (fix_home_path).
 
     Each source is a byte copy at `site/<project>/WBS.md` in a temporary
     folder, which is the working directory and holds its own devagent home.
@@ -269,7 +305,7 @@ def fixture_document(devagent) -> bytes:
                 tables.append(f"[project.{name}.step_models]\n{values}")
         (da_home / "config.toml").write_bytes("\n".join(tables).encode("utf-8"))
         document = run_aggregator(devagent, cwd, da_home)
-        doc = json.loads(document.read_bytes().decode("utf-8"))
+        doc = fix_home_path(json.loads(document.read_bytes().decode("utf-8")), da_home)
     doc["generated_at"] = FIXED_TIME
     return dumps(doc)
 
@@ -288,9 +324,13 @@ def provenance(devagent, document=None) -> bytes:
 
 
 def sample_fixture_document(devagent, samples=SAMPLES) -> bytes:
-    """The aggregator's document over a copy of `samples`, `generated_at` fixed."""
-    doc = on_samples_copy(devagent, lambda copy, document: json.loads(document.read_bytes().decode("utf-8")),
-                          samples)
+    """The aggregator's document over a copy of `samples`, `generated_at` fixed
+    and devagent's home path replaced (fix_home_path)."""
+    def read(copy, document):
+        # The copy's devagent home is where make_sample put it: <copy>/devagent/out.
+        return fix_home_path(json.loads(document.read_bytes().decode("utf-8")), copy.joinpath(*OUT.split("/")))
+
+    doc = on_samples_copy(devagent, read, samples)
     doc["generated_at"] = FIXED_TIME
     return dumps(doc)
 
@@ -355,7 +395,8 @@ def build_parser():
     parser = argparse.ArgumentParser(prog="sample_portfolio", description=__doc__.split("\n\n")[0])
     parser.add_argument("--devagent", help="a devagent checkout (default: GANTRY_DEVAGENT_DIR)")
     parser.add_argument("--samples", help="the samples folder (default: this checkout's samples/)")
-    parser.add_argument("--fixtures", action="store_true", help="write the test fixture, not the sample document")
+    parser.add_argument("--fixtures", action="store_true",
+                        help="write the test fixtures, not the sample document (Linux and macOS)")
     parser.add_argument("--check", action="store_true", help="with --fixtures: compare, write nothing")
     return parser
 

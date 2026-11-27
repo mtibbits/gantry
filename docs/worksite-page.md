@@ -513,7 +513,14 @@ flag but `--devagent` it writes the sample document,
 alike. `--fixtures` writes `tests/fixtures/portfolio/written.json` and its
 `provenance.json`, then `samples.json`, the aggregator's document over a
 copy of `samples/`, and `samples_provenance.json`, the sha256 of the devagent
-config and of each configured `WBS.md` it read. `tools/update_expected_leaves.py` writes both snapshot
+config and of each configured `WBS.md` it read. Both documents get a fixed
+`generated_at`, and a fixed text, `devagent-home/actuals.json`, for the
+path each `actuals_unavailable` message starts with: the throwaway devagent
+home's `actuals.json`, an absolute path that differs on every run (#213).
+The sample document of the first form is devagent's own and keeps that
+path; the reader consumes those entries
+([Report sources](#report-sources)). `--fixtures` is for Linux and macOS.
+`tools/update_expected_leaves.py` writes both snapshot
 sets; for the sample set it runs the aggregator on a temporary copy of
 `samples/`. Each `--check` writes nothing and prints one line per file that
 differs, is missing or is extra. `--devagent` defaults to
