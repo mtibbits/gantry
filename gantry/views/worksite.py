@@ -668,7 +668,7 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None, built
             "critical": list(net.critical),
             "path": list(path),
             "near": [[s, near[s]] for s in sorted(near)],
-            "heaviest": {"keys": list(chain), "hours": chain_total, "same": bool(path) and tuple(chain) == tuple(path)},
+            "heaviest": {"keys": list(chain), "hours": chain_total, "same": bool(path) and chain == path},
         },
         "panel": panel,
         # Whether nothing is missing or unreadable: every panel line is informational (#14).
@@ -1055,8 +1055,7 @@ def _chain_line(net):
     others = [k for k in net["critical"] if k not in net["path"]]
     if not others:
         return chain
-    head, tail = CHAIN_OTHERS.split("{keys}")
-    return Markup(f"{chain} {esc(head)}{_mono(others)}{esc(tail)}")
+    return Markup(f"{chain} {esc(CHAIN_OTHERS).format(keys=_mono(others))}")
 
 
 def _anchors(anchors):
