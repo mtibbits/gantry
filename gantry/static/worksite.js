@@ -457,7 +457,8 @@
     gdetail.replaceChildren();
     leafLines(gdetail, r.leaf);
     line(gdetail, [["Scheduled:", "lane " + (r.wl + 1) + ", days " + num(r.a) + "\u2013" + num(r.b)],
-      [null, r.leaf.sclass === "crit" ? "on the critical path" : r.leaf.linked ? "linked in the network"
+      [null, r.leaf.sclass === "crit" ? (onPath.has(r.leaf.key) ? DATA.texts.crit_path : DATA.texts.crit_other)
+        : r.leaf.linked ? "linked in the network"
         : r.leaf.other_site !== null ? r.leaf.other_site : "no links: could move anywhere"]]);
   }
 

@@ -58,6 +58,8 @@ LIMITS_CAPTION_NO_CHAIN = ("At {hpd} agent-hours a day, all open work is {c} to 
                            "the finish date.")
 NO_CHAIN = "none: no open leaf waits on another"
 CHAIN_OTHERS = "(one of the chains with slack 0; also critical: {keys})"
+CRIT_ON_PATH = "critical (slack 0), on the critical path"
+CRIT_OFF_PATH = "critical (slack 0), off the named critical path"
 NO_LEAVES = "This site has no leaves."
 NO_OPEN = "This site has no open leaves."
 # devagent's own report entries on the panel (#12): its kind, as written, then its line and message.
@@ -693,7 +695,7 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None, built
                   "path_upstream": PATH_MARKS["upstream"], "mark_chain": PATH_MARK_CHAIN,
                   "path_end_t": PATH_T_END, "section_t": PATH_SECTION_T, "section_o": PATH_SECTION_O,
                   "mark_objective": PATH_MARK_OBJECTIVE,
-                  "no_issue_id": NO_ISSUE_ID},
+                  "no_issue_id": NO_ISSUE_ID, "crit_path": CRIT_ON_PATH, "crit_other": CRIT_OFF_PATH},
         "trace": traced,
         # [[row id, href], ...]: the requirements rows that link to another built site's page (#21).
         "req_links": [[r["id"], href] for r in (trace or {}).get("requirements", ())

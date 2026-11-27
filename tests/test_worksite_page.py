@@ -1480,6 +1480,19 @@ def chain_line(t):
     return line
 
 
+def test_schedule_detail_off_chain_critical_leaf(node, tmp_path):
+    with open_page(write(tmp_path, page_for(data=hp.site(*FOUR)))) as page:
+        page.drive("schedule-detail", "Issue-1")
+        on = page.query("#gdetail")[0].text
+        assert "on the critical path" in on
+        assert worksite.CRIT_ON_PATH in on
+        for key in ("Issue-2", "Issue-3"):
+            page.drive("schedule-detail", key)
+            off = page.query("#gdetail")[0].text
+            assert "on the critical path" not in off, key
+            assert worksite.CRIT_OFF_PATH in off, key
+
+
 def test_four_leaf_split_reaches_the_rule():
     net = model(data=hp.site(*FOUR))["network"]
     assert net["critical"] == ["Issue-1", "Issue-2", "Issue-3", "Issue-4"]
