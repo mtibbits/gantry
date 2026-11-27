@@ -1559,7 +1559,8 @@ def test_worksite_box_cuts_and_wraps():
         _leaf("Issue-2", "Issue-2", "1.2", "Short", EPIC, 3),
     )
     rows = (Row(EPIC, EPIC, "1", "Epic", " ", "pending", 1, None, {}),)
-    t = tree(render_page("alpha", SiteData(leaves, rows, ((key, "Issue-2"),), (), (), schema_models=True), default_unit_hours=6))
+    data = SiteData(leaves, rows, ((key, "Issue-2"),), (), (), schema_models=True)
+    t = tree(render_page("alpha", data, default_unit_hours=6))
     (node,) = [i for i in find(t, "g", ["node"]) if t.elements[i]["attrs"].get("data-item") == key]
     (full,) = find(t, "g", ["full-form"], within=node)
 

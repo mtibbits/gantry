@@ -8,7 +8,7 @@ import pytest
 
 import helpers_portfolio as hp
 from gantry.config import SiteOverride
-from gantry.inputs import NO_TIERS, apply_inputs, has_tiers, scheduled, site_totals
+from gantry.inputs import MESSAGES, NO_TIERS, NO_TIERS_SCHEMA, apply_inputs, has_tiers, scheduled, site_totals
 from gantry.model import REPORT_KINDS, Estimate, Models, Totals
 from gantry.roots import directory_roots
 from gantry.sites import SiteEntry
@@ -252,3 +252,144 @@ def test_est_unparseable_text_for_list_value(tmp_path):
     assert entries(got, "est_unparseable")[0].message == (
         "WBS.md line 1: est ['2h', '3h'] on 'Issue-3' is not a time, a placeholder or a quantity with a unit; "
         "it is not used")
+
+
+# --- model tiers from the portfolio JSON, the estimates file a per-leaf fallback (#14) ------------
+
+MODELS_ESTIMATES = INPUTS / "models-estimates.md"
+# tests/fixtures/portfolio/models.md's leaves by title, and the rows models-estimates.md gives them.
+KEYS = {"Both": "Issue-2", "Think only": "Issue-3", "Bad alone": "Issue-4", "Bad beside legal": "Issue-5",
+        "Inherit": "Issue-6", "Done keyed": "Issue-7", "No keys": "Issue-8"}
+ROWS = {"Issue-2": ("XS", "haiku", "haiku", "f2"), "Issue-3": ("S", "opus", "haiku", "f3"),
+        "Issue-4": ("M", "haiku", "sonnet", "f4"), "Issue-5": ("L", "sonnet", "sonnet", "f5"),
+        "Issue-6": ("XL", "opus", "opus", "f6"), "Issue-8": ("S", None, None, "f8")}
+
+
+def models_doc(name="models", minor=None):
+    """written.json's project `name` (#14) alone, as site alpha; `minor` sets schema_version."""
+    doc = hp.fixture_doc(name)
+    if minor is not None:
+        doc["schema_version"] = minor
+    return doc
+
+
+def models_run(tmp_path, doc=None, estimates=MODELS_ESTIMATES):
+    return run(tmp_path, hp.site_of(models_doc() if doc is None else doc), estimates=estimates)
+
+
+def row_models(key):
+    _, thinking, checking, _ = ROWS[key]
+    return Models(thinking, checking, "estimates_file")
+
+
+def test_json_tiers_win_per_leaf(tmp_path):
+    got = models_run(tmp_path)
+    # Neither takes the row's tiers, nor the class the row has and the leaf lacks.
+    assert leaf(got, "Issue-2").models == Models("fable", "sonnet", "wbs", ("wbs", "wbs"))
+    assert leaf(got, "Issue-3").models == Models("sonnet", None, "wbs", ("wbs", None))
+    assert leaf(got, "Issue-5").models == Models(None, "fable", "wbs", (None, "wbs"))
+
+
+def test_project_class_beside_wbs_is_kept(tmp_path):
+    got = models_run(tmp_path, models_doc("models_project"))
+    assert leaf(got, "Issue-3").models == Models("sonnet", "opus", "wbs", ("wbs", "project"))
+
+
+def test_inherit_in_json_blocks_the_row(tmp_path):
+    assert ROWS["Issue-6"][1:3] == ("opus", "opus")
+    assert leaf(models_run(tmp_path), "Issue-6").models == Models("inherit", None, "wbs", ("wbs", None))
+
+
+def test_leaves_without_json_tiers_take_the_row(tmp_path):
+    variants = {
+        "project-only": hp.set_models(models_doc(), "alpha", 2, thinking=("opus", "project"),
+                                      checking=("sonnet", "project")),
+        "config-only": hp.set_models(models_doc(), "alpha", 2, thinking=("opus", "config"), checking=None),
+        "no models field": hp.set_models(models_doc(), "alpha", 2, thinking=hp.ABSENT, checking=hp.ABSENT),
+    }
+    for what, doc in variants.items():
+        if what == "no models field":
+            del next(n for n in doc["projects"][0]["nodes"] if n["source_line"] == 2)["models"]
+        got = leaf(models_run(tmp_path / what.replace(" ", "-"), doc), "Issue-2").models
+        assert got == row_models("Issue-2") and got.classes is None, what
+    # Bad alone: its thinking key is malformed; checking is null, or from the project.
+    assert leaf(models_run(tmp_path / "m"), "Issue-4").models == row_models("Issue-4")
+    assert leaf(models_run(tmp_path / "p", models_doc("models_project")), "Issue-4").models == row_models("Issue-4")
+
+
+def test_project_only_without_row_has_no_tiers(tmp_path):
+    project = models_doc("models_project")
+    assert leaf(models_run(tmp_path, project), "Issue-8").models is None  # its row's tier cells are blank
+    assert leaf(models_run(tmp_path / "b", project, estimates=None), "Issue-4").models is None  # no row at all
+
+
+def test_effort_and_flags_from_every_row(tmp_path):
+    for name in ("models", "models_project"):
+        got = models_run(tmp_path / name, models_doc(name))
+        for key, (effort, _, _, flags) in ROWS.items():
+            assert (leaf(got, key).estimate.effort, leaf(got, key).flags) == (effort, flags), (name, key)
+
+
+def fallback_count(got):
+    return [e.message for e in entries(got, "models_from_estimates_file")]
+
+
+def test_models_from_estimates_file_count(tmp_path):
+    got = models_run(tmp_path)
+    # Bad alone only: No keys falls back too, but its row's tier cells are blank.
+    assert fallback_count(got) == [MESSAGES["models_from_estimates_file_one"]]
+    assert MESSAGES["models_from_estimates_file_one"] == "model tiers from the estimates file: 1 leaf"
+    assert leaf(got, "Issue-8").models is None
+    assert [e.line for e in entries(got, "models_from_estimates_file")] == [None]
+    three = models_doc()
+    for line in (3, 6):  # Think only and Inherit lose their wbs classes
+        hp.set_models(three, "alpha", line, thinking=None, checking=None)
+    assert fallback_count(models_run(tmp_path / "three", three)) == [
+        MESSAGES["models_from_estimates_file"].format(n=3)] == ["model tiers from the estimates file: 3 leaves"]
+    every = hp.set_models(models_doc(), "alpha", 4, thinking=("opus", "wbs"), checking=None)
+    assert fallback_count(models_run(tmp_path / "every", every)) == []
+    # Held-out leaves count too: the count is over open leaves, not the scheduled ones.
+    assert [x.key for x in scheduled(got.data)] == [x.key for x in got.data.leaves if x.open]
+
+
+def test_no_model_tiers_message_by_schema(tmp_path):
+    def tiers_entries(doc, estimates=None, where="x"):
+        return [e.message for e in entries(models_run(tmp_path / where, doc, estimates), "no_model_tiers")]
+
+    assert tiers_entries(hp.fixture_doc("est"), where="est") == [NO_TIERS]
+    assert NO_TIERS_SCHEMA == NO_TIERS + ("; the portfolio document's schema version carries no model tiers "
+                                          "(they arrive in 1.2)")
+    assert tiers_entries(hp.fixture_doc("est") | {"schema_version": "1.1"}, where="est11") == [NO_TIERS_SCHEMA]
+    assert tiers_entries(models_doc(), where="m12") == []
+    assert tiers_entries(models_doc(minor="1.1"), where="m11") == [NO_TIERS_SCHEMA]
+    got = models_run(tmp_path / "m11e", models_doc(minor="1.1"))
+    assert entries(got, "no_model_tiers") == []
+    assert {x.models.source for x in got.data.leaves if x.models is not None} == {"estimates_file"}
+    assert sum(x.models is not None for x in got.data.leaves) == 5
+
+
+def test_hours_still_read_for_json_tier_leaves(tmp_path):
+    think = leaf(models_run(tmp_path), "Issue-3")
+    assert think.models.source == "wbs"
+    assert think.estimate == Estimate(4, 8, "estimates_file", "absent", "S")
+
+
+def test_row_reports_kept_for_json_tier_leaf(tmp_path):
+    def counts(got):
+        return {kind: len(entries(got, kind)) for kind in (
+            "estimates_cell_bad", "estimates_row_duplicate", "estimates_column_missing")}
+
+    tiers = models_run(tmp_path / "json")
+    assert leaf(tiers, "Issue-2").models.source == "wbs"
+    assert counts(tiers) == {"estimates_cell_bad": 1, "estimates_row_duplicate": 1, "estimates_column_missing": 0}
+    assert "#2" in entries(tiers, "estimates_cell_bad")[0].message
+    assert "#2" in entries(tiers, "estimates_row_duplicate")[0].message
+    fallback = hp.set_models(models_doc(), "alpha", 2, thinking=None, checking=None)
+    rowed = models_run(tmp_path / "row", fallback)
+    assert leaf(rowed, "Issue-2").models.source == "estimates_file"
+    assert counts(rowed) == counts(tiers)
+    no_thinking = INPUTS / "models-estimates-no-thinking.md"
+    for where, doc in (("json-nt", models_doc()), ("row-nt", fallback)):
+        got = models_run(tmp_path / where, doc, no_thinking)
+        missing = entries(got, "estimates_column_missing")
+        assert len(missing) == 1 and "'thinking'" in missing[0].message, where

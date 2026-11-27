@@ -193,7 +193,8 @@ def test_pinned_aggregator_models_contract():
             assert nodes[text]["models"] == want, (name, text)
         entries = [e for e in doc["parse_report"] if e["project"] == name]
         assert [(e["kind"], e["source_line"], e["message"]) for e in entries if e["kind"] == "bad_model"] == [
-            ("bad_model", MODELS_LINES["Bad alone"], LEAF_BAD), ("bad_model", MODELS_LINES["Bad beside legal"], LEAF_BAD)]
+            ("bad_model", MODELS_LINES["Bad alone"], LEAF_BAD),
+            ("bad_model", MODELS_LINES["Bad beside legal"], LEAF_BAD)]
         assert not [e for e in entries if e["kind"] == "parser_warning"], name
         assert not [e for e in entries if e["source_line"] == MODELS_LINES["Epic"]], name
 
@@ -867,10 +868,12 @@ def test_statuses_are_returned_as_written():
     got = map_document(doc)
     unreadable = project(got, "not_utf8")
     assert (unreadable.status, unreadable.reason) == ("unreadable", reason)
-    assert unreadable.data == SiteData((), (), (), (), (ReportEntry("not_utf8", None, "site_unreadable", reason),), schema_models=True)
+    assert unreadable.data == SiteData((), (), (), (), (ReportEntry("not_utf8", None, "site_unreadable", reason),),
+                                       schema_models=True)
     empty = project(got, "empty")
     assert (empty.status, empty.reason) == ("read", None)
-    assert empty.data == SiteData((), (), (), (), (ReportEntry("empty", None, "no_nodes", "WBS.md has no node lines"),), schema_models=True)
+    assert empty.data == SiteData((), (), (), (), (ReportEntry("empty", None, "no_nodes", "WBS.md has no node lines"),),
+                                  schema_models=True)
     for status in ("no_wbs", "no_devdoc_dir"):
         doc = hp.written_doc()
         doc["projects"][EMPTY].update(status=status, status_reason=f"reason for {status}")
@@ -982,7 +985,8 @@ def test_every_entry_has_one_disposition():
     # With `models` and `models_project` (#14): two bad_model entries each, shown.
     for name in ("models", "models_project"):
         assert partition([name]) == (2, 0, 0, 2)
-        assert [(e.line, e.kind) for e in got.devagent_report if e.project == name] == [(4, "bad_model"), (5, "bad_model")]
+        assert [(e.line, e.kind) for e in got.devagent_report if e.project == name] == [
+            (4, "bad_model"), (5, "bad_model")]
     # What is suppressed, by devagent's kind: each is an entry Gantry's own passes report.
     gone = {}
     kept = set(got.devagent_report)

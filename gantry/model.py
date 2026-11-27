@@ -25,7 +25,7 @@ REPORT_KINDS = (
     "no_estimates_file", "estimates_ignored", "estimates_unreadable", "estimates_no_table",
     "estimates_column_missing", "estimates_cell_bad", "estimates_row_unmatched",
     "estimates_row_duplicate", "est_unparseable", "unestimated", "no_priority",
-    "no_model_tiers",
+    "no_model_tiers", "models_from_estimates_file",
     # Attention need (#36): gantry/attention.py.
     "bad_h",
 )
