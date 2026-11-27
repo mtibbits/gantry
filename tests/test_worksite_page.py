@@ -1444,6 +1444,52 @@ def test_fork_critical_path_is_one_chain():
     text = text_of(t, detail)
     assert "Issue-1 → Issue-2" in text and "Issue-2 → Issue-3" not in text
     assert "picks the same chain, 12 h end to end" in text
+    line = chain_line(t)
+    assert "Issue-3" in line
+    assert line == "Critical path (2 slots): Issue-1 → Issue-2 " + worksite.CHAIN_OTHERS.format(keys="Issue-3")
+
+
+FOUR = (hp.node("A", issue="Issue-1"), hp.node("C", issue="Issue-2"),
+        hp.node("D", issue="Issue-3", depends_on=["Issue-2"]),
+        hp.node("B", issue="Issue-4", depends_on=["Issue-1"]))
+
+
+def chain_line(t):
+    """The detail line that starts `Critical path (`, whitespace collapsed."""
+    (detail,) = [i for i in find(t, "div") if t.elements[i]["attrs"].get("id") == "detail"]
+    lines = [" ".join(text_of(t, i).split()) for i in find(t, "div")
+             if i != detail and t.elements[i]["parent"] == detail]
+    (line,) = [s for s in lines if s.startswith("Critical path (")]
+    return line
+
+
+def test_four_leaf_split_reaches_the_rule():
+    net = model(data=hp.site(*FOUR))["network"]
+    assert net["critical"] == ["Issue-1", "Issue-2", "Issue-3", "Issue-4"]
+    assert net["path"] == ["Issue-1", "Issue-4"]
+
+
+def test_critical_line_names_every_critical_leaf():
+    m = model(data=hp.site(*FOUR))
+    line = chain_line(tree(page_for(data=hp.site(*FOUR))))
+    assert all(k in line for k in m["network"]["critical"])
+    assert line == "Critical path (2 slots): Issue-1 → Issue-4 " + worksite.CHAIN_OTHERS.format(keys="Issue-2, Issue-3")
+
+
+def test_critical_line_without_split_is_unchanged():
+    net = model(unit=6)["network"]
+    assert net["critical"] == net["path"]
+    line = chain_line(tree(page_for()))
+    assert line == f"Critical path ({net['length']} slots): " + " → ".join(net["path"])
+    assert "also critical" not in line
+    assert chain_line(tree(page_for(data=hp.site(*NO_LINKS)))) == "Critical path (0 slots): none"
+
+
+def test_critical_others_hostile_keys_are_text():
+    d = dataclasses.replace(hostile_site(), links=((HOSTILE[7], HOSTILE[1]), (HOSTILE[7], HOSTILE[2])))
+    page = render_page("alpha", d, default_unit_hours=6)
+    assert_page_safe(page, HOSTILE)
+    assert chain_line(tree(page)).endswith(" ".join(worksite.CHAIN_OTHERS.format(keys=HOSTILE[2]).split()))
 
 
 def test_all_held_out_site_says_so():

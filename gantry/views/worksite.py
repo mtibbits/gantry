@@ -57,6 +57,7 @@ LIMITS_CAPTION_NO_CHAIN = ("At {hpd} agent-hours a day, all open work is {c} to 
                            "waits on another, so there is no critical chain, and with one operator the total sets "
                            "the finish date.")
 NO_CHAIN = "none: no open leaf waits on another"
+CHAIN_OTHERS = "(one of the chains with slack 0; also critical: {keys})"
 NO_LEAVES = "This site has no leaves."
 NO_OPEN = "This site has no open leaves."
 # devagent's own report entries on the panel (#12): its kind, as written, then its line and message.
@@ -1044,6 +1045,16 @@ def _mono(keys, sep=", "):
     return Markup(sep.join(f'<span class="mono">{esc(k)}</span>' for k in keys))
 
 
+def _chain_line(net):
+    """The named chain, then the critical leaves it leaves out (#107)."""
+    chain = _mono(net["path"], ARROW) or "none"
+    others = [k for k in net["critical"] if k not in net["path"]]
+    if not others:
+        return chain
+    head, tail = CHAIN_OTHERS.split("{keys}")
+    return Markup(f"{chain} {esc(head)}{_mono(others)}{esc(tail)}")
+
+
 def _anchors(anchors):
     """Empty static spans, one per anchor: a link lands on the heading that holds them."""
     return Markup("".join(f'<span class="anchor" id="{esc(a)}"></span>' for a in anchors))
@@ -1250,7 +1261,7 @@ def render_model(m, *, stamp="") -> str:
         NO_TIERS=_note(m["notes"]["no_tiers"]),
         SVG=_network_svg(m),
         LENGTH=net["length"],
-        CHAIN=_mono(net["path"], ARROW) or "none",
+        CHAIN=_chain_line(net),
         NEAR=near or "none",
         HOURS_NOTE=hours_note,
         HOURS_UNEST=unest["heaviest"],
