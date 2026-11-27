@@ -110,6 +110,47 @@ def test_arbitrary_text_reads_with_unknown_step_and_reason(text):
     assert got.problems == ("stuck_no_step", "stuck_no_reason", "stuck_no_created")
 
 
+# A question STUCK in the layout devagent 3.5.0's scripts/hold.sh writes (its question renderer,
+# scripts/lib/question-actions.sh:177-181): `Kind:` first, the four header lines, a blank line, the
+# question's four sections and how to answer. No fixture recipe runs hold.sh; this one is written by hand.
+QUESTION_STUCK = (
+    "Kind:        question\n"
+    "Step:        2 draft\n"
+    "Reason:      Two berths fit the plan.\n"
+    "Last good:   0 pull\n"
+    "Created:     2026-01-12T09:30:00+00:00\n"
+    "\n"
+    "## Question\n\nWhich berth takes the relief crane?\n\n"
+    "## Impediment\n\nThe north quay plan names two berths.\n\n"
+    "## Options\n\n- `north` (recommended) Berth the crane on the north quay.\n"
+    "- `south` Berth it on the south quay.\n\n"
+    "## Evidence\n\nThe tide table allows either.\n\n"
+    "## How to answer\n\n/devagent:answer harbor Issue-13 01 north\nOther options: south\n")
+
+
+def test_question_stuck_reads_as_present_and_malformed():
+    # Gantry does not read a question STUCK yet (docs/devagent-formats.md states the limit, #213): its first
+    # line is `Kind:`, not `Step:`, and its last is not `Created:`.
+    got = dr.read_stuck(QUESTION_STUCK)
+    assert isinstance(got, dr.StuckMarker)
+    assert (got.step, got.step_name) == (None, None)
+    assert got.problems == ("stuck_no_step", "stuck_no_created")
+    assert (got.last_good, got.created, got.created_format) == (None, None, "unparseable")
+    # The reason begins with the `Reason:` value and holds every line after it: the question's whole text.
+    assert got.reason.startswith(
+        "Two berths fit the plan.\nLast good:   0 pull\nCreated:     2026-01-12T09:30:00+00:00\n\n## Question\n")
+    assert "Which berth takes the relief crane?" in got.reason
+    assert got.reason.endswith("/devagent:answer harbor Issue-13 01 north\nOther options: south")
+    assert got.reason == QUESTION_STUCK.split("Reason:      ", 1)[1].rstrip("\n")
+    # The held park: the hold marks the step `?`, and park.sh then marks no row `P`, so the issue does not
+    # read as parked. The checklist is the park fixture's with its `P` row as the hold leaves it.
+    parked = written("Issue-12", "checklist.md")
+    assert dr.read_checklist(parked).parked and parked.count("- [P]  2. draft\n") == 1
+    held = dr.read_checklist(parked.replace("- [P]  2. draft\n", "- [?]  2. draft\n"))
+    assert held.parked is False and held.parked_step is None
+    assert held.next_step == dr.Step(2, "draft", "?") and held.stuck_step is None
+
+
 @pytest.mark.parametrize("issue", ["Issue-13", "Issue-14", "Issue-25", "Issue-26"])
 def test_stuck_bom_and_crlf_read_like_plain(issue):
     text = written(issue, "STUCK")

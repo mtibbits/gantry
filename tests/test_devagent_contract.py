@@ -199,8 +199,12 @@ CITES = (
     ("scripts/lib/checklist.sh", 133, 155, '"$glyph" != "x" && "$glyph" != "-"'),
     ("scripts/lib/checklist.sh", 326, 331, "' '|x|-|'!'|'~'|'?'|P) return 0 ;;"),
     ("scripts/lib/checklist.sh", 382, 399, "if (ln[i] > blk)"),
+    ("scripts/park.sh", 94, 94, 'if [[ "$(stuck_kind "$issue_dir")" != question ]]; then'),
     ("scripts/park.sh", 99, 99, 'checklist_mark "$checklist" "$cur" "P"'),
     ("scripts/park.sh", 110, 110, 'state_add_parked "$project" "$issue"'),
+    ("scripts/hold.sh", 207, 207, """|| checklist_mark_by_name "$checklist" "$step" '?'"""),
+    ("scripts/lib/question-actions.sh", 177, 178,
+     r"printf 'Kind:        question\nStep:        %s %s\nReason:      %s\nLast good:   %s\nCreated:     %s\n\n'"),
     ("scripts/resume.sh", 53, 56, 'checklist_find_glyph_line "$checklist" P'),
     ("scripts/lib/log.sh", 17, 19, "message must be a single line"),
     ("scripts/lib/log.sh", 60, 60, "chmod --reference="),
@@ -359,6 +363,35 @@ def test_doc_cites_equal_cites_table():
     assert found == table, (sorted(found - table), sorted(table - found))
     # The parser sees a cite in prose and ignores a gantry path that holds templates/.
     assert doc_cites("see `scripts/park.sh:63` and gantry/templates/page.html:4") == {("scripts/park.sh", 63, 63)}
+
+
+def test_formats_doc_states_the_hold_limits():
+    """devagent 3.5.0's hold.sh writes a question STUCK and parks without a `P` row; Gantry reads neither
+    yet, and the page says so under STUCK markers (#213)."""
+    from helpers_docs import heading_anchors, markdown_text
+
+    text = markdown_text(DOC)
+    heading = "### What Gantry does not read yet: operator questions"
+    assert text.count(f"\n{heading}\n") == 1
+    assert "what-gantry-does-not-read-yet-operator-questions" in heading_anchors(text)
+    lines = text.split("\n")
+    assert lines.index("## STUCK markers") < lines.index(heading) < lines.index("## Checklists")
+    part = text.split(f"\n{heading}\n")[1].split("\n## ")[0]
+    flat = " ".join(part.split())
+    assert "`Kind:        question`" in part
+    for name in ("`scripts/hold.sh`", "`stuck_no_step`", "`stuck_no_created`", "`parked`", "`read_stuck`",
+                 "`read_checklist`", "`scripts/lib/question-actions.sh:177-178`", "`scripts/park.sh:94`",
+                 "`scripts/hold.sh:207`", "mtibbits/devagent#962"):
+        assert name in flat, name
+    assert "Gantry reads neither yet" in flat and "`parked` false for a held issue" in flat
+    # The two places that stated the old behaviour point at the limits.
+    link = "(#what-gantry-does-not-read-yet-operator-questions)"
+    assert text.count(link) == 2
+    stuck, checklists = text.split("\n## STUCK markers\n")[1].split(f"\n{heading}\n")[0], \
+        text.split("\n## Checklists\n")[1].split("\n## ")[0]
+    assert link in stuck and "A third writer, new in devagent 3.5.0" in " ".join(stuck.split())
+    assert link in checklists and "unless the issue's STUCK is an operator question" in " ".join(checklists.split())
+    assert "Two writers write two shapes" not in text
 
 
 # --- final review fixes ----------------------------------------------------------------------
