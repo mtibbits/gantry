@@ -4,8 +4,8 @@
   "schema_version": "1.2",
   "generated_at": "2026-01-12T09:30:00Z",
   "inputs": {
-    "samples/devagent/config.toml": "fe2c93f95df3db8b5b26dab95673f2ecec0c281b5227ff46b2b5e4bf9125e1b7",
-    "samples/harbor/WBS.md": "2be524bfdaf65b9ca91f011d4e6dd716d054e858d9c41dc90a857514ad563e37",
+    "samples/devagent/config.toml": "1c3c51ec81cf12a1bea590264c848bcbcffd7f3c794215c512a735e2f5de0b16",
+    "samples/harbor/WBS.md": "f95c5ea30449042265fec56d3c5b91a5bea5925ca90ab41ba6b097ccce5bf858",
     "samples/orchard/WBS.md": "4ea0bbece481150b0db7b65d814c513486ade6498cc092ad4ee3a8f1b1418aa9",
     "samples/quarry/WBS.md": "c081bfeda37e53bc30ff59d3f2fc134d1d6a02d2c0c02983b30df2f5de8f570f",
     "samples/lighthouse/WBS.md": "87eea32e8655be0928c64e7ff51ae4c31d11b2d58c5b805a693a68a19a369838",

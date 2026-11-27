@@ -155,7 +155,9 @@
             "est": "?w",
             "depends_on": [
               "quarry:Issue-3"
-            ]
+            ],
+            "thinking": "opus",
+            "checking": "fable"
           },
           "meta_unknown_keys": [],
           "est": {
@@ -181,8 +183,14 @@
           "ready": false,
           "ready_via_parent_row": false,
           "models": {
-            "thinking": null,
-            "checking": null
+            "thinking": {
+              "value": "opus",
+              "source": "wbs"
+            },
+            "checking": {
+              "value": "fable",
+              "source": "wbs"
+            }
           }
         },
         {
@@ -235,7 +243,8 @@
             "est": "?w",
             "depends_on": [
               "Issue-6"
-            ]
+            ],
+            "thinking": "opus"
           },
           "meta_unknown_keys": [],
           "est": {
@@ -261,7 +270,10 @@
           "ready": false,
           "ready_via_parent_row": false,
           "models": {
-            "thinking": null,
+            "thinking": {
+              "value": "opus",
+              "source": "wbs"
+            },
             "checking": null
           }
         },
@@ -519,7 +531,9 @@
           "source_line": 17,
           "issue": "Issue-14",
           "meta": {
-            "issue": "Issue-14"
+            "issue": "Issue-14",
+            "thinking": "sonnet",
+            "checking": "sonnet"
           },
           "meta_unknown_keys": [],
           "est": {
@@ -537,8 +551,14 @@
           "ready": true,
           "ready_via_parent_row": false,
           "models": {
-            "thinking": null,
-            "checking": null
+            "thinking": {
+              "value": "sonnet",
+              "source": "wbs"
+            },
+            "checking": {
+              "value": "sonnet",
+              "source": "wbs"
+            }
           }
         },
         {
@@ -922,8 +942,14 @@
           "ready": false,
           "ready_via_parent_row": false,
           "models": {
-            "thinking": null,
-            "checking": null
+            "thinking": {
+              "value": "opus",
+              "source": "project"
+            },
+            "checking": {
+              "value": "sonnet",
+              "source": "project"
+            }
           }
         },
         {
@@ -956,8 +982,14 @@
           "ready": false,
           "ready_via_parent_row": false,
           "models": {
-            "thinking": null,
-            "checking": null
+            "thinking": {
+              "value": "opus",
+              "source": "project"
+            },
+            "checking": {
+              "value": "sonnet",
+              "source": "project"
+            }
           }
         },
         {
@@ -990,8 +1022,14 @@
           "ready": false,
           "ready_via_parent_row": false,
           "models": {
-            "thinking": null,
-            "checking": null
+            "thinking": {
+              "value": "opus",
+              "source": "project"
+            },
+            "checking": {
+              "value": "sonnet",
+              "source": "project"
+            }
           }
         },
         {
@@ -1024,8 +1062,14 @@
           "ready": false,
           "ready_via_parent_row": false,
           "models": {
-            "thinking": null,
-            "checking": null
+            "thinking": {
+              "value": "opus",
+              "source": "project"
+            },
+            "checking": {
+              "value": "sonnet",
+              "source": "project"
+            }
           }
         },
         {
@@ -1068,8 +1112,14 @@
           "ready": false,
           "ready_via_parent_row": false,
           "models": {
-            "thinking": null,
-            "checking": null
+            "thinking": {
+              "value": "opus",
+              "source": "project"
+            },
+            "checking": {
+              "value": "sonnet",
+              "source": "project"
+            }
           }
         },
         {
@@ -1160,8 +1210,14 @@
           "ready": false,
           "ready_via_parent_row": true,
           "models": {
-            "thinking": null,
-            "checking": null
+            "thinking": {
+              "value": "opus",
+              "source": "project"
+            },
+            "checking": {
+              "value": "sonnet",
+              "source": "project"
+            }
           }
         },
         {
@@ -1213,8 +1269,14 @@
           "ready": false,
           "ready_via_parent_row": false,
           "models": {
-            "thinking": null,
-            "checking": null
+            "thinking": {
+              "value": "opus",
+              "source": "project"
+            },
+            "checking": {
+              "value": "sonnet",
+              "source": "project"
+            }
           }
         },
         {
@@ -1246,8 +1308,14 @@
           "ready": false,
           "ready_via_parent_row": false,
           "models": {
-            "thinking": null,
-            "checking": null
+            "thinking": {
+              "value": "opus",
+              "source": "project"
+            },
+            "checking": {
+              "value": "sonnet",
+              "source": "project"
+            }
           }
         },
         {
@@ -1289,8 +1357,14 @@
           "ready": false,
           "ready_via_parent_row": false,
           "models": {
-            "thinking": null,
-            "checking": null
+            "thinking": {
+              "value": "opus",
+              "source": "project"
+            },
+            "checking": {
+              "value": "sonnet",
+              "source": "project"
+            }
           }
         }
       ],

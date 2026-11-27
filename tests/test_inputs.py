@@ -12,7 +12,7 @@ from gantry.inputs import MESSAGES, NO_TIERS, NO_TIERS_SCHEMA, apply_inputs, has
 from gantry.model import REPORT_KINDS, Estimate, Models, Totals
 from gantry.roots import directory_roots
 from gantry.sites import SiteEntry
-from sample_roles import BUSY, UNESTIMATED
+from sample_roles import BUSY, OWN_UNIT, UNESTIMATED
 from test_samples import ROOT, SAMPLES
 
 INPUTS = ROOT / "tests" / "fixtures" / "inputs"
@@ -220,6 +220,28 @@ def test_no_model_tiers_entry_iff_no_tiers(tmp_path):
     assert [e.message for e in entries(quarry, "no_model_tiers")] == [NO_TIERS]
     assert entries(harbor, "no_model_tiers") == []
     assert has_tiers(scheduled(harbor.data)) and not has_tiers(scheduled(quarry.data))
+    # harbor's WBS.md keys (#14): Issue-6 and Issue-14 both classes, Issue-7 thinking only.
+    assert leaf(harbor, "Issue-6").models == Models("opus", "fable", "wbs", ("wbs", "wbs"))
+    assert leaf(harbor, "Issue-14").models == Models("sonnet", "sonnet", "wbs", ("wbs", "wbs"))
+    assert leaf(harbor, "Issue-7").models == Models("opus", None, "wbs", ("wbs", None))
+    rest = {x.key: x.models.source for x in harbor.data.leaves
+            if x.open and x.models is not None and x.key not in ("Issue-6", "Issue-14", "Issue-7")}
+    assert rest and set(rest.values()) == {"estimates_file"}
+    # 8 open leaves with a row, less the 3 with tiers in the JSON.
+    assert [e.message for e in entries(harbor, "models_from_estimates_file")] == [
+        "model tiers from the estimates file: 5 leaves"]
+    orchard = sample(tmp_path, OWN_UNIT)
+    assert [e.message for e in entries(orchard, "no_model_tiers")] == [NO_TIERS]
+
+
+def test_sample_project_source_shows_nothing():
+    # orchard's step_models table (samples/devagent/config.toml) gives every class a project source,
+    # and orchard has no wbs class: a project class alone is not a tier (#14), so no leaf has one.
+    doc = hp.sample_doc()
+    (orchard,) = [p for p in doc["projects"] if p["project"] == OWN_UNIT]
+    classes = [n["models"][cls] for n in orchard["nodes"] if n["leaf"] for cls in ("thinking", "checking")]
+    assert classes and all(c is not None and c["source"] == "project" for c in classes)
+    assert all(x.models is None for x in hp.sample_site(OWN_UNIT).leaves)
 
 
 def test_estimates_source_named(tmp_path):

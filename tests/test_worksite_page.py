@@ -1106,9 +1106,15 @@ def test_model_tier_sample_site(real_sample_document):
     # A leaf with no issue: has no estimates-file row (the demo week plan's leaf, #61).
     no_issue = {leaf.key for leaf in inputs.data.leaves if leaf.issue is None}
     assert no_issue == {"1.5"}
+    # harbor's WBS.md keys (#14) win for their leaves; every other leaf shows its row's tiers.
+    keyed = {"Issue-6": ["opus", "fable"], "Issue-14": ["sonnet", "sonnet"], "Issue-7": ["opus", None]}
+    assert keyed.keys() <= {leaf["key"] for leaf in m["leaves"]}
     for leaf in m["leaves"]:
         if leaf["key"] in no_issue:
             assert leaf["models"] is None
+            continue
+        if leaf["key"] in keyed:
+            assert leaf["models"] == keyed[leaf["key"]], leaf["key"]
             continue
         assert leaf["models"] == [rows[leaf["key"]].thinking, rows[leaf["key"]].checking], leaf["key"]
     t = tree(page)

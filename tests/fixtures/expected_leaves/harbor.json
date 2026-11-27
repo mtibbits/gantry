@@ -140,7 +140,9 @@
         "est": "?w",
         "depends_on": [
           "quarry:Issue-3"
-        ]
+        ],
+        "thinking": "opus",
+        "checking": "fable"
       },
       "depends_on": [
         [
@@ -161,7 +163,15 @@
       "h": null,
       "satisfies": [],
       "objective": [],
-      "models": null
+      "models": [
+        "opus",
+        "fable",
+        "wbs",
+        [
+          "wbs",
+          "wbs"
+        ]
+      ]
     },
     {
       "line": 8,
@@ -213,7 +223,8 @@
         "est": "?w",
         "depends_on": [
           "Issue-6"
-        ]
+        ],
+        "thinking": "opus"
       },
       "depends_on": [
         [
@@ -234,7 +245,15 @@
       "h": null,
       "satisfies": [],
       "objective": [],
-      "models": null
+      "models": [
+        "opus",
+        null,
+        "wbs",
+        [
+          "wbs",
+          null
+        ]
+      ]
     },
     {
       "line": 10,
@@ -469,7 +488,9 @@
       "epic": "Issue-2",
       "parent": null,
       "meta": {
-        "issue": "Issue-14"
+        "issue": "Issue-14",
+        "thinking": "sonnet",
+        "checking": "sonnet"
       },
       "depends_on": [],
       "rank": 3,
@@ -483,7 +504,15 @@
       "h": null,
       "satisfies": [],
       "objective": [],
-      "models": null
+      "models": [
+        "sonnet",
+        "sonnet",
+        "wbs",
+        [
+          "wbs",
+          "wbs"
+        ]
+      ]
     },
     {
       "line": 18,
