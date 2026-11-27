@@ -605,8 +605,9 @@ Gantry reads that JSON for every site's nodes (#12), so **whether an
 issue is STUCK**, **the STUCK marker's reason and time** (`stuck` holds
 `step`, `reason` and `since`) and **its next step** can come from there.
 The portfolio reader (`gantry/portfolio_json.py`) reads the document's
-nodes and report and not its per-issue entries (`projects[].issues`);
-reading those, and narrowing this module's adapter, is mtibbits/gantry#202,
-a follow-up issue filed from #12. **The parked state, whether a checklist shows
+nodes and report and, of its per-issue entries (`projects[].issues`),
+each issue's `actuals` (#213); it does not read their `stuck`, `checklist`
+or `next_step` yet. Reading those, and narrowing this module's adapter, is
+mtibbits/gantry#202, a follow-up issue filed from #12. **The parked state, whether a checklist shows
 progress, and the plan's next task** stay with this module unless devagent
 emits them too. The callers' types do not change shape when a source moves.

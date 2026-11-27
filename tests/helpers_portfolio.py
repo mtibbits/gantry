@@ -410,7 +410,7 @@ def unavailable(doc, message, projects=None) -> dict:
 # A build-side test writes a WBS.md and, beside it, the portfolio document #12's build
 # will read. A Source carries both: the bytes, and the nodes devagent reads from them.
 
-# devagent v3.4.0 scripts/lib/portfolio.py: REASON_NO_WBS, and REASON_UNREADABLE with _err_detail's
+# devagent v3.5.0 scripts/lib/portfolio.py: REASON_NO_WBS, and REASON_UNREADABLE with _err_detail's
 # UnicodeDecodeError form (over the whole file).
 NO_WBS_REASON = "the devdoc dir has no WBS.md"
 UNREADABLE_REASON = "WBS.md could not be read: UnicodeDecodeError: {reason} at byte {start}"

@@ -112,7 +112,7 @@ def test_control_character_names_print_escaped(tmp_path, capsys):
         '[project]\n"g\\u001bh" = 1\n',
     )
 
-    def listed(doc):  # as devagent v3.4.0 lists them: "c\nd" as c, and no g\x1bh (not a table)
+    def listed(doc):  # as devagent v3.5.0 lists them: "c\nd" as c, and no g\x1bh (not a table)
         for name in ("a\tb", "c", "e\x1bf"):
             doc = hp.append_not_read(doc, name, "no_devdoc_dir", hp.UNSET_REASON)
         return doc
@@ -224,8 +224,10 @@ def test_nul_devdoc_dir_is_a_site_problem_not_a_crash(tmp_path, capsys):
     (tmp_path / "plans").mkdir()
     (tmp_path / "plans" / "WBS.md").write_bytes(b"x\n")
     p = fixture_config(tmp_path, devagent)
-    # devagent's portfolio document for this tree (#197), as its v3.4.0 aggregator writes it: the NUL
-    # project's directory does not exist for it, and alpha is read with no node.
+    # devagent's portfolio document for this tree (#197), as Gantry reads what its v3.5.0 aggregator writes:
+    # the NUL project's directory does not exist for it, and alpha is read with no node. (The aggregator's
+    # own bytes also hold schema 1.3's actuals keys and one actuals_unavailable entry per project, which
+    # the reader consumes, #213.)
     document = tmp_path / hp.DOC_NAME
     document.write_bytes(hp.sp.dumps(hp.site_document({"nul": hp.NotRead("no_devdoc_dir", hp.ABSENT_REASON),
                                                        ALPHA: hp.source(b"x\n")})))
