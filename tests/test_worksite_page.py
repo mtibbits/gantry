@@ -1882,6 +1882,8 @@ def test_count_line_keeps_all_clear(tmp_path):
     assert [e.kind for e in inputs.data.report] == ["models_from_estimates_file"]
     page = page_with(inputs)
     assert panel_items(page) == [count, NOTHING_MISSING]
+    # The all-clear is decided at render: the page's embedded data is unchanged by it.
+    assert "all_clear" not in assert_page_safe(page, [])
     # Any other entry still takes the all-clear away.
     other = page_with(inputs_for(tmp_path / "other", hp.site(hp.node("A", issue="Issue-1"))))
     assert NOTHING_MISSING not in panel_items(other)
