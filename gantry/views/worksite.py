@@ -57,6 +57,11 @@ LIMITS_CAPTION_NO_CHAIN = ("At {hpd} agent-hours a day, all open work is {c} to 
                            "waits on another, so there is no critical chain, and with one operator the total sets "
                            "the finish date.")
 NO_CHAIN = "none: no open leaf waits on another"
+CHAIN_OTHERS = "(one of the chains with slack 0; also critical: {keys})"
+CRIT_ON_PATH = "critical (slack 0), on the critical path"
+CRIT_OFF_PATH = "critical (slack 0), off the named critical path"
+INDEX_DAY = ("The index page gives this plan's finish as the working day it ends in at the default {lanes}, "
+             "counted up; the summary below rounds to the nearest day, so at {lanes} the index can read one day later.")
 NO_LEAVES = "This site has no leaves."
 NO_OPEN = "This site has no open leaves."
 # devagent's own report entries on the panel (#12): its kind, as written, then its line and message.
@@ -663,7 +668,7 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None, built
             "critical": list(net.critical),
             "path": list(path),
             "near": [[s, near[s]] for s in sorted(near)],
-            "heaviest": {"keys": list(chain), "hours": chain_total, "same": bool(path) and chain_total == sum(hours[k][0] for k in path)},
+            "heaviest": {"keys": list(chain), "hours": chain_total, "same": bool(path) and chain == path},
         },
         "panel": panel,
         # Whether nothing is missing or unreadable: every panel line is informational (#14).
@@ -692,7 +697,7 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None, built
                   "path_upstream": PATH_MARKS["upstream"], "mark_chain": PATH_MARK_CHAIN,
                   "path_end_t": PATH_T_END, "section_t": PATH_SECTION_T, "section_o": PATH_SECTION_O,
                   "mark_objective": PATH_MARK_OBJECTIVE,
-                  "no_issue_id": NO_ISSUE_ID},
+                  "no_issue_id": NO_ISSUE_ID, "crit_path": CRIT_ON_PATH, "crit_other": CRIT_OFF_PATH},
         "trace": traced,
         # [[row id, href], ...]: the requirements rows that link to another built site's page (#21).
         "req_links": [[r["id"], href] for r in (trace or {}).get("requirements", ())
@@ -1044,6 +1049,15 @@ def _mono(keys, sep=", "):
     return Markup(sep.join(f'<span class="mono">{esc(k)}</span>' for k in keys))
 
 
+def _chain_line(net):
+    """The named chain, then the critical leaves it leaves out (#107)."""
+    chain = _mono(net["path"], ARROW) or "none"
+    others = [k for k in net["critical"] if k not in net["path"]]
+    if not others:
+        return chain
+    return Markup(f"{chain} {esc(CHAIN_OTHERS).format(keys=_mono(others))}")
+
+
 def _anchors(anchors):
     """Empty static spans, one per anchor: a link lands on the heading that holds them."""
     return Markup("".join(f'<span class="anchor" id="{esc(a)}"></span>' for a in anchors))
@@ -1250,13 +1264,14 @@ def render_model(m, *, stamp="") -> str:
         NO_TIERS=_note(m["notes"]["no_tiers"]),
         SVG=_network_svg(m),
         LENGTH=net["length"],
-        CHAIN=_mono(net["path"], ARROW) or "none",
+        CHAIN=_chain_line(net),
         NEAR=near or "none",
         HOURS_NOTE=hours_note,
         HOURS_UNEST=unest["heaviest"],
         SITE_UNEST=unest["site"],
         PATH_UNEST=unest["path"],
         SUMMARY=m["summary"],
+        INDEX_DAY=INDEX_DAY.format(lanes=_lanes_text(LANES_DEFAULT)) if m["finish_day"] is not None else "",
         LIMITS_SVG=limits_svg,
         LIMITS_CAPTION=limits_caption,
         DATES=_count_line(unest["site"], DATES, DATES_ONE) if unest["site"] else "",

@@ -15,6 +15,7 @@ from types import SimpleNamespace
 import pytest
 
 import helpers_portfolio as hp
+from helpers_docs import markdown_text
 from commit_check import path_form_hits
 from gantry.attention import MESSAGES as H_MESSAGES, check_h
 from gantry.build import site_data
@@ -578,6 +579,7 @@ def test_page_texts_present():
     assert NO_LEAVES in empty
     done = visible_text(render_page("alpha", hp.site(hp.node("Done", glyph="x", issue="Issue-1")), default_unit_hours=6))
     assert NO_OPEN in done
+    assert "The index page gives" not in done
 
 
 def bands(t, node):
@@ -882,6 +884,14 @@ def test_wave_caption_names_p0():
     assert "every leaf whose own priority is P0 or P1" in visible_text(page_for())
 
 
+@pytest.mark.parametrize("new, old", [("every critical leaf (slack 0)", "for the critical path"),
+                                      ("the ones with slack 0", "the chain with no slack")])
+def test_prose_says_slack_0(new, old):
+    text = visible_text(page_for())
+    assert new in text
+    assert old not in text
+
+
 def test_p0_site_model_has_no_p0_note(tmp_path):
     m = model_with(est_inputs(tmp_path))
     assert p0_of(m) == ["Issue-20", "Issue-21"]
@@ -1005,7 +1015,7 @@ def summary_cases(tmp_path):
     half = with_leaf(data, "Issue-1", estimate=Estimate(15, 15, "est", "time", None))
     return {"half": page_for(data=half), "page": page_for(), "est": page_with(est_inputs(tmp_path)),
             "quarry": page_with(sample_inputs(UNESTIMATED), UNESTIMATED),
-            "nochain": page_for(data=hp.site(*NO_LINKS))}
+            "nochain": page_for(data=hp.site(*NO_LINKS)), "two": page_for(data=hp.site(*TWO), unit=4)}
 
 
 def test_summary_static_matches_script(node, tmp_path):
@@ -1061,11 +1071,12 @@ def test_priority_markers_in_both_groupings(node, tmp_path):
 
 
 def test_schedule_legend_names_p0_beside_p1_p2():
-    t = tree(page_for())
+    t = tree(page_for(data=hp.site(*FOUR)))
     (legend,) = [i for i in find(t, "div", ["legend"]) if "P1 or P2" in text_of(t, i)]
     spans = [text_of(t, i).strip() for i in find(t, "span", within=legend)]
     assert spans[-2:] == ["P1 or P2", "P0"]
-    assert spans[:2] == ["bar shade: thinking model", "critical chain"]
+    assert spans[:2] == ["bar shade: thinking model", "critical, slack 0"]
+    assert "critical chain" not in spans
 
 
 # --- the sample sites, built as the CLI builds them (#10) ---------------------------------
@@ -1372,7 +1383,9 @@ PAGE_TEXTS = [getattr(worksite, name) for name in (
     # An estimates file's edges (#108).
     "ESTIMATES_BAD_DATE", "UNESTIMATED_MORE",
     # The workflow phase row (#173).
-    "RECORDS_LINE")] + list(worksite.STATE_MARKS.values()) + list(worksite.FBOX_LINE.values()) + [
+    "RECORDS_LINE",
+    # Critical leaves off the named chain and the index's finish day (#107).
+    "CHAIN_OTHERS", "CRIT_ON_PATH", "CRIT_OFF_PATH", "INDEX_DAY")] + list(worksite.STATE_MARKS.values()) + list(worksite.FBOX_LINE.values()) + [
     *(getattr(leafbox, name) for name in ("PHASE_LEGEND", "PHASE_LIMIT", "PHASE_TEXT", "PHASE_TEXT_UNKNOWN")),
     *(getattr(phases, name) for name in ("WHY_NOT_READ", "WHY_SKIPPED", "WHY_NAME")),
     *phases.WHY_PROBLEM.values(), *phases.LOOK_WORDS.values(), *phases.PHASE_NAMES]
@@ -1390,6 +1403,38 @@ def test_inputs_messages_in_docs():
     for phrase in ("`models_from_estimates_file`", "`bad_model`", "mtibbits/devagent#1236", "`m-other`",
                    "haiku, sonnet, opus and fable"):
         assert phrase in flat, phrase
+
+
+def _doc_section(doc, start):
+    """The text after the heading line `start` up to the next heading at its level or above."""
+    body = doc[doc.index(start) + len(start):]
+    stop = re.search(r"\n#{2,%d} " % len(start.strip().split(" ")[0]), body)
+    return body[:stop.start()] if stop else body
+
+
+def test_doc_defines_critical_and_day_numbers_once():
+    doc = markdown_text(ROOT / "docs" / "worksite-page.md")
+    flat = " ".join(doc.split())
+    assert doc.count("\n### Critical leaves and the critical path\n") == 1
+    assert doc.count("\n### Day numbers\n") == 1
+    for h in ("The network", "Rolling wave", "Two limits, the summary and the marks"):
+        assert "](#critical-leaves-and-the-critical-path)" in _doc_section(doc, f"\n### {h}\n"), h
+    for start in ("\n### Two limits, the summary and the marks\n", "\n### The path to a requirement's work\n",
+                  "\n## The index\n"):
+        assert "](#day-numbers)" in _doc_section(doc, start), start
+    assert "so the critical path the page names is one chain" not in flat
+    assert "rounds the same end to the nearest day" not in flat
+
+
+def test_doc_template_quotes_match():
+    doc = markdown_text(ROOT / "docs" / "worksite-page.md")
+    template = markdown_text(ROOT / "gantry" / "templates" / "worksite.html")
+    section = _doc_section(doc, "\n### Critical leaves and the critical path\n")
+    for quoted in ("critical link", "critical, slack 0"):
+        assert f"`{quoted}" in section, quoted
+        assert quoted in template, quoted
+    assert "`Critical path ({n} slots):`" in section
+    assert "Critical path ({{LENGTH}} slots):" in template
 
 
 def test_doc_states_page_texts():
@@ -1439,11 +1484,95 @@ def test_fork_critical_path_is_one_chain():
     assert m["network"]["critical"] == ["Issue-1", "Issue-2", "Issue-3"]
     assert m["network"]["path"] == ["Issue-1", "Issue-2"]
     assert m["network"]["heaviest"]["same"] is True
+    assert m["network"]["heaviest"]["keys"] == m["network"]["path"]
     t = tree(page_for(data=hp.site(*FORK)))
-    (detail,) = [i for i in find(t, "div") if t.elements[i]["attrs"].get("id") == "detail"]
-    text = text_of(t, detail)
+    text = text_of(t, by_id(t, "detail"))
     assert "Issue-1 → Issue-2" in text and "Issue-2 → Issue-3" not in text
     assert "picks the same chain, 12 h end to end" in text
+    line = chain_line(t)
+    assert "Issue-3" in line
+    assert line == "Critical path (2 slots): Issue-1 → Issue-2 " + worksite.CHAIN_OTHERS.format(keys="Issue-3")
+
+
+FOUR = (hp.node("A", issue="Issue-1"), hp.node("C", issue="Issue-2"),
+        hp.node("D", issue="Issue-3", depends_on=["Issue-2"]),
+        hp.node("B", issue="Issue-4", depends_on=["Issue-1"]))
+
+
+def chain_line(t):
+    """The detail line that starts `Critical path (`, whitespace collapsed."""
+    detail = by_id(t, "detail")
+    lines = [" ".join(text_of(t, i).split()) for i in find(t, "div")
+             if i != detail and t.elements[i]["parent"] == detail]
+    (line,) = [s for s in lines if s.startswith("Critical path (")]
+    return line
+
+
+def test_schedule_detail_off_chain_critical_leaf(node, tmp_path):
+    with open_page(write(tmp_path, page_for(data=hp.site(*FOUR)))) as page:
+        page.drive("schedule-detail", "Issue-1")
+        assert worksite.CRIT_ON_PATH in page.query("#gdetail")[0].text
+        for key in ("Issue-2", "Issue-3"):
+            page.drive("schedule-detail", key)
+            off = page.query("#gdetail")[0].text
+            assert "on the critical path" not in off, key
+            assert worksite.CRIT_OFF_PATH in off, key
+
+
+def test_hours_note_same_means_same_leaves():
+    assert model(data=hp.site(*FOUR), unit=6)["network"]["heaviest"] == {"keys": ["Issue-2", "Issue-3"],
+                                                                        "hours": 12.0, "same": False}
+    page = page_for(data=hp.site(*FOUR))
+    t = tree(page)
+    note = " ".join(text_of(t, by_id(t, "hours-note")).split())
+    assert note == ("Weighting each leaf by its hours picks a different chain: "
+                    "Issue-2 → Issue-3, 12 h end to end; includes 2 unestimated leaves.")
+    assert "picks the same chain" not in visible_text(page)
+
+
+TWO = FORK[:2]
+TWO_SUMMARY = ("With 4 lanes, all open work ends around working day 1 and the critical chain around day 1. "
+               "The chain alone needs 1 days; the work spread evenly across the lanes needs 0. The lanes are busy "
+               "25% of the time. The plan includes 2 unestimated leaves (2 on the critical chain).")
+
+
+def test_schedule_prose_names_the_index_day():
+    t = tree(page_for(data=hp.site(*TWO), unit=4))
+    (section,) = [i for i in find(t, "section") if "Schedule across agent lanes" in text_of(t, i)]
+    assert worksite.INDEX_DAY.format(lanes="4 lanes") in " ".join(text_of(t, section).split())
+
+
+def test_two_leaf_summary_unchanged():
+    m = model(data=hp.site(*TWO), unit=4)
+    assert m["finish_day"] == 2
+    assert m["summary"] == TWO_SUMMARY
+    t = tree(render_model(m))
+    assert " ".join(text_of(t, by_id(t, "g-sum")).split()) == TWO_SUMMARY
+
+
+def test_critical_line_names_every_critical_leaf():
+    m = model(data=hp.site(*FOUR), unit=6)
+    assert m["network"]["critical"] == ["Issue-1", "Issue-2", "Issue-3", "Issue-4"]
+    assert m["network"]["path"] == ["Issue-1", "Issue-4"]
+    line = chain_line(tree(render_model(m)))
+    assert all(k in line for k in m["network"]["critical"])
+    assert line == "Critical path (2 slots): Issue-1 → Issue-4 " + worksite.CHAIN_OTHERS.format(keys="Issue-2, Issue-3")
+
+
+def test_critical_line_without_split_is_unchanged():
+    net = model(unit=6)["network"]
+    assert net["critical"] == net["path"]
+    line = chain_line(tree(page_for()))
+    assert line == f"Critical path ({net['length']} slots): " + " → ".join(net["path"])
+    assert "also critical" not in line
+    assert chain_line(tree(page_for(data=hp.site(*NO_LINKS)))) == "Critical path (0 slots): none"
+
+
+def test_critical_others_hostile_keys_are_text():
+    d = dataclasses.replace(hostile_site(), links=((HOSTILE[7], HOSTILE[1]), (HOSTILE[7], HOSTILE[2])))
+    page = render_page("alpha", d, default_unit_hours=6)
+    assert_page_safe(page, HOSTILE)
+    assert chain_line(tree(page)).endswith(" ".join(worksite.CHAIN_OTHERS.format(keys=HOSTILE[2]).split()))
 
 
 def test_all_held_out_site_says_so():
@@ -1452,6 +1581,7 @@ def test_all_held_out_site_says_so():
     page = visible_text(render_page("alpha", data, default_unit_hours=6))
     assert worksite.ALL_HELD in page
     assert NO_OPEN not in page
+    assert "The index page gives" not in page
 
 
 def test_critical_cross_link_stays_dashed():

@@ -169,9 +169,9 @@ acknowledging a security report within seven days (BRule-6).
 - FR-1: The worksite page shows the open leaves that have dependency links,
   after transitive reduction, with the critical path and each leaf's slack.
   {refines: SR-2}
-- FR-2: The worksite page zooms on a rolling wave. Leaves on the critical
-  path, P0 and P1 leaves, work in progress and leaves starting within the
-  horizon keep full boxes; the rest are sized by their estimate.
+- FR-2: The worksite page zooms on a rolling wave. Leaves with slack 0, P0
+  and P1 leaves, work in progress and leaves starting within the horizon
+  keep full boxes; the rest are sized by their estimate.
   {refines: SR-2}
 - FR-3: Each leaf's thinking model and checking model are shown, read from
   the leaf when it carries them, otherwise from the estimates file.

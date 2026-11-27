@@ -273,7 +273,7 @@ figcaption { color: var(--muted); font-size: 14px; max-width: 72ch; }
     <div class="eyebrow">{{SITE}} &#183; WBS.md</div>
     {{STAMP}}
     <h1>{{SITE}}: what sets the pace</h1>
-    <p>A network of every open leaf that waits on, or is waited on by, another open leaf, then a schedule of all open work across parallel agent lanes. Columns give the earliest slot a leaf can start in, counting one slot per leaf. The red line is the critical path: the chain with no slack.</p>
+    <p>A network of every open leaf that waits on, or is waited on by, another open leaf, then a schedule of all open work across parallel agent lanes. Columns give the earliest slot a leaf can start in, counting one slot per leaf. Red marks the critical leaves and links, the ones with slack 0; when more than one chain has slack 0, the critical path named below the network is one of them.</p>
     {{STATUS}}
     {{ESTIMATES}}
     {{NON_TIME}}
@@ -294,7 +294,7 @@ figcaption { color: var(--muted); font-size: 14px; max-width: 72ch; }
       <button type="button" data-control="zoom" data-value="wave" aria-pressed="true">Rolling wave</button>
       <button type="button" data-control="zoom" data-value="all" aria-pressed="false">Every leaf as a box</button>
     </div>
-    <p class="prose">Rolling wave keeps full boxes for the critical path, every leaf whose own priority is P0 or P1, work in progress, and anything the schedule below starts within {{HORIZON}} working days on its default {{LANES}} lanes. The rest shrink to circles whose area is their hours.</p>
+    <p class="prose">Rolling wave keeps full boxes for every critical leaf (slack 0), every leaf whose own priority is P0 or P1, work in progress, and anything the schedule below starts within {{HORIZON}} working days on its default {{LANES}} lanes. The rest shrink to circles whose area is their hours.</p>
     <div class="legend-row" aria-hidden="true">
       <div class="legend">
         <span><i class="sw crit"></i>critical, slack 0</span>
@@ -343,7 +343,7 @@ figcaption { color: var(--muted); font-size: 14px; max-width: 72ch; }
   <section>
     <div class="prose">
       <h2>{{SCHEDULE_ANCHORS}}Schedule across agent lanes</h2>
-      <p>All open leaves, linked or not, spread across parallel agent lanes. Each lane is one agent session working {{HOURS_PER_DAY}} agent-hours a day, and each leaf takes the midpoint of its estimate, or the default unit when it has none. When a lane comes free it takes the most urgent leaf that is ready; a leaf takes the priority of anything it unblocks, and WBS order breaks ties. This is one plausible plan, not a forecast.</p>
+      <p>All open leaves, linked or not, spread across parallel agent lanes. Each lane is one agent session working {{HOURS_PER_DAY}} agent-hours a day, and each leaf takes the midpoint of its estimate, or the default unit when it has none. When a lane comes free it takes the most urgent leaf that is ready; a leaf takes the priority of anything it unblocks, and WBS order breaks ties. This is one plausible plan, not a forecast. {{INDEX_DAY}}</p>
       <p class="label">{{LABEL}}</p>
       {{STUCK}}
     </div>
@@ -359,7 +359,7 @@ figcaption { color: var(--muted); font-size: 14px; max-width: 72ch; }
     </div>
     <div class="legend" aria-hidden="true">
       <span><i class="sw m-sonnet"></i><i class="sw m-opus"></i><i class="sw m-fable"></i>bar shade: thinking model</span>
-      <span><i class="sw crit"></i>critical chain</span>
+      <span><i class="sw crit"></i>critical, slack 0</span>
       <span><svg width="12" height="12" viewBox="0 0 12 12"><circle class="pmark pr-hi" cx="6" cy="6" r="3"/></svg>P1 or P2</span>
       <span><svg width="12" height="12" viewBox="0 0 12 12"><circle class="pmark pr-p0" cx="6" cy="6" r="3"/></svg>P0</span>
     </div>
