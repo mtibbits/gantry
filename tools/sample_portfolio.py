@@ -274,17 +274,17 @@ def fixture_document(devagent) -> bytes:
     return dumps(doc)
 
 
-def _provenance(devagent, document, key, value, **more) -> bytes:
+def _provenance(devagent, document, **fields) -> bytes:
     doc = json.loads(document.decode("utf-8"))
     return dumps({"pin": read_pin(), "devagent_version": checkout_version(devagent),
-                  "schema_version": doc["schema_version"], "generated_at": doc["generated_at"], key: value, **more})
+                  "schema_version": doc["schema_version"], "generated_at": doc["generated_at"], **fields})
 
 
 def provenance(devagent, document=None) -> bytes:
     """Where written.json came from; `document` is fixture_document's bytes, made here when not given."""
     if document is None:
         document = fixture_document(devagent)
-    return _provenance(devagent, document, "sources", dict(FIXTURE_SOURCES), step_models=FIXTURE_STEP_MODELS)
+    return _provenance(devagent, document, sources=dict(FIXTURE_SOURCES), step_models=FIXTURE_STEP_MODELS)
 
 
 def sample_fixture_document(devagent, samples=SAMPLES) -> bytes:
@@ -321,7 +321,7 @@ def stale_inputs(samples=SAMPLES) -> list[str]:
 
 def sample_provenance(devagent, document) -> bytes:
     """What samples.json was made from; `document` is sample_fixture_document's bytes."""
-    return _provenance(devagent, document, "inputs", sample_inputs())
+    return _provenance(devagent, document, inputs=sample_inputs())
 
 
 def _counts(document):

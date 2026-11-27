@@ -52,8 +52,8 @@ SCHEMA_ID = "devagent-portfolio"
 MAJOR, MINOR = 1, 2
 # The minor that added each leaf's `models` (#14).
 MODELS_MINOR = 2
-# The classes of a leaf's `models`, in the document's order.
-MODEL_CLASSES = ("thinking", "checking")
+# The classes of a leaf's `models`, in the document's order (not render's tier names).
+MODEL_KEYS = ("thinking", "checking")
 # The JSON sources a leaf's tiers are read from: a leaf with no `wbs` class has none (#14).
 TIER_SOURCES = ("wbs", "project")
 MAX_DEPTH = 64  # the deepest a node may nest
@@ -307,7 +307,7 @@ def _check_models(models, where):
     Extra keys are ignored; a value is never checked against devagent's model
     tokens, nor a source against a list (#14)."""
     _need(isinstance(models, dict), where, "not an object")
-    for cls in MODEL_CLASSES:
+    for cls in MODEL_KEYS:
         choice = models.get(cls, _ABSENT)
         _need(choice is None or isinstance(choice, dict), f"{where}.{cls}", "not an object or null")
         if choice is not None:
@@ -438,7 +438,7 @@ class _Node:
 
     def __init__(self, raw, parent, outline):
         self.line, self.glyph, self.title = raw["source_line"], raw["glyph"], raw["text"]
-        self.models = raw.get("models")  # read only when the minor carries it (_build)
+        self.models = raw.get("models")
         self.issue, self.parent, self.outline = raw["issue"], parent, outline
         # New containers: the document is never changed. Key order is the document's.
         self.meta = {key: tag(value) for key, value in raw["meta"].items()}
@@ -451,7 +451,7 @@ class _Site:
     """A read project's nodes and Gantry's own findings about them."""
 
     __slots__ = ("name", "nodes", "by_line", "first", "leaves", "rows", "links", "held_out", "report", "cycles",
-                 "dep_rank")
+                 "dep_rank", "models_ok")
 
 
 def _scan(raw_nodes):
@@ -517,7 +517,7 @@ def _leaf_models(raw):
     other source, or null, gives None for both. Values are kept as written."""
     if raw is None:
         return None
-    choices = [raw[cls] for cls in MODEL_CLASSES]
+    choices = [raw[cls] for cls in MODEL_KEYS]
     if not any(c is not None and c["source"] == "wbs" for c in choices):
         return None
     kept = [c if c is not None and c["source"] in TIER_SOURCES else None for c in choices]
@@ -525,7 +525,7 @@ def _leaf_models(raw):
     return Models(values[0], values[1], "wbs", tuple(None if c is None else c["source"] for c in kept))
 
 
-def _build(site, models_ok):
+def _build(site):
     leaves, rows = [], []
     for node in site.nodes:
         state = STATE_GLYPHS[node.glyph]
@@ -540,18 +540,19 @@ def _build(site, models_ok):
         epic = _top(node).key if node.parent is not None else None
         leaves.append(Leaf(node.key, node.issue, node.outline, node.title, node.glyph, state,
                            node.glyph not in FINISHED_GLYPHS, priority, refs(node.meta, site.name), node.meta, epic,
-                           node.line, models=_leaf_models(node.models) if models_ok else None))
+                           node.line, models=_leaf_models(node.models) if site.models_ok else None))
     site.leaves, site.rows = tuple(leaves), tuple(rows)
 
 
 def _read_site(name, raw_nodes, models_ok):
-    """A read project's nodes, named and built, with Gantry's own report entries."""
+    """A read project's nodes, named and built, with Gantry's own report entries.
+    `models_ok`: whether the document's minor carries leaf `models`."""
     site = _Site()
-    site.name, site.report, site.cycles, site.dep_rank = name, [], None, {}
+    site.name, site.report, site.cycles, site.dep_rank, site.models_ok = name, [], None, {}, models_ok
     site.nodes = _scan(raw_nodes)
     site.by_line = {node.line: node for node in site.nodes}
     _name(site)
-    _build(site, models_ok)
+    _build(site)
     if not site.nodes:
         site.report.append(ReportEntry(name, None, "no_nodes", MESSAGES["no_nodes"]))
     by_issue = {issue: node.key for issue, node in site.first.items()}
@@ -561,11 +562,11 @@ def _read_site(name, raw_nodes, models_ok):
     return site
 
 
-def _site_data(site, models_ok):
+def _site_data(site):
     # A mapped unresolved_ref keeps its place in the node's depends_on, as Gantry's
     # own reader orders them, not the order devagent's report gives them.
     report = sorted(site.report, key=lambda entry: (report_order(entry), site.dep_rank.get(entry, 0)))
-    return SiteData(site.leaves, site.rows, site.links, site.held_out, tuple(report), models_ok)
+    return SiteData(site.leaves, site.rows, site.links, site.held_out, tuple(report), site.models_ok)
 
 
 # --- devagent's report entries ----------------------------------------------------------------
@@ -669,7 +670,7 @@ def _dispose(site, entry):
         match = WARNED_KEY_RE.match(message)
         key = match.group(1) if match else None
         if key in node.meta and (key in ("priority", "h") or (key == "depends_on" and is_leaf and is_open)
-                                 or (key in ("satisfies", "objective", "thinking", "checking") and is_leaf)):
+                                 or (key in ("satisfies", "objective", *MODEL_KEYS) and is_leaf)):
             return SUPPRESSED
     return SHOWN
 
@@ -696,7 +697,7 @@ def map_document(doc, *, source=DEFAULT_SOURCE) -> PortfolioInput:
     for raw in doc["projects"]:
         name, status, reason = raw["project"], raw["status"], raw["status_reason"]
         if status == "read":
-            data = _site_data(sites[name], models_ok)
+            data = _site_data(sites[name])
         else:
             # devagent's reason, as written.
             report = (ReportEntry(name, None, "site_unreadable", reason),) if status == "unreadable" else ()

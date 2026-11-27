@@ -28,7 +28,7 @@ import helpers_devagent as hd
 import sample_portfolio as sp
 from gantry import deps
 from gantry.model import STATE_GLYPHS
-from gantry.portfolio_json import map_document
+from gantry.portfolio_json import MODEL_KEYS, map_document
 from helpers_config import copy_samples
 
 DOC_NAME = "portfolio.json"
@@ -268,6 +268,14 @@ def auto_entry(entry, project_name):
     return deps.classify(message[len(head):-len(tail)], project_name).kind == "local"
 
 
+def _named_project(doc, project_name) -> dict:
+    """`project_name`'s entry in `doc`'s projects; ValueError when it has none."""
+    proj = next((p for p in doc["projects"] if p["project"] == project_name), None)
+    if proj is None:
+        raise ValueError(f"the document holds no project {project_name!r}")
+    return proj
+
+
 def append_nodes(doc, project_name, *nodes) -> dict:
     """A copy of `doc` with `nodes` added after the last line of `project_name`.
 
@@ -275,9 +283,7 @@ def append_nodes(doc, project_name, *nodes) -> dict:
     entries of the kinds auto_report writes are written again, and every other
     entry (a foreign or malformed dep_unresolved among them) is kept."""
     out = copy.deepcopy(doc)
-    proj = next((p for p in out["projects"] if p["project"] == project_name), None)
-    if proj is None:
-        raise ValueError(f"the document holds no project {project_name!r}")
+    proj = _named_project(out, project_name)
     last = max((n["source_line"] for n in proj["nodes"]), default=0)
     added = project(project_name, *nodes, start=last + 1)["nodes"]
     ids = {n["id"]: f"n{i}" for i, n in enumerate(added, start=_highest_id(out) + 1)}
@@ -298,14 +304,12 @@ def set_models(doc, project_name, line, *, thinking, checking) -> dict:
 
     Each class is None (null), `(value, source)` or ABSENT (the key dropped).
     The node gets a `models` object when it has none. Returns `doc`."""
-    proj = next((p for p in doc["projects"] if p["project"] == project_name), None)
-    if proj is None:
-        raise ValueError(f"the document holds no project {project_name!r}")
+    proj = _named_project(doc, project_name)
     node = next((n for n in proj["nodes"] if n["source_line"] == line), None)
     if node is None:
         raise ValueError(f"project {project_name!r} has no node on line {line}")
     models = node.setdefault("models", {})
-    for cls, value in (("thinking", thinking), ("checking", checking)):
+    for cls, value in zip(MODEL_KEYS, (thinking, checking)):
         if value is ABSENT:
             models.pop(cls, None)
         else:

@@ -453,20 +453,11 @@ def _fboxes(leaf):
             for o in leaf.foreign_targets or ()]
 
 
-def _known_first(tiers):
-    """The known tiers in MODEL_CLASSES order, then the rest as given."""
-    rank = list(MODEL_CLASSES)
-    return sorted(tiers, key=lambda t: rank.index(t) if t in MODEL_CLASSES else len(rank))
-
-
 def _tier_counts(tiers):
     """[[tier, count], ...] of the four named models (MODEL_CLASSES), in that order, from any
     source (#14). `inherit` and any other value get no row: the band shows them as text."""
-    counts = {}
-    for t in tiers:
-        if t in MODEL_CLASSES:
-            counts[t] = counts.get(t, 0) + 1
-    return [[t, counts[t]] for t in _known_first(counts)]
+    tiers = list(tiers)
+    return [[t, tiers.count(t)] for t in MODEL_CLASSES if t in tiers]
 
 
 def devagent_line(entry) -> str:
@@ -646,9 +637,9 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None, built
     else:
         # No items but an open leaf: every open leaf is held out.
         status = ALL_HELD if any(leaf.open for leaf in data.leaves) else NO_OPEN
-    panel = (_panel(data) + [devagent_line(entry) for entry in devagent]
-             + ([RECORDS_LINE.format(reason=records.reason)]
-                if records is not phases.NO_RECORDS and records.status != READ else []))
+    records_line = ([RECORDS_LINE.format(reason=records.reason)]
+                    if records is not phases.NO_RECORDS and records.status != READ else [])
+    panel = _panel(data) + [devagent_line(entry) for entry in devagent] + records_line
     return {
         "site": site,
         "empty": empty,
@@ -675,8 +666,8 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None, built
             "heaviest": {"keys": list(chain), "hours": chain_total, "same": bool(path) and chain_total == sum(hours[k][0] for k in path)},
         },
         "panel": panel,
-        # Whether nothing is missing or unreadable: the panel holds informational lines only (#14).
-        "all_clear": len(panel) == sum(e.kind in INFORMATIONAL for e in data.report),
+        # Whether nothing is missing or unreadable: every panel line is informational (#14).
+        "all_clear": not devagent and not records_line and all(e.kind in INFORMATIONAL for e in data.report),
         "summary": summary_text(items, planned, path, LANES_DEFAULT, totals.unestimated_count,
                                 unest_path, no_chain),
         "unestimated": {"site": totals.unestimated_count, "heaviest": sum(k in unest for k in chain),
@@ -782,9 +773,9 @@ def _layout(nodes, es, lane_of, preds):
 
 
 def _tier_rows(lane):
-    """[(tier, think count, check count)], the known tiers first."""
+    """[(tier, think count, check count)], in MODEL_CLASSES order."""
     think, check = dict(lane["models"]["think"]), dict(lane["models"]["check"])
-    return [(t, think.get(t, 0), check.get(t, 0)) for t in _known_first(dict.fromkeys([*think, *check]))]
+    return [(t, think.get(t, 0), check.get(t, 0)) for t in MODEL_CLASSES if t in think or t in check]
 
 
 def _lane_label(lane, top, tiers_shown):
@@ -1216,7 +1207,7 @@ def _embedded(m):
     """The page model the page embeds: each leaf's phase reason dropped, so the
     data carries only look names (#173); the reason is in the box's tooltip.
     `all_clear` is dropped too: only the render reads it (#14)."""
-    return {**{k: v for k, v in m.items() if k != "all_clear"},
+    return {**{k: v for k, v in m.items() if k not in ("all_clear", "leaves")},
             "leaves": [{k: v for k, v in leaf.items() if k != "phases_why"} for leaf in m["leaves"]]}
 
 
