@@ -483,8 +483,9 @@ def test_consumed_entry_on_no_page(tmp_path, monkeypatch):
         with its entry: {output file: its text}."""
         folder = tmp_path / name
         config = write_site_tree(folder, {"alpha": hp.fixture_source("page"), "beta": None})
-        hp.rewrite_document(folder, lambda doc: hp.unavailable(
-            hp.append_not_read(doc, "gamma", "no_wbs", hp.NO_WBS_REASON), message))
+        # As devagent writes it with no usable actuals file: wired, every slot null, one entry per project.
+        hp.rewrite_document(folder, lambda doc: hp.unavailable(hp.with_actuals(
+            hp.append_not_read(doc, "gamma", "no_wbs", hp.NO_WBS_REASON), {}, generated_at=None), message))
         _with_entries(folder, ("alpha", None, "parser_note", "a later kind"))
         code, _, _ = run_main("--config", str(config))
         assert code == 0

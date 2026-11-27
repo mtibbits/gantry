@@ -183,8 +183,9 @@ class IssueActuals:
 @dataclass(frozen=True)
 class ActualsInput:
     """The actuals part of a document (schema 1.3, #213). No page uses it yet:
-    #25 is its first caller."""
-    wired: bool  # the document has a top-level `actuals` key: devagent built it with an actuals file
+    #25 is its first caller. `issues` is a MappingProxyType, so the part (and the
+    PortfolioInput holding it) cannot be deep-copied, pickled or passed to asdict."""
+    wired: bool  # the document has a top-level `actuals` key: devagent looked for its actuals file
     generated_at: datetime | None  # the actuals file's time, aware, UTC; None when that object is null
     # {(project, issue): IssueActuals}, read-only: the slots that are not null, in document order.
     issues: MappingProxyType

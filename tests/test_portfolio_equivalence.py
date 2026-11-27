@@ -894,6 +894,7 @@ def test_devagent_filled_slots_are_read(tmp_path):
 
 def test_actuals_message_is_the_tags():
     checkout = hd.require_devagent()
-    texts = _constants(checkout / "scripts" / "lib" / "portfolio.py", ("ACTUALS_MISSING",))
-    assert texts == {"ACTUALS_MISSING": hp.ACTUALS_MISSING}
+    texts = _constants(checkout / "scripts" / "lib" / "portfolio.py", ("ACTUALS_MISSING", "ACTUALS_STALE"))
+    assert texts["ACTUALS_MISSING"] == hp.ACTUALS_MISSING
+    assert texts["ACTUALS_STALE"].format(path="{path}", at="2026-01-01T00:00:00Z", days=7) == hp.ACTUALS_STALE
     assert texts["ACTUALS_MISSING"].format(path=sp.ACTUALS_PLACEHOLDER) == PLACEHOLDER_MESSAGE
