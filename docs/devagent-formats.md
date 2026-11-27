@@ -563,11 +563,11 @@ pin and a test holds it equal to `tests/devagent.pin`:
 A pin move also re-runs the build-side differential that #195's and #197's
 pull requests describe, since the build-side test sources
 (`tests/helpers_portfolio.py`, `tests/fixtures/week_plan/trees.json`) model
-devagent's reading by hand and no gated test re-checks them all. Three of
-its scripts still run, each with the small change #213's pull request
-records, since #12 removed the names they hooked (`build.read_wbs`,
-`ue.diff_snapshots`): #195's `verify_plugin.py` with `differential.py`, and
-#197's `differential197.py`. #197's `cyclecheck197.py` compared against the
+devagent's reading by hand and no gated test re-checks them all. #195's
+`verify_plugin.py` runs as published. Its `differential.py` and #197's
+`differential197.py` run with the small changes #213's pull request
+records, since #12 removed two names they used (`build.read_wbs`,
+`ue.diff_snapshots`). #197's `cyclecheck197.py` compared against the
 stopgap reader #12 deleted and no longer runs.
 
 [worksite-page.md](worksite-page.md#reading-devagents-portfolio-json)
