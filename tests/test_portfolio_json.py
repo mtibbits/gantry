@@ -207,15 +207,19 @@ CONFIG_BAD = 'step_models.checking "gpt" is not one of: sonnet opus haiku fable 
 
 def test_model_key_warnings_suppressed_on_leaves_only():
     lines = MODELS_LINES
-    planted = [(lines["Bad alone"], "thinking"), (lines["Bad beside legal"], "checking"), (lines["Epic"], "thinking"),
-               (lines["No keys"], "thinking")]
+    planted = [(lines["Bad alone"], "thinking"), (lines["Bad beside legal"], "thinking"),
+               (lines["Bad beside legal"], "checking"), (lines["Epic"], "thinking"), (lines["No keys"], "thinking")]
     doc = hp.written_doc()
     doc["parse_report"] += [entry("models", line, "parser_warning", MODEL_KEY_WARNING.format(line=line, cls=cls))
                             for line, cls in planted]
     got = map_document(doc)
     warned = [(e.line, e.message) for e in got.devagent_report if e.project == "models" and e.kind == "parser_warning"]
-    # On a leaf holding the key: suppressed. On the row that holds it, and on a leaf without it: shown as written.
-    assert warned == [(lines["Epic"], MODEL_KEY_WARNING.format(line=lines["Epic"], cls="thinking")),
+    # On a leaf holding the key beside devagent's bad_model for it: suppressed. On a leaf whose bad_model
+    # names the other key (Bad beside legal's legal checking), on the row, and on a leaf without the key:
+    # shown as written.
+    assert warned == [(lines["Bad beside legal"], MODEL_KEY_WARNING.format(line=lines["Bad beside legal"],
+                                                                           cls="checking")),
+                      (lines["Epic"], MODEL_KEY_WARNING.format(line=lines["Epic"], cls="thinking")),
                       (lines["No keys"], MODEL_KEY_WARNING.format(line=lines["No keys"], cls="thinking"))]
     assert [e.line for e in got.devagent_report if e.project == "models" and e.kind == "bad_model"] == [
         lines["Bad alone"], lines["Bad beside legal"]]

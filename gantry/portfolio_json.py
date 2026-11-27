@@ -451,7 +451,7 @@ class _Site:
     """A read project's nodes and Gantry's own findings about them."""
 
     __slots__ = ("name", "nodes", "by_line", "first", "leaves", "rows", "links", "held_out", "report", "cycles",
-                 "dep_rank", "models_ok")
+                 "dep_rank", "models_ok", "bad_models")
 
 
 def _scan(raw_nodes):
@@ -549,6 +549,7 @@ def _read_site(name, raw_nodes, models_ok):
     `models_ok`: whether the document's minor carries leaf `models`."""
     site = _Site()
     site.name, site.report, site.cycles, site.dep_rank, site.models_ok = name, [], None, {}, models_ok
+    site.bad_models = set()  # (line, key) of each leaf bad_model entry, filled by map_document
     site.nodes = _scan(raw_nodes)
     site.by_line = {node.line: node for node in site.nodes}
     _name(site)
@@ -617,7 +618,9 @@ def _dispose(site, entry):
     reports the same thing about the same node: gantry.deps (cycle,
     malformed_ref), gantry.crosssite (the foreign kinds), gantry.inputs
     (est_unparseable), gantry.attention (bad_h), gantry.trace (satisfies,
-    objective) or this module (bad_priority).
+    objective) or this module (bad_priority). The one exception is a leaf's
+    thinking or checking warning: devagent's own bad_model entry for that key
+    on that line covers it, and that entry is shown (#14).
     """
     kind, line, message = entry["kind"], entry["source_line"], entry["message"]
     named = kind in MAPPED or kind in SUPPRESSED_ALWAYS or kind in SUPPRESSED_BY_RULE
@@ -665,12 +668,14 @@ def _dispose(site, entry):
                 return SUPPRESSED
     elif kind == "parser_warning":
         # A defence: no devagent release words a warning about these keys today. A leaf's
-        # thinking or checking key is reported as bad_model (#14), which is shown; a row's
-        # model key is reported nowhere at the pin (mtibbits/devagent#1236), so its warning is shown.
+        # thinking or checking warning goes only beside devagent's bad_model for that key on that
+        # line (#14), which is shown; a row's model key is reported nowhere at the pin
+        # (mtibbits/devagent#1236), so its warning is shown.
         match = WARNED_KEY_RE.match(message)
         key = match.group(1) if match else None
         if key in node.meta and (key in ("priority", "h") or (key == "depends_on" and is_leaf and is_open)
-                                 or (key in ("satisfies", "objective", *MODEL_KEYS) and is_leaf)):
+                                 or (key in ("satisfies", "objective") and is_leaf)
+                                 or (key in MODEL_KEYS and is_leaf and (line, key) in site.bad_models)):
             return SUPPRESSED
     return SHOWN
 
@@ -685,6 +690,10 @@ def map_document(doc, *, source=DEFAULT_SOURCE) -> PortfolioInput:
         raise _error("schema", source, where=e.where, problem=e.problem) from None
     sites = {raw["project"]: _read_site(raw["project"], raw["nodes"], models_ok)
              for raw in doc["projects"] if raw["status"] == "read"}
+    for entry in doc["parse_report"]:
+        site = sites.get(entry["project"])
+        if site is not None and entry["kind"] == "bad_model" and entry["source_line"] is not None:
+            site.bad_models.add((entry["source_line"], entry["message"].split(" ", 1)[0]))
     shown = []
     for entry in doc["parse_report"]:
         site = sites.get(entry["project"])

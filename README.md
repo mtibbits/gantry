@@ -466,9 +466,9 @@ the version rule.
 devagent needs one more rule. Gantry's full function needs devagent's
 latest release. With an older supported devagent, every page still builds,
 and anything that needs a newer devagent contract is shown as missing,
-never filled in by Gantry. For example, an older portfolio JSON that
-carries no leaf model tiers (schema 1.1) leaves each leaf's tiers to its
-estimates-file row, and a site with neither says so (#14).
+never filled in by Gantry. For example, a portfolio document whose
+schema minor predates leaf model tiers (1.1) leaves each leaf's tiers to
+its estimates-file row, and a site with neither says so (#14).
 A new Gantry feature that needs a newer devagent contract is not a break.
 
 ## License

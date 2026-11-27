@@ -319,7 +319,10 @@ as Python writes it: `['3', '4']` for a list.
 Every entry of devagent's report gets exactly one of three outcomes. It is
 **mapped** onto a Gantry kind in the site's report, **suppressed** because a
 Gantry pass reports the same thing about the same node, or **shown** as
-devagent wrote it in `devagent_report`. Nothing is dropped.
+devagent wrote it in `devagent_report`. Nothing is dropped. The one
+suppression without a Gantry pass behind it is a leaf's `thinking` or
+`checking` warning: devagent's own `bad_model` entry for that key on that
+line covers it, and that entry is shown.
 
 | devagent's kind | What the reader does with it |
 |---|---|
@@ -330,7 +333,7 @@ devagent wrote it in `devagent_report`. Nothing is dropped.
 | `est_unparseable` | Suppressed on an open leaf whose `est:` Gantry cannot classify either: Gantry's `est_unparseable` lists it. Shown on a row or a finished leaf, which Gantry's pass skips. |
 | `h_malformed` | Suppressed on a node that holds `h:`: Gantry's `bad_h` reports every one. |
 | `dep_cycle` | Suppressed when its members' lines are the lines of one cycle Gantry finds among the project's open leaves, and no member belongs to another project: Gantry's `cycle` reports it. |
-| `parser_warning` | Suppressed when its message is about `priority` or `h` on a node holding that key, `depends_on` on an open leaf holding it, or `satisfies`, `objective`, `thinking` or `checking` on a leaf holding it. |
+| `parser_warning` | Suppressed when its message is about `priority` or `h` on a node holding that key, `depends_on` on an open leaf holding it, `satisfies` or `objective` on a leaf holding it, or `thinking` or `checking` on a leaf holding it when a `bad_model` entry on the same line names that key. |
 | `bad_model` | Shown as written: a leaf's malformed `thinking:` or `checking:` key, at its line, or a bad project `step_models` value, with no line (#14). Gantry has no check of its own for either. |
 | any other kind | Shown as written. So is a kind added by a later devagent release. |
 
