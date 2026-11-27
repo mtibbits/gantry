@@ -96,6 +96,7 @@ PLAIN_MODULES = {
     "urllib.parse": "quotes and splits URL text (gantry/links.py); opens nothing",
     "time": "the clock and sleep (the refresh job's swap retry, #35); opens nothing",
     "secrets": "random tokens (the refresh job's generation ids, #35); opens nothing",
+    "types": "MappingProxyType, a read-only view of a dict (the portfolio reader's actuals, #213); opens nothing",
 }
 
 # File-touching modules: importable, but only listed names may be imported

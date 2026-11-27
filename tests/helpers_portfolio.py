@@ -12,7 +12,8 @@ describes one node, project() numbers a tree of them, document() wraps
 projects with the report entries devagent always writes (auto_report), and
 site() maps one project to SiteData. Fixture-backed sites are pinned to
 devagent by test_site_builder; an inline node() is not, so it must state a
-reading devagent gives (a str, or a list for bracket text). fixture_doc() narrows written.json to one project. A
+reading devagent gives (a str, or a list for bracket text). fixture_doc() narrows written.json to one project.
+slot(), with_actuals() and unavailable() add schema 1.3's actuals to a document (#213). A
 test reaches site data only through site_of(), the one caller of
 map_document here. Callers import this module as `hp` and never take names
 from it: conftest's `node` fixture would clash.
@@ -152,7 +153,7 @@ def document(*projects, report=()) -> dict:
     entries = [entry for p in projects for entry in auto_report(p)]
     entries += [{"project": p, "source_line": line, "kind": kind, "message": message}
                 for p, line, kind, message in report]
-    return {"schema": "devagent-portfolio", "schema_version": "1.2", "generated_at": sp.FIXED_TIME,
+    return {"schema": "devagent-portfolio", "schema_version": "1.3", "generated_at": sp.FIXED_TIME,
             "projects": list(projects), "parse_report": entries}
 
 
@@ -317,11 +318,102 @@ def set_models(doc, project_name, line, *, thinking, checking) -> dict:
     return doc
 
 
+# --- actuals (schema 1.3, #213) ---------------------------------------------------------------
+# devagent copies each issue's actuals from its home's actuals.json into the issue's slot
+# (projects[].issues[].actuals) and names the file in a top-level `actuals` object; with no
+# usable file every slot is null and each project gets one actuals_unavailable entry.
+
+# devagent's message when the file does not exist (ACTUALS_MISSING in its scripts/lib/portfolio.py;
+# test_actuals_message_is_the_tags holds it to the pin). `{path}` is the file's absolute path.
+ACTUALS_MISSING = "{path} does not exist; actuals are empty; run /devagent:actuals"
+# devagent's message for a file more than 7 days older than the document (here, one generated 2026-01-01).
+ACTUALS_STALE = ("{path} was generated at 2026-01-01T00:00:00Z, more than 7 days before this document; "
+                 "actuals are empty; run /devagent:actuals")
+# The entry's kind. devagent writes it only in a document that has the top-level `actuals` key (its
+# build_document), so it is about the document, not about a site's WBS.md text.
+ACTUALS_KIND = sp.ACTUALS_KIND
+# The empty form of a slot: no milestones source and no transcript call charged to the issue.
+EMPTY_SLOT = {"milestones": None, "sessions": [], "time": None, "tokens": None}
+ACTUALS_AT = "2026-01-12T09:00:00Z"
+SLOT_SESSIONS = (("h1", "-work-alpha", "0b7c2f1e-5d1a-4c55-9a43-3f1d2e8b9c10"),)
+SLOT_EVENTS = (("2026-11-01T14:02:11Z", "opened", "https://tracker.example/alpha/issues/4"),
+               ("2026-11-02 09:15", "step_done", "Issue-4/checklist.md:31"),
+               ("2026-11-03T18:40:00Z", "mr_merged", "https://tracker.example/alpha/pull/9"))
+
+
+def slot(*, sessions=SLOT_SESSIONS, time=(610.0, 4980.5), tokens=2029120.0, events=SLOT_EVENTS) -> dict:
+    """One issue's actuals slot in devagent's whole shape, the fields Gantry's reader drops included.
+
+    `sessions` is (host, cwd_slug, session) rows; `time` is (operator_s, agent_wall_s), or None for
+    null; `tokens` is the total, or None for null; `events` is (at, event, source) rows, or None for
+    `milestones: null` (the events were not read, which is not `[]`)."""
+    return {
+        "milestones": None if events is None else [{"at": at, "event": event, "source": source}
+                                                   for at, event, source in events],
+        "sessions": [{"cwd_slug": cwd_slug, "host": host, "session": session}
+                     for host, cwd_slug, session in sessions],
+        "time": None if time is None else {
+            "agent_busy_s": 5400.0, "agent_wall_s": time[1], "fallback_events": 0, "operator_events": 12,
+            "operator_s": time[0], "returns_after_absence": 2},
+        "tokens": None if tokens is None else {
+            "main": tokens, "subagents": 0.0, "total": tokens,
+            "raw": [{"cache_read": 0, "cache_write_1h": 0, "cache_write_5m": 0, "input": 3120,
+                     "model": "(unknown)", "output": 41200}]},
+    }
+
+
+def with_actuals(doc, slots, generated_at=ACTUALS_AT) -> dict:
+    """A copy of `doc` as devagent writes it with an actuals file: the top-level `actuals` object
+    naming the file's time (null when `generated_at` is None, as with no usable file), every
+    project's `actuals` field (null) and `issues` list, and each issue's slot.
+
+    `slots` is {(project, issue): a slot or None}; an issue it does not name gets null. A project
+    with no `issues` list gets one entry per distinct issue of its nodes, in line order; devagent's
+    own entries are kept. A key of `slots` that names no issue raises ValueError."""
+    out = copy.deepcopy(doc)
+    left = dict(slots)
+    for proj in out["projects"]:
+        if "issues" not in proj:
+            nodes = sorted(proj["nodes"], key=lambda n: n["source_line"])
+            proj["issues"] = [{"issue": issue} for issue in dict.fromkeys(
+                n["issue"] for n in nodes if n["issue"] is not None)]
+        for item in proj["issues"]:
+            item["actuals"] = copy.deepcopy(left.pop((proj["project"], item["issue"]), None))
+        proj["actuals"] = None
+    if left:
+        raise ValueError(f"the document holds no issue {sorted(left)[0]!r}")
+    out["actuals"] = None if generated_at is None else {
+        "actuals_version": "1.0", "generated_at": generated_at, "unassigned": []}
+    return out
+
+
+def unavailable(doc, message, projects=None) -> dict:
+    """A copy of `doc` with one actuals_unavailable entry of `message`, with no line, per project
+    named in `projects` (default: every project of the document, as devagent writes them).
+
+    Each goes where devagent's report order puts it: after the earlier projects' entries and its
+    own line-less ones, before its entries that have a line. A name the document lacks gets its
+    entry at the end."""
+    out = copy.deepcopy(doc)
+    order = {p["project"]: i for i, p in enumerate(out["projects"])}
+    report = out["parse_report"]
+    for name in (list(order) if projects is None else projects):
+        at = len(report)
+        if name in order:
+            for i, item in enumerate(report):
+                rank = order.get(item["project"], len(order))
+                if rank > order[name] or (rank == order[name] and item["source_line"] is not None):
+                    at = i
+                    break
+        report.insert(at, {"project": name, "source_line": None, "kind": ACTUALS_KIND, "message": message})
+    return out
+
+
 # --- document-carrying sources (#195) ---------------------------------------------------------
 # A build-side test writes a WBS.md and, beside it, the portfolio document #12's build
 # will read. A Source carries both: the bytes, and the nodes devagent reads from them.
 
-# devagent v3.4.0 scripts/lib/portfolio.py: REASON_NO_WBS, and REASON_UNREADABLE with _err_detail's
+# devagent v3.5.0 scripts/lib/portfolio.py: REASON_NO_WBS, and REASON_UNREADABLE with _err_detail's
 # UnicodeDecodeError form (over the whole file).
 NO_WBS_REASON = "the devdoc dir has no WBS.md"
 UNREADABLE_REASON = "WBS.md could not be read: UnicodeDecodeError: {reason} at byte {start}"
@@ -380,7 +472,9 @@ def fixture_source(name) -> Source:
 # devagent's reading of each tree install() copies (#197): the 14 week_plan/*/gantry.toml folders and
 # capacity/install, capacity/install_dep, keyed by path under tests/fixtures, with the pin it was made at
 # and each input's sha256 (test_site_builder pins both). Made by running the pinned aggregator on each
-# tree (its generator is in #197's pull request); never edited by hand.
+# tree; never edited by hand. Its generator is not in the repository yet (#206): the script as last run,
+# gen_trees213.py, is in #213's pull request (#197's gen_trees197.py less the actuals_unavailable
+# entries, which would carry the throwaway devagent home's absolute path).
 TREES = sp.ROOT / "tests" / "fixtures" / "week_plan" / "trees.json"
 
 
@@ -392,7 +486,10 @@ def tree_source(tree, site, text) -> Source:
 
 def _written_source(path, name, text, tree=None) -> Source:
     """`text` with project `name`'s nodes in the committed document at `path` (in its tree `tree`
-    when given), and its entries that are neither auto_report's nor a foreign dep_unresolved."""
+    when given), and its entries that are neither auto_report's nor a foreign dep_unresolved.
+
+    An actuals_unavailable entry is left out too (#213): the documents made from a Source have no
+    `actuals` key, and devagent writes that entry only beside the key. hp.unavailable adds it."""
     doc = _parsed(path)
     if tree is not None:
         if tree not in doc["trees"]:
@@ -401,7 +498,7 @@ def _written_source(path, name, text, tree=None) -> Source:
     (proj,) = [p for p in doc["projects"] if p["project"] == name]
     report = tuple((e["source_line"], e["kind"], e["message"]) for e in doc["parse_report"]
                    if e["project"] == name and not auto_entry(e, name)
-                   and not _foreign_unresolved(e["kind"], e["message"]))
+                   and not _foreign_unresolved(e["kind"], e["message"]) and e["kind"] != ACTUALS_KIND)
     return Source(text, tuple(copy.deepcopy(proj["nodes"])), report)
 
 

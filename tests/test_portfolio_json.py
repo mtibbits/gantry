@@ -9,6 +9,7 @@ suppression rule to the pinned parser's own texts.
 import ast
 import copy
 import dataclasses
+import functools
 import random
 import re
 from datetime import datetime, timedelta, timezone
@@ -25,8 +26,8 @@ from gantry.deps import refs
 from gantry.est_rules import classify_est
 from gantry.model import (REPORT_KINDS, STATE_GLYPHS, Leaf, Models, ParsedValue, ReportEntry, Row, SiteData,
                           meta_scalar, meta_values, report_order)
-from gantry.portfolio_json import (DevagentEntry, PortfolioInput, PortfolioLoadError, ProjectInput, map_document,
-                                   read_portfolio)
+from gantry.portfolio_json import (ActualsInput, DevagentEntry, EventRow, IssueActuals, PortfolioInput,
+                                   PortfolioLoadError, ProjectInput, map_document, read_portfolio)
 from gantry.priority import rank
 from gantry.roots import directory_roots
 from gantry.sites import SiteEntry
@@ -114,7 +115,7 @@ def chain(depth):
 
 
 def test_constants():
-    assert (pj.SCHEMA_ID, pj.MAJOR, pj.MINOR, pj.MAX_DEPTH) == ("devagent-portfolio", 1, 2, 64)
+    assert (pj.SCHEMA_ID, pj.MAJOR, pj.MINOR, pj.MAX_DEPTH) == ("devagent-portfolio", 1, 3, 64)
     assert pj.STATUSES == ("read", "no_wbs", "no_devdoc_dir", "unreadable")
     doc = hp.written_doc()
     assert doc["schema_version"] == f"{pj.MAJOR}.{pj.MINOR}"
@@ -138,8 +139,8 @@ def test_unknown_major_names_both_versions(tmp_path):
         error = load_error(tmp_path, doc)
         assert error.kind == "version"
         assert str(error) == (f'{doc_path(tmp_path)}: portfolio schema_version "{found}" is not supported: '
-                              "Gantry reads major 1 (schema 1.2)")
-        assert f'"{found}"' in str(error) and "schema 1.2" in str(error)
+                              "Gantry reads major 1 (schema 1.3)")
+        assert f'"{found}"' in str(error) and "schema 1.3" in str(error)
         with pytest.raises(PortfolioLoadError) as info:
             map_document(doc)
         assert info.value.kind == "version" and info.value.source == "the portfolio document"
@@ -148,7 +149,7 @@ def test_unknown_major_names_both_versions(tmp_path):
 
 def test_newer_minor_with_unknown_fields_is_read(tmp_path):
     plain = hp.read_doc(tmp_path, hp.written_doc())
-    assert isinstance(plain, PortfolioInput) and plain.schema_version == "1.2"
+    assert isinstance(plain, PortfolioInput) and plain.schema_version == "1.3"
     doc = hp.written_doc()
     doc["schema_version"] = "1.9"
     doc["later"] = {"deep": [1, {"x": None}]}
@@ -157,9 +158,9 @@ def test_newer_minor_with_unknown_fields_is_read(tmp_path):
     doc["parse_report"][0]["later"] = None
     got = hp.read_doc(tmp_path, doc)
     assert got.schema_version == "1.9"
-    assert dataclasses.replace(got, schema_version="1.2") == plain
+    assert dataclasses.replace(got, schema_version="1.3") == plain
     # An unknown field is ignored at the reader's own minor too.
-    doc["schema_version"] = "1.2"
+    doc["schema_version"] = "1.3"
     assert hp.read_doc(tmp_path, doc) == plain
 
 
@@ -320,8 +321,14 @@ def test_older_minor_is_read(tmp_path):
         got = hp.read_doc(tmp_path, doc)
         assert got.schema_version == minor
         # The same data, without the tiers 1.2 carries: nothing else differs.
-        assert dataclasses.replace(got, schema_version="1.2") == without_models(plain)
+        assert dataclasses.replace(got, schema_version="1.3") == without_models(plain)
         assert got != dataclasses.replace(plain, schema_version=minor)
+    # At 1.2 the tiers are read; the actuals are read by their own key, whatever the minor (#213).
+    doc = hp.written_doc()
+    doc["schema_version"] = "1.2"
+    got = hp.read_doc(tmp_path, doc)
+    assert got.schema_version == "1.2" and dataclasses.replace(got, schema_version="1.3") == plain
+    assert got.actuals.wired is True
 
 
 def test_missing_or_outside_roots_document_names_path_and_remedy(tmp_path):
@@ -566,7 +573,7 @@ SCHEMA_ROWS = (
      "nests deeper than 64 levels"),
     ("a chain 5,000 deep", _set(("projects", EMPTY, "nodes"), chain(5000)), "$.projects[1].nodes[64].parent",
      "nests deeper than 64 levels"),
-    ("shapes are checked before parent links", _both_passes, "$.parse_report[74].message", "not a string"),
+    ("shapes are checked before parent links", _both_passes, "$.parse_report[91].message", "not a string"),
 )
 
 
@@ -574,7 +581,7 @@ def test_schema_breaking_documents(tmp_path):
     assert len(SCHEMA_ROWS) == 71
     doc = hp.written_doc()
     assert (doc["projects"][IDS]["nodes"][1]["id"], doc["projects"][IDS]["nodes"][0]["id"]) == ("n13", "n12")
-    assert doc["projects"][CYCLE]["nodes"][0]["id"] == "n1" and len(doc["parse_report"]) == 75
+    assert doc["projects"][CYCLE]["nodes"][0]["id"] == "n1" and len(doc["parse_report"]) == 92
     assert ", ".join(repr(g) for g in STATE_GLYPHS) == GLYPHS
     seen = set()
     for what, change, where, problem in SCHEMA_ROWS:
@@ -599,7 +606,8 @@ def test_deepest_allowed_chain_is_read(tmp_path):
 
 
 SWEEP_VALUES = (None, 1, "x", [], {}, True)
-# Every field the reader uses, and each container on the way to it.
+# Every field the reader uses outside the actuals, and each container on the way to it
+# (test_actuals_shape_refusals has the actuals' own fields, #213).
 SWEEP_TARGETS = (
     ("schema",), ("schema_version",), ("generated_at",), ("projects",), ("parse_report",),
     ("projects", IDS), ("projects", IDS, "project"), ("projects", IDS, "status"),
@@ -646,9 +654,10 @@ def test_each_key_removed_raises_only_load_errors():
             else:
                 assert isinstance(got, PortfolioInput), (level, key)
                 read += 1
-    # The 16 read lack a field the reader does not use: a project's wbs_title, issues or rollup, a node's
-    # typed and derived fields, or its models.
-    assert (read, refused) == (16, 25)
+    # The 19 read lack a field the reader does not use (a project's wbs_title, rollup or actuals, a node's typed
+    # and derived fields), the top-level actuals, without which the document reads as not wired, a project's
+    # issues, which reads as no slots (#213), or a node's models.
+    assert (read, refused) == (19, 25)
 
 
 def test_a_line_too_long_to_format_is_a_load_error():
@@ -676,7 +685,7 @@ def test_generated_at_is_utc(tmp_path):
     got = hp.read_doc(tmp_path, hp.written_doc())
     assert got.generated_at == datetime(2026, 1, 12, 9, 30, tzinfo=timezone.utc)
     assert got.generated_at.tzinfo is not None and got.generated_at.utcoffset() == timedelta(0)
-    assert got.schema_version == "1.2"
+    assert got.schema_version == "1.3"
     doc = hp.written_doc()
     doc["generated_at"] = "2026-01-12T09:30:00.250+00:00"
     later = map_document(doc).generated_at
@@ -689,6 +698,15 @@ def test_module_docstring_names_its_first_callers():
     text = pj.__doc__
     assert "#12" in text and "#84" in text and "provisional" not in text
     assert "read_portfolio(roots, path)" in text and "gantry/build.py" in text
+
+
+def test_actuals_part_names_its_first_caller():
+    # The actuals part is not provisional: #25 is its first caller, in its docstring and the doc's reader section.
+    assert "#25" in ActualsInput.__doc__ and "provisional" not in ActualsInput.__doc__.lower()
+    text = (hp.sp.ROOT / "docs" / "worksite-page.md").read_text(encoding="utf-8")
+    start = text.index("\n## Reading devagent's portfolio JSON\n")
+    reader = text[start:text.index("\n## ", start + 1)]
+    assert "#25" in reader and "provisional" not in reader.lower()
 
 
 # --- nodes into Leaf, Row and SiteData (Task 4) ----------------------------------------------
@@ -715,8 +733,11 @@ def test_field_lists():
     names = lambda cls: [f.name for f in dataclasses.fields(cls)]  # noqa: E731
     assert names(DevagentEntry) == ["project", "line", "kind", "message"]
     assert names(ProjectInput) == ["name", "status", "reason", "data"]
-    assert names(PortfolioInput) == ["projects", "devagent_report", "generated_at", "schema_version"]
-    for cls in (DevagentEntry, ProjectInput, PortfolioInput):
+    assert names(PortfolioInput) == ["projects", "devagent_report", "generated_at", "schema_version", "actuals"]
+    assert names(ActualsInput) == ["wired", "generated_at", "issues", "report"]
+    assert names(IssueActuals) == ["hosts", "operator_s", "agent_wall_s", "tokens", "events"]
+    assert names(EventRow) == ["at", "event"]
+    for cls in (DevagentEntry, ProjectInput, PortfolioInput, ActualsInput, IssueActuals, EventRow):
         assert cls.__dataclass_params__.frozen
     got = mapped()
     assert isinstance(got.projects, tuple) and isinstance(got.devagent_report, tuple)
@@ -946,6 +967,8 @@ def test_disposition_constants():
                          "near_miss_line": "skipped_line", "dep_unresolved": "unresolved_ref"}
     assert tuple(pj.MAPPED.values()) == MAPPED_KINDS
     assert pj.SUPPRESSED_ALWAYS == ("h_malformed",)
+    assert pj.CONSUMED == ("actuals_unavailable",)
+    assert not set(pj.CONSUMED) & (set(pj.MAPPED) | set(pj.SUPPRESSED_ALWAYS) | set(pj.SUPPRESSED_BY_RULE))
     assert pj.CYCLE_MEMBER_RE.pattern == (r"(?:^|, |: )(?:(?P<project>[A-Za-z0-9][A-Za-z0-9_.-]*):)?(?P<key>[^ ,()]+) "
                                           r"\(line (?P<line>[0-9]{1,9})\)")
     assert pj.WARNED_KEY_RE.pattern == (
@@ -969,26 +992,32 @@ def test_every_entry_has_one_disposition():
         total = sum(raw["project"] in projects for raw in doc["parse_report"])
         shown = sum(e.project in projects for e in got.devagent_report)
         mapped = sum(mapped_counts(got, projects).values())
-        return total, mapped, total - mapped - shown, shown
+        consumed = sum(e.project in projects for e in got.actuals.report)
+        return total, mapped, total - mapped - shown - consumed, shown, consumed
 
-    # Before `edges`: 46 = 13 mapped + 28 suppressed + 5 shown.
-    assert partition(earlier) == (46, 13, 28, 5)
+    # One actuals_unavailable entry per project, with no line, each consumed (#213): the fixture aggregator
+    # runs with no actuals.json in its throwaway home.
+    assert [(e.project, e.line, e.kind) for e in got.actuals.report] == [
+        (name, None, "actuals_unavailable") for name in names]
+    assert len(names) == 17
+    # Before `edges`: 59 = 13 mapped + 28 suppressed + 5 shown + 13 consumed.
+    assert partition(earlier) == (59, 13, 28, 5, 13)
     assert mapped_counts(got, earlier) == {"no_issue": 6, "duplicate_issue": 1, "skipped_line": 2, "unresolved_ref": 4}
     assert [(e.project, e.line, e.kind) for e in got.devagent_report if e.project not in later] == [
         ("cycle", 7, "dep_cycle"), ("fences", 17, "parser_warning"), ("nesting", 10, "unknown_meta_key"),
         ("rows", 9, "dep_cycle"), ("rows", 13, "parent_done_leaf_pending")]
     # With `edges`: four near misses and two unresolved refs mapped; two est_unparseable, an
     # issue_malformed and a meta_unreadable shown.
-    assert partition(names) == (75, 31, 28, 16)
-    assert partition(["edges"]) == (10, 6, 0, 4)
+    assert partition(names) == (92, 31, 28, 16, 17)
+    assert partition(["edges"]) == (11, 6, 0, 4, 1)
     # With `fires` (#12): five issue-less leaves and seven near misses mapped; two meta_unreadable and an
     # unknown_meta_key shown (the kinds the fires do not read yet).
-    assert partition(["fires"]) == (15, 12, 0, 3)
+    assert partition(["fires"]) == (16, 12, 0, 3, 1)
     assert [(e.line, e.kind) for e in got.devagent_report if e.project == "fires"] == [
         (12, "meta_unreadable"), (13, "unknown_meta_key"), (16, "meta_unreadable")]
     # With `models` and `models_project` (#14): two bad_model entries each, shown.
     for name in ("models", "models_project"):
-        assert partition([name]) == (2, 0, 0, 2)
+        assert partition([name]) == (3, 0, 0, 2, 1)
         assert [(e.line, e.kind) for e in got.devagent_report if e.project == name] == [
             (4, "bad_model"), (5, "bad_model")]
     # What is suppressed, by devagent's kind: each is an entry Gantry's own passes report.
@@ -996,7 +1025,7 @@ def test_every_entry_has_one_disposition():
     kept = set(got.devagent_report)
     mapped_from = {"leaf_no_issue", "duplicate_issue", "near_miss_line"}
     for raw in doc["parse_report"]:
-        if as_shown(raw) not in kept and raw["kind"] not in mapped_from:
+        if as_shown(raw) not in kept and raw["kind"] not in mapped_from and raw["kind"] not in pj.CONSUMED:
             gone[raw["kind"]] = gone.get(raw["kind"], 0) + 1
     assert gone == {"h_malformed": 14, "est_unparseable": 1, "dep_cycle": 2, "dep_unresolved": 17}
     assert gone["dep_unresolved"] - mapped_counts(got, names)["unresolved_ref"] == 11  # foreign or malformed
@@ -1329,3 +1358,327 @@ def test_many_unresolved_entries_cost_one_pass(monkeypatch):
     assert [e.message for e in found] == [deps.MESSAGES["unresolved_ref"].format(line=11, entry=name)
                                           for name in names]
     assert sum(raw is not None and len(real(raw)) == 2000 for raw in calls) == 1
+
+
+# --- actuals: consumed entries and the generation time (#213) --------------------------------
+
+def test_actuals_entries_are_consumed(tmp_path):
+    path = str(tmp_path / "elsewhere" / "actuals.json")  # absolute, and under no root
+    missing = hp.ACTUALS_MISSING.format(path=path)
+    assert missing.startswith(path) and missing.endswith(" does not exist; actuals are empty; run /devagent:actuals")
+    unknown = entry("ids", None, "kind_from_a_later_release", "something new about this project")
+    # About a read project, one that is not read and one the document lacks; with no line and with one.
+    planted = [
+        entry("ids", None, "actuals_unavailable", missing),
+        unknown,
+        entry("not_utf8", None, "actuals_unavailable", missing),
+        entry("gone", None, "actuals_unavailable", hp.ACTUALS_STALE.format(path=path)),
+        entry("ids", 3, "actuals_unavailable", missing),
+        entry("ids", None, "actuals_unavailable", "reworded by a later release"),
+    ]
+    consumed = [as_shown(raw) for raw in planted if raw is not unknown]
+    assert [(e.project, e.line) for e in consumed] == [
+        ("ids", None), ("not_utf8", None), ("gone", None), ("ids", 3), ("ids", None)]
+    plain = mapped()
+    for wired in (False, True):
+        doc = hp.written_doc()
+        doc.pop("actuals", None)
+        if wired:
+            doc = hp.with_actuals(doc, {})
+        own = [as_shown(raw) for raw in doc["parse_report"] if raw["kind"] == "actuals_unavailable"]
+        before = map_document(doc)
+        assert list(before.actuals.report) == own
+        doc["parse_report"] += [dict(raw) for raw in planted]
+        for got in (map_document(doc), hp.read_doc(tmp_path, doc)):
+            assert got.actuals.wired is wired
+            # In document order, as devagent wrote each.
+            assert list(got.actuals.report) == own + consumed
+            # In neither the shown entries nor any site's report; the unknown kind beside them is shown.
+            assert list(got.devagent_report) == list(before.devagent_report) + [as_shown(unknown)]
+            assert not any(e.kind == "actuals_unavailable" for e in got.devagent_report)
+            assert [p.data for p in got.projects] == [p.data for p in before.projects]
+            assert all(e.kind in REPORT_KINDS for p in got.projects for e in p.data.report)
+            assert path not in repr([got.projects, got.devagent_report])
+        assert [p.data for p in before.projects] == [p.data for p in plain.projects]
+    # With no such entry the part's report is empty, wired or not.
+    doc = hp.written_doc()
+    doc["parse_report"] = [raw for raw in doc["parse_report"] if raw["kind"] != "actuals_unavailable"]
+    assert map_document(doc).actuals.report == ()
+
+
+def test_actuals_generated_at(tmp_path):
+    # The top-level `actuals` names the actuals file devagent read: its time, aware and UTC.
+    doc = hp.with_actuals(hp.written_doc(), {}, generated_at="2026-01-10T23:59:07Z")
+    for got in (map_document(doc), hp.read_doc(tmp_path, doc)):
+        assert got.actuals.wired is True
+        assert got.actuals.generated_at == datetime(2026, 1, 10, 23, 59, 7, tzinfo=timezone.utc)
+        assert got.actuals.generated_at.utcoffset() == timedelta(0)
+        # The document's own time is another field.
+        assert got.generated_at == datetime(2026, 1, 12, 9, 30, tzinfo=timezone.utc)
+    # Null (no usable file): wired, with no time.
+    null = map_document(hp.with_actuals(hp.written_doc(), {}, generated_at=None))
+    assert (null.actuals.wired, null.actuals.generated_at) == (True, None)
+    # A null top-level object beside a filled slot still reads the slot.
+    beside = map_document(hp.with_actuals(hp.written_doc(), {("ids", "Issue-3"): hp.slot()}, generated_at=None))
+    assert (beside.actuals.wired, beside.actuals.generated_at) == (True, None)
+    assert list(beside.actuals.issues) == [("ids", "Issue-3")]
+    assert beside.actuals.issues[("ids", "Issue-3")].hosts == ("h1",)
+    # No key: not wired.
+    doc = hp.written_doc()
+    doc.pop("actuals", None)
+    bare = map_document(doc)
+    assert (bare.actuals.wired, bare.actuals.generated_at) == (False, None)
+    # A top-level object of another shape is refused, never read as null: ACTUALS_CASES' top-level rows.
+
+
+# --- actuals: the per-issue slots (#213) -----------------------------------------------------
+
+# The slot the shape cases break: written.json's project `ids`, issue Issue-3.
+SLOT_ISSUE = ("projects", IDS, "issues", 3)
+SLOT = SLOT_ISSUE + ("actuals",)
+SLOT_AT = "$.projects[3].issues[3].actuals"
+NOT_AMOUNT = "not a number from 0 to 1e18"
+
+
+@functools.cache
+def _wired():
+    doc = hp.with_actuals(hp.written_doc(), {("ids", "Issue-3"): hp.slot(), ("ids", "Issue-4"): hp.slot()})
+    assert _parent(doc, SLOT + (None,))["sessions"] and doc["projects"][IDS]["issues"][3]["issue"] == "Issue-3"
+    assert isinstance(map_document(doc), PortfolioInput)  # it reads before a case breaks it
+    return doc
+
+
+def wired_doc():
+    """written.json wired, with a filled slot at SLOT (ids, Issue-3) and one after it (ids, Issue-4):
+    a fresh copy on every call, so a caller may change it."""
+    return copy.deepcopy(_wired())
+
+
+def test_actuals_slots_read(tmp_path):
+    filled = hp.slot(
+        sessions=(("h1", "-planted-cwd-one", "planted-session-one"), ("h2", "-planted-cwd-two", "planted-session-two"),
+                  ("h1", "-planted-cwd-three", "planted-session-three")),
+        time=(610.0, 4980.5), tokens=2029120.0,
+        events=(("2026-11-01T14:02:11Z", "opened", "planted-source-one"),
+                ("2026-11-02 09:15", "step_done", "planted-source-two")))
+    filled["tokens"]["raw"][0]["model"] = "planted-model"
+    # The bounds are kept: 0 and 1e18, an int as an int. An empty event list is not null.
+    edges = hp.slot(sessions=(), time=(0, 1e18), tokens=10**18, events=())
+    doc = hp.with_actuals(hp.written_doc(), {("ids", "Issue-3"): filled, ("ids", "Issue-4"): hp.EMPTY_SLOT,
+                                ("rows", "Issue-2"): edges})
+    ids = doc["projects"][IDS]
+    assert [item["issue"] for item in ids["issues"]] == ["Issue-Fork-1", "Issue-Fork-2", "1.3", "Issue-3", "Issue-4"]
+    # Issue-Fork-1 has no `actuals` key, Issue-Fork-2 and 1.3 a null slot.
+    del ids["issues"][0]["actuals"]
+    assert [item.get("actuals", "no key") for item in ids["issues"][:3]] == ["no key", None, None]
+    # What the reader never keeps, planted: a project's overhead and the unassigned rows.
+    ids["actuals"] = {"overhead": {"rules": {"cwd": 1, "hint": 0}, "tokens": None, "sessions": [
+        {"cwd_slug": "-planted-overhead-cwd", "host": "planted-overhead-host", "session": "planted-overhead-session"}]}}
+    doc["actuals"]["unassigned"] = [{"cwd": "planted-unassigned-cwd", "sessions": [], "tokens": None}]
+    for got in (map_document(doc), hp.read_doc(tmp_path, doc)):
+        assert got.actuals.wired is True
+        # Exactly the slots that are not null, in document order; one host per distinct host, first seen first.
+        assert list(got.actuals.issues.items()) == [
+            (("ids", "Issue-3"), IssueActuals(("h1", "h2"), 610.0, 4980.5, 2029120.0, (
+                EventRow("2026-11-01T14:02:11Z", "opened"), EventRow("2026-11-02 09:15", "step_done")))),
+            (("ids", "Issue-4"), IssueActuals((), None, None, None, None)),
+            (("rows", "Issue-2"), IssueActuals((), 0, 1e18, 10**18, ())),
+        ]
+        kept = got.actuals.issues[("rows", "Issue-2")]
+        assert (type(kept.operator_s), type(kept.agent_wall_s), type(kept.tokens)) == (int, float, int)
+        assert kept.events == () and got.actuals.issues[("ids", "Issue-4")].events is None
+        # No session's cwd_slug or id, no event's source, no raw token row, no overhead and no unassigned row.
+        assert "planted" not in repr(got)
+        with pytest.raises(TypeError):
+            got.actuals.issues[("ids", "Issue-9")] = kept
+    # Reading the slots changes nothing else: the same document with every slot null.
+    for project in doc["projects"]:
+        for item in project["issues"]:
+            item["actuals"] = None
+    bare = map_document(doc)
+    assert dict(bare.actuals.issues) == {} and dataclasses.replace(got, actuals=bare.actuals) == bare
+
+
+def test_absent_issues_is_no_slots():
+    # A wired document whose project has no `issues` key reads as no slots there, not as a refusal.
+    doc = wired_doc()
+    del doc["projects"][IDS]["issues"]
+    got = map_document(doc)
+    assert got.actuals.wired is True and dict(got.actuals.issues) == {}
+    # And an empty list likewise.
+    doc["projects"][IDS]["issues"] = []
+    assert dict(map_document(doc).actuals.issues) == {}
+    # A slot of a project that was not read is kept: the key is the project and the issue as written.
+    doc = wired_doc()
+    doc["projects"][NOT_UTF8]["issues"] = [{"issue": "Issue-1", "actuals": hp.EMPTY_SLOT}]
+    assert list(map_document(doc).actuals.issues) == [("ids", "Issue-3"), ("ids", "Issue-4"), ("not_utf8", "Issue-1")]
+    # An issue id is checked only where its slot is kept: beside a null slot it is not looked at.
+    doc = wired_doc()
+    doc["projects"][IDS]["issues"][0].update(issue=7)
+    doc["projects"][IDS]["issues"][1].update(issue="Issue-3")
+    assert list(map_document(doc).actuals.issues) == [("ids", "Issue-3"), ("ids", "Issue-4")]
+
+
+def test_unwired_documents_read_as_today(tmp_path):
+    for minor in ("1.0", "1.1", "1.2", "1.3"):
+        doc = hp.written_doc()
+        doc.pop("actuals", None)
+        doc["schema_version"] = minor
+        got = hp.read_doc(tmp_path, doc)
+        assert (got.actuals.wired, got.actuals.generated_at, dict(got.actuals.issues)) == (False, None, {}), minor
+        assert got.schema_version == minor
+        # Everything else is as the same document reads with the key and null slots.
+        wired = map_document(hp.with_actuals(doc, {}))
+        assert wired.actuals.wired is True
+        assert (got.projects, got.devagent_report, got.generated_at) == (
+            wired.projects, wired.devagent_report, wired.generated_at), minor
+        assert dataclasses.replace(wired, actuals=got.actuals) == got
+        # In an unwired document nothing under projects[].issues is looked at: garbage there reads the same.
+        for spoil in ("garbage", [hp.slot()], None):
+            spoiled = copy.deepcopy(doc)
+            for project in spoiled["projects"]:
+                for item in project["issues"]:
+                    item["actuals"] = spoil
+            assert map_document(spoiled) == got, (minor, spoil)
+        spoiled = copy.deepcopy(doc)
+        for project in spoiled["projects"]:
+            project["issues"] = "garbage"
+        assert map_document(spoiled) == got, minor
+    # The older minors differ from the reader's own only in the model tiers (#14).
+    assert got.schema_version == "1.3" and got.projects == mapped().projects
+
+
+def _twice(doc):
+    doc["projects"][IDS]["issues"][4]["issue"] = "Issue-3"
+
+
+# (what breaks, the mutation, where, the problem, the number as JSON text or None): one row per place the
+# reader checks in a wired document, and each kind of bad number at least once.
+ACTUALS_CASES = (
+    ("top level is a string", _set(("actuals",), "2026-01-10T23:59:07Z"), "$.actuals", "not an object or null", None),
+    ("top level is a list", _set(("actuals",), []), "$.actuals", "not an object or null", None),
+    ("no generation time", _drop(("actuals", "generated_at")), "$.actuals.generated_at", "not YYYY-MM-DDTHH:MM:SSZ",
+     None),
+    ("generation time with a space", _set(("actuals", "generated_at"), "2026-01-10 23:59:07Z"),
+     "$.actuals.generated_at", "not YYYY-MM-DDTHH:MM:SSZ", None),
+    ("generation time with an offset", _set(("actuals", "generated_at"), "2026-01-10T23:59:07+00:00"),
+     "$.actuals.generated_at", "not YYYY-MM-DDTHH:MM:SSZ", None),
+    ("generation time on no real day", _set(("actuals", "generated_at"), "2026-02-30T00:00:00Z"),
+     "$.actuals.generated_at", "not YYYY-MM-DDTHH:MM:SSZ", None),
+    ("generation time is a number", _set(("actuals", "generated_at"), 1768089547), "$.actuals.generated_at",
+     "not YYYY-MM-DDTHH:MM:SSZ", None),
+    ("issues is an object", _set(("projects", IDS, "issues"), {}), "$.projects[3].issues", "not a list", None),
+    ("issues is null", _set(("projects", IDS, "issues"), None), "$.projects[3].issues", "not a list", None),
+    ("an issue entry is a string", _set(SLOT_ISSUE, "Issue-3"), "$.projects[3].issues[3]", "not an object", None),
+    ("a slot is a string", _set(SLOT, "garbage"), SLOT_AT, "not an object or null", None),
+    ("a slot is a list", _set(SLOT, [hp.slot()]), SLOT_AT, "not an object or null", None),
+    ("a kept slot's issue is empty", _set(SLOT_ISSUE + ("issue",), ""), "$.projects[3].issues[3].issue",
+     "not a non-empty string", None),
+    ("a kept slot's issue is a number", _set(SLOT_ISSUE + ("issue",), 3), "$.projects[3].issues[3].issue",
+     "not a non-empty string", None),
+    ("a kept slot has no issue", _drop(SLOT_ISSUE + ("issue",)), "$.projects[3].issues[3].issue",
+     "not a non-empty string", None),
+    ("two kept slots share an issue", _twice, "$.projects[3].issues[4].issue", "used twice in this project", None),
+    ("sessions is null", _set(SLOT + ("sessions",), None), f"{SLOT_AT}.sessions", "not a list", None),
+    ("no sessions", _drop(SLOT + ("sessions",)), f"{SLOT_AT}.sessions", "not a list", None),
+    ("a session is a string", _set(SLOT + ("sessions", 0), "h1"), f"{SLOT_AT}.sessions[0]", "not an object", None),
+    ("a host is a number", _set(SLOT + ("sessions", 0, "host"), 7), f"{SLOT_AT}.sessions[0].host", "not a string",
+     None),
+    ("a session has no host", _drop(SLOT + ("sessions", 0, "host")), f"{SLOT_AT}.sessions[0].host", "not a string",
+     None),
+    ("time is a list", _set(SLOT + ("time",), []), f"{SLOT_AT}.time", "not an object or null", None),
+    ("no time", _drop(SLOT + ("time",)), f"{SLOT_AT}.time", "not an object or null", None),
+    ("tokens is a number", _set(SLOT + ("tokens",), 7), f"{SLOT_AT}.tokens", "not an object or null", None),
+    ("no tokens", _drop(SLOT + ("tokens",)), f"{SLOT_AT}.tokens", "not an object or null", None),
+    ("operator time is true", _set(SLOT + ("time", "operator_s"), True), f"{SLOT_AT}.time.operator_s", NOT_AMOUNT,
+     None),
+    ("operator time is negative", _set(SLOT + ("time", "operator_s"), -1), f"{SLOT_AT}.time.operator_s", NOT_AMOUNT,
+     None),
+    ("operator time is 1e999", _set(SLOT + ("time", "operator_s"), float("inf")), f"{SLOT_AT}.time.operator_s",
+     NOT_AMOUNT, "1e999"),
+    ("operator time is over 1e18", _set(SLOT + ("time", "operator_s"), 1.0000001e18), f"{SLOT_AT}.time.operator_s",
+     NOT_AMOUNT, None),
+    ("operator time is 400 digits long", _set(SLOT + ("time", "operator_s"), int("9" * 400)),
+     f"{SLOT_AT}.time.operator_s", NOT_AMOUNT, "9" * 400),
+    ("operator time is a string", _set(SLOT + ("time", "operator_s"), "610"), f"{SLOT_AT}.time.operator_s", NOT_AMOUNT,
+     None),
+    ("no operator time", _drop(SLOT + ("time", "operator_s")), f"{SLOT_AT}.time.operator_s", NOT_AMOUNT, None),
+    ("agent time is false", _set(SLOT + ("time", "agent_wall_s"), False), f"{SLOT_AT}.time.agent_wall_s", NOT_AMOUNT,
+     None),
+    ("agent time is below zero", _set(SLOT + ("time", "agent_wall_s"), -0.5), f"{SLOT_AT}.time.agent_wall_s",
+     NOT_AMOUNT, None),
+    ("agent time is -1e999", _set(SLOT + ("time", "agent_wall_s"), float("-inf")), f"{SLOT_AT}.time.agent_wall_s",
+     NOT_AMOUNT, "-1e999"),
+    ("agent time is null", _set(SLOT + ("time", "agent_wall_s"), None), f"{SLOT_AT}.time.agent_wall_s", NOT_AMOUNT,
+     None),
+    ("tokens are 1e999", _set(SLOT + ("tokens", "total"), float("inf")), f"{SLOT_AT}.tokens.total", NOT_AMOUNT,
+     "1e999"),
+    ("tokens are one over 10**18", _set(SLOT + ("tokens", "total"), 10**18 + 1), f"{SLOT_AT}.tokens.total", NOT_AMOUNT,
+     None),
+    ("tokens are 400 digits long", _set(SLOT + ("tokens", "total"), int("1" + "0" * 399)), f"{SLOT_AT}.tokens.total",
+     NOT_AMOUNT, "1" + "0" * 399),
+    ("tokens are a list", _set(SLOT + ("tokens", "total"), [7]), f"{SLOT_AT}.tokens.total", NOT_AMOUNT, None),
+    ("no token total", _drop(SLOT + ("tokens", "total")), f"{SLOT_AT}.tokens.total", NOT_AMOUNT, None),
+    ("milestones is an object", _set(SLOT + ("milestones",), {}), f"{SLOT_AT}.milestones", "not a list or null", None),
+    ("no milestones", _drop(SLOT + ("milestones",)), f"{SLOT_AT}.milestones", "not a list or null", None),
+    ("an event is a string", _set(SLOT + ("milestones", 1), "opened"), f"{SLOT_AT}.milestones[1]", "not an object",
+     None),
+    ("an event's time is null", _set(SLOT + ("milestones", 0, "at"), None), f"{SLOT_AT}.milestones[0].at",
+     "not a string", None),
+    ("an event has no time", _drop(SLOT + ("milestones", 0, "at")), f"{SLOT_AT}.milestones[0].at", "not a string",
+     None),
+    ("an event's word is a number", _set(SLOT + ("milestones", 2, "event"), 3), f"{SLOT_AT}.milestones[2].event",
+     "not a string", None),
+    ("an event has no word", _drop(SLOT + ("milestones", 2, "event")), f"{SLOT_AT}.milestones[2].event", "not a string",
+     None),
+)
+NUMBER_MARK = "the-number-goes-here"
+
+
+def test_actuals_shape_cases_are_counted():
+    assert len(ACTUALS_CASES) == 48
+    # Each (place, problem) of the reader's actuals checks at least once, array indexes aside: the top level
+    # and its time, issues, an entry, a slot, the two issue problems, sessions, a session, its host, time,
+    # tokens, the three numbers, milestones, an event, its time and its word.
+    places = {(re.sub(r"\[[0-9]+\]", "[]", where), problem) for _, _, where, problem, _ in ACTUALS_CASES}
+    assert len(places) == 19
+    # Each kept number, and each kind of bad number: a bool, a negative, 1e999, over 1e18, 400 digits, a string.
+    assert {where.rsplit(".", 1)[1] for _, _, where, problem, _ in ACTUALS_CASES if problem == NOT_AMOUNT} == {
+        "operator_s", "agent_wall_s", "total"}
+    assert {text for *_, text in ACTUALS_CASES if text is not None} == {"1e999", "-1e999", "9" * 400, "1" + "0" * 399}
+
+
+@pytest.mark.parametrize("case", ACTUALS_CASES, ids=[case[0] for case in ACTUALS_CASES])
+def test_actuals_shape_refusals(tmp_path, case):
+    what, change, where, problem, text = case
+    doc = wired_doc()
+    changed = change(doc)
+    assert changed is None
+    # Through map_document, on the parsed document.
+    with pytest.raises(PortfolioLoadError) as info:
+        map_document(doc)
+    assert (info.value.kind, str(info.value)) == ("schema", schema_text("the portfolio document", where, problem))
+    # Through read_portfolio, on the file's bytes: a number JSON cannot hold as Python wrote it goes in as text.
+    if text is None:
+        data = hp.sp.dumps(doc)
+    else:
+        marked = wired_doc()
+        _set(tuple(SLOT + tuple(where.removeprefix(SLOT_AT + ".").split("."))), NUMBER_MARK)(marked)
+        data = hp.sp.dumps(marked)
+        assert data.count(f'"{NUMBER_MARK}"'.encode()) == 1
+        data = data.replace(f'"{NUMBER_MARK}"'.encode(), text.encode())
+    error = load_error(tmp_path, data)
+    assert (error.kind, str(error)) == ("schema", schema_text(doc_path(tmp_path), where, problem))
+
+
+def test_no_number_raises_anything_but_a_load_error():
+    # Whatever the number: not a number at all, the infinities, a float past every bound and a long integer.
+    for field in (("time", "operator_s"), ("time", "agent_wall_s"), ("tokens", "total")):
+        for value in (float("nan"), float("inf"), float("-inf"), 1.7976931348623157e308, -1e-300, 10**4000,
+                      -(10**4000), True, False, None, "1", [1], {"n": 1}):
+            doc = wired_doc()
+            _set(SLOT + field, value)(doc)
+            with pytest.raises(PortfolioLoadError) as info:
+                map_document(doc)
+            assert info.value.kind == "schema", (field, value)
+            assert str(info.value).endswith(f".{field[1]}: {NOT_AMOUNT}"), (field, value)

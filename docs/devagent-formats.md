@@ -31,8 +31,8 @@ reads its one site's records for its rows.
 ## The pinned release
 
 Gantry depends on devagent's formats as of one release, named in
-`tests/devagent.pin`: today `devagent--v3.4.0`, whose
-`.claude-plugin/plugin.json` version is `3.4.0`, the oldest devagent the
+`tests/devagent.pin`: today `devagent--v3.5.0`, whose
+`.claude-plugin/plugin.json` version is `3.5.0`, the oldest devagent the
 README supports. Every source line cited on this page is a line of that
 release. Moving the pin is a change of its own, made with every file that
 records the pin regenerated
@@ -43,7 +43,7 @@ for its own checkout, as gantry 75f33bc (#39) did.
 ## Where the records are
 
 devagent keeps an issue's records in `<planning directory>/<issue>/`
-(`scripts/lib/config.sh:495-500`), where the planning directory is the
+(`scripts/lib/config.sh:506-511`), where the planning directory is the
 site's `devdoc_dir` and `<issue>` is a leaf's `issue:` value. An **issue
 folder** may hold three records: `STUCK`, `checklist.md` and `imPlan.md`.
 
@@ -89,9 +89,11 @@ folder.
 
 ## STUCK markers
 
-devagent writes `STUCK` when a step cannot go on. Two writers write two
-shapes; both mark the step `!` in the checklist first and put `Created:`
-last.
+devagent writes `STUCK` when a step cannot go on. Two writers write the two
+shapes Gantry reads; both mark the step `!` in the checklist first and put
+`Created:` last. A third writer, new in devagent 3.5.0, writes an operator
+question in a shape of its own, which Gantry does not read yet
+([What Gantry does not read yet](#what-gantry-does-not-read-yet-operator-questions)).
 
 `scripts/stuck.sh` marks the step (`scripts/stuck.sh:59`) and writes
 (`scripts/stuck.sh:61-69`):
@@ -157,8 +159,47 @@ cannot be parsed at all still reads as present, with its step and reason
 
 **The trailer limit.** A reason whose last line starts `Last good:`, in a
 marker with no `Last good:` line of its own, gives that line as the last good
-step. Neither writer can produce such a marker, since both always write
-`Last good:` before `Created:`.
+step. Neither of the two writers above can produce such a marker, since both
+always write `Last good:` before `Created:`.
+
+### What Gantry does not read yet: operator questions
+
+devagent 3.5.0 adds `scripts/hold.sh` (mtibbits/devagent#962), which stops a
+step on a question for the operator. It writes a third STUCK shape and parks
+the issue another way. Gantry reads neither yet; these are the two limits.
+
+**The question STUCK.** `scripts/hold.sh` writes `Kind:        question`
+first, then the four header lines the other writers write
+(`scripts/lib/question-actions.sh:177-178`):
+
+```
+Kind:        question
+Step:        2 draft
+Reason:      Two berths fit the plan.
+Last good:   0 pull
+Created:     2026-01-12T09:30:00+00:00
+```
+
+A blank line follows, then the question itself: its `## Question`,
+`## Impediment`, `## Options` and `## Evidence` sections, and a
+`## How to answer` section that ends the file.
+
+`read_stuck` reads such a marker as present and malformed. Its first line is
+not `Step:` and its last is not `Created:`, so the problems are
+`stuck_no_step` and `stuck_no_created`, the step and the time are `None`,
+and the reason is the `Reason:` line and every line after it: the other
+header lines and the whole question. The file's existence is still the
+signal.
+
+**The held park.** `scripts/hold.sh` marks the step's row `?`
+(`scripts/hold.sh:207`) and parks the issue, and for an issue whose STUCK is
+a question `scripts/park.sh:94` marks no row `P`: the `?` row stays. So
+`read_checklist` gives `parked` false for a held issue, with the `?` row as
+its `next_step`; the park is only in the machine's own state, which Gantry
+does not read.
+
+No fixture recipe runs `hold.sh`: the question marker in the tests is written
+by hand to the cited layout.
 
 ## Checklists
 
@@ -183,13 +224,15 @@ The `Active revision:` header is not read.
 - `parked_step`: the first `P` step in the active block, else the first in
   the file, else `None` (`scripts/lib/checklist.sh:382-399`, the rule
   devagent's resume uses at `scripts/resume.sh:53-56`); `parked` is
-  `parked_step is not None`. `scripts/park.sh:63` marks the current step `P`
-  (and `scripts/park.sh:68` records the park in the machine's own state,
-  which Gantry does not read).
+  `parked_step is not None`. `scripts/park.sh:99` marks the current step `P`,
+  unless the issue's STUCK is an operator question
+  ([What Gantry does not read yet](#what-gantry-does-not-read-yet-operator-questions)),
+  and `scripts/park.sh:110` records the park in the machine's own state,
+  which Gantry does not read.
 - `stuck_step`: the first `!` step, by the same rule.
 - `shows_progress`: true when any step in the whole file is `x` or `~`, the
   rule devagent's WBS update uses to set a leaf to `~`
-  (`scripts/lib/wbs-tracker.py:171`, `scripts/lib/wbs-tracker.py:200`).
+  (`scripts/lib/wbs-tracker.py:172`, `scripts/lib/wbs-tracker.py:201`).
 - `revision`: the number in the last `## Revision ` heading, or `None` with
   no heading or a number of more than nine digits.
 - `problems`: `checklist_no_steps` (no step line in the file; `all_done`
@@ -289,7 +332,7 @@ a config format, not a per-issue record, and a module of its own reads it:
 
 The tables, their rules and devagent's reader of them exist since devagent
 3.4.0, the first release that has them; the pin's release,
-`devagent--v3.4.0`, has them. There `scripts/capacity.sh` is the reader's
+`devagent--v3.5.0`, has them. There `scripts/capacity.sh` is the reader's
 command, `scripts/lib/capacity.py` holds every rule, the document and the
 text, and devagent's `docs/configuration.md` states them under "Capacity".
 This section cites no source line: the agreement test below holds Gantry
@@ -499,9 +542,17 @@ pin and a test holds it equal to `tests/devagent.pin`:
   `tests/fixtures/portfolio/samples_provenance.json`: its document over
   `samples/`, which the sample-site unit tests read, and the hash of each
   input (`tools/sample_portfolio.py --fixtures` writes all four).
-- `tests/fixtures/expected_leaves/`: the six sample snapshots and the 15
+- `tests/fixtures/expected_leaves/`: the six sample snapshots and the 17
   under `fixture/` (`tools/update_expected_leaves.py`). Run it after the
   line above, since the fixture snapshots are read from `written.json`.
+- `tests/fixtures/week_plan/trees.json`: devagent's reading of every tree
+  the week-plan tests install, with the pin and the hash of each input
+  (`tests/test_site_builder.py` holds both to the tree). No command above
+  writes it: its generator is not in the repository yet (#206). Run, from
+  the repository root, the script the last pin move's pull request records
+  (#213's `gen_trees213.py`: #197's `gen_trees197.py`, less the
+  `actuals_unavailable` entries, whose messages would carry the throwaway
+  devagent home's absolute path).
 - The fixture snapshots and the tests that quote a report message: three
   of the reader's rules key on devagent's message text (a near miss's
   `WBS.md line N: ` text, the `depends_on '<entry>'` a `dep_unresolved` is
@@ -512,7 +563,12 @@ pin and a test holds it equal to `tests/devagent.pin`:
 A pin move also re-runs the build-side differential that #195's and #197's
 pull requests describe, since the build-side test sources
 (`tests/helpers_portfolio.py`, `tests/fixtures/week_plan/trees.json`) model
-devagent's reading by hand and no gated test re-checks them all.
+devagent's reading by hand and no gated test re-checks them all. #195's
+`verify_plugin.py` runs as published. Its `differential.py` and #197's
+`differential197.py` run with the small changes #213's pull request
+records, since #12 removed two names they used (`build.read_wbs`,
+`ue.diff_snapshots`). #197's `cyclecheck197.py` compared against the
+stopgap reader #12 deleted and no longer runs.
 
 [worksite-page.md](worksite-page.md#reading-devagents-portfolio-json)
 describes the portfolio fixture, the snapshots and their tests.
@@ -549,8 +605,9 @@ Gantry reads that JSON for every site's nodes (#12), so **whether an
 issue is STUCK**, **the STUCK marker's reason and time** (`stuck` holds
 `step`, `reason` and `since`) and **its next step** can come from there.
 The portfolio reader (`gantry/portfolio_json.py`) reads the document's
-nodes and report and not its per-issue entries (`projects[].issues`);
-reading those, and narrowing this module's adapter, is mtibbits/gantry#202,
-a follow-up issue filed from #12. **The parked state, whether a checklist shows
+nodes and report and, of its per-issue entries (`projects[].issues`),
+each issue's `actuals` (#213); it does not read their `stuck`, `checklist`
+or `next_step` yet. Reading those, and narrowing this module's adapter, is
+mtibbits/gantry#202, a follow-up issue filed from #12. **The parked state, whether a checklist shows
 progress, and the plan's next task** stay with this module unless devagent
 emits them too. The callers' types do not change shape when a source moves.

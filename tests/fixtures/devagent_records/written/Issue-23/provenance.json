@@ -1,7 +1,7 @@
 {
-  "pin": "devagent--v3.4.0",
-  "devagent_commit": "4440854f86f9a8383156b4a1ae856938f32ec253",
-  "devagent_version": "3.4.0",
+  "pin": "devagent--v3.5.0",
+  "devagent_commit": "9601a472bbf3e97871ab4c77641ae0bd7e38ac58",
+  "devagent_version": "3.5.0",
   "writer": "resume.sh",
   "expected_exit": 0,
   "steps": [

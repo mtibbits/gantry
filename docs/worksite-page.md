@@ -210,7 +210,7 @@ in this table's order.
 ## Reading devagent's portfolio JSON
 
 devagent writes one JSON document over every configured project's `WBS.md`
-(`/devagent:portfolio`, its `scripts/portfolio.sh`; schema 1.2 at the release
+(`/devagent:portfolio`, its `scripts/portfolio.sh`; schema 1.3 at the release
 `tests/devagent.pin` names). `gantry/portfolio_json.py` reads that document
 into the parsed data the sections above describe, and `gantry build` reads
 every site from it, once per run, through the installation config's
@@ -237,6 +237,27 @@ Gantry never runs it.
   kind.
 - `generated_at`, the document's time in UTC, and `schema_version` as
   written.
+- `actuals` (#213): what the reader keeps of the actuals schema 1.3 adds.
+  `wired` says whether the document has a top-level `actuals` key, which
+  devagent writes when it builds the document with its actuals file; a
+  document at schema 1.0 to 1.2 has none, and neither has a 1.3 document
+  built without actuals. `generated_at` is that file's time in UTC, or
+  `None` when the top-level `actuals` is null (devagent found no usable
+  file) or the document is not wired. `issues` maps `(project, issue)` to
+  what the reader keeps of each issue's slot
+  (`projects[].issues[].actuals`) that is not null, in document order: the
+  distinct session hosts, first seen first; `time.operator_s`,
+  `time.agent_wall_s` and `tokens.total`, each `None` when its object is
+  null; and the event rows, `at` and `event` only, or `None` when
+  `milestones` is null (the events were not read, which is not an empty
+  list). The reader never keeps a session's `cwd_slug` or `session`, an
+  event's `source`, `tokens.raw`, `projects[].actuals` or
+  `actuals.unassigned`. An issue whose slot is null, or that has no
+  `actuals` key, has no entry, and a project with no `issues` list has no
+  slots. The map is read-only, and empty when the document is not wired:
+  there nothing under `projects[].issues` is looked at. `report` holds the
+  entries the reader consumes ([Report sources](#report-sources)), in
+  document order, in every document. No page uses the part yet (#25).
 
 The document is never changed. The build calls `read_portfolio`, the test
 builder `map_document`.
@@ -252,16 +273,30 @@ starts with the path, and its `kind` is one of four:
 | `unreadable` | the file is outside the configured roots | that it is outside them (the path `portfolio_json` names is always a root) |
 | `unreadable` | any other failed read | the system's reason |
 | `not_json` | the bytes are not UTF-8, or not JSON: a syntax error, `NaN` or `Infinity`, a number that is too long, or nesting deeper than 100 levels (counted by the reader, so every Python version and host agrees) | the cause, in one fixed text each, and to run the aggregator again |
-| `version` | `schema_version` names another major than 1 | both versions: the document's, and `major 1 (schema 1.2)` |
+| `version` | `schema_version` names another major than 1 | both versions: the document's, and `major 1 (schema 1.3)` |
 | `schema` | the document breaks a rule below | the place, such as `$.projects[0].nodes[2].source_line`, and the first problem |
 
 Any minor of major 1 is read, older or newer, and a field the reader does
 not use is ignored. The reader first checks shapes, in document order: the
 schema id, the version, the time (RFC 3339, UTC), each project's name,
 status and reason, each node's id, parent, text, glyph, state, source line,
-issue and `meta`, and each report entry. A missing key is refused as a
+issue and `meta`, and each report entry. In a wired document (one with a
+top-level `actuals` key, #213) it also checks the actuals it keeps: each
+project's `issues`, when the key is there (a list of objects); each issue's
+`actuals` (`null` or an object); and, for a slot that is not null, its
+`issue` (a non-empty string, once per project among those slots), its
+`sessions` (a list of objects, each with a string `host`), its `time` and
+`tokens` (`null` or an object, with the numbers `operator_s` and
+`agent_wall_s`, and `total`) and its `milestones` (`null`, or a list of
+objects, each with a string `at` and `event`). A number the reader keeps is
+an integer or a float, never a boolean, from 0 to 1e18: `1e999` and an
+integer hundreds of digits long are refused like any other, as a `schema`
+error. Last comes the top-level `actuals`: `null`, or an object whose
+`generated_at` is a real `YYYY-MM-DDTHH:MM:SSZ` time. A missing key is
+refused as a
 wrong type, even where `null` is allowed (a node's parent and issue, a read
-project's reason, an entry's line). A key used twice in one JSON
+project's reason, an entry's line; a slot's `time`, `tokens` and
+`milestones`). A key used twice in one JSON
 object, a project name or node id used twice, and a source line used twice
 in one project are refused. Then it checks parent links: a parent is a node
 of the same project on an earlier line, and no node nests deeper than 64
@@ -282,7 +317,7 @@ every other node by its outline position, with `~<line>` and
 `key_collision` when that position equals an `issue:` id.
 
 The reader takes each node's `meta` from the document. It does not read the
-typed `satisfies`, `h`, `depends_on` and `est` fields that schema 1.2 also
+typed `satisfies`, `h`, `depends_on` and `est` fields that schema 1.3 also
 carries: Gantry keeps its own reading of `priority:` (P0 included),
 `depends_on`, `est:`, `h:`, `satisfies:` and `objective:`.
 
@@ -316,10 +351,12 @@ as Python writes it: `['3', '4']` for a list.
 
 ### Report sources
 
-Every entry of devagent's report gets exactly one of three outcomes. It is
+Every entry of devagent's report gets exactly one of four outcomes. It is
 **mapped** onto a Gantry kind in the site's report, **suppressed** because a
-Gantry pass reports the same thing about the same node, or **shown** as
-devagent wrote it in `devagent_report`. Nothing is dropped. The one
+Gantry pass reports the same thing about the same node, **shown** as
+devagent wrote it in `devagent_report`, or **consumed**: kept in the
+reader's `actuals` part and shown nowhere. Nothing is dropped silently: a
+consumed entry goes to the reader's actuals result. The one
 suppression without a Gantry pass behind it is a leaf's `thinking` or
 `checking` warning: devagent's own `bad_model` entry for that key on that
 line covers it, and that entry is shown.
@@ -335,11 +372,12 @@ line covers it, and that entry is shown.
 | `dep_cycle` | Suppressed when its members' lines are the lines of one cycle Gantry finds among the project's open leaves, and no member belongs to another project: Gantry's `cycle` reports it. |
 | `parser_warning` | Suppressed when its message is about `priority` or `h` on a node holding that key, `depends_on` on an open leaf holding it, `satisfies` or `objective` on a leaf holding it, or `thinking` or `checking` on a leaf holding it when a `bad_model` entry on the same line names that key. |
 | `bad_model` | Shown as written: a leaf's malformed `thinking:` or `checking:` key, at its line, or a bad project `step_models` value, with no line (#14). Gantry has no check of its own for either. |
+| `actuals_unavailable` | Consumed, in every document and whatever its project, line or status: it goes to `actuals.report`, in document order, and never to `devagent_report`, a "Missing or unreadable" panel or an index warning. Its message starts with the absolute path of devagent's `actuals.json`, which is no configured root. No page says why actuals are unavailable yet (#25). |
 | any other kind | Shown as written. So is a kind added by a later devagent release. |
 
 An entry above whose condition does not hold is shown as written. So is an
 entry with no line, and an entry about a project that the document lacks or
-that was not read.
+that was not read. A consumed kind is the exception: it is never shown.
 
 The `parser_warning` rule is a defence. At the release `tests/devagent.pin`
 names, devagent emits no warning about `priority`, `satisfies:` or
@@ -443,6 +481,14 @@ the pinned release writes. When the sample devagent config or a sample
 `WBS.md` changes, a test there fails and names the command that regenerates
 it; other changes under `samples/` reach only the gated byte check.
 
+The committed fixtures hold only null actuals slots: the fixture runs have
+no actuals file, so each project carries one `actuals_unavailable` entry
+instead. One more test that needs a checkout (#213) covers a filled slot.
+It gives the pinned aggregator a usable `actuals.json` in its throwaway
+home, built from the two example slots of devagent's own
+`docs/portfolio-schema.md` (a filled one and the empty form), and reads the
+document devagent writes: both slots read with the values the file holds.
+
 What changed when the build switched readers (#12): devagent words an
 unreadable `WBS.md`, and a near-miss line, in its own text, and its
 near-miss rule decides which lines are reported. At the pinned release
@@ -475,7 +521,15 @@ flag but `--devagent` it writes the sample document,
 alike. `--fixtures` writes `tests/fixtures/portfolio/written.json` and its
 `provenance.json`, then `samples.json`, the aggregator's document over a
 copy of `samples/`, and `samples_provenance.json`, the sha256 of the devagent
-config and of each configured `WBS.md` it read. `tools/update_expected_leaves.py` writes both snapshot
+config and of each configured `WBS.md` it read. Both documents get a fixed
+`generated_at`, and a fixed text, `devagent-home/actuals.json`, for the
+path each `actuals_unavailable` message starts with: the throwaway devagent
+home's `actuals.json`, an absolute path that differs on every run (#213).
+The sample document of the first form is devagent's own and keeps that
+path; the reader consumes those entries
+([Report sources](#report-sources)). `--fixtures` is for Linux, where CI
+checks the fixtures; macOS is untested.
+`tools/update_expected_leaves.py` writes both snapshot
 sets; for the sample set it runs the aggregator on a temporary copy of
 `samples/`. Each `--check` writes nothing and prints one line per file that
 differs, is missing or is extra. `--devagent` defaults to

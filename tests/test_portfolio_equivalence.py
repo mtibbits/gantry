@@ -10,10 +10,12 @@ variable, and fail under CI without it.
 
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -30,13 +32,14 @@ from helpers_config import sample_projects, written_bytes
 from helpers_docs import heading_anchors, markdown_text, section
 from sample_roles import NO_WBS, READABLE, UNREADABLE
 from test_devagent_contract import fake_checkout
+from test_portfolio_json import _constants
 from test_samples import ROOT, SAMPLES, git_work_tree, needs_git
 
 # U1: what devagent says of the sample site whose WBS.md is not UTF-8.
 MARSH_REASON = "WBS.md could not be read: UnicodeDecodeError: invalid continuation byte at byte 88"
 # The fixture's totals, as the pinned aggregator wrote them.
 FIXTURE_NODES = 154
-FIXTURE_ENTRIES = 75
+FIXTURE_ENTRIES = 92
 # The 13 sources the stopgap's tests read before #12 deleted it; `edges` is #83's own, `fires` #12's,
 # `models` and `models_project` #14's.
 EARLIER_SOURCES = 13
@@ -238,7 +241,7 @@ def test_fixtures_mode_writes_or_checks(tmp_path, monkeypatch, capsys):
     checkout = fake_checkout(tmp_path / "da", version)
     monkeypatch.setattr(sp, "WRITTEN", tmp_path / "fx" / "written.json")
     monkeypatch.setattr(sp, "PROVENANCE", tmp_path / "fx" / "provenance.json")
-    document = (json.dumps({"schema_version": "1.2", "generated_at": sp.FIXED_TIME, "projects": [],
+    document = (json.dumps({"schema_version": "1.3", "generated_at": sp.FIXED_TIME, "projects": [],
                             "parse_report": []}) + "\n").encode("utf-8")
     monkeypatch.setattr(sp, "fixture_document", lambda devagent: document)
     monkeypatch.setattr(sp, "SAMPLES_WRITTEN", tmp_path / "fx" / "samples.json")
@@ -264,6 +267,92 @@ def test_fixtures_mode_writes_or_checks(tmp_path, monkeypatch, capsys):
     sp.WRITTEN.write_bytes(document + b"\n")
     assert sp.main(argv + ["--check"]) == 1
     assert capsys.readouterr().out == "sample_portfolio: written.json: differs from what devagent writes\n"
+
+
+# --- the fixtures' placeholder for devagent's home path (#213) --------------------------------
+
+def test_fixture_home_path_is_replaced(tmp_path):
+    home = tmp_path / "throwaway" / "da"
+    text = sp.home_text(home)  # DA_HOME as run_aggregator passes it, which devagent echoes
+    assert text == sp.posix(Path(os.path.abspath(home))) and commit_check.ABSOLUTE_START_RE.match(text)
+    path = f"{text}/actuals.json"
+    doc = hp.document(hp.project("alpha", hp.node("A")), hp.project("beta", hp.node("B")),
+                      report=[("alpha", 1, "parser_note", "kept as written")])
+    doc = hp.unavailable(doc, hp.ACTUALS_MISSING.format(path=path), projects=["alpha"])
+    doc = hp.unavailable(doc, hp.ACTUALS_STALE.format(path=path), projects=["beta"])
+    before = json.loads(sp.dumps(doc))
+    assert sp.fix_home_path(doc, home) is doc
+    # Both messages start with the placeholder, and the rest of each message is as devagent wrote it.
+    assert sp.ACTUALS_PLACEHOLDER == "devagent-home/actuals.json"
+    assert [e["message"] for e in doc["parse_report"] if e["kind"] == "actuals_unavailable"] == [
+        "devagent-home/actuals.json does not exist; actuals are empty; run /devagent:actuals",
+        "devagent-home/actuals.json was generated at 2026-01-01T00:00:00Z, more than 7 days before this document; "
+        "actuals are empty; run /devagent:actuals"]
+    # The entry count, every other entry and every other field are unchanged.
+    assert len(doc["parse_report"]) == len(before["parse_report"]) == 5
+    for now, then in zip(doc["parse_report"], before["parse_report"]):
+        if then["kind"] == "actuals_unavailable":
+            assert now == {**then, "message": sp.ACTUALS_PLACEHOLDER + then["message"].removeprefix(path)}
+        else:
+            assert now == then
+    assert {key: value for key, value in doc.items() if key != "parse_report"} == {
+        key: value for key, value in before.items() if key != "parse_report"}
+    assert text not in sp.dumps(doc).decode("utf-8")
+    # A home path left anywhere else is refused, in a text that names no path: in another kind's message,
+    # in a project's reason, or a second time in an actuals message.
+    for spoil in (lambda d: d["parse_report"][-1].update(message=f"see {text}/state"),
+                  lambda d: d["projects"][0].update(status_reason=f"{text}/x"),
+                  lambda d: d["parse_report"][0].update(message=f"{path} is not {text}/other")):
+        spoiled = json.loads(sp.dumps(before))
+        spoil(spoiled)
+        with pytest.raises(sp.Refused) as info:
+            sp.fix_home_path(spoiled, home)
+        assert str(info.value) == "devagent's home path would reach a fixture"
+    # An actuals message that does not name the home's file is refused too: nothing passes unreplaced.
+    for message in ("somewhere/actuals.json does not exist", f"{text}-other/actuals.json does not exist",
+                    "devagent-home/actuals.json does not exist; actuals are empty; run /devagent:actuals"):
+        spoiled = json.loads(sp.dumps(before))
+        spoiled["parse_report"][0]["message"] = message
+        with pytest.raises(sp.Refused) as info:
+            sp.fix_home_path(spoiled, home)
+        assert str(info.value) == "an actuals_unavailable message does not name devagent's home path"
+    # A document with no such entry (devagent before 3.5.0, or one built without actuals) is left as it is.
+    plain = hp.document(hp.project("alpha", hp.node("A")))
+    assert sp.fix_home_path(json.loads(sp.dumps(plain)), home) == plain
+    # The tool's rule, narrowed: the sample document of the first form is devagent's own.
+    flat = " ".join(sp.__doc__.split())
+    assert "No absolute path reaches a file --fixtures writes" in flat
+    assert "No absolute path reaches any file this tool writes" not in flat
+    assert "name the sample home's actuals.json by its absolute path" in flat and sp.ACTUALS_PLACEHOLDER in flat
+
+
+def test_fixture_documents_carry_the_placeholder(tmp_path, monkeypatch):
+    """Both --fixtures documents go through fix_home_path; the sample document of the first form does not."""
+    homes = []
+
+    def aggregator(devagent, cwd, da_home):
+        homes.append(sp.home_text(da_home))
+        made = hp.unavailable(hp.document(hp.project("alpha", hp.node("A"))),
+                              hp.ACTUALS_MISSING.format(path=f"{homes[-1]}/actuals.json"))
+        document = Path(da_home).joinpath(*sp.DOCUMENT)
+        document.parent.mkdir(parents=True)
+        document.write_bytes(sp.dumps(made))
+        return document
+
+    monkeypatch.setattr(sp, "run_aggregator", aggregator)
+    want = "devagent-home/actuals.json does not exist; actuals are empty; run /devagent:actuals"
+    for make in (sp.fixture_document, sp.sample_fixture_document):
+        data = make(tmp_path / "da")
+        doc = json.loads(data.decode("utf-8"))
+        assert [e["message"] for e in doc["parse_report"] if e["kind"] == "actuals_unavailable"] == [want], make
+        assert doc["generated_at"] == sp.FIXED_TIME and homes[-1] not in data.decode("utf-8")
+    assert len(homes) == 2 and all(commit_check.ABSOLUTE_START_RE.match(home) for home in homes)
+    # The first form keeps devagent's document: its message names the sample home by its absolute path.
+    copy = hp.copy_samples(tmp_path / "copy", document=False)
+    kept = json.loads(sp.make_sample(tmp_path / "da", copy).read_bytes().decode("utf-8"))
+    assert [e["message"] for e in kept["parse_report"] if e["kind"] == "actuals_unavailable"] == [
+        hp.ACTUALS_MISSING.format(path=f"{homes[-1]}/actuals.json")]
+    assert homes[-1] == sp.home_text(copy / "devagent" / "out")
 
 
 # --- the written fixture (Task 2) -------------------------------------------------------------
@@ -292,15 +381,17 @@ def test_written_fixture_shape():
     assert len(doc["projects"]) == 17
     assert sum(len(p["nodes"]) for p in doc["projects"]) == FIXTURE_NODES
     assert len(doc["parse_report"]) == FIXTURE_ENTRIES
-    # The 13 earlier sources give 122 nodes and 46 entries; `fires` adds 8 nodes and 15 entries (#12).
+    # Each project has one actuals_unavailable entry at the pin (#213), counted in every total below.
+    # The 13 earlier sources give 122 nodes and 59 entries; `fires` adds 8 nodes and 16 entries (#12).
     assert sum(len(p["nodes"]) for p in doc["projects"] if p["project"] not in LATER_SOURCES) == 122
-    assert sum(e["project"] not in LATER_SOURCES for e in doc["parse_report"]) == 46
+    assert sum(e["project"] not in LATER_SOURCES for e in doc["parse_report"]) == 59
     assert sum(len(p["nodes"]) for p in doc["projects"] if p["project"] == "fires") == 8
-    assert sum(e["project"] == "fires" for e in doc["parse_report"]) == 15
-    # `models` and `models_project` (#14): 8 nodes and 2 bad_model entries each.
+    assert sum(e["project"] == "fires" for e in doc["parse_report"]) == 16
+    # `models` and `models_project` (#14): 8 nodes and 2 bad_model entries each, 3 entries in all.
     for name in ("models", "models_project"):
         assert sum(len(p["nodes"]) for p in doc["projects"] if p["project"] == name) == 8
-        assert sum(e["project"] == name for e in doc["parse_report"]) == 2
+        assert sum(e["project"] == name for e in doc["parse_report"]) == 3
+        assert sum(e["project"] == name and e["kind"] == "bad_model" for e in doc["parse_report"]) == 2
     assert doc["generated_at"] == sp.FIXED_TIME == "2026-01-12T09:30:00Z"
     by_name = {p["project"]: p for p in doc["projects"]}
     assert by_name["not_utf8"]["status"] == "unreadable"
@@ -316,6 +407,52 @@ def test_written_fixture_shape():
     assert len(earlier) == EARLIER_SOURCES and all((ROOT / s).is_file() for s in made["sources"].values())
     for path in (sp.WRITTEN, sp.PROVENANCE):
         assert commit_check.path_form_hits(path.read_bytes().decode("utf-8")) == [], path.name
+
+
+PLACEHOLDER_MESSAGE = "devagent-home/actuals.json does not exist; actuals are empty; run /devagent:actuals"
+
+
+def absolute_texts(doc):
+    """The report messages and status reasons of a document that start as an absolute path does."""
+    texts = [e["message"] for e in doc["parse_report"]]
+    texts += [p["status_reason"] for p in doc["projects"] if p["status_reason"] is not None]
+    return [text for text in texts if commit_check.ABSOLUTE_START_RE.match(text)]
+
+
+def test_committed_fixtures_hold_no_absolute_path():
+    """At schema 1.3 the fixture aggregator runs with no actuals.json in its throwaway home, so every
+    project gets one actuals_unavailable entry whose message starts with that home's path. The committed
+    documents carry the tool's placeholder instead (#213), and the stored trees leave the kind out."""
+    # commit_check.path_form_hits cannot be this guard: a temporary folder's path is none of its forms.
+    temporary = "/" + "tmp/portfolio-fixture-x/da/actuals.json does not exist"
+    assert commit_check.path_form_hits(temporary) == [] and commit_check.ABSOLUTE_START_RE.match(temporary)
+    assert absolute_texts({"projects": [], "parse_report": [{"message": temporary}]}) == [temporary]
+    for name, doc, count in (("written.json", hp.written_doc(), 17), ("samples.json", hp.sample_doc(), 6)):
+        unavailable = [e for e in doc["parse_report"] if e["kind"] == "actuals_unavailable"]
+        # Exactly one per project, in project order, with no line and the committed text.
+        assert [e["project"] for e in unavailable] == [p["project"] for p in doc["projects"]], name
+        assert len(unavailable) == count, name
+        assert [(e["source_line"], e["message"]) for e in unavailable] == [(None, PLACEHOLDER_MESSAGE)] * count, name
+        assert absolute_texts(doc) == [], name
+        # The documents are wired, with nothing in any slot: the aggregator found no actuals file.
+        assert "actuals" in doc and doc["actuals"] is None, name
+        slots = [item["actuals"] for p in doc["projects"] for item in p["issues"]]
+        assert slots and all(slot is None for slot in slots), name
+    assert PLACEHOLDER_MESSAGE == hp.ACTUALS_MISSING.format(path=sp.ACTUALS_PLACEHOLDER)
+    # The stored trees (#197) are made by a script outside the tools: it leaves the kind out.
+    trees = hp._parsed(hp.TREES)["trees"]
+    assert len(trees) == 16 and sum(len(tree["projects"]) for tree in trees.values()) == 33
+    for key, tree in trees.items():
+        assert [e for e in tree["parse_report"] if e["kind"] == "actuals_unavailable"] == [], key
+        assert absolute_texts(tree) == [], key
+    # No snapshot holds the kind: the reader consumes it.
+    snapshots = sorted(ue.OUT.rglob("*.json"))
+    assert len(snapshots) == 23
+    for path in snapshots:
+        snapshot = json.loads(path.read_bytes().decode("utf-8"))
+        assert all(kind != "actuals_unavailable" for _, kind, _ in snapshot["devagent"]), path.name
+        assert not [text for _, _, text in snapshot["report"] + snapshot["devagent"]
+                    if commit_check.ABSOLUTE_START_RE.match(text)], path.name
 
 
 # --- gated: the pinned aggregator -------------------------------------------------------------
@@ -343,7 +480,7 @@ def test_samples_fixture_passes_devagents_checker():
 
 
 def test_sample_document_shape(sample_document):
-    document, _ = sample_document
+    document, copy = sample_document
     doc = json.loads(document.read_bytes().decode("utf-8"))
     assert [p["project"] for p in doc["projects"]] == sample_projects()
     assert len(doc["projects"]) == 6
@@ -351,7 +488,18 @@ def test_sample_document_shape(sample_document):
     assert {status[site] for site in READABLE} == {("read", None)}
     assert status[NO_WBS][0] == "no_wbs" and status[NO_WBS][1]
     assert status[UNREADABLE] == ("unreadable", MARSH_REASON)
-    assert commit_check.path_form_hits(document.read_bytes().decode("utf-8")) == []
+    # The sample document is devagent's own (#213): with no actuals.json in the sample home, each project's
+    # actuals_unavailable message names that file by its absolute path. The reader consumes those entries.
+    unavailable = [e for e in doc["parse_report"] if e["kind"] == "actuals_unavailable"]
+    assert [e["project"] for e in unavailable] == sample_projects()
+    path = f"{sp.home_text(copy / 'devagent' / 'out')}/actuals.json"
+    assert [e["message"] for e in unavailable] == [hp.ACTUALS_MISSING.format(path=path)] * 6
+    assert commit_check.ABSOLUTE_START_RE.match(path)
+    # Those messages set aside, the document holds no absolute path.
+    for e in unavailable:
+        e["message"] = ""
+    assert commit_check.path_form_hits(sp.dumps(doc).decode("utf-8")) == []
+    assert absolute_texts(doc) == []
 
 
 def test_aggregator_writes_only_under_out(sample_document):
@@ -394,7 +542,7 @@ def test_snapshot_set_is_the_sample_config():
     for name, fixture in [(s, False) for s in sample_projects()] + [(n, True) for n in sp.FIXTURE_SOURCES]:
         snapshot = committed(name, fixture)
         assert list(snapshot) == SNAPSHOT_KEYS, name
-        assert (snapshot["pin"], snapshot["site"], snapshot["schema_version"]) == (tag, name, "1.2")
+        assert (snapshot["pin"], snapshot["site"], snapshot["schema_version"]) == (tag, name, "1.3")
         assert all(list(node) == NODE_KEYS for node in snapshot["nodes"]), name
         assert [n["line"] for n in snapshot["nodes"]] == sorted(n["line"] for n in snapshot["nodes"])
         raw = ((ue.FIXTURE_OUT if fixture else ue.OUT) / f"{name}.json").read_bytes()
@@ -554,7 +702,7 @@ def test_map_document_equals_read_portfolio_on_the_sample_document(sample_docume
     assert len(read.devagent_report) == SAMPLE_SHOWN
 
 
-SAMPLE_SHOWN = 0  # each of the 12 sample entries is mapped or suppressed
+SAMPLE_SHOWN = 0  # each of the 18 sample entries is mapped, suppressed or (the six actuals_unavailable) consumed
 
 
 # --- the documentation (Task 7) ---------------------------------------------------------------
@@ -604,6 +752,15 @@ def test_doc_states_the_reader_rules(capsys):
         assert f"`{devagent_kind}`" in part and f"`{gantry_kind}`" in part, devagent_kind
     for kind in pj.SUPPRESSED_ALWAYS + pj.SUPPRESSED_BY_RULE + ("site_unreadable",):
         assert f"`{kind}`" in part, kind
+    # The fourth outcome (#213): each consumed kind has its row, and the outcome is named.
+    assert part.count("\n### Report sources\n") == 1
+    sources = part.split("\n### Report sources\n")[1].split("\n### ")[0]
+    assert "four outcomes" in sources and "**consumed**" in sources
+    for kind in pj.CONSUMED:
+        assert f"| `{kind}` | Consumed" in sources, kind
+    assert "`actuals.report`" in sources and "A consumed kind is the exception: it is never shown." in " ".join(
+        sources.split())
+    assert "- `actuals`" in part.split("\n### What the reader returns\n")[1].split("\n### ")[0]
     for kind in ("unreadable", "not_json", "version", "schema"):
         assert f"`{kind}`" in part, kind
     for status in pj.STATUSES:
@@ -645,10 +802,14 @@ def test_pin_move_recipe_names_the_new_tools_and_files(capsys):
                  "tests/fixtures/portfolio/samples.json", "tests/fixtures/portfolio/samples_provenance.json",
                  "tests/fixtures/expected_leaves/", "tests/fixtures/devagent_records/written/"):
         assert name in part, name
-    # #83 moved no pin; #12 reads the JSON's nodes, and reading projects[].issues is a follow-up of #12's.
+    # #83 moved no pin; #12 reads the JSON's nodes. Of projects[].issues the reader reads each issue's actuals
+    # (#213); the rest is a follow-up of #12's.
     assert "#83" not in text
     flat = " ".join(text.split())
     assert "Gantry reads that JSON for every site's nodes (#12)" in flat and "a follow-up issue filed from #12" in flat
+    assert "each issue's `actuals` (#213)" in flat and "mtibbits/gantry#202" in flat
+    assert "it does not read their `stuck`, `checklist` or `next_step` yet" in flat
+    assert "and not its per-issue entries" not in flat
 
 
 def test_readmes_cover_the_portfolio_tests():
@@ -665,3 +826,75 @@ def test_changelog_entry_points_at_the_section():
     entry = markdown_text(ROOT / "CHANGELOG.md")
     assert "gantry/portfolio_json.py" in entry and "`gantry build` does not use it yet" in " ".join(entry.split())
     assert "docs/worksite-page.md#reading-devagents-portfolio-json" in entry
+
+
+# --- gated: slots devagent filled, and its message (#213) --------------------------------------
+
+EXAMPLE_BLOCK_RE = re.compile(r"^```json\n(.*?)^```$", re.S | re.M)
+
+
+def actuals_examples(checkout):
+    """The JSON blocks between the actuals-example markers of the pinned docs/portfolio-schema.md."""
+    text = (checkout / "docs" / "portfolio-schema.md").read_bytes().decode("utf-8")
+    assert text.count("<!-- actuals-example:start -->") == text.count("<!-- actuals-example:end -->") == 1
+    part = text.split("<!-- actuals-example:start -->")[1].split("<!-- actuals-example:end -->")[0]
+    return [json.loads(block) for block in EXAMPLE_BLOCK_RE.findall(part)]
+
+
+def slot_keys(slot):
+    """The key sets of a filled slot, level by level."""
+    return (sorted(slot), [sorted(row) for row in slot["milestones"]], [sorted(row) for row in slot["sessions"]],
+            sorted(slot["time"]), sorted(slot["tokens"]), [sorted(row) for row in slot["tokens"]["raw"]])
+
+
+def test_devagent_filled_slots_are_read(tmp_path):
+    """The pinned aggregator, given a usable actuals.json in its throwaway home, copies each issue's object
+    into its slot; the reader reads the document devagent writes, with the values the file holds."""
+    checkout = hd.require_devagent()
+    # devagent's own examples: a filled slot, then the empty form. Exactly two.
+    filled, empty = actuals_examples(checkout)
+    assert empty == hp.EMPTY_SLOT
+    cwd = tmp_path / "tree"
+    (cwd / "plans").mkdir(parents=True)
+    (cwd / "plans" / "WBS.md").write_bytes(
+        b"- [ ] One {issue: Issue-1}\n- [ ] Two {issue: Issue-2}\n- [ ] Three {issue: Issue-3}\n")
+    home = cwd / "da"
+    (home / "home").mkdir(parents=True)
+    (home / "config.toml").write_bytes(b'[project.alpha]\ndevdoc_dir = "plans"\n')
+    # A file devagent calls usable: its version, an all-projects document, and a time within seven days.
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    stamp = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+    (home / "actuals.json").write_bytes(sp.dumps({
+        "actuals_version": "1.0", "generated_at": stamp, "inputs": {"project": None},
+        "issues": [{"project": "alpha", "issue": "Issue-1", "actuals": filled},
+                   {"project": "alpha", "issue": "Issue-2", "actuals": empty}],
+        "projects": [], "unassigned": []}))
+    document = sp.run_aggregator(checkout, cwd, home)
+    doc = json.loads(document.read_bytes().decode("utf-8"))
+    # The slots are devagent's copies of the file's objects; an issue the file has no row for is null.
+    (project,) = doc["projects"]
+    assert {item["issue"]: item["actuals"] for item in project["issues"]} == {
+        "Issue-1": filled, "Issue-2": empty, "Issue-3": None}
+    assert doc["actuals"] == {"actuals_version": "1.0", "generated_at": stamp, "unassigned": []}
+    assert doc["schema_version"] == "1.3" and doc["parse_report"] == []
+    got = read_portfolio(directory_roots([cwd]), document)
+    assert got.actuals.wired is True and got.actuals.generated_at == now and got.actuals.report == ()
+    assert list(got.actuals.issues.items()) == [
+        (("alpha", "Issue-1"), pj.IssueActuals(("h1",), 610.0, 4980.5, 2029120.0, (
+            pj.EventRow("2026-11-01T14:02:11Z", "opened"), pj.EventRow("2026-11-02 09:15", "step_done"),
+            pj.EventRow("2026-11-03T18:40:00Z", "mr_merged")))),
+        (("alpha", "Issue-2"), pj.IssueActuals((), None, None, None, None)),
+    ]
+    assert [leaf.key for leaf in got.projects[0].data.leaves] == ["Issue-1", "Issue-2", "Issue-3"]
+    assert got.devagent_report == ()
+    # The test builder's slot has the example's keys at every level, so a builder test states devagent's shape.
+    assert slot_keys(hp.slot()) == slot_keys(filled)
+    assert slot_keys(filled)[0] == ["milestones", "sessions", "time", "tokens"]
+
+
+def test_actuals_message_is_the_tags():
+    checkout = hd.require_devagent()
+    texts = _constants(checkout / "scripts" / "lib" / "portfolio.py", ("ACTUALS_MISSING", "ACTUALS_STALE"))
+    assert texts["ACTUALS_MISSING"] == hp.ACTUALS_MISSING
+    assert texts["ACTUALS_STALE"].format(path="{path}", at="2026-01-01T00:00:00Z", days=7) == hp.ACTUALS_STALE
+    assert texts["ACTUALS_MISSING"].format(path=sp.ACTUALS_PLACEHOLDER) == PLACEHOLDER_MESSAGE

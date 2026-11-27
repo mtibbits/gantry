@@ -81,13 +81,13 @@ def install(tmp_path, base, wbs=None, portfolio=None, config=None, devagent=None
 
 
 def _project_names(text):
-    """devagent v3.4.0's project list of a devagent config, in config order: its [project.*] tables,
+    """devagent v3.5.0's project list of a devagent config, in config order: its [project.*] tables,
     less a name holding a dot (config_list_projects keeps the tables of exactly two dotted parts)."""
     return {name: table for name, table in tomllib.loads(text).get("project", {}).items() if "." not in name}
 
 
 def _project_site(copy, name, table):
-    """devagent v3.4.0's WBS.md-read verdict (portfolio.py) on project `name`'s devdoc_dir, of those install() measured:
+    """devagent v3.5.0's WBS.md-read verdict (portfolio.py) on project `name`'s devdoc_dir, of those install() measured:
     hp.NotRead (no devdoc_dir set), None (no_wbs), or the WBS.md path to read. An empty, absent or
     non-directory devdoc_dir, and a WBS.md that is not a regular file, raise."""
     devdoc = table.get("devdoc_dir") if isinstance(table, dict) else None

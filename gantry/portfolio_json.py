@@ -14,6 +14,10 @@ through map_document: it is the one WBS.md reader Gantry has. `tag(value)`
 gives one meta value the parsed shape the reader stores, for a test that
 builds such a leaf by hand.
 
+The result's `actuals` part (#213) holds what the reader keeps of schema 1.3's
+actuals, and devagent's actuals_unavailable entries, which it consumes: they
+reach no page. No page uses the part yet; #25 is its first caller.
+
 Neither entry point raises anything but PortfolioLoadError, whatever the
 file or the document holds: every walk here is a loop, never a recursion, and
 no parent link is followed before it has been checked.
@@ -24,6 +28,7 @@ import json
 import re
 from dataclasses import dataclass
 from datetime import datetime
+from types import MappingProxyType
 
 from gantry.config import error_reason
 from gantry.deps import MESSAGES as DEPS_MESSAGES
@@ -47,9 +52,10 @@ from gantry.roots import OutsideRoots, read_bytes_confined
 SCHEMA_ID = "devagent-portfolio"
 # The schema the pinned devagent release writes (tests/devagent.pin). Another
 # major is refused; any minor of this major is read, and a field the reader
-# does not use is ignored. A field a later minor added is checked and read
-# only from that minor on: at a lower one it is unknown.
-MAJOR, MINOR = 1, 2
+# does not use is ignored. A leaf's `models` is checked and read only from the
+# minor that added it: at a lower one it is unknown. The actuals (#213) are
+# read by their own key, a top-level `actuals`, whatever the minor.
+MAJOR, MINOR = 1, 3
 # The minor that added each leaf's `models` (#14).
 MODELS_MINOR = 2
 # The classes of a leaf's `models`, in the document's order (not render's tier names).
@@ -66,6 +72,10 @@ STATUSES = ("read", "no_wbs", "no_devdoc_dir", "unreadable")
 # Bounded digit groups: int() never sees a long run.
 VERSION_RE = re.compile(r"(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})")
 TIME_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T(?:[01][0-9]|2[0-3]):[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,6})?(?:Z|\+00:00)")
+# The actuals file's own time, as devagent writes it: YYYY-MM-DDTHH:MM:SSZ (used with fullmatch).
+ACTUALS_TIME_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z")
+# The largest number the reader keeps from a slot (seconds, tokens), so no sum of them overflows.
+MAX_AMOUNT = 1e18
 
 ROOTS_KEY = "portfolio_json"
 DEFAULT_SOURCE = "the portfolio document"
@@ -103,7 +113,8 @@ MESSAGES = {
 
 # devagent's report entries (its `parse_report`). Each gets one disposition:
 # mapped onto a Gantry kind, suppressed because a Gantry pass reports the same
-# thing, or shown as devagent wrote it. MAPPED is devagent's kind -> Gantry's.
+# thing, shown as devagent wrote it, or consumed: kept in the result's actuals
+# part and shown nowhere. MAPPED is devagent's kind -> Gantry's.
 MAPPED = {"leaf_no_issue": "no_issue", "duplicate_issue": "duplicate_issue", "near_miss_line": "skipped_line",
           "dep_unresolved": "unresolved_ref"}
 # Suppressed on every node that holds the key: gantry.attention.check_h reports each.
@@ -111,6 +122,9 @@ SUPPRESSED_ALWAYS = ("h_malformed",)
 # Suppressed only where the rule in _dispose finds Gantry's own entry or check.
 SUPPRESSED_BY_RULE = ("dep_unresolved", "est_unparseable", "dep_cycle", "parser_warning")
 SUPPRESSED, SHOWN = "suppressed", "shown"
+# Consumed in every document, whatever the entry's project, line or status (#213): the message
+# starts with the absolute path of devagent's actuals.json, which is no configured root.
+CONSUMED = ("actuals_unavailable",)
 # A mapped near miss: Gantry's own reason needs the line's text, which the document does not carry.
 SKIPPED_LINE = "WBS.md line {line}: {message}"
 # One member of devagent's dep_cycle message: `<issue> (line N)`, with `<project>:` before another project's.
@@ -132,7 +146,8 @@ class PortfolioLoadError(Exception):
 
 @dataclass(frozen=True)
 class DevagentEntry:
-    """One entry of devagent's parse report that Gantry shows as devagent wrote it."""
+    """One entry of devagent's parse report, as devagent wrote it: one Gantry
+    shows (PortfolioInput.devagent_report) or one it consumes (ActualsInput.report)."""
     project: str
     line: int | None  # None: no line
     kind: str  # devagent's kind: never one of Gantry's REPORT_KINDS by contract
@@ -148,11 +163,42 @@ class ProjectInput:
 
 
 @dataclass(frozen=True)
+class EventRow:
+    """One dated event of an issue, as devagent wrote it; its `source` is not kept."""
+    at: str  # the event's time as its source wrote it: no one format
+    event: str  # devagent's milestones word (opened, step_done, mr_merged ...); the vocabulary is open
+
+
+@dataclass(frozen=True)
+class IssueActuals:
+    """What the reader keeps of one issue's actuals slot. A session's cwd_slug
+    and id, an event's source and the raw token counts are never kept."""
+    hosts: tuple[str, ...]  # the distinct sessions[].host, first seen first
+    operator_s: int | float | None  # time.operator_s; None when `time` is null
+    agent_wall_s: int | float | None  # time.agent_wall_s; None when `time` is null
+    tokens: int | float | None  # tokens.total; None when `tokens` is null
+    events: tuple[EventRow, ...] | None  # None: `milestones` is null, the events were not read (not the same as ())
+
+
+@dataclass(frozen=True)
+class ActualsInput:
+    """The actuals part of a document (schema 1.3, #213). No page uses it yet:
+    #25 is its first caller. `issues` is a MappingProxyType, so the part (and the
+    PortfolioInput holding it) cannot be deep-copied, pickled or passed to asdict."""
+    wired: bool  # the document has a top-level `actuals` key: devagent looked for its actuals file
+    generated_at: datetime | None  # the actuals file's time, aware, UTC; None when that object is null
+    # {(project, issue): IssueActuals}, read-only: the slots that are not null, in document order.
+    issues: MappingProxyType
+    report: tuple[DevagentEntry, ...]  # the consumed entries (CONSUMED), in document order
+
+
+@dataclass(frozen=True)
 class PortfolioInput:
     projects: tuple[ProjectInput, ...]  # in document order
     devagent_report: tuple[DevagentEntry, ...]  # the shown entries, in document order
     generated_at: datetime  # aware, UTC
     schema_version: str  # as written
+    actuals: ActualsInput
 
 
 def _error(kind, source, text=None, **fields):
@@ -342,9 +388,61 @@ def _check_node(node, where, ids, lines, models_ok):
         _check_models(node["models"], f"{where}.models")
 
 
+def _is_amount(value):
+    """A number the reader keeps: an int or float, not a bool, from 0 to
+    MAX_AMOUNT. The comparison is False, and raises nothing, for an infinity,
+    for NaN and for an integer of any length."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and 0 <= value <= MAX_AMOUNT
+
+
+def _check_slot(slot, where):
+    """An actuals slot that is not null: every field the reader keeps, in devagent's shapes."""
+    sessions = slot.get("sessions")
+    _need(isinstance(sessions, list), f"{where}.sessions", "not a list")
+    for k, session in enumerate(sessions):
+        _need(isinstance(session, dict), f"{where}.sessions[{k}]", "not an object")
+        _need(isinstance(session.get("host"), str), f"{where}.sessions[{k}].host", "not a string")
+    for name, keys in (("time", ("operator_s", "agent_wall_s")), ("tokens", ("total",))):
+        part = slot.get(name, _ABSENT)
+        _need(part is None or isinstance(part, dict), f"{where}.{name}", "not an object or null")
+        for key in keys if part is not None else ():
+            _need(_is_amount(part.get(key)), f"{where}.{name}.{key}", "not a number from 0 to 1e18")
+    milestones = slot.get("milestones", _ABSENT)
+    _need(milestones is None or isinstance(milestones, list), f"{where}.milestones", "not a list or null")
+    for k, row in enumerate(milestones or ()):
+        _need(isinstance(row, dict), f"{where}.milestones[{k}]", "not an object")
+        for key in ("at", "event"):
+            _need(isinstance(row.get(key), str), f"{where}.milestones[{k}].{key}", "not a string")
+
+
+def _check_issues(project, where):
+    """A wired document's project: its `issues`, when it has the key, and each
+    actuals slot. An entry with no `actuals` key, or a null one, has no slot,
+    and nothing else of it is looked at: its `issue` is checked only where the
+    slot is kept."""
+    if "issues" not in project:
+        return
+    issues = project["issues"]
+    _need(isinstance(issues, list), f"{where}.issues", "not a list")
+    kept = set()
+    for j, entry in enumerate(issues):
+        at = f"{where}.issues[{j}]"
+        _need(isinstance(entry, dict), at, "not an object")
+        slot = entry.get("actuals")
+        _need(slot is None or isinstance(slot, dict), f"{at}.actuals", "not an object or null")
+        if slot is None:
+            continue
+        issue = entry.get("issue")
+        _need(_is_filled(issue), f"{at}.issue", "not a non-empty string")
+        _need(issue not in kept, f"{at}.issue", "used twice in this project")
+        kept.add(issue)
+        _check_slot(slot, f"{at}.actuals")
+
+
 def _check_shapes(doc, source):
     """Pass 1: every field the reader uses has its shape, in document order.
-    (generated_at, whether the minor carries leaf `models`)."""
+    (generated_at, whether the minor carries leaf `models`, whether the
+    document is wired, the actuals file's time or None)."""
     _need(isinstance(doc, dict), "$", "not an object")
     _need(doc.get("schema") == SCHEMA_ID and isinstance(doc.get("schema"), str), "$.schema", f'not "{SCHEMA_ID}"')
     version = doc.get("schema_version")
@@ -353,15 +451,10 @@ def _check_shapes(doc, source):
     if int(match.group(1)) != MAJOR:
         raise _error("version", source, found=version)
     models_ok = int(match.group(2)) >= MODELS_MINOR
-    when = doc.get("generated_at")
-    problem = "not an RFC 3339 UTC time"
-    _need(isinstance(when, str) and TIME_RE.fullmatch(when) is not None, "$.generated_at", problem)
-    try:
-        generated = datetime.fromisoformat(when)
-    except ValueError:
-        raise _Problem("$.generated_at", problem) from None
+    generated = _utc_time(doc.get("generated_at"), TIME_RE, "$.generated_at", "not an RFC 3339 UTC time")
     projects = doc.get("projects")
     _need(isinstance(projects, list), "$.projects", "missing or not a list")
+    wired = "actuals" in doc
     names, ids = set(), set()
     for i, project in enumerate(projects):
         where = f"$.projects[{i}]"
@@ -384,6 +477,8 @@ def _check_shapes(doc, source):
         lines = set()
         for j, node in enumerate(nodes):
             _check_node(node, f"{where}.nodes[{j}]", ids, lines, models_ok)
+        if wired:  # in a document that is not wired, nothing under `issues` is looked at
+            _check_issues(project, where)
     report = doc.get("parse_report")
     _need(isinstance(report, list), "$.parse_report", "not a list")
     for k, entry in enumerate(report):
@@ -394,7 +489,26 @@ def _check_shapes(doc, source):
         _need(line is None or _is_line(line), f"{where}.source_line", "not an integer from 1 to 999999999 or null")
         _need(_is_filled(entry.get("kind")), f"{where}.kind", "not a non-empty string")
         _need(isinstance(entry.get("message"), str), f"{where}.message", "not a string")
-    return generated, models_ok
+    return generated, models_ok, wired, _check_actuals_time(doc["actuals"]) if wired else None
+
+
+def _check_actuals_time(top):
+    """A wired document's top-level `actuals`: null (devagent found no usable
+    actuals file), or an object whose `generated_at` is a real
+    YYYY-MM-DDTHH:MM:SSZ. The time, aware and UTC, or None for null."""
+    _need(top is None or isinstance(top, dict), "$.actuals", "not an object or null")
+    if top is None:
+        return None
+    return _utc_time(top.get("generated_at"), ACTUALS_TIME_RE, "$.actuals.generated_at", "not YYYY-MM-DDTHH:MM:SSZ")
+
+
+def _utc_time(when, pattern, where, problem):
+    """`when` as an aware UTC datetime: a string `pattern` fullmatches that names a real time."""
+    _need(isinstance(when, str) and pattern.fullmatch(when) is not None, where, problem)
+    try:
+        return datetime.fromisoformat(when)
+    except ValueError:
+        raise _Problem(where, problem) from None
 
 
 def _check_parents(doc):
@@ -570,6 +684,27 @@ def _site_data(site):
     return SiteData(site.leaves, site.rows, site.links, site.held_out, tuple(report), site.models_ok)
 
 
+# --- actuals ----------------------------------------------------------------------------------
+
+
+def _issue_actuals(slot):
+    """A checked slot as an IssueActuals."""
+    time, tokens, milestones = slot["time"], slot["tokens"], slot["milestones"]
+    return IssueActuals(
+        tuple(dict.fromkeys(session["host"] for session in slot["sessions"])),
+        None if time is None else time["operator_s"],
+        None if time is None else time["agent_wall_s"],
+        None if tokens is None else tokens["total"],
+        None if milestones is None else tuple(EventRow(row["at"], row["event"]) for row in milestones))
+
+
+def _slots(doc):
+    """{(project, issue): IssueActuals} for every slot of a checked, wired document that is not null."""
+    return {(project["project"], entry["issue"]): _issue_actuals(entry["actuals"])
+            for project in doc["projects"] for entry in project.get("issues", ())
+            if entry.get("actuals") is not None}
+
+
 # --- devagent's report entries ----------------------------------------------------------------
 
 
@@ -613,7 +748,8 @@ def _dispose(site, entry):
     mapped, else SUPPRESSED or SHOWN.
 
     `site` is the entry's project when the document holds it and it was read,
-    else None. Every entry leaves here as exactly one of the three, and
+    else None. A CONSUMED kind never comes here: map_document keeps it in the
+    actuals part. Every other entry leaves here as exactly one of the three, and
     nothing is suppressed unless a Gantry pass
     reports the same thing about the same node: gantry.deps (cycle,
     malformed_ref), gantry.crosssite (the foreign kinds), gantry.inputs
@@ -684,7 +820,7 @@ def map_document(doc, *, source=DEFAULT_SOURCE) -> PortfolioInput:
     """A parsed portfolio document as a PortfolioInput. `doc` is never changed;
     `source` names it in an error."""
     try:
-        generated, models_ok = _check_shapes(doc, source)
+        generated, models_ok, wired, actuals_at = _check_shapes(doc, source)
         _check_parents(doc)
     except _Problem as e:
         raise _error("schema", source, where=e.where, problem=e.problem) from None
@@ -694,8 +830,11 @@ def map_document(doc, *, source=DEFAULT_SOURCE) -> PortfolioInput:
         site = sites.get(entry["project"])
         if site is not None and entry["kind"] == "bad_model" and entry["source_line"] is not None:
             site.bad_models.add((entry["source_line"], entry["message"].split(" ", 1)[0]))
-    shown = []
+    shown, consumed = [], []
     for entry in doc["parse_report"]:
+        if entry["kind"] in CONSUMED:
+            consumed.append(DevagentEntry(entry["project"], entry["source_line"], entry["kind"], entry["message"]))
+            continue
         site = sites.get(entry["project"])
         disposition = _dispose(site, entry)
         if isinstance(disposition, ReportEntry):
@@ -712,4 +851,5 @@ def map_document(doc, *, source=DEFAULT_SOURCE) -> PortfolioInput:
             report = (ReportEntry(name, None, "site_unreadable", reason),) if status == "unreadable" else ()
             data = SiteData((), (), (), (), report, models_ok)
         projects.append(ProjectInput(name, status, reason, data))
-    return PortfolioInput(tuple(projects), tuple(shown), generated, doc["schema_version"])
+    actuals = ActualsInput(wired, actuals_at, MappingProxyType(_slots(doc) if wired else {}), tuple(consumed))
+    return PortfolioInput(tuple(projects), tuple(shown), generated, doc["schema_version"], actuals)

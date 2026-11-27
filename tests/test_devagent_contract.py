@@ -182,7 +182,7 @@ WORKFLOW = ROOT / ".github" / "workflows" / "test.yml"
 # Every devagent source line docs/devagent-formats.md cites, at the pin:
 # (path, first line, last line, a text that must still sit in that range).
 CITES = (
-    ("scripts/lib/config.sh", 495, 500, '"${devdoc%/}" "$issue"'),
+    ("scripts/lib/config.sh", 506, 511, '"${devdoc%/}" "$issue"'),
     ("scripts/stuck.sh", 41, 41, "local cur cur_name last_good last_good_name"),
     ("scripts/stuck.sh", 55, 55, 'if [[ -n "$last_good" ]]; then'),
     ("scripts/stuck.sh", 59, 59, 'checklist_mark "$checklist" "$cur" "!"'),
@@ -199,13 +199,17 @@ CITES = (
     ("scripts/lib/checklist.sh", 133, 155, '"$glyph" != "x" && "$glyph" != "-"'),
     ("scripts/lib/checklist.sh", 326, 331, "' '|x|-|'!'|'~'|'?'|P) return 0 ;;"),
     ("scripts/lib/checklist.sh", 382, 399, "if (ln[i] > blk)"),
-    ("scripts/park.sh", 63, 63, 'checklist_mark "$checklist" "$cur" "P"'),
-    ("scripts/park.sh", 68, 68, 'state_add_parked "$project" "$issue"'),
+    ("scripts/park.sh", 94, 94, 'if [[ "$(stuck_kind "$issue_dir")" != question ]]; then'),
+    ("scripts/park.sh", 99, 99, 'checklist_mark "$checklist" "$cur" "P"'),
+    ("scripts/park.sh", 110, 110, 'state_add_parked "$project" "$issue"'),
+    ("scripts/hold.sh", 207, 207, """|| checklist_mark_by_name "$checklist" "$step" '?'"""),
+    ("scripts/lib/question-actions.sh", 177, 178,
+     r"printf 'Kind:        question\nStep:        %s %s\nReason:      %s\nLast good:   %s\nCreated:     %s\n\n'"),
     ("scripts/resume.sh", 53, 56, 'checklist_find_glyph_line "$checklist" P'),
     ("scripts/lib/log.sh", 17, 19, "message must be a single line"),
     ("scripts/lib/log.sh", 60, 60, "chmod --reference="),
-    ("scripts/lib/wbs-tracker.py", 171, 171, 'PROGRESS_GLYPHS = {"x", "~"}'),
-    ("scripts/lib/wbs-tracker.py", 200, 200, "if any(g in PROGRESS_GLYPHS for g in glyphs):"),
+    ("scripts/lib/wbs-tracker.py", 172, 172, 'PROGRESS_GLYPHS = {"x", "~"}'),
+    ("scripts/lib/wbs-tracker.py", 201, 201, "if any(g in PROGRESS_GLYPHS for g in glyphs):"),
     ("scripts/status.sh", 28, 51, 'state_get "$project" active_issue'),
     ("templates/imPlan_template.md", 1, 2, "(context:/model:)"),
     ("templates/imPlan_template.md", 30, 33, "## Tasks"),
@@ -235,7 +239,7 @@ def test_changed_fixture_fails_naming_fixture_script_and_line(tmp_path):
     target.write_bytes(changed)
     diffs = fx.compare(kept, made)
     line = data.split(b"\n").index(b"- [P]  2. draft") + 1
-    assert diffs == [f"Issue-12/checklist.md: written by park.sh at devagent 3.4.0: first differing line {line}: "
+    assert diffs == [f"Issue-12/checklist.md: written by park.sh at devagent 3.5.0: first differing line {line}: "
                      f"fixture '- [ ]  2. draft', devagent '- [P]  2. draft'"]
     assert diffs.compared == len(committed_record_files())
     # A timestamp is masked on both sides: changing only its digits is no difference.
@@ -251,7 +255,7 @@ def test_changed_fixture_fails_naming_fixture_script_and_line(tmp_path):
     (kept / "Issue-77").mkdir()
     (kept / "Issue-77" / "STUCK").write_bytes(b"Step:        2 draft\n")
     assert fx.compare(kept, made) == [
-        "Issue-13/STUCK: not written by stuck.sh at devagent 3.4.0",
+        "Issue-13/STUCK: not written by stuck.sh at devagent 3.5.0",
         "Issue-77/STUCK: committed but written by no recipe",
     ]
 
@@ -359,6 +363,35 @@ def test_doc_cites_equal_cites_table():
     assert found == table, (sorted(found - table), sorted(table - found))
     # The parser sees a cite in prose and ignores a gantry path that holds templates/.
     assert doc_cites("see `scripts/park.sh:63` and gantry/templates/page.html:4") == {("scripts/park.sh", 63, 63)}
+
+
+def test_formats_doc_states_the_hold_limits():
+    """devagent 3.5.0's hold.sh writes a question STUCK and parks without a `P` row; Gantry reads neither
+    yet, and the page says so under STUCK markers (#213)."""
+    from helpers_docs import heading_anchors, markdown_text
+
+    text = markdown_text(DOC)
+    heading = "### What Gantry does not read yet: operator questions"
+    assert text.count(f"\n{heading}\n") == 1
+    assert "what-gantry-does-not-read-yet-operator-questions" in heading_anchors(text)
+    lines = text.split("\n")
+    assert lines.index("## STUCK markers") < lines.index(heading) < lines.index("## Checklists")
+    part = text.split(f"\n{heading}\n")[1].split("\n## ")[0]
+    flat = " ".join(part.split())
+    assert "`Kind:        question`" in part
+    for name in ("`scripts/hold.sh`", "`stuck_no_step`", "`stuck_no_created`", "`parked`", "`read_stuck`",
+                 "`read_checklist`", "`scripts/lib/question-actions.sh:177-178`", "`scripts/park.sh:94`",
+                 "`scripts/hold.sh:207`", "mtibbits/devagent#962"):
+        assert name in flat, name
+    assert "Gantry reads neither yet" in flat and "`parked` false for a held issue" in flat
+    # The two places that stated the old behaviour point at the limits.
+    link = "(#what-gantry-does-not-read-yet-operator-questions)"
+    assert text.count(link) == 2
+    stuck, checklists = text.split("\n## STUCK markers\n")[1].split(f"\n{heading}\n")[0], \
+        text.split("\n## Checklists\n")[1].split("\n## ")[0]
+    assert link in stuck and "A third writer, new in devagent 3.5.0" in " ".join(stuck.split())
+    assert link in checklists and "unless the issue's STUCK is an operator question" in " ".join(checklists.split())
+    assert "Two writers write two shapes" not in text
 
 
 # --- final review fixes ----------------------------------------------------------------------
