@@ -371,7 +371,13 @@ def test_models_from_estimates_file_count(tmp_path):
     every = hp.set_models(models_doc(), "alpha", 4, thinking=("opus", "wbs"), checking=None)
     assert fallback_count(models_run(tmp_path / "every", every)) == []
     # Held-out leaves count too: the count is over open leaves, not the scheduled ones.
-    assert [x.key for x in scheduled(got.data)] == [x.key for x in got.data.leaves if x.open]
+    cycle = models_doc()
+    at = {n["source_line"]: n for p in cycle["projects"] if p["project"] == "alpha" for n in p["nodes"]}
+    for line, other in ((4, 8), (8, 4)):  # Bad alone and No keys wait on each other
+        at[line]["meta"]["depends_on"] = [at[other]["issue"]]
+    held = models_run(tmp_path / "held", cycle)
+    assert "Issue-4" in held.data.held_out and "Issue-4" not in [x.key for x in scheduled(held.data)]
+    assert fallback_count(held) == [MESSAGES["models_from_estimates_file_one"]]
 
 
 def test_no_model_tiers_message_by_schema(tmp_path):

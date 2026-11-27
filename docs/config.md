@@ -63,7 +63,7 @@ Keys of a `[site.<name>]` table:
 | Key | Type | Required | Default | Meaning | Owner |
 |---|---|---|---|---|---|
 | `requirements` | path | no | none | the site's requirements file ([format](requirements-format.md)); the site is in the trace only when this is set | #15 |
-| `estimates` | path, or `false` | no | discovery | the site's estimates file, read whatever its name and never replaced by discovery; `false` turns discovery off; absent, the planning directory's latest `estimates-YYYY-MM-DD*.md` is read ([the rules](worksite-page.md#the-estimates-file)). It gives every leaf its effort bucket, flags and hours, and model tiers only to a leaf with none in the portfolio JSON ([the per-leaf rule](worksite-page.md#which-estimate-a-leaf-uses), #14) | #10 |
+| `estimates` | path, or `false` | no | discovery | the site's estimates file, read whatever its name and never replaced by discovery; `false` turns discovery off; absent, the planning directory's latest `estimates-YYYY-MM-DD*.md` is read ([the rules](worksite-page.md#the-estimates-file)). It gives every open leaf its effort bucket and flags, hours when the leaf has no time `est:`, and model tiers only to a leaf with none in the portfolio JSON ([the per-leaf rule](worksite-page.md#which-estimate-a-leaf-uses), #14) | #10 |
 | `history` | path | no | the planning directory | the directory whose `WBS.md` git history is read ([the rules](wbs-history.md)); it must lie in a git work tree, whose top level may lie above it; the strategic page's time thieves read it ([the thieves](strategic-page.md#time-thieves), #29) | #28 |
 
 Keys of the `[refresh]` table:
