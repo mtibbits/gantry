@@ -12,6 +12,128 @@ into its section here.
 
 New entries are files in changelog.d/; README's "Versioning & releases" says how.
 
+## [0.2.0] — 2026-11-26
+
+### Added
+
+- Each built site's panel on the strategic page ends with a row of five
+  time thieves: too much work in progress, unknown dependencies, unplanned
+  work, conflicting priorities and neglected work. Each shows its value, its
+  threshold from the portfolio file's `[thresholds]`, whether it is flagged
+  and its source, or "no data" with the reason. What only the build machine
+  can see (its own checklists and STUCK markers, an uncommitted `WBS.md`)
+  is labelled "as seen by this build machine". Neglected work reads each
+  site's `WBS.md` history from its planning repository, so the build now
+  runs git (docs/strategic-page.md#time-thieves). When one site's thieves
+  cannot be derived, its row reads "no data" and `gantry build` warns
+  `gantry: warning: site <name>: thieves not derived: <type>`; the exit
+  code is unchanged.
+- The strategic page shows the fires that name no site, above the groups.
+- `gantry build` plans the week from the capacity devagent's config
+  declares: its `[capacity]` table and each `[project.<name>.capacity]`
+  table, read from the devagent config the installation already names. The
+  build runs no devagent command and needs no new config key. The declared
+  weekly operator hours are scaled onto the portfolio file's weekdays after
+  reserved blocks, or spread evenly over Monday to Friday when the portfolio
+  file sets no `attention_hours`; `max_lanes` and `lane_hours_per_week` give
+  the lanes and a lane's hours a day in place of `agent_lanes` and 6 hours;
+  `operator_hours_per_agent_hour`, up to 24, is the rate of every leaf with
+  no `h:`; a project with `paused = true` gets nothing, each open leaf
+  unplanned as `paused`; and the token budget is shown, not scheduled. With no
+  `[capacity]` table the plan is the one the portfolio file gives, as
+  before. An installation whose devagent config already has a `[capacity]`
+  table is planned from it from this release on
+  (docs/week-plan.md#declared-capacity-from-devagent).
+- A declaration that breaks one of devagent's rules is not used: the week is
+  planned from the portfolio file, and the week view says so and lists each
+  line devagent's own reader writes about it; `gantry build` warns
+  `gantry: warning: devagent's capacity declaration is invalid (<count>); it is not used`
+  on stderr, since a site it pauses is then planned again. An unknown key
+  is ignored and listed. The rules are devagent's, mirrored from its release 3.4.0 and held
+  to it by a test that runs devagent's reader on the same config files
+  (docs/devagent-formats.md#the-capacity-declaration).
+- The week view shows each pool's capacity source, `portfolio file` or
+  `devagent capacity declaration (this build machine)`, how the declared
+  hours were laid on the weekdays, each weekday whose hours did not fit in
+  the day, a declared ratio of 0 or one that is not used, and the token
+  budget. The no-plan page shows those of these lines that still apply.
+- `week-plan.json` gains `capacity`, each day's
+  `attention_hours_lost_to_cap` and each report entry's `text`, the
+  unplanned reason `paused` and the report kinds `capacity_invalid` and
+  `capacity_unknown_key`. `plan_version` stays 1
+  (docs/week-plan.md#the-version-rule).
+- The sample devagent config gains a `[capacity]` table that matches the
+  sample portfolio file, so the demo's blocks are unchanged: its week view
+  names devagent's declaration as the capacity source and gains the token
+  budget line.
+- Each leaf box on the worksite network and on the week view shows a row of
+  five small boxes, one per devagent workflow phase (plan, implement, check,
+  merge, wrap up), worked out by step name from the leaf's `checklist.md`:
+  a green check for a phase done, a steady green dot for the current one,
+  `!`, `P` or `?` for a stuck, parked or blocked-outside step, an empty box
+  ahead, a dash for a phase the workflow skips, and a crossed box when the
+  checklist cannot be trusted. The box's tooltip states the row as text, and
+  both pages' legends name the eight looks and say the row shows the build
+  machine's copy of each checklist (docs/worksite-page.md#the-phase-row).
+- The samples gain devagent-written checklists on drawn leaves, so the demo
+  pages show a row mid-plan, implementing, checking, waiting at `mergemr`,
+  stuck, parked and unknown.
+
+### Changed
+
+- **Break:** `gantry build` reads every site from devagent's portfolio JSON
+  instead of reading each `WBS.md` itself, and the installation config moves
+  to `config_version = 2` with a new required key, `portfolio_json`, naming
+  that document. A version-1 config is refused. To upgrade, make both edits:
+  set `config_version = 2`, and add `portfolio_json = "<path>"` naming the
+  file devagent's aggregator writes (`<devagent home>/portfolio/portfolio.json`;
+  add the aggregator to `[refresh] update` after the pulls,
+  docs/refresh-and-serve.md#the-update-list). Run the aggregator
+  (`/devagent:portfolio`) before each build: a missing or unreadable document
+  stops the build with exit 1 and writes nothing (docs/config.md#version-history).
+  On Windows, run Gantry under WSL beside the aggregator: a native-Windows
+  Gantry cannot share a `devdoc_dir` with it (docs/config.md#supported-platforms).
+- A site devagent's config names and the document does not, a project only the
+  document holds, and a site whose status the document reads otherwise than
+  Gantry are listed "out of date" and not built; give every `devdoc_dir` as
+  an absolute path (docs/worksite-page.md#statuses). Not-built reasons use the
+  document's words (`no WBS.md: the devdoc dir has no WBS.md`).
+- Outside sample mode every page's stamp ends with when devagent wrote the
+  data (`; devagent data written <time>`). devagent's own report entries are
+  lines of their site's panel, and a metadata list shows as `[a, b]`.
+- devagent's near-miss rule decides which mistyped lines are reported, so
+  `* [ ] ...` and `+ [ ] ...` lines now fail the P0 check closed, and a line
+  indented with no-break spaces no longer does (docs/daily-screen.md#fires).
+- The demo build (`tools/demo_build.py`) fetches devagent at the pinned
+  release and runs its aggregator: it needs bash and network access, and
+  refuses Windows (docs/demo.md).
+- The portfolio file's advisory `capacity_missing` entry now reads
+  `no capacity.<key>, so the week planner has no capacity to plan into
+  unless devagent's capacity declaration is used`, in `gantry portfolio`'s
+  output and on the strategic page. With a used declaration the week is
+  planned without that key. The entry is still reported from the file
+  alone, and `gantry portfolio` still exits 1 on it.
+- The full build reads each site's devagent issue folders once, before the
+  pages, and the pages and the fire collector share that read; a `--site`
+  build reads its one site's folders. A site whose records cannot be read
+  still gets its page, with unknown rows and one more "Missing or
+  unreadable" line, so the index counts one more for it.
+- Worksite network boxes are 78 high (rows 92 apart) to fit the phase row.
+- The sample build's `fires:` line reads `fires: 8; sources not fully read: 1`:
+  the new harbor `Issue-16` sample is stuck, with the STUCK marker devagent
+  writes.
+- **Break:** the oldest supported devagent is now 3.4.0. devagent 3.0.0 to
+  3.3.x are no longer supported: upgrade devagent to 3.4.0 or later before
+  installing this release. Gantry's fixtures, tests and documented devagent
+  formats are those of `devagent--v3.4.0` (`tests/devagent.pin`), and the
+  portfolio reader names schema 1.2, the schema that release writes; it
+  still reads any 1.x document (docs/devagent-formats.md#the-pinned-release).
+
+### Removed
+
+- Gantry's own `WBS.md` parser (`gantry/wbs_stopgap.py`), and with it the
+  raw-text reading of metadata: every value is devagent's parse.
+
 ## [0.1.3] — 2026-11-19
 
 ### Added
