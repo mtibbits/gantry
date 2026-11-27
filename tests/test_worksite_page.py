@@ -20,7 +20,8 @@ from gantry.attention import MESSAGES as H_MESSAGES, check_h
 from gantry.build import site_data
 from gantry.config import SiteOverride
 from gantry.config import load_config as load_installation
-from gantry.inputs import EstimatesSource, apply_inputs
+from gantry.inputs import MESSAGES as INPUT_MESSAGES
+from gantry.inputs import NO_TIERS_SCHEMA, EstimatesSource, apply_inputs
 from gantry.links import leaf_anchor
 from gantry.model import Estimate, Leaf, Models, Row, SiteData
 from gantry.estimates_file import find_estimates_file, read_estimates_file
@@ -40,11 +41,13 @@ from gantry.views.worksite import (
     NO_LEAVES,
     NO_OPEN,
     NO_TIERS,
+    NOTHING_MISSING,
     SCHEDULE_LABEL,
     page_model,
+    render_model,
     render_page,
 )
-from gantry.portfolio_json import tag
+from gantry.portfolio_json import map_document, tag
 from page_safety import CSP_CONTENT, HOSTILE, assert_no_external_resources, assert_page_safe
 from helpers_config import demo_build, matched_sites, page_ids
 from page_script.harness import Planted, open_page, run_function
@@ -370,12 +373,12 @@ def hostile_site():
     return SiteData(leaves, rows, links, (), (), schema_models=True)
 
 
-# Shown on the base page: the keys, titles, epic name, priority and tier;
-# with hostile_inputs also the estimates file's name (1) and a thinking tier (0).
-ALWAYS = [HOSTILE[i] for i in (7, 1, 2, 0, 8, 10, 4, 5, 3)]
+# Shown on the base page: the keys, titles, epic name and priority; with
+# hostile_inputs also the estimates file's name (1) and a thinking tier (0).
+ALWAYS = [HOSTILE[i] for i in (7, 1, 2, 0, 8, 10, 4, 5)]
 # Shown only in the detail of the leaf that holds them: its metadata and flag,
-# and Issue-4's est:.
-DETAIL = {HOSTILE[7]: [HOSTILE[6], HOSTILE[9]], "Issue-4": [HOSTILE[2]]}
+# HOSTILE[1]'s tier (a value no per-epic table row counts, #14), and Issue-4's est:.
+DETAIL = {HOSTILE[7]: [HOSTILE[6], HOSTILE[9]], HOSTILE[1]: [HOSTILE[3]], "Issue-4": [HOSTILE[2]]}
 # With hostile_inputs, Issue-4's detail also shows its effort, checking tier and flags.
 INPUT_DETAIL = {**DETAIL, "Issue-4": [HOSTILE[2], HOSTILE[8], HOSTILE[6], HOSTILE[10]]}
 
@@ -834,12 +837,22 @@ def test_inherit_tier_is_text_with_fallback(tmp_path):
     assert "think inherit" in [text_of(t, i) for i in find(t, "text", ["band-t"], within=node)]
 
 
+def panel_items(page):
+    """The text of each <li> of the page's report panel."""
+    t = tree(page)
+    (panel,) = [i for i, el in enumerate(t.elements) if el["attrs"].get("id") == "panel"]
+    return [text_of(t, i) for i in find(t, "li", within=panel)]
+
+
 def test_no_tiers_line_and_panel():
     inputs = sample_inputs(UNESTIMATED)
     m = model_with(inputs, UNESTIMATED)
     assert m["notes"]["no_tiers"] == NO_TIERS
     assert NO_TIERS in m["panel"]
-    assert visible_text(page_with(inputs, UNESTIMATED)).count(NO_TIERS) == 2
+    page = page_with(inputs, UNESTIMATED)
+    # The exact line, not a text that holds it: the older-schema message holds it too (#14).
+    assert panel_items(page).count(NO_TIERS) == 1 and NO_TIERS_SCHEMA not in page
+    assert visible_text(page).count(NO_TIERS) == 2
 
 
 def test_page_model_refuses_untyped_containers():
@@ -1706,3 +1719,244 @@ def test_hostile_document_strings_are_inert(tmp_path):
     lines = err.splitlines()
     assert any("site beta is not built: no WBS.md: ' onmouseover='gantrypwn(5)\\x1b[2J\\n" in line for line in lines)
     assert any("project <script>gantrypwn(1)</script> is in the document and not in" in line for line in lines)
+
+
+# --- model tiers from the portfolio JSON (#14) -------------------------------------------------
+
+MODELS_ESTIMATES = INPUTS / "models-estimates.md"
+LEAF_BAD = 'thinking "gpt" is not one of: sonnet opus haiku fable inherit; the key counts as absent'
+MODEL_KEY_WARNING = "line {line}: thinking 'gpt' is not one of: sonnet opus haiku fable inherit"
+
+
+def chained(doc, name):
+    """`doc` with each open leaf of `name` after the first depending on the one before it, in place,
+    so every open leaf is a network node with its bands (models.md has no depends_on)."""
+    proj = next(p for p in doc["projects"] if p["project"] == name)
+    parents = {n["parent"] for n in proj["nodes"]}
+    leaves = [n for n in sorted(proj["nodes"], key=lambda n: n["source_line"])
+              if n["id"] not in parents and n["glyph"] == " "]
+    for before, after in zip(leaves, leaves[1:]):
+        after["meta"]["depends_on"] = [before["issue"]]
+    return doc
+
+
+def models_project(name="models", doc=None):
+    """(SiteData, shown devagent entries) of written.json's project `name`, or of `doc`'s, its open
+    leaves chained."""
+    got = map_document(chained(hp.written_doc() if doc is None else doc, name))
+    data = next(p for p in got.projects if p.name == name).data
+    return data, [e for e in got.devagent_report if e.project == name]
+
+
+def models_page(tmp_path, name="models", doc=None, estimates=None):
+    """(page model, page) of a models project, through apply_inputs, with its shown devagent entries."""
+    data, shown = models_project(name, doc)
+    inputs = inputs_for(tmp_path / name, data, site=name, estimates=estimates)
+    m = page_model(name, inputs.data, default_unit_hours=6, inputs=inputs, devagent=shown)
+    return m, render_model(m)
+
+
+def band_texts(t, node):
+    return [text_of(t, i) for i in find(t, "text", ["band-t"], within=node)]
+
+
+def node_of(t, key):
+    (node,) = [i for i in find(t, "g", ["node"]) if t.elements[i]["attrs"]["data-item"] == key]
+    return node
+
+
+def lane_of_key(m, key):
+    lane = by_key(m)[key]["lane"]
+    return next(frame for frame in m["lanes"] if frame["key"] == m["lanes"][lane]["key"])
+
+
+def test_table_counts_named_models_only():
+    leaves = (
+        _leaf("Issue-2", "Issue-2", "1.1", "A", EPIC, 2, models=Models("inherit", "opus", "wbs", ("wbs", "wbs"))),
+        _leaf("Issue-3", "Issue-3", "1.2", "B", EPIC, 3, models=Models("sonnet-5", "fable", "wbs", ("wbs", "wbs"))),
+        _leaf("Issue-4", "Issue-4", "1.3", "C", EPIC, 4, models=Models("inherit", "sonnet", "estimates_file")),
+    )
+    rows = (Row(EPIC, EPIC, "1", "Epic", " ", "pending", 1, None, {}),)
+    data = SiteData(leaves, rows, (("Issue-2", "Issue-3"), ("Issue-3", "Issue-4")), (), (), schema_models=True)
+    m = page_model("alpha", data, default_unit_hours=6)
+    (lane,) = m["lanes"]
+    assert lane["models"] == {"think": [], "check": [["sonnet", 1], ["opus", 1], ["fable", 1]]}
+    t = tree(render_model(m))
+    (label,) = find(t, "g", ["lane-label"])
+    assert [text_of(t, find(t, "title", within=r)[0]) for r in find(t, "g", ["mt-row"], within=label)] == [
+        "sonnet", "opus", "fable"]
+    assert "think inherit" in band_texts(t, node_of(t, "Issue-2"))
+    assert "think sonnet-5" in band_texts(t, node_of(t, "Issue-3"))
+    assert bands(t, node_of(t, "Issue-3"))[0] == {"band", "m-other"}
+
+
+def test_wbs_tiers_band_and_table(tmp_path):
+    m, page = models_page(tmp_path)
+    t = tree(page)
+    assert bands(t, node_of(t, "Issue-2")) == [{"band", "m-fable"}, {"band", "m-sonnet"}]
+    lane = lane_of_key(m, "Issue-2")
+    assert dict(lane["models"]["think"])["fable"] == 1 and dict(lane["models"]["check"])["sonnet"] == 1
+
+
+def test_project_class_beside_wbs_shown_and_counted(tmp_path):
+    m, page = models_page(tmp_path, "models_project")
+    t = tree(page)
+    node = node_of(t, "Issue-3")
+    assert band_texts(t, node) == ["think sonnet", "check opus"]
+    assert bands(t, node) == [{"band", "m-sonnet"}, {"band", "m-opus"}]
+    # Think only and Inherit each take the project's checking class beside their wbs thinking.
+    assert dict(lane_of_key(m, "Issue-3")["models"]["check"])["opus"] == 2
+
+
+def test_thinking_only_band(tmp_path):
+    m, page = models_page(tmp_path)
+    t = tree(page)
+    node = node_of(t, "Issue-3")
+    assert band_texts(t, node) == ["think sonnet", f"check {leafbox.NO_MODEL}"]
+    assert bands(t, node) == [{"band", "m-sonnet"}, {"band", "m-other"}]
+    # Its lane's check counts are the other leaves' only: Both's sonnet and Bad beside legal's fable.
+    assert lane_of_key(m, "Issue-3")["models"]["check"] == [["sonnet", 1], ["fable", 1]]
+
+
+def project_only(doc, name):
+    """`doc` with every leaf of `name` holding project classes only."""
+    proj = next(p for p in doc["projects"] if p["project"] == name)
+    for node in proj["nodes"]:
+        if node["leaf"]:
+            hp.set_models(doc, name, node["source_line"], thinking=None, checking=("opus", "project"))
+    return doc
+
+
+def test_all_project_site_without_estimates_shows_no_tiers(tmp_path):
+    m, page = models_page(tmp_path, "models_project", doc=project_only(hp.written_doc(), "models_project"))
+    assert all(leaf["models"] is None for leaf in m["leaves"])
+    assert panel_items(page).count(NO_TIERS) == 1
+    assert NO_TIERS_SCHEMA not in page
+    assert find(tree(page), "rect", ["band"]) == []
+
+
+def test_all_inherit_site_draws_no_empty_table():
+    leaves = (
+        _leaf("Issue-2", "Issue-2", "1.1", "A", EPIC, 2, models=Models("inherit", "inherit", "wbs", ("wbs", "wbs"))),
+        _leaf("Issue-3", "Issue-3", "1.2", "B", EPIC, 3, models=Models("sonnet-5", None, "wbs", ("wbs", None))),
+    )
+    rows = (Row(EPIC, EPIC, "1", "Epic", " ", "pending", 1, None, {}),)
+    data = SiteData(leaves, rows, (("Issue-2", "Issue-3"),), (), (), schema_models=True)
+    t = tree(render_page("alpha", data, default_unit_hours=6))
+    for label in find(t, "g", ["lane-label"]):
+        assert find(t, "text", ["mt-h"], within=label) == [] and find(t, "line", ["mt-rule"], within=label) == []
+        assert find(t, "g", ["mt-row"], within=label) == []
+    assert band_texts(t, node_of(t, "Issue-2")) == ["think inherit", "check inherit"]
+    assert bands(t, node_of(t, "Issue-3")) == [{"band", "m-other"}, {"band", "m-other"}]
+
+
+def test_count_line_keeps_all_clear(tmp_path):
+    folder = tmp_path / "clear"
+    folder.mkdir()
+    (folder / "estimates-2026-01-01.md").write_bytes(
+        b"| # | effort | hours | thinking | checking | flags |\n|---|---|---|---|---|---|\n"
+        b"| #1 | S | 2 | opus | opus | |\n")
+    data = hp.site(hp.node("A", issue="Issue-1", priority="P1"))
+    inputs = inputs_for(folder, data)
+    count = INPUT_MESSAGES["models_from_estimates_file_one"]
+    assert [e.kind for e in inputs.data.report] == ["models_from_estimates_file"]
+    page = page_with(inputs)
+    assert panel_items(page) == [count, NOTHING_MISSING]
+    # Any other entry still takes the all-clear away.
+    other = page_with(inputs_for(tmp_path / "other", hp.site(hp.node("A", issue="Issue-1"))))
+    assert NOTHING_MISSING not in panel_items(other)
+
+
+def test_unknown_model_source_and_value_build_exit_0(tmp_path, monkeypatch):
+    from helpers_config import copy_samples
+
+    copy = copy_samples(tmp_path)
+
+    def change(doc):
+        harbor = next(p for p in doc["projects"] if p["project"] == BUSY)
+        six = next(n for n in harbor["nodes"] if n["issue"] == "Issue-6")
+        hp.set_models(doc, BUSY, six["source_line"], thinking=("opus", "config"), checking=None)
+        quarry = next(p for p in doc["projects"] if p["project"] == UNESTIMATED)
+        leaf = next(n for n in quarry["nodes"] if n["leaf"] and n["glyph"] == " ")
+        hp.set_models(doc, UNESTIMATED, leaf["source_line"], thinking=("sonnet-5", "wbs"), checking=None)
+        return doc
+
+    hp.rewrite_document(copy, change)
+    code, out, _, err = demo_build(tmp_path, monkeypatch, copy=copy)
+    assert code == 0, err
+    data = assert_page_safe((out / "sites" / f"{BUSY}.html").read_bytes().decode("utf-8"), [])
+    found = find_estimates_file(SAMPLE_ROOTS, SiteEntry(BUSY, SAMPLES / BUSY, None), SimpleNamespace(sites={}))
+    row = read_estimates_file(SAMPLE_ROOTS, found.path, BUSY, found.name).rows["Issue-6"]
+    six = next(leaf for leaf in data["leaves"] if leaf["key"] == "Issue-6")
+    assert six["models"] == [row.thinking, row.checking]
+    quarry = assert_page_safe((out / "sites" / f"{UNESTIMATED}.html").read_bytes().decode("utf-8"), [])
+    assert ["sonnet-5", None] in [leaf["models"] for leaf in quarry["leaves"]]
+
+
+def test_model_key_entries_on_the_panel(tmp_path):
+    for name in ("models", "models_project"):
+        doc = hp.written_doc()
+        doc["parse_report"] += [
+            {"project": name, "source_line": line, "kind": "parser_warning",
+             "message": MODEL_KEY_WARNING.format(line=line)} for line in (1, 4)]
+        m, page = models_page(tmp_path / name, name, doc=doc, estimates=MODELS_ESTIMATES)
+        for line in (4, 5):
+            assert m["panel"].count(f"devagent bad_model: WBS.md line {line}: {LEAF_BAD}") == 1, (name, line)
+        warned = [x for x in m["panel"] if x.startswith("devagent parser_warning")]
+        assert warned == [f"devagent parser_warning: WBS.md line 1: {MODEL_KEY_WARNING.format(line=1)}"], name
+        t = tree(page)
+        # Bad alone: its malformed key counts as absent, so its row's tiers show.
+        assert band_texts(t, node_of(t, "Issue-4")) == ["think haiku", "check sonnet"], name
+        assert band_texts(t, node_of(t, "Issue-5")) == [f"think {leafbox.NO_MODEL}", "check fable"], name
+
+
+def test_count_line_on_panel(tmp_path):
+    doc = hp.written_doc()
+    for line in (3, 6):  # Think only and Inherit lose their wbs classes: with Bad alone, 3 from the file
+        hp.set_models(doc, "models", line, thinking=None, checking=None)
+    m, _ = models_page(tmp_path / "three", doc=doc, estimates=MODELS_ESTIMATES)
+    assert INPUT_MESSAGES["models_from_estimates_file"].format(n=3) in m["panel"]
+    none = hp.set_models(hp.written_doc(), "models", 4, thinking=("opus", "wbs"), checking=None)
+    m, _ = models_page(tmp_path / "none", doc=none, estimates=MODELS_ESTIMATES)
+    assert not [x for x in m["panel"] if x.startswith("model tiers from the estimates file")]
+
+
+def hostile_models_page():
+    """(page model, page): a site whose leaves each hold one HOSTILE text as a wbs thinking value, and
+    one bad_model entry per HOSTILE text, through map_document."""
+    nodes = [hp.node(f"Leaf {i}", issue=f"Issue-{i + 1}", priority="P1") for i in range(len(HOSTILE))]
+    for i in range(1, len(nodes)):
+        nodes[i]["meta"]["depends_on"] = [f"Issue-{i}"]
+    doc = hp.document(hp.project("alpha", *nodes))
+    for i, text in enumerate(HOSTILE):
+        hp.set_models(doc, "alpha", i + 1, thinking=(text, "wbs"), checking=None)
+        doc["parse_report"].append({"project": "alpha", "source_line": i + 1, "kind": "bad_model", "message": text})
+    data, shown = models_project("alpha", doc)
+    assert [leaf.models.thinking for leaf in data.leaves] == list(HOSTILE)
+    m = page_model("alpha", data, default_unit_hours=6, devagent=shown)
+    return m, render_model(m)
+
+
+def test_hostile_models_and_bad_model_page_is_safe():
+    m, page = hostile_models_page()
+    data = assert_page_safe(page, HOSTILE)
+    assert [leaf["models"] for leaf in data["leaves"]] == [[text, None] for text in HOSTILE]
+    t = tree(page)
+    band_classes = {c for i in find(t, "rect", ["band"]) for c in t.elements[i]["classes"]} - {"band"}
+    assert band_classes == {"m-other"}
+    for i, text in enumerate(HOSTILE):
+        assert data["panel"].count(f"devagent bad_model: WBS.md line {i + 1}: {text}") == 1, text
+
+
+def test_hostile_models_under_harness(node, tmp_path):
+    _, page = hostile_models_page()
+    keys = [f"Issue-{i + 1}" for i in range(len(HOSTILE))]
+    with open_page(write(tmp_path, page)) as live:
+        assert live.planted_nodes(HOSTILE) == Planted([], [], [])
+        for key in keys:
+            live.drive("network-detail", key)
+            assert live.planted_nodes(HOSTILE) == Planted([], [], []), ("net", key)
+            live.drive("schedule-detail", key)
+            assert live.planted_nodes(HOSTILE) == Planted([], [], []), ("sched", key)
+        classes = {c for rect in live.query("rect.band") for c in rect.classes} - {"band"}
+        assert classes == {"m-other"}

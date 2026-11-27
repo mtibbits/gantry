@@ -66,6 +66,8 @@ DEVAGENT_LINE_BARE = "devagent {kind}: {message}"
 RECORDS_LINE = "Phase rows show unknown: this site's devagent records were not read ({reason})"
 ALL_HELD = "Every open leaf waits on a dependency cycle, so nothing can be scheduled; the panel lists them."
 NOTHING_MISSING = "Nothing is missing or unreadable."
+# Report kinds that tell, not warn: the all-clear still shows beside them (#14).
+INFORMATIONAL = ("models_from_estimates_file",)
 NO_ISSUE_LINE = "{n} leaves have no issue: id and are named by outline position"
 NO_ISSUE_LINE_ONE = "1 leaf has no issue: id and is named by outline position"
 WAITS_LINE = "WBS.md line {line}: {key!r} waits on a cycle"
@@ -458,10 +460,11 @@ def _known_first(tiers):
 
 
 def _tier_counts(tiers):
-    """[[tier, count], ...]: the known tiers in order, then the rest as first seen."""
+    """[[tier, count], ...] of the four named models (MODEL_CLASSES), in that order, from any
+    source (#14). `inherit` and any other value get no row: the band shows them as text."""
     counts = {}
     for t in tiers:
-        if t is not None:
+        if t in MODEL_CLASSES:
             counts[t] = counts.get(t, 0) + 1
     return [[t, counts[t]] for t in _known_first(counts)]
 
@@ -643,6 +646,9 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None, built
     else:
         # No items but an open leaf: every open leaf is held out.
         status = ALL_HELD if any(leaf.open for leaf in data.leaves) else NO_OPEN
+    panel = (_panel(data) + [devagent_line(entry) for entry in devagent]
+             + ([RECORDS_LINE.format(reason=records.reason)]
+                if records is not phases.NO_RECORDS and records.status != READ else []))
     return {
         "site": site,
         "empty": empty,
@@ -668,9 +674,9 @@ def page_model(site, data, *, default_unit_hours, inputs=None, trace=None, built
             "near": [[s, near[s]] for s in sorted(near)],
             "heaviest": {"keys": list(chain), "hours": chain_total, "same": bool(path) and chain_total == sum(hours[k][0] for k in path)},
         },
-        "panel": _panel(data) + [devagent_line(entry) for entry in devagent]
-                 + ([RECORDS_LINE.format(reason=records.reason)]
-                    if records is not phases.NO_RECORDS and records.status != READ else []),
+        "panel": panel,
+        # Whether nothing is missing or unreadable: the panel holds informational lines only (#14).
+        "all_clear": len(panel) == sum(e.kind in INFORMATIONAL for e in data.report),
         "summary": summary_text(items, planned, path, LANES_DEFAULT, totals.unestimated_count,
                                 unest_path, no_chain),
         "unestimated": {"site": totals.unestimated_count, "heaviest": sum(k in unest for k in chain),
@@ -796,7 +802,8 @@ def _lane_label(lane, top, tiers_shown):
     if lane["unestimated"]:
         y += 14
         out.append(_text("lane-free", 14, y, _includes(lane["unestimated"])))
-    if tiers_shown:
+    # A lane with no named model to count draws no table, header and rule included (#14).
+    if tiers_shown and (lane["models"]["think"] or lane["models"]["check"]):
         y += 18
         out += [_text("mt-h", 14, y, "model"), _text("mt-h", 136, y, "think", "end"),
                 _text("mt-h", 184, y, "check", "end"),
@@ -1232,7 +1239,7 @@ def render_model(m, *, stamp="") -> str:
     near = Markup("; ".join(f"slack {s}: " + _mono(keys) for s, keys in net["near"]))
     options = "".join(f'<option value="{i}"{" selected" if i == LANES_DEFAULT else ""}>{i}</option>'
                       for i in range(1, LANES_MAX + 1))
-    panel = m["panel"] or [NOTHING_MISSING]
+    panel = m["panel"] + ([NOTHING_MISSING] if m["all_clear"] else [])
     limits_svg, limits_caption = _limits_svg(m)
     return fill(
         render.asset("templates/worksite.html"),
