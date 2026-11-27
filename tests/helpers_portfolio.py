@@ -153,7 +153,7 @@ def document(*projects, report=()) -> dict:
     entries = [entry for p in projects for entry in auto_report(p)]
     entries += [{"project": p, "source_line": line, "kind": kind, "message": message}
                 for p, line, kind, message in report]
-    return {"schema": "devagent-portfolio", "schema_version": "1.2", "generated_at": sp.FIXED_TIME,
+    return {"schema": "devagent-portfolio", "schema_version": "1.3", "generated_at": sp.FIXED_TIME,
             "projects": list(projects), "parse_report": entries}
 
 
@@ -326,6 +326,9 @@ def set_models(doc, project_name, line, *, thinking, checking) -> dict:
 # devagent's message when the file does not exist (ACTUALS_MISSING in its scripts/lib/portfolio.py;
 # test_actuals_message_is_the_tags holds it to the pin). `{path}` is the file's absolute path.
 ACTUALS_MISSING = "{path} does not exist; actuals are empty; run /devagent:actuals"
+# The entry's kind. devagent writes it only in a document that has the top-level `actuals` key (its
+# build_document), so it is about the document, not about a site's WBS.md text.
+ACTUALS_KIND = "actuals_unavailable"
 # The empty form of a slot: no milestones source and no transcript call charged to the issue.
 EMPTY_SLOT = {"milestones": None, "sessions": [], "time": None, "tokens": None}
 ACTUALS_AT = "2026-01-12T09:00:00Z"
@@ -399,7 +402,7 @@ def unavailable(doc, message, projects=None) -> dict:
                 if rank > order[name] or (rank == order[name] and item["source_line"] is not None):
                     at = i
                     break
-        report.insert(at, {"project": name, "source_line": None, "kind": "actuals_unavailable", "message": message})
+        report.insert(at, {"project": name, "source_line": None, "kind": ACTUALS_KIND, "message": message})
     return out
 
 
@@ -466,7 +469,9 @@ def fixture_source(name) -> Source:
 # devagent's reading of each tree install() copies (#197): the 14 week_plan/*/gantry.toml folders and
 # capacity/install, capacity/install_dep, keyed by path under tests/fixtures, with the pin it was made at
 # and each input's sha256 (test_site_builder pins both). Made by running the pinned aggregator on each
-# tree (its generator is in #197's pull request); never edited by hand.
+# tree; never edited by hand. Its generator is not in the repository yet (#206): the script as last run,
+# gen_trees213.py, is in #213's pull request (#197's gen_trees197.py less the actuals_unavailable
+# entries, which would carry the throwaway devagent home's absolute path).
 TREES = sp.ROOT / "tests" / "fixtures" / "week_plan" / "trees.json"
 
 
@@ -478,7 +483,10 @@ def tree_source(tree, site, text) -> Source:
 
 def _written_source(path, name, text, tree=None) -> Source:
     """`text` with project `name`'s nodes in the committed document at `path` (in its tree `tree`
-    when given), and its entries that are neither auto_report's nor a foreign dep_unresolved."""
+    when given), and its entries that are neither auto_report's nor a foreign dep_unresolved.
+
+    An actuals_unavailable entry is left out too (#213): the documents made from a Source have no
+    `actuals` key, and devagent writes that entry only beside the key. hp.unavailable adds it."""
     doc = _parsed(path)
     if tree is not None:
         if tree not in doc["trees"]:
@@ -487,7 +495,7 @@ def _written_source(path, name, text, tree=None) -> Source:
     (proj,) = [p for p in doc["projects"] if p["project"] == name]
     report = tuple((e["source_line"], e["kind"], e["message"]) for e in doc["parse_report"]
                    if e["project"] == name and not auto_entry(e, name)
-                   and not _foreign_unresolved(e["kind"], e["message"]))
+                   and not _foreign_unresolved(e["kind"], e["message"]) and e["kind"] != ACTUALS_KIND)
     return Source(text, tuple(copy.deepcopy(proj["nodes"])), report)
 
 

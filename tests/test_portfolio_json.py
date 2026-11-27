@@ -114,7 +114,7 @@ def chain(depth):
 
 
 def test_constants():
-    assert (pj.SCHEMA_ID, pj.MAJOR, pj.MINOR, pj.MAX_DEPTH) == ("devagent-portfolio", 1, 2, 64)
+    assert (pj.SCHEMA_ID, pj.MAJOR, pj.MINOR, pj.MAX_DEPTH) == ("devagent-portfolio", 1, 3, 64)
     assert pj.STATUSES == ("read", "no_wbs", "no_devdoc_dir", "unreadable")
     doc = hp.written_doc()
     assert doc["schema_version"] == f"{pj.MAJOR}.{pj.MINOR}"
@@ -138,8 +138,8 @@ def test_unknown_major_names_both_versions(tmp_path):
         error = load_error(tmp_path, doc)
         assert error.kind == "version"
         assert str(error) == (f'{doc_path(tmp_path)}: portfolio schema_version "{found}" is not supported: '
-                              "Gantry reads major 1 (schema 1.2)")
-        assert f'"{found}"' in str(error) and "schema 1.2" in str(error)
+                              "Gantry reads major 1 (schema 1.3)")
+        assert f'"{found}"' in str(error) and "schema 1.3" in str(error)
         with pytest.raises(PortfolioLoadError) as info:
             map_document(doc)
         assert info.value.kind == "version" and info.value.source == "the portfolio document"
@@ -148,7 +148,7 @@ def test_unknown_major_names_both_versions(tmp_path):
 
 def test_newer_minor_with_unknown_fields_is_read(tmp_path):
     plain = hp.read_doc(tmp_path, hp.written_doc())
-    assert isinstance(plain, PortfolioInput) and plain.schema_version == "1.2"
+    assert isinstance(plain, PortfolioInput) and plain.schema_version == "1.3"
     doc = hp.written_doc()
     doc["schema_version"] = "1.9"
     doc["later"] = {"deep": [1, {"x": None}]}
@@ -157,9 +157,9 @@ def test_newer_minor_with_unknown_fields_is_read(tmp_path):
     doc["parse_report"][0]["later"] = None
     got = hp.read_doc(tmp_path, doc)
     assert got.schema_version == "1.9"
-    assert dataclasses.replace(got, schema_version="1.2") == plain
+    assert dataclasses.replace(got, schema_version="1.3") == plain
     # An unknown field is ignored at the reader's own minor too.
-    doc["schema_version"] = "1.2"
+    doc["schema_version"] = "1.3"
     assert hp.read_doc(tmp_path, doc) == plain
 
 
@@ -320,8 +320,14 @@ def test_older_minor_is_read(tmp_path):
         got = hp.read_doc(tmp_path, doc)
         assert got.schema_version == minor
         # The same data, without the tiers 1.2 carries: nothing else differs.
-        assert dataclasses.replace(got, schema_version="1.2") == without_models(plain)
+        assert dataclasses.replace(got, schema_version="1.3") == without_models(plain)
         assert got != dataclasses.replace(plain, schema_version=minor)
+    # At 1.2 the tiers are read; the actuals are read by their own key, whatever the minor (#213).
+    doc = hp.written_doc()
+    doc["schema_version"] = "1.2"
+    got = hp.read_doc(tmp_path, doc)
+    assert got.schema_version == "1.2" and dataclasses.replace(got, schema_version="1.3") == plain
+    assert got.actuals.wired is True
 
 
 def test_missing_or_outside_roots_document_names_path_and_remedy(tmp_path):
@@ -566,7 +572,7 @@ SCHEMA_ROWS = (
      "nests deeper than 64 levels"),
     ("a chain 5,000 deep", _set(("projects", EMPTY, "nodes"), chain(5000)), "$.projects[1].nodes[64].parent",
      "nests deeper than 64 levels"),
-    ("shapes are checked before parent links", _both_passes, "$.parse_report[74].message", "not a string"),
+    ("shapes are checked before parent links", _both_passes, "$.parse_report[91].message", "not a string"),
 )
 
 
@@ -574,7 +580,7 @@ def test_schema_breaking_documents(tmp_path):
     assert len(SCHEMA_ROWS) == 71
     doc = hp.written_doc()
     assert (doc["projects"][IDS]["nodes"][1]["id"], doc["projects"][IDS]["nodes"][0]["id"]) == ("n13", "n12")
-    assert doc["projects"][CYCLE]["nodes"][0]["id"] == "n1" and len(doc["parse_report"]) == 75
+    assert doc["projects"][CYCLE]["nodes"][0]["id"] == "n1" and len(doc["parse_report"]) == 92
     assert ", ".join(repr(g) for g in STATE_GLYPHS) == GLYPHS
     seen = set()
     for what, change, where, problem in SCHEMA_ROWS:
@@ -647,9 +653,10 @@ def test_each_key_removed_raises_only_load_errors():
             else:
                 assert isinstance(got, PortfolioInput), (level, key)
                 read += 1
-    # The 16 read lack a field the reader does not use (a project's wbs_title or rollup, a node's typed and
-    # derived fields), a project's issues, which reads as no slots (#213), or a node's models.
-    assert (read, refused) == (16, 25)
+    # The 19 read lack a field the reader does not use (a project's wbs_title, rollup or actuals, a node's typed
+    # and derived fields), the top-level actuals, without which the document reads as not wired, a project's
+    # issues, which reads as no slots (#213), or a node's models.
+    assert (read, refused) == (19, 25)
 
 
 def test_a_line_too_long_to_format_is_a_load_error():
@@ -677,7 +684,7 @@ def test_generated_at_is_utc(tmp_path):
     got = hp.read_doc(tmp_path, hp.written_doc())
     assert got.generated_at == datetime(2026, 1, 12, 9, 30, tzinfo=timezone.utc)
     assert got.generated_at.tzinfo is not None and got.generated_at.utcoffset() == timedelta(0)
-    assert got.schema_version == "1.2"
+    assert got.schema_version == "1.3"
     doc = hp.written_doc()
     doc["generated_at"] = "2026-01-12T09:30:00.250+00:00"
     later = map_document(doc).generated_at
@@ -977,26 +984,32 @@ def test_every_entry_has_one_disposition():
         total = sum(raw["project"] in projects for raw in doc["parse_report"])
         shown = sum(e.project in projects for e in got.devagent_report)
         mapped = sum(mapped_counts(got, projects).values())
-        return total, mapped, total - mapped - shown, shown
+        consumed = sum(e.project in projects for e in got.actuals.report)
+        return total, mapped, total - mapped - shown - consumed, shown, consumed
 
-    # Before `edges`: 46 = 13 mapped + 28 suppressed + 5 shown.
-    assert partition(earlier) == (46, 13, 28, 5)
+    # One actuals_unavailable entry per project, with no line, each consumed (#213): the fixture aggregator
+    # runs with no actuals.json in its throwaway home.
+    assert [(e.project, e.line, e.kind) for e in got.actuals.report] == [
+        (name, None, "actuals_unavailable") for name in names]
+    assert len(names) == 17
+    # Before `edges`: 59 = 13 mapped + 28 suppressed + 5 shown + 13 consumed.
+    assert partition(earlier) == (59, 13, 28, 5, 13)
     assert mapped_counts(got, earlier) == {"no_issue": 6, "duplicate_issue": 1, "skipped_line": 2, "unresolved_ref": 4}
     assert [(e.project, e.line, e.kind) for e in got.devagent_report if e.project not in later] == [
         ("cycle", 7, "dep_cycle"), ("fences", 17, "parser_warning"), ("nesting", 10, "unknown_meta_key"),
         ("rows", 9, "dep_cycle"), ("rows", 13, "parent_done_leaf_pending")]
     # With `edges`: four near misses and two unresolved refs mapped; two est_unparseable, an
     # issue_malformed and a meta_unreadable shown.
-    assert partition(names) == (75, 31, 28, 16)
-    assert partition(["edges"]) == (10, 6, 0, 4)
+    assert partition(names) == (92, 31, 28, 16, 17)
+    assert partition(["edges"]) == (11, 6, 0, 4, 1)
     # With `fires` (#12): five issue-less leaves and seven near misses mapped; two meta_unreadable and an
     # unknown_meta_key shown (the kinds the fires do not read yet).
-    assert partition(["fires"]) == (15, 12, 0, 3)
+    assert partition(["fires"]) == (16, 12, 0, 3, 1)
     assert [(e.line, e.kind) for e in got.devagent_report if e.project == "fires"] == [
         (12, "meta_unreadable"), (13, "unknown_meta_key"), (16, "meta_unreadable")]
     # With `models` and `models_project` (#14): two bad_model entries each, shown.
     for name in ("models", "models_project"):
-        assert partition([name]) == (2, 0, 0, 2)
+        assert partition([name]) == (3, 0, 0, 2, 1)
         assert [(e.line, e.kind) for e in got.devagent_report if e.project == name] == [
             (4, "bad_model"), (5, "bad_model")]
     # What is suppressed, by devagent's kind: each is an entry Gantry's own passes report.
@@ -1004,7 +1017,7 @@ def test_every_entry_has_one_disposition():
     kept = set(got.devagent_report)
     mapped_from = {"leaf_no_issue", "duplicate_issue", "near_miss_line"}
     for raw in doc["parse_report"]:
-        if as_shown(raw) not in kept and raw["kind"] not in mapped_from:
+        if as_shown(raw) not in kept and raw["kind"] not in mapped_from and raw["kind"] not in pj.CONSUMED:
             gone[raw["kind"]] = gone.get(raw["kind"], 0) + 1
     assert gone == {"h_malformed": 14, "est_unparseable": 1, "dep_cycle": 2, "dep_unresolved": 17}
     assert gone["dep_unresolved"] - mapped_counts(got, names)["unresolved_ref"] == 11  # foreign or malformed

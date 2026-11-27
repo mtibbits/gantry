@@ -1048,13 +1048,13 @@ def test_unknown_major_exits_1_naming_both_versions(tmp_path):
     code, _, stderr = run_main("--config", str(config))
     assert code == 1
     assert stderr == (f'gantry: error: {document}: portfolio schema_version "2.0" is not supported: Gantry reads '
-                      "major 1 (schema 1.2)\n")
+                      "major 1 (schema 1.3)\n")
     assert tree_snapshot(out) == before
 
 
 @pytest.mark.parametrize("data, says", [
     (b"{not json", "is not valid JSON: syntax error at line 1 column 2"),
-    (b'{"schema": "devagent-portfolio", "schema_version": "1.2"}\n',
+    (b'{"schema": "devagent-portfolio", "schema_version": "1.3"}\n',
      "not a portfolio document Gantry can read: $.generated_at: not an RFC 3339 UTC time"),
 ])
 def test_not_json_or_schema_break_exits_1(tmp_path, data, says):

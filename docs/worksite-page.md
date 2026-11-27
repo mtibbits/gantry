@@ -210,7 +210,7 @@ in this table's order.
 ## Reading devagent's portfolio JSON
 
 devagent writes one JSON document over every configured project's `WBS.md`
-(`/devagent:portfolio`, its `scripts/portfolio.sh`; schema 1.2 at the release
+(`/devagent:portfolio`, its `scripts/portfolio.sh`; schema 1.3 at the release
 `tests/devagent.pin` names). `gantry/portfolio_json.py` reads that document
 into the parsed data the sections above describe, and `gantry build` reads
 every site from it, once per run, through the installation config's
@@ -273,7 +273,7 @@ starts with the path, and its `kind` is one of four:
 | `unreadable` | the file is outside the configured roots | that it is outside them (the path `portfolio_json` names is always a root) |
 | `unreadable` | any other failed read | the system's reason |
 | `not_json` | the bytes are not UTF-8, or not JSON: a syntax error, `NaN` or `Infinity`, a number that is too long, or nesting deeper than 100 levels (counted by the reader, so every Python version and host agrees) | the cause, in one fixed text each, and to run the aggregator again |
-| `version` | `schema_version` names another major than 1 | both versions: the document's, and `major 1 (schema 1.2)` |
+| `version` | `schema_version` names another major than 1 | both versions: the document's, and `major 1 (schema 1.3)` |
 | `schema` | the document breaks a rule below | the place, such as `$.projects[0].nodes[2].source_line`, and the first problem |
 
 Any minor of major 1 is read, older or newer, and a field the reader does
@@ -317,7 +317,7 @@ every other node by its outline position, with `~<line>` and
 `key_collision` when that position equals an `issue:` id.
 
 The reader takes each node's `meta` from the document. It does not read the
-typed `satisfies`, `h`, `depends_on` and `est` fields that schema 1.2 also
+typed `satisfies`, `h`, `depends_on` and `est` fields that schema 1.3 also
 carries: Gantry keeps its own reading of `priority:` (P0 included),
 `depends_on`, `est:`, `h:`, `satisfies:` and `objective:`.
 

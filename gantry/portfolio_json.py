@@ -55,7 +55,7 @@ SCHEMA_ID = "devagent-portfolio"
 # does not use is ignored. A leaf's `models` is checked and read only from the
 # minor that added it: at a lower one it is unknown. The actuals (#213) are
 # read by their own key, a top-level `actuals`, whatever the minor.
-MAJOR, MINOR = 1, 2
+MAJOR, MINOR = 1, 3
 # The minor that added each leaf's `models` (#14).
 MODELS_MINOR = 2
 # The classes of a leaf's `models`, in the document's order (not render's tier names).

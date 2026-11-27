@@ -247,7 +247,7 @@ def test_samples_fixture_shape():
     assert (status[NO_WBS], status[UNREADABLE]) == ("no_wbs", "unreadable")
     assert {status[name] for name in READABLE} == {"read"}
     assert doc["generated_at"] == sp.FIXED_TIME
-    assert len(doc["parse_report"]) == 12
+    assert len(doc["parse_report"]) == 18  # 12, and one actuals_unavailable entry per project (#213)
     mapped = map_document(doc)
     assert sum(len(p.data.leaves) + len(p.data.rows) for p in mapped.projects) == 52
     made = json.loads(sp.SAMPLES_PROVENANCE.read_bytes().decode("utf-8"))
@@ -291,8 +291,9 @@ def test_stored_trees_match_their_inputs(tmp_path):
     trees = sorted(p.parent for p in (fixtures / "week_plan").glob("*/gantry.toml")) + [
         fixtures / "capacity" / "install", fixtures / "capacity" / "install_dep"]
     assert list(stored["trees"]) == [tree.relative_to(fixtures).as_posix() for tree in trees]
-    regenerate = ("tests/fixtures/week_plan/trees.json is stale: regenerate it with gen_trees197.py "
-                  "(#197's pull request) against the pinned devagent")
+    regenerate = ("tests/fixtures/week_plan/trees.json is stale: regenerate it with gen_trees213.py "
+                  "(#213's pull request: #197's generator, less the actuals_unavailable entries) against the "
+                  "pinned devagent")
     assert stored["pin"] == hd.read_pin()[0], regenerate
     inputs = [path for tree in trees for path in (tree / "devagent.toml", *sorted(tree.rglob("WBS.md")))]
     assert stored["inputs"] == {path.relative_to(fixtures).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
@@ -301,6 +302,26 @@ def test_stored_trees_match_their_inputs(tmp_path):
 
     for tree in stored["trees"]:
         install(tmp_path, fixtures / tree)
+
+
+def test_stored_sources_leave_out_the_actuals_entries():
+    """A Source's report is devagent's reading of one WBS.md text. An actuals_unavailable entry is not
+    part of it: it belongs to the document's actuals wiring, and a document site_document makes has no
+    `actuals` key, where devagent writes no such entry (#213)."""
+    assert sum(e["kind"] == "actuals_unavailable" for e in hp.written_doc()["parse_report"]) == 17
+    assert sum(e["kind"] == "actuals_unavailable" for e in hp.sample_doc()["parse_report"]) == 6
+    sources = [hp.fixture_source(name) for name in sp.FIXTURE_SOURCES if name != "not_utf8"]
+    sources += [hp.sample_source(name) for name in sorted(READABLE)]
+    sources.append(hp.tree_source("week_plan/two_sites", "a", b""))
+    assert len(sources) == 16 + 4 + 1
+    for made in sources:
+        assert all(kind != "actuals_unavailable" for _, kind, _ in made.report)
+    doc = hp.site_document({"alpha": hp.fixture_source("page"), "beta": hp.sample_source(SMALL)})
+    assert "actuals" not in doc and all(e["kind"] != "actuals_unavailable" for e in doc["parse_report"])
+    assert map_document(doc).actuals == map_document(hp.document()).actuals
+    # A test that wants the entries, or a wired document, says so.
+    wired = hp.unavailable(hp.with_actuals(doc, {}, generated_at=None), "m")
+    assert [e["project"] for e in wired["parse_report"] if e["kind"] == "actuals_unavailable"] == ["alpha", "beta"]
 
 
 def test_document_report_entries_follow_the_auto_entries():

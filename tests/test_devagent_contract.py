@@ -182,7 +182,7 @@ WORKFLOW = ROOT / ".github" / "workflows" / "test.yml"
 # Every devagent source line docs/devagent-formats.md cites, at the pin:
 # (path, first line, last line, a text that must still sit in that range).
 CITES = (
-    ("scripts/lib/config.sh", 495, 500, '"${devdoc%/}" "$issue"'),
+    ("scripts/lib/config.sh", 506, 511, '"${devdoc%/}" "$issue"'),
     ("scripts/stuck.sh", 41, 41, "local cur cur_name last_good last_good_name"),
     ("scripts/stuck.sh", 55, 55, 'if [[ -n "$last_good" ]]; then'),
     ("scripts/stuck.sh", 59, 59, 'checklist_mark "$checklist" "$cur" "!"'),
@@ -199,13 +199,13 @@ CITES = (
     ("scripts/lib/checklist.sh", 133, 155, '"$glyph" != "x" && "$glyph" != "-"'),
     ("scripts/lib/checklist.sh", 326, 331, "' '|x|-|'!'|'~'|'?'|P) return 0 ;;"),
     ("scripts/lib/checklist.sh", 382, 399, "if (ln[i] > blk)"),
-    ("scripts/park.sh", 63, 63, 'checklist_mark "$checklist" "$cur" "P"'),
-    ("scripts/park.sh", 68, 68, 'state_add_parked "$project" "$issue"'),
+    ("scripts/park.sh", 99, 99, 'checklist_mark "$checklist" "$cur" "P"'),
+    ("scripts/park.sh", 110, 110, 'state_add_parked "$project" "$issue"'),
     ("scripts/resume.sh", 53, 56, 'checklist_find_glyph_line "$checklist" P'),
     ("scripts/lib/log.sh", 17, 19, "message must be a single line"),
     ("scripts/lib/log.sh", 60, 60, "chmod --reference="),
-    ("scripts/lib/wbs-tracker.py", 171, 171, 'PROGRESS_GLYPHS = {"x", "~"}'),
-    ("scripts/lib/wbs-tracker.py", 200, 200, "if any(g in PROGRESS_GLYPHS for g in glyphs):"),
+    ("scripts/lib/wbs-tracker.py", 172, 172, 'PROGRESS_GLYPHS = {"x", "~"}'),
+    ("scripts/lib/wbs-tracker.py", 201, 201, "if any(g in PROGRESS_GLYPHS for g in glyphs):"),
     ("scripts/status.sh", 28, 51, 'state_get "$project" active_issue'),
     ("templates/imPlan_template.md", 1, 2, "(context:/model:)"),
     ("templates/imPlan_template.md", 30, 33, "## Tasks"),
@@ -235,7 +235,7 @@ def test_changed_fixture_fails_naming_fixture_script_and_line(tmp_path):
     target.write_bytes(changed)
     diffs = fx.compare(kept, made)
     line = data.split(b"\n").index(b"- [P]  2. draft") + 1
-    assert diffs == [f"Issue-12/checklist.md: written by park.sh at devagent 3.4.0: first differing line {line}: "
+    assert diffs == [f"Issue-12/checklist.md: written by park.sh at devagent 3.5.0: first differing line {line}: "
                      f"fixture '- [ ]  2. draft', devagent '- [P]  2. draft'"]
     assert diffs.compared == len(committed_record_files())
     # A timestamp is masked on both sides: changing only its digits is no difference.
@@ -251,7 +251,7 @@ def test_changed_fixture_fails_naming_fixture_script_and_line(tmp_path):
     (kept / "Issue-77").mkdir()
     (kept / "Issue-77" / "STUCK").write_bytes(b"Step:        2 draft\n")
     assert fx.compare(kept, made) == [
-        "Issue-13/STUCK: not written by stuck.sh at devagent 3.4.0",
+        "Issue-13/STUCK: not written by stuck.sh at devagent 3.5.0",
         "Issue-77/STUCK: committed but written by no recipe",
     ]
 

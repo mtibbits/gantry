@@ -35,5 +35,5 @@ Active revision: 1
 - [ ] 24. cleanup
 
 ## Log
-- 2026-01-12 09:30  park: issue parked
+- 2026-01-12 09:30  park: issue parked (row 2 draft was [ ])
 - 2026-01-12 09:30  resume: issue resumed

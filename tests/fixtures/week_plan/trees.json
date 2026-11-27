@@ -1,5 +1,5 @@
 {
-  "pin": "devagent--v3.4.0",
+  "pin": "devagent--v3.5.0",
   "inputs": {
     "week_plan/binds_attention/devagent.toml": "516b365db0f252a6466f1c4f7a2352bb4518632da7eef9d65ab993b4c571c995",
     "week_plan/binds_attention/alpha/WBS.md": "c58757445fa9dede49324c3063784a6225e60b194a3511a43b611ccecbd4fe66",
