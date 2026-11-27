@@ -14,6 +14,10 @@ through map_document: it is the one WBS.md reader Gantry has. `tag(value)`
 gives one meta value the parsed shape the reader stores, for a test that
 builds such a leaf by hand.
 
+The result's `actuals` part (#213) holds what the reader keeps of schema 1.3's
+actuals, and devagent's actuals_unavailable entries, which it consumes: they
+reach no page. No page uses the part yet; #25 is its first caller.
+
 Neither entry point raises anything but PortfolioLoadError, whatever the
 file or the document holds: every walk here is a loop, never a recursion, and
 no parent link is followed before it has been checked.
@@ -23,7 +27,8 @@ docs/worksite-page.md states the rules.
 import json
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
+from types import MappingProxyType
 
 from gantry.config import error_reason
 from gantry.deps import MESSAGES as DEPS_MESSAGES
@@ -47,8 +52,9 @@ from gantry.roots import OutsideRoots, read_bytes_confined
 SCHEMA_ID = "devagent-portfolio"
 # The schema the pinned devagent release writes (tests/devagent.pin). Another
 # major is refused; any minor of this major is read, and a field the reader
-# does not use is ignored. A field a later minor added is checked and read
-# only from that minor on: at a lower one it is unknown.
+# does not use is ignored. A leaf's `models` is checked and read only from the
+# minor that added it: at a lower one it is unknown. The actuals (#213) are
+# read by their own key, a top-level `actuals`, whatever the minor.
 MAJOR, MINOR = 1, 2
 # The minor that added each leaf's `models` (#14).
 MODELS_MINOR = 2
@@ -66,6 +72,9 @@ STATUSES = ("read", "no_wbs", "no_devdoc_dir", "unreadable")
 # Bounded digit groups: int() never sees a long run.
 VERSION_RE = re.compile(r"(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})")
 TIME_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T(?:[01][0-9]|2[0-3]):[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,6})?(?:Z|\+00:00)")
+# The actuals file's own time, as devagent writes it: YYYY-MM-DDTHH:MM:SSZ (used with fullmatch).
+ACTUALS_TIME_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z")
+ACTUALS_TIME_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
 ROOTS_KEY = "portfolio_json"
 DEFAULT_SOURCE = "the portfolio document"
@@ -103,7 +112,8 @@ MESSAGES = {
 
 # devagent's report entries (its `parse_report`). Each gets one disposition:
 # mapped onto a Gantry kind, suppressed because a Gantry pass reports the same
-# thing, or shown as devagent wrote it. MAPPED is devagent's kind -> Gantry's.
+# thing, shown as devagent wrote it, or consumed: kept in the result's actuals
+# part and shown nowhere. MAPPED is devagent's kind -> Gantry's.
 MAPPED = {"leaf_no_issue": "no_issue", "duplicate_issue": "duplicate_issue", "near_miss_line": "skipped_line",
           "dep_unresolved": "unresolved_ref"}
 # Suppressed on every node that holds the key: gantry.attention.check_h reports each.
@@ -111,6 +121,9 @@ SUPPRESSED_ALWAYS = ("h_malformed",)
 # Suppressed only where the rule in _dispose finds Gantry's own entry or check.
 SUPPRESSED_BY_RULE = ("dep_unresolved", "est_unparseable", "dep_cycle", "parser_warning")
 SUPPRESSED, SHOWN = "suppressed", "shown"
+# Consumed in every document, whatever the entry's project, line or status (#213): the message
+# starts with the absolute path of devagent's actuals.json, which is no configured root.
+CONSUMED = ("actuals_unavailable",)
 # A mapped near miss: Gantry's own reason needs the line's text, which the document does not carry.
 SKIPPED_LINE = "WBS.md line {line}: {message}"
 # One member of devagent's dep_cycle message: `<issue> (line N)`, with `<project>:` before another project's.
@@ -132,7 +145,8 @@ class PortfolioLoadError(Exception):
 
 @dataclass(frozen=True)
 class DevagentEntry:
-    """One entry of devagent's parse report that Gantry shows as devagent wrote it."""
+    """One entry of devagent's parse report, as devagent wrote it: one Gantry
+    shows (PortfolioInput.devagent_report) or one it consumes (ActualsInput.report)."""
     project: str
     line: int | None  # None: no line
     kind: str  # devagent's kind: never one of Gantry's REPORT_KINDS by contract
@@ -148,11 +162,26 @@ class ProjectInput:
 
 
 @dataclass(frozen=True)
+class ActualsInput:
+    """The actuals part of a document (schema 1.3, #213). No page uses it yet:
+    #25 is its first caller."""
+    wired: bool  # the document has a top-level `actuals` key: devagent built it with an actuals file
+    generated_at: datetime | None  # the actuals file's time, aware, UTC; None when that object is null
+    # {(project, issue): IssueActuals}, read-only: the slots that are not null, in document order.
+    issues: MappingProxyType
+    report: tuple[DevagentEntry, ...]  # the consumed entries (CONSUMED), in document order
+
+
+NO_ACTUALS = ActualsInput(False, None, MappingProxyType({}), ())
+
+
+@dataclass(frozen=True)
 class PortfolioInput:
     projects: tuple[ProjectInput, ...]  # in document order
     devagent_report: tuple[DevagentEntry, ...]  # the shown entries, in document order
     generated_at: datetime  # aware, UTC
     schema_version: str  # as written
+    actuals: ActualsInput = NO_ACTUALS  # empty and not wired unless the reader fills it
 
 
 def _error(kind, source, text=None, **fields):
@@ -344,7 +373,8 @@ def _check_node(node, where, ids, lines, models_ok):
 
 def _check_shapes(doc, source):
     """Pass 1: every field the reader uses has its shape, in document order.
-    (generated_at, whether the minor carries leaf `models`)."""
+    (generated_at, whether the minor carries leaf `models`, whether the
+    document is wired, the actuals file's time or None)."""
     _need(isinstance(doc, dict), "$", "not an object")
     _need(doc.get("schema") == SCHEMA_ID and isinstance(doc.get("schema"), str), "$.schema", f'not "{SCHEMA_ID}"')
     version = doc.get("schema_version")
@@ -394,7 +424,23 @@ def _check_shapes(doc, source):
         _need(line is None or _is_line(line), f"{where}.source_line", "not an integer from 1 to 999999999 or null")
         _need(_is_filled(entry.get("kind")), f"{where}.kind", "not a non-empty string")
         _need(isinstance(entry.get("message"), str), f"{where}.message", "not a string")
-    return generated, models_ok
+    wired = "actuals" in doc
+    return generated, models_ok, wired, _check_actuals_time(doc["actuals"]) if wired else None
+
+
+def _check_actuals_time(top):
+    """A wired document's top-level `actuals`: null (devagent found no usable
+    actuals file), or an object whose `generated_at` is a real
+    YYYY-MM-DDTHH:MM:SSZ. The time, aware and UTC, or None for null."""
+    _need(top is None or isinstance(top, dict), "$.actuals", "not an object or null")
+    if top is None:
+        return None
+    when, problem = top.get("generated_at"), "not YYYY-MM-DDTHH:MM:SSZ"
+    _need(isinstance(when, str) and ACTUALS_TIME_RE.fullmatch(when) is not None, "$.actuals.generated_at", problem)
+    try:
+        return datetime.strptime(when, ACTUALS_TIME_FORMAT).replace(tzinfo=timezone.utc)
+    except ValueError:
+        raise _Problem("$.actuals.generated_at", problem) from None
 
 
 def _check_parents(doc):
@@ -613,7 +659,8 @@ def _dispose(site, entry):
     mapped, else SUPPRESSED or SHOWN.
 
     `site` is the entry's project when the document holds it and it was read,
-    else None. Every entry leaves here as exactly one of the three, and
+    else None. A CONSUMED kind never comes here: map_document keeps it in the
+    actuals part. Every other entry leaves here as exactly one of the three, and
     nothing is suppressed unless a Gantry pass
     reports the same thing about the same node: gantry.deps (cycle,
     malformed_ref), gantry.crosssite (the foreign kinds), gantry.inputs
@@ -684,7 +731,7 @@ def map_document(doc, *, source=DEFAULT_SOURCE) -> PortfolioInput:
     """A parsed portfolio document as a PortfolioInput. `doc` is never changed;
     `source` names it in an error."""
     try:
-        generated, models_ok = _check_shapes(doc, source)
+        generated, models_ok, wired, actuals_at = _check_shapes(doc, source)
         _check_parents(doc)
     except _Problem as e:
         raise _error("schema", source, where=e.where, problem=e.problem) from None
@@ -694,8 +741,11 @@ def map_document(doc, *, source=DEFAULT_SOURCE) -> PortfolioInput:
         site = sites.get(entry["project"])
         if site is not None and entry["kind"] == "bad_model" and entry["source_line"] is not None:
             site.bad_models.add((entry["source_line"], entry["message"].split(" ", 1)[0]))
-    shown = []
+    shown, consumed = [], []
     for entry in doc["parse_report"]:
+        if entry["kind"] in CONSUMED:
+            consumed.append(DevagentEntry(entry["project"], entry["source_line"], entry["kind"], entry["message"]))
+            continue
         site = sites.get(entry["project"])
         disposition = _dispose(site, entry)
         if isinstance(disposition, ReportEntry):
@@ -712,4 +762,5 @@ def map_document(doc, *, source=DEFAULT_SOURCE) -> PortfolioInput:
             report = (ReportEntry(name, None, "site_unreadable", reason),) if status == "unreadable" else ()
             data = SiteData((), (), (), (), report, models_ok)
         projects.append(ProjectInput(name, status, reason, data))
-    return PortfolioInput(tuple(projects), tuple(shown), generated, doc["schema_version"])
+    actuals = ActualsInput(wired, actuals_at, MappingProxyType({}), tuple(consumed))
+    return PortfolioInput(tuple(projects), tuple(shown), generated, doc["schema_version"], actuals)

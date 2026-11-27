@@ -237,6 +237,16 @@ Gantry never runs it.
   kind.
 - `generated_at`, the document's time in UTC, and `schema_version` as
   written.
+- `actuals` (#213): what the reader keeps of the actuals schema 1.3 adds.
+  `wired` says whether the document has a top-level `actuals` key, which
+  devagent writes when it builds the document with its actuals file; a
+  document at schema 1.0 to 1.2 has none, and neither has a 1.3 document
+  built without actuals. `generated_at` is that file's time in UTC, or
+  `None` when the top-level `actuals` is null (devagent found no usable
+  file) or the document is not wired. `report` holds the entries the reader
+  consumes ([Report sources](#report-sources)), in document order, in every
+  document. The reader does not read the per-issue slots yet, so `issues`
+  is empty. No page uses the part yet (#25).
 
 The document is never changed. The build calls `read_portfolio`, the test
 builder `map_document`.
@@ -259,7 +269,10 @@ Any minor of major 1 is read, older or newer, and a field the reader does
 not use is ignored. The reader first checks shapes, in document order: the
 schema id, the version, the time (RFC 3339, UTC), each project's name,
 status and reason, each node's id, parent, text, glyph, state, source line,
-issue and `meta`, and each report entry. A missing key is refused as a
+issue and `meta`, and each report entry. In a wired document (one with a
+top-level `actuals` key, #213) it then checks that key's value: `null`, or
+an object whose `generated_at` is a real `YYYY-MM-DDTHH:MM:SSZ` time. A
+missing key is refused as a
 wrong type, even where `null` is allowed (a node's parent and issue, a read
 project's reason, an entry's line). A key used twice in one JSON
 object, a project name or node id used twice, and a source line used twice
@@ -316,10 +329,12 @@ as Python writes it: `['3', '4']` for a list.
 
 ### Report sources
 
-Every entry of devagent's report gets exactly one of three outcomes. It is
+Every entry of devagent's report gets exactly one of four outcomes. It is
 **mapped** onto a Gantry kind in the site's report, **suppressed** because a
-Gantry pass reports the same thing about the same node, or **shown** as
-devagent wrote it in `devagent_report`. Nothing is dropped. The one
+Gantry pass reports the same thing about the same node, **shown** as
+devagent wrote it in `devagent_report`, or **consumed**: kept in the
+reader's `actuals` part and shown nowhere. Nothing is dropped silently: a
+consumed entry goes to the reader's actuals result. The one
 suppression without a Gantry pass behind it is a leaf's `thinking` or
 `checking` warning: devagent's own `bad_model` entry for that key on that
 line covers it, and that entry is shown.
@@ -335,11 +350,12 @@ line covers it, and that entry is shown.
 | `dep_cycle` | Suppressed when its members' lines are the lines of one cycle Gantry finds among the project's open leaves, and no member belongs to another project: Gantry's `cycle` reports it. |
 | `parser_warning` | Suppressed when its message is about `priority` or `h` on a node holding that key, `depends_on` on an open leaf holding it, `satisfies` or `objective` on a leaf holding it, or `thinking` or `checking` on a leaf holding it when a `bad_model` entry on the same line names that key. |
 | `bad_model` | Shown as written: a leaf's malformed `thinking:` or `checking:` key, at its line, or a bad project `step_models` value, with no line (#14). Gantry has no check of its own for either. |
+| `actuals_unavailable` | Consumed, in every document and whatever its project, line or status: it goes to `actuals.report`, in document order, and never to `devagent_report`, a "Missing or unreadable" panel or an index warning. Its message starts with the absolute path of devagent's `actuals.json`, which is no configured root. No page says why actuals are unavailable yet (#25). |
 | any other kind | Shown as written. So is a kind added by a later devagent release. |
 
 An entry above whose condition does not hold is shown as written. So is an
 entry with no line, and an entry about a project that the document lacks or
-that was not read.
+that was not read. A consumed kind is the exception: it is never shown.
 
 The `parser_warning` rule is a defence. At the release `tests/devagent.pin`
 names, devagent emits no warning about `priority`, `satisfies:` or

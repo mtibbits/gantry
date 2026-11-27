@@ -604,6 +604,15 @@ def test_doc_states_the_reader_rules(capsys):
         assert f"`{devagent_kind}`" in part and f"`{gantry_kind}`" in part, devagent_kind
     for kind in pj.SUPPRESSED_ALWAYS + pj.SUPPRESSED_BY_RULE + ("site_unreadable",):
         assert f"`{kind}`" in part, kind
+    # The fourth outcome (#213): each consumed kind has its row, and the outcome is named.
+    assert part.count("\n### Report sources\n") == 1
+    sources = part.split("\n### Report sources\n")[1].split("\n### ")[0]
+    assert "four outcomes" in sources and "**consumed**" in sources
+    for kind in pj.CONSUMED:
+        assert f"| `{kind}` | Consumed" in sources, kind
+    assert "`actuals.report`" in sources and "A consumed kind is the exception: it is never shown." in " ".join(
+        sources.split())
+    assert "- `actuals`" in part.split("\n### What the reader returns\n")[1].split("\n### ")[0]
     for kind in ("unreadable", "not_json", "version", "schema"):
         assert f"`{kind}`" in part, kind
     for status in pj.STATUSES:

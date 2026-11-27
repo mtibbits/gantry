@@ -25,8 +25,8 @@ from gantry.deps import refs
 from gantry.est_rules import classify_est
 from gantry.model import (REPORT_KINDS, STATE_GLYPHS, Leaf, Models, ParsedValue, ReportEntry, Row, SiteData,
                           meta_scalar, meta_values, report_order)
-from gantry.portfolio_json import (DevagentEntry, PortfolioInput, PortfolioLoadError, ProjectInput, map_document,
-                                   read_portfolio)
+from gantry.portfolio_json import (ActualsInput, DevagentEntry, PortfolioInput, PortfolioLoadError, ProjectInput,
+                                   map_document, read_portfolio)
 from gantry.priority import rank
 from gantry.roots import directory_roots
 from gantry.sites import SiteEntry
@@ -715,9 +715,14 @@ def test_field_lists():
     names = lambda cls: [f.name for f in dataclasses.fields(cls)]  # noqa: E731
     assert names(DevagentEntry) == ["project", "line", "kind", "message"]
     assert names(ProjectInput) == ["name", "status", "reason", "data"]
-    assert names(PortfolioInput) == ["projects", "devagent_report", "generated_at", "schema_version"]
-    for cls in (DevagentEntry, ProjectInput, PortfolioInput):
+    assert names(PortfolioInput) == ["projects", "devagent_report", "generated_at", "schema_version", "actuals"]
+    assert names(ActualsInput) == ["wired", "generated_at", "issues", "report"]
+    for cls in (DevagentEntry, ProjectInput, PortfolioInput, ActualsInput):
         assert cls.__dataclass_params__.frozen
+    # The actuals part is the last field, and empty and not wired unless the reader fills it (#213).
+    bare = PortfolioInput((), (), datetime(2026, 1, 12, tzinfo=timezone.utc), "1.0")
+    assert (bare.actuals.wired, bare.actuals.generated_at, dict(bare.actuals.issues), bare.actuals.report) == (
+        False, None, {}, ())
     got = mapped()
     assert isinstance(got.projects, tuple) and isinstance(got.devagent_report, tuple)
     assert [p.name for p in got.projects] == [p["project"] for p in hp.written_doc()["projects"]]
@@ -946,6 +951,8 @@ def test_disposition_constants():
                          "near_miss_line": "skipped_line", "dep_unresolved": "unresolved_ref"}
     assert tuple(pj.MAPPED.values()) == MAPPED_KINDS
     assert pj.SUPPRESSED_ALWAYS == ("h_malformed",)
+    assert pj.CONSUMED == ("actuals_unavailable",)
+    assert not set(pj.CONSUMED) & (set(pj.MAPPED) | set(pj.SUPPRESSED_ALWAYS) | set(pj.SUPPRESSED_BY_RULE))
     assert pj.CYCLE_MEMBER_RE.pattern == (r"(?:^|, |: )(?:(?P<project>[A-Za-z0-9][A-Za-z0-9_.-]*):)?(?P<key>[^ ,()]+) "
                                           r"\(line (?P<line>[0-9]{1,9})\)")
     assert pj.WARNED_KEY_RE.pattern == (
@@ -1329,3 +1336,85 @@ def test_many_unresolved_entries_cost_one_pass(monkeypatch):
     assert [e.message for e in found] == [deps.MESSAGES["unresolved_ref"].format(line=11, entry=name)
                                           for name in names]
     assert sum(raw is not None and len(real(raw)) == 2000 for raw in calls) == 1
+
+
+# --- actuals: consumed entries and the generation time (#213) --------------------------------
+
+# devagent's four actuals_unavailable messages (scripts/lib/portfolio.py at the pin), after the path.
+STALE_TAIL = (" was generated at 2026-01-01T00:00:00Z, more than 7 days before this document; actuals are empty; "
+              "run /devagent:actuals")
+
+
+def test_actuals_entries_are_consumed(tmp_path):
+    path = str(tmp_path / "elsewhere" / "actuals.json")  # absolute, and under no root
+    missing = hp.ACTUALS_MISSING.format(path=path)
+    assert missing.startswith(path) and missing.endswith(" does not exist; actuals are empty; run /devagent:actuals")
+    unknown = entry("ids", None, "kind_from_a_later_release", "something new about this project")
+    # About a read project, one that is not read and one the document lacks; with no line and with one.
+    planted = [
+        entry("ids", None, "actuals_unavailable", missing),
+        unknown,
+        entry("not_utf8", None, "actuals_unavailable", missing),
+        entry("gone", None, "actuals_unavailable", path + STALE_TAIL),
+        entry("ids", 3, "actuals_unavailable", missing),
+        entry("ids", None, "actuals_unavailable", "reworded by a later release"),
+    ]
+    consumed = [as_shown(raw) for raw in planted if raw is not unknown]
+    assert [(e.project, e.line) for e in consumed] == [
+        ("ids", None), ("not_utf8", None), ("gone", None), ("ids", 3), ("ids", None)]
+    plain = mapped()
+    for wired in (False, True):
+        doc = hp.written_doc()
+        doc.pop("actuals", None)
+        if wired:
+            doc = hp.with_actuals(doc, {})
+        own = [as_shown(raw) for raw in doc["parse_report"] if raw["kind"] == "actuals_unavailable"]
+        before = map_document(doc)
+        assert list(before.actuals.report) == own
+        doc["parse_report"] += [dict(raw) for raw in planted]
+        for got in (map_document(doc), hp.read_doc(tmp_path, doc)):
+            assert got.actuals.wired is wired
+            # In document order, as devagent wrote each.
+            assert list(got.actuals.report) == own + consumed
+            # In neither the shown entries nor any site's report; the unknown kind beside them is shown.
+            assert list(got.devagent_report) == list(before.devagent_report) + [as_shown(unknown)]
+            assert not any(e.kind == "actuals_unavailable" for e in got.devagent_report)
+            assert [p.data for p in got.projects] == [p.data for p in before.projects]
+            assert all(e.kind in REPORT_KINDS for p in got.projects for e in p.data.report)
+            assert path not in repr([got.projects, got.devagent_report])
+        assert [p.data for p in before.projects] == [p.data for p in plain.projects]
+    # With no such entry the part's report is empty, wired or not.
+    doc = hp.written_doc()
+    doc["parse_report"] = [raw for raw in doc["parse_report"] if raw["kind"] != "actuals_unavailable"]
+    assert map_document(doc).actuals.report == ()
+
+
+def test_actuals_generated_at(tmp_path):
+    # The top-level `actuals` names the actuals file devagent read: its time, aware and UTC.
+    doc = hp.with_actuals(hp.written_doc(), {}, generated_at="2026-01-10T23:59:07Z")
+    for got in (map_document(doc), hp.read_doc(tmp_path, doc)):
+        assert got.actuals.wired is True
+        assert got.actuals.generated_at == datetime(2026, 1, 10, 23, 59, 7, tzinfo=timezone.utc)
+        assert got.actuals.generated_at.utcoffset() == timedelta(0)
+        # The document's own time is another field.
+        assert got.generated_at == datetime(2026, 1, 12, 9, 30, tzinfo=timezone.utc)
+    # Null (no usable file): wired, with no time.
+    null = map_document(hp.with_actuals(hp.written_doc(), {}, generated_at=None))
+    assert (null.actuals.wired, null.actuals.generated_at) == (True, None)
+    # No key: not wired.
+    doc = hp.written_doc()
+    doc.pop("actuals", None)
+    bare = map_document(doc)
+    assert (bare.actuals.wired, bare.actuals.generated_at) == (False, None)
+    # A top-level object of another shape is refused, never read as null.
+    for value, where, problem in (
+            ("2026-01-10T23:59:07Z", "$.actuals", "not an object or null"),
+            ([], "$.actuals", "not an object or null"),
+            ({}, "$.actuals.generated_at", "not YYYY-MM-DDTHH:MM:SSZ"),
+            ({"generated_at": "2026-02-30T00:00:00Z"}, "$.actuals.generated_at", "not YYYY-MM-DDTHH:MM:SSZ")):
+        doc = hp.with_actuals(hp.written_doc(), {})
+        doc["actuals"] = value
+        with pytest.raises(PortfolioLoadError) as info:
+            map_document(doc)
+        assert (info.value.kind, str(info.value)) == (
+            "schema", schema_text("the portfolio document", where, problem)), value

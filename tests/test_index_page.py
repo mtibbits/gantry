@@ -467,6 +467,46 @@ def test_unplaced_devagent_entries_are_on_the_index(tmp_path):
             "the index lists them") in err.splitlines()
 
 
+def test_consumed_entry_on_no_page(tmp_path, monkeypatch):
+    """An actuals_unavailable entry carries the absolute path of devagent's actuals.json, which is no
+    configured root: the reader consumes it, so no page and no index warning holds the kind or the
+    message (#213), whatever project it is about. An unknown kind beside it is still shown."""
+    import helpers_portfolio as hp
+    from gantry import portfolio_json as pj
+    from helpers_config import run_main, write_site_tree
+
+    message = hp.ACTUALS_MISSING.format(path=tmp_path / "elsewhere" / "actuals.json")
+
+    def build(name):
+        """A build of a page site, a site with no WBS.md and a project only the document holds, each
+        with its entry: {output file: its text}."""
+        folder = tmp_path / name
+        config = write_site_tree(folder, {"alpha": hp.fixture_source("page"), "beta": None})
+        hp.rewrite_document(folder, lambda doc: hp.unavailable(
+            hp.append_not_read(doc, "gamma", "no_wbs", hp.NO_WBS_REASON), message))
+        _with_entries(folder, ("alpha", None, "parser_note", "a later kind"))
+        code, _, _ = run_main("--config", str(config))
+        assert code == 0
+        written = sorted(path for path in (folder / "out").rglob("*") if path.is_file())
+        assert len(written) >= 2
+        return {path.relative_to(folder / "out").as_posix(): path.read_bytes().decode("utf-8") for path in written}
+
+    pages = build("consumed")
+    assert {"sites/alpha.html", "index.html"} <= set(pages)
+    for name, text in pages.items():
+        assert "elsewhere" not in text and "actuals_unavailable" not in text, name
+    # The unknown-kind control is on its page.
+    assert "devagent parser_note: a later kind" in pages["sites/alpha.html"]
+    # The positive control: with nothing consumed, the same build shows the path on the page and the index.
+    monkeypatch.setattr(pj, "CONSUMED", ())
+    shown = build("shown")
+    line = f"devagent actuals_unavailable: {message}"
+    assert "elsewhere" in line and line in shown["sites/alpha.html"]
+    t = tree(shown["index.html"])
+    warnings = [text_of(t, li) for li in find(t, "li", within=by_id(t, "warnings"))]
+    assert [w for w in warnings if "elsewhere" in w] == [f"beta: {line}", f"gamma: {line}"]
+
+
 def test_entry_for_a_site_that_loses_its_page_is_on_the_index(tmp_path, monkeypatch):
     """A site whose page fails to write loses its page after the render: its entries move to the index."""
     import helpers_portfolio as hp
