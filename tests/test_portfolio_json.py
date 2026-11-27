@@ -9,6 +9,7 @@ suppression rule to the pinned parser's own texts.
 import ast
 import copy
 import dataclasses
+import functools
 import random
 import re
 from datetime import datetime, timedelta, timezone
@@ -725,12 +726,10 @@ def test_field_lists():
     assert names(ProjectInput) == ["name", "status", "reason", "data"]
     assert names(PortfolioInput) == ["projects", "devagent_report", "generated_at", "schema_version", "actuals"]
     assert names(ActualsInput) == ["wired", "generated_at", "issues", "report"]
-    for cls in (DevagentEntry, ProjectInput, PortfolioInput, ActualsInput):
+    assert names(IssueActuals) == ["hosts", "operator_s", "agent_wall_s", "tokens", "events"]
+    assert names(EventRow) == ["at", "event"]
+    for cls in (DevagentEntry, ProjectInput, PortfolioInput, ActualsInput, IssueActuals, EventRow):
         assert cls.__dataclass_params__.frozen
-    # The actuals part is the last field, and empty and not wired unless the reader fills it (#213).
-    bare = PortfolioInput((), (), datetime(2026, 1, 12, tzinfo=timezone.utc), "1.0")
-    assert (bare.actuals.wired, bare.actuals.generated_at, dict(bare.actuals.issues), bare.actuals.report) == (
-        False, None, {}, ())
     got = mapped()
     assert isinstance(got.projects, tuple) and isinstance(got.devagent_report, tuple)
     assert [p.name for p in got.projects] == [p["project"] for p in hp.written_doc()["projects"]]
@@ -1354,11 +1353,6 @@ def test_many_unresolved_entries_cost_one_pass(monkeypatch):
 
 # --- actuals: consumed entries and the generation time (#213) --------------------------------
 
-# devagent's four actuals_unavailable messages (scripts/lib/portfolio.py at the pin), after the path.
-STALE_TAIL = (" was generated at 2026-01-01T00:00:00Z, more than 7 days before this document; actuals are empty; "
-              "run /devagent:actuals")
-
-
 def test_actuals_entries_are_consumed(tmp_path):
     path = str(tmp_path / "elsewhere" / "actuals.json")  # absolute, and under no root
     missing = hp.ACTUALS_MISSING.format(path=path)
@@ -1369,7 +1363,7 @@ def test_actuals_entries_are_consumed(tmp_path):
         entry("ids", None, "actuals_unavailable", missing),
         unknown,
         entry("not_utf8", None, "actuals_unavailable", missing),
-        entry("gone", None, "actuals_unavailable", path + STALE_TAIL),
+        entry("gone", None, "actuals_unavailable", hp.ACTUALS_STALE.format(path=path)),
         entry("ids", 3, "actuals_unavailable", missing),
         entry("ids", None, "actuals_unavailable", "reworded by a later release"),
     ]
@@ -1425,18 +1419,7 @@ def test_actuals_generated_at(tmp_path):
     doc.pop("actuals", None)
     bare = map_document(doc)
     assert (bare.actuals.wired, bare.actuals.generated_at) == (False, None)
-    # A top-level object of another shape is refused, never read as null.
-    for value, where, problem in (
-            ("2026-01-10T23:59:07Z", "$.actuals", "not an object or null"),
-            ([], "$.actuals", "not an object or null"),
-            ({}, "$.actuals.generated_at", "not YYYY-MM-DDTHH:MM:SSZ"),
-            ({"generated_at": "2026-02-30T00:00:00Z"}, "$.actuals.generated_at", "not YYYY-MM-DDTHH:MM:SSZ")):
-        doc = hp.with_actuals(hp.written_doc(), {})
-        doc["actuals"] = value
-        with pytest.raises(PortfolioLoadError) as info:
-            map_document(doc)
-        assert (info.value.kind, str(info.value)) == (
-            "schema", schema_text("the portfolio document", where, problem)), value
+    # A top-level object of another shape is refused, never read as null: ACTUALS_CASES' top-level rows.
 
 
 # --- actuals: the per-issue slots (#213) -----------------------------------------------------
@@ -1448,13 +1431,18 @@ SLOT_AT = "$.projects[3].issues[3].actuals"
 NOT_AMOUNT = "not a number from 0 to 1e18"
 
 
-def wired_doc():
-    """written.json wired, with a filled slot at SLOT (ids, Issue-3) and one after it (ids, Issue-4)."""
-    doc = hp.written_doc()
-    doc.pop("actuals", None)
-    doc = hp.with_actuals(doc, {("ids", "Issue-3"): hp.slot(), ("ids", "Issue-4"): hp.slot()})
+@functools.cache
+def _wired():
+    doc = hp.with_actuals(hp.written_doc(), {("ids", "Issue-3"): hp.slot(), ("ids", "Issue-4"): hp.slot()})
     assert _parent(doc, SLOT + (None,))["sessions"] and doc["projects"][IDS]["issues"][3]["issue"] == "Issue-3"
+    assert isinstance(map_document(doc), PortfolioInput)  # it reads before a case breaks it
     return doc
+
+
+def wired_doc():
+    """written.json wired, with a filled slot at SLOT (ids, Issue-3) and one after it (ids, Issue-4):
+    a fresh copy on every call, so a caller may change it."""
+    return copy.deepcopy(_wired())
 
 
 def test_actuals_slots_read(tmp_path):
@@ -1467,9 +1455,7 @@ def test_actuals_slots_read(tmp_path):
     filled["tokens"]["raw"][0]["model"] = "planted-model"
     # The bounds are kept: 0 and 1e18, an int as an int. An empty event list is not null.
     edges = hp.slot(sessions=(), time=(0, 1e18), tokens=10**18, events=())
-    doc = hp.written_doc()
-    doc.pop("actuals", None)
-    doc = hp.with_actuals(doc, {("ids", "Issue-3"): filled, ("ids", "Issue-4"): hp.EMPTY_SLOT,
+    doc = hp.with_actuals(hp.written_doc(), {("ids", "Issue-3"): filled, ("ids", "Issue-4"): hp.EMPTY_SLOT,
                                 ("rows", "Issue-2"): edges})
     ids = doc["projects"][IDS]
     assert [item["issue"] for item in ids["issues"]] == ["Issue-Fork-1", "Issue-Fork-2", "1.3", "Issue-3", "Issue-4"]
@@ -1496,10 +1482,6 @@ def test_actuals_slots_read(tmp_path):
         assert "planted" not in repr(got)
         with pytest.raises(TypeError):
             got.actuals.issues[("ids", "Issue-9")] = kept
-    names = lambda cls: [f.name for f in dataclasses.fields(cls)]  # noqa: E731
-    assert names(IssueActuals) == ["hosts", "operator_s", "agent_wall_s", "tokens", "events"]
-    assert names(EventRow) == ["at", "event"]
-    assert IssueActuals.__dataclass_params__.frozen and EventRow.__dataclass_params__.frozen
     # Reading the slots changes nothing else: the same document with every slot null.
     for project in doc["projects"]:
         for item in project["issues"]:
@@ -1661,7 +1643,6 @@ def test_actuals_shape_cases_are_counted():
 def test_actuals_shape_refusals(tmp_path, case):
     what, change, where, problem, text = case
     doc = wired_doc()
-    assert isinstance(map_document(doc), PortfolioInput)
     changed = change(doc)
     assert changed is None
     # Through map_document, on the parsed document.

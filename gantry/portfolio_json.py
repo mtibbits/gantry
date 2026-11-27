@@ -27,7 +27,7 @@ docs/worksite-page.md states the rules.
 import json
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from types import MappingProxyType
 
 from gantry.config import error_reason
@@ -74,7 +74,6 @@ VERSION_RE = re.compile(r"(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})")
 TIME_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T(?:[01][0-9]|2[0-3]):[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,6})?(?:Z|\+00:00)")
 # The actuals file's own time, as devagent writes it: YYYY-MM-DDTHH:MM:SSZ (used with fullmatch).
 ACTUALS_TIME_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z")
-ACTUALS_TIME_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 # The largest number the reader keeps from a slot (seconds, tokens), so no sum of them overflows.
 MAX_AMOUNT = 1e18
 
@@ -192,16 +191,13 @@ class ActualsInput:
     report: tuple[DevagentEntry, ...]  # the consumed entries (CONSUMED), in document order
 
 
-NO_ACTUALS = ActualsInput(False, None, MappingProxyType({}), ())
-
-
 @dataclass(frozen=True)
 class PortfolioInput:
     projects: tuple[ProjectInput, ...]  # in document order
     devagent_report: tuple[DevagentEntry, ...]  # the shown entries, in document order
     generated_at: datetime  # aware, UTC
     schema_version: str  # as written
-    actuals: ActualsInput = NO_ACTUALS  # empty and not wired unless the reader fills it
+    actuals: ActualsInput
 
 
 def _error(kind, source, text=None, **fields):
@@ -454,13 +450,7 @@ def _check_shapes(doc, source):
     if int(match.group(1)) != MAJOR:
         raise _error("version", source, found=version)
     models_ok = int(match.group(2)) >= MODELS_MINOR
-    when = doc.get("generated_at")
-    problem = "not an RFC 3339 UTC time"
-    _need(isinstance(when, str) and TIME_RE.fullmatch(when) is not None, "$.generated_at", problem)
-    try:
-        generated = datetime.fromisoformat(when)
-    except ValueError:
-        raise _Problem("$.generated_at", problem) from None
+    generated = _utc_time(doc.get("generated_at"), TIME_RE, "$.generated_at", "not an RFC 3339 UTC time")
     projects = doc.get("projects")
     _need(isinstance(projects, list), "$.projects", "missing or not a list")
     wired = "actuals" in doc
@@ -508,12 +498,16 @@ def _check_actuals_time(top):
     _need(top is None or isinstance(top, dict), "$.actuals", "not an object or null")
     if top is None:
         return None
-    when, problem = top.get("generated_at"), "not YYYY-MM-DDTHH:MM:SSZ"
-    _need(isinstance(when, str) and ACTUALS_TIME_RE.fullmatch(when) is not None, "$.actuals.generated_at", problem)
+    return _utc_time(top.get("generated_at"), ACTUALS_TIME_RE, "$.actuals.generated_at", "not YYYY-MM-DDTHH:MM:SSZ")
+
+
+def _utc_time(when, pattern, where, problem):
+    """`when` as an aware UTC datetime: a string `pattern` fullmatches that names a real time."""
+    _need(isinstance(when, str) and pattern.fullmatch(when) is not None, where, problem)
     try:
-        return datetime.strptime(when, ACTUALS_TIME_FORMAT).replace(tzinfo=timezone.utc)
+        return datetime.fromisoformat(when)
     except ValueError:
-        raise _Problem("$.actuals.generated_at", problem) from None
+        raise _Problem(where, problem) from None
 
 
 def _check_parents(doc):

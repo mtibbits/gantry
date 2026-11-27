@@ -326,9 +326,12 @@ def set_models(doc, project_name, line, *, thinking, checking) -> dict:
 # devagent's message when the file does not exist (ACTUALS_MISSING in its scripts/lib/portfolio.py;
 # test_actuals_message_is_the_tags holds it to the pin). `{path}` is the file's absolute path.
 ACTUALS_MISSING = "{path} does not exist; actuals are empty; run /devagent:actuals"
+# devagent's message for a file more than 7 days older than the document (here, one generated 2026-01-01).
+ACTUALS_STALE = ("{path} was generated at 2026-01-01T00:00:00Z, more than 7 days before this document; "
+                 "actuals are empty; run /devagent:actuals")
 # The entry's kind. devagent writes it only in a document that has the top-level `actuals` key (its
 # build_document), so it is about the document, not about a site's WBS.md text.
-ACTUALS_KIND = "actuals_unavailable"
+ACTUALS_KIND = sp.ACTUALS_KIND
 # The empty form of a slot: no milestones source and no transcript call charged to the issue.
 EMPTY_SLOT = {"milestones": None, "sessions": [], "time": None, "tokens": None}
 ACTUALS_AT = "2026-01-12T09:00:00Z"

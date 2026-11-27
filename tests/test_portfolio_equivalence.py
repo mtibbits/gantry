@@ -271,10 +271,6 @@ def test_fixtures_mode_writes_or_checks(tmp_path, monkeypatch, capsys):
 
 # --- the fixtures' placeholder for devagent's home path (#213) --------------------------------
 
-STALE_ACTUALS = ("{path} was generated at 2026-01-01T00:00:00Z, more than 7 days before this document; "
-                 "actuals are empty; run /devagent:actuals")
-
-
 def test_fixture_home_path_is_replaced(tmp_path):
     home = tmp_path / "throwaway" / "da"
     text = sp.home_text(home)  # DA_HOME as run_aggregator passes it, which devagent echoes
@@ -283,7 +279,7 @@ def test_fixture_home_path_is_replaced(tmp_path):
     doc = hp.document(hp.project("alpha", hp.node("A")), hp.project("beta", hp.node("B")),
                       report=[("alpha", 1, "parser_note", "kept as written")])
     doc = hp.unavailable(doc, hp.ACTUALS_MISSING.format(path=path), projects=["alpha"])
-    doc = hp.unavailable(doc, STALE_ACTUALS.format(path=path), projects=["beta"])
+    doc = hp.unavailable(doc, hp.ACTUALS_STALE.format(path=path), projects=["beta"])
     before = json.loads(sp.dumps(doc))
     assert sp.fix_home_path(doc, home) is doc
     # Both messages start with the placeholder, and the rest of each message is as devagent wrote it.

@@ -35,6 +35,7 @@ from helpers_config import (
     sample_build,
     toml_key,
     write_site_tree,
+    written_bytes,
 )
 from page_safety import HOSTILE, assert_no_external_resources, assert_page_safe
 from page_script.harness import open_page
@@ -487,9 +488,9 @@ def test_consumed_entry_on_no_page(tmp_path, monkeypatch):
         _with_entries(folder, ("alpha", None, "parser_note", "a later kind"))
         code, _, _ = run_main("--config", str(config))
         assert code == 0
-        written = sorted(path for path in (folder / "out").rglob("*") if path.is_file())
+        written = written_bytes(folder / "out")
         assert len(written) >= 2
-        return {path.relative_to(folder / "out").as_posix(): path.read_bytes().decode("utf-8") for path in written}
+        return {path: data.decode("utf-8") for path, data in written.items()}
 
     pages = build("consumed")
     assert {"sites/alpha.html", "index.html"} <= set(pages)
