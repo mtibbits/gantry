@@ -248,7 +248,7 @@ def test_planted_non_object_entry(release_tree):
     assert authorship_problems(release_tree) == []
 
 
-@pytest.mark.parametrize("version", ["0.0.0", "0.2.0"])
+@pytest.mark.parametrize("version", ["0.0.0", "99.0.0"])
 def test_planted_version_without_changelog_section(release_tree, version):
     plant_json(release_tree, PLUGIN, _set("version", version))
     assert changelog_problems(release_tree) == [
