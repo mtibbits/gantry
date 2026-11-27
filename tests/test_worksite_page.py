@@ -1389,7 +1389,9 @@ PAGE_TEXTS = [getattr(worksite, name) for name in (
     # An estimates file's edges (#108).
     "ESTIMATES_BAD_DATE", "UNESTIMATED_MORE",
     # The workflow phase row (#173).
-    "RECORDS_LINE")] + list(worksite.STATE_MARKS.values()) + list(worksite.FBOX_LINE.values()) + [
+    "RECORDS_LINE",
+    # Critical leaves off the named chain and the index's finish day (#107).
+    "CHAIN_OTHERS", "CRIT_ON_PATH", "CRIT_OFF_PATH", "INDEX_DAY")] + list(worksite.STATE_MARKS.values()) + list(worksite.FBOX_LINE.values()) + [
     *(getattr(leafbox, name) for name in ("PHASE_LEGEND", "PHASE_LIMIT", "PHASE_TEXT", "PHASE_TEXT_UNKNOWN")),
     *(getattr(phases, name) for name in ("WHY_NOT_READ", "WHY_SKIPPED", "WHY_NAME")),
     *phases.WHY_PROBLEM.values(), *phases.LOOK_WORDS.values(), *phases.PHASE_NAMES]
@@ -1407,6 +1409,39 @@ def test_inputs_messages_in_docs():
     for phrase in ("`models_from_estimates_file`", "`bad_model`", "mtibbits/devagent#1236", "`m-other`",
                    "haiku, sonnet, opus and fable"):
         assert phrase in flat, phrase
+
+
+def _doc_section(doc, start):
+    """The text after the heading line `start` up to the next heading at its level or above."""
+    body = doc[doc.index(start) + len(start):]
+    level = start.strip().split(" ")[0]
+    stops = ["\n## "] + (["\n### "] if level == "###" else [])
+    return body[:min([body.index(s) for s in stops if s in body] + [len(body)])]
+
+
+def test_doc_defines_critical_and_day_numbers_once():
+    doc = (ROOT / "docs" / "worksite-page.md").read_bytes().decode("utf-8")
+    flat = " ".join(doc.split())
+    assert doc.count("\n### Critical leaves and the critical path\n") == 1
+    assert doc.count("\n### Day numbers\n") == 1
+    for h in ("The network", "Rolling wave", "Two limits, the summary and the marks"):
+        assert "](#critical-leaves-and-the-critical-path)" in _doc_section(doc, f"\n### {h}\n"), h
+    for start in ("\n### Two limits, the summary and the marks\n", "\n### The path to a requirement's work\n",
+                  "\n## The index\n"):
+        assert "](#day-numbers)" in _doc_section(doc, start), start
+    assert "so the critical path the page names is one chain" not in flat
+    assert "rounds the same end to the nearest day" not in flat
+
+
+def test_doc_template_quotes_match():
+    doc = (ROOT / "docs" / "worksite-page.md").read_bytes().decode("utf-8")
+    template = (ROOT / "gantry" / "templates" / "worksite.html").read_bytes().decode("utf-8")
+    section = _doc_section(doc, "\n### Critical leaves and the critical path\n")
+    for quoted in ("critical link", "critical, slack 0", "Critical path ("):
+        assert f"`{quoted}" in section, quoted
+        assert quoted in template, quoted
+    assert "`Critical path ({n} slots):`" in section
+    assert "Critical path ({{LENGTH}} slots):" in template
 
 
 def test_doc_states_page_texts():

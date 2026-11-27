@@ -645,13 +645,13 @@ The network's nodes are the open leaves with a link to another open leaf.
 Every link a longer chain already implies is removed (transitive reduction),
 and the page says how many. Columns are the earliest slot a leaf can start
 in, one slot per leaf; rows are the lanes. A leaf's slack is how many slots
-it can slip before the network gets longer. A box is red at slack 0 (the
-critical path), tinted at slack 1 to 3, and plain above. A link between two
-lanes is dashed, red when it is critical; a top-level leaf's link to an epic
-leaf crosses lanes too. Slack 0 can branch, so the critical path the page
-names is one chain of critical links from the first slot to the last.
-Below the network, the critical path, the near-critical leaves by slack, and
-the hours-weighted heaviest chain are listed.
+it can slip before the network gets longer. A box is red when it is
+[critical](#critical-leaves-and-the-critical-path) (slack 0), tinted at
+slack 1 to 3, and plain above. A link between two lanes is dashed, red when
+it is critical; a top-level leaf's link to an epic leaf crosses lanes too.
+Below the network, the critical path (the one chain the page names), the
+near-critical leaves by slack, and the hours-weighted heaviest chain are
+listed.
 
 A box shows the leaf's key, its priority as written and its hours, then its
 title cut to 40 characters; the full key, title and priority are in the
@@ -672,9 +672,38 @@ it moves no column, slack or critical path. A leaf whose only open
 dependencies are on another site is drawn in the first column, beside the
 network but not in it, with its boxes below it.
 
+### Critical leaves and the critical path
+
+A leaf or link is **critical** when its slack is 0: it cannot slip a slot
+without making the network longer. A red box, a red link between two slack-0
+leaves in adjacent slots (`critical link`) and a red schedule bar (the
+schedule legend's `critical, slack 0`) are critical in this sense. Red also
+marks things that are not: the named chain's bar in Two limits and its
+finish mark, the red outline of a near-critical leaf (slack 1 to 3), and the
+priority dots. Rolling wave keeps every critical leaf as a full box.
+
+Slack 0 can branch, so more than one chain of critical links can run from
+the first slot to the last. The page names one of them: from the first
+slack-0 leaf in slot 0, it takes the first critical link each time. That
+chain is **the critical path** under the network
+(`Critical path ({n} slots):`) and **the critical chain** in the schedule
+summary, Two limits, the finish marks and the gantt's `aria-label`. When
+other leaves are critical too, the critical path line adds
+`(one of the chains with slack 0; also critical: {keys})`
+naming them in network order. A schedule bar's detail reads
+`critical (slack 0), on the critical path`
+for a leaf on the named chain and
+`critical (slack 0), off the named critical path`
+for any other critical leaf.
+
+The hours note says the hours pick the same chain only when the
+hours-heaviest chain holds the same leaves as the critical path. Any other
+heaviest chain, even one of equal hours, is named.
+
 ### Rolling wave
 
-A leaf keeps its full box when its slack is 0, its own priority as written
+A leaf keeps its full box when it is
+[critical](#critical-leaves-and-the-critical-path) (slack 0), its own priority as written
 is P0 or P1 (not its effective priority), it is in progress (`~`), or the schedule
 starts it within 10 working days (60 agent-hours at 6 a day) at the default
 4 lanes. Every other leaf is a circle whose area is its hours. "Every leaf
@@ -814,8 +843,9 @@ and, when the site's N is above 0, adds ` The total includes {n} unestimated lea
 
 **The schedule summary**, beside the limit line, reads
 `With {lanes}, all open work ends around working day {end} and the critical chain around day {crit}. The chain alone needs {chain} days; the work spread evenly across the lanes needs {even}. The lanes are busy {busy}% of the time.`
-"Critical chain" here means the named chain, the same one the network
-draws. A site where no open leaf waits on another has no chain: the summary
+"Critical chain" here is the critical path the network names
+([Critical leaves and the critical path](#critical-leaves-and-the-critical-path));
+its day numbers follow [Day numbers](#day-numbers). A site where no open leaf waits on another has no chain: the summary
 reads
 `With {lanes}, all open work ends around working day {end}. No open leaf waits on another, so there is no critical chain; the work spread evenly across the lanes needs {even}. The lanes are busy {busy}% of the time.`,
 the chain row of Two limits says `none: no open leaf waits on another` and
@@ -847,6 +877,28 @@ N and a tooltip that names it.
 **Priority marks.** A bar whose leaf's own priority is P1 or P2 carries a
 dot (`pr-hi`); one whose own priority is P0 carries a ringed dot (`pr-p0`).
 The schedule's legend names both, `P0` beside `P1 or P2`.
+
+### Day numbers
+
+The page and the index count working days at 6 agent-hours a day and turn a
+plan's end into a day number in one of two ways.
+
+- The summary (`around working day {end}`, `around day {crit}`) and the
+  gantt's `aria-label` round half up to a whole day, so they can read day 0
+  for a plan that ends in its first half day. Python (`_round`) and the page
+  script (`Math.round`) round alike, so the server's summary and the
+  script's agree. The finish marks' tooltips also say "around" but show one
+  decimal (`ends around day 1.3`).
+- A day the plan ends **in** rounds up, never below 1 (`plan_finish_day`,
+  and `gantryTrace.endDay` in the page script): the index's
+  `finishes working day {day}`, at the default 4 lanes, and the path box's
+  end-day line, at the chosen lane count.
+
+So a plan that needs 8 agent-hours ends around working day 1 on the page
+and in working day 2 on the index. The index is written by a full build
+only; a `gantry build --site` build writes the page and no index. The
+schedule's prose says so:
+`The index page gives this plan's finish as the working day it ends in at the default {lanes}, counted up; the summary below rounds to the nearest day, so at {lanes} the index can read one day later.`
 
 ### Unestimated leaves and their labels
 
@@ -1118,10 +1170,9 @@ it in each trace row's `path`; the page's script only draws it.
 - **D against E.** D, the chain's days, is its hours at 6 a day, half up
   with no floor: a chain under half a day reads "about 0 working days", as
   the summary's chain days can. E is the working day the schedule at the
-  chosen lane count ends the targets' work: rounded up, never below 1, the
-  index's finish-day rule (`plan_finish_day`, and `gantryTrace.endDay` in
-  the page's script). So E can read a day later than the summary's "around
-  working day", which rounds half up. E follows the lane control; with no
+  chosen lane count ends the targets' work, counted up as the index counts
+  ([Day numbers](#day-numbers)), so E can read a day later than the
+  summary's "around working day". E follows the lane control; with no
   target (every serving leaf held out) there is no end-day line.
 - **The reasons.** `incomplete` lists `{key} waits on a cycle` for each
   held-out serving leaf, then `{key} waits on {text}` once for each
@@ -1473,10 +1524,9 @@ gives, joined by ` · `:
 - its report count, the panel's line count: `{n} missing or unreadable`, or
   `nothing missing or unreadable`.
 
-The finish day is the working day the plan ends in: the plan's latest
-finish in working days, rounded up, so a plan that needs 8 agent-hours at 6
-a day ends in day 2. (The page's schedule summary rounds the same end to the
-nearest day, since it says "around".) Working days run Monday to Friday, and
+The finish day is the working day the plan ends in
+([Day numbers](#day-numbers)): a plan that needs 8 agent-hours at 6 a day
+ends in day 2, which the page's summary calls around working day 1. Working days run Monday to Friday, and
 the as-of date is working day 1, even on a weekend; so a plan that ends in
 day 3 from Tuesday 2026-01-20 finishes on Thursday 2026-01-22.
 
