@@ -243,10 +243,21 @@ Gantry never runs it.
   document at schema 1.0 to 1.2 has none, and neither has a 1.3 document
   built without actuals. `generated_at` is that file's time in UTC, or
   `None` when the top-level `actuals` is null (devagent found no usable
-  file) or the document is not wired. `report` holds the entries the reader
-  consumes ([Report sources](#report-sources)), in document order, in every
-  document. The reader does not read the per-issue slots yet, so `issues`
-  is empty. No page uses the part yet (#25).
+  file) or the document is not wired. `issues` maps `(project, issue)` to
+  what the reader keeps of each issue's slot
+  (`projects[].issues[].actuals`) that is not null, in document order: the
+  distinct session hosts, first seen first; `time.operator_s`,
+  `time.agent_wall_s` and `tokens.total`, each `None` when its object is
+  null; and the event rows, `at` and `event` only, or `None` when
+  `milestones` is null (the events were not read, which is not an empty
+  list). The reader never keeps a session's `cwd_slug` or `session`, an
+  event's `source`, `tokens.raw`, `projects[].actuals` or
+  `actuals.unassigned`. An issue whose slot is null, or that has no
+  `actuals` key, has no entry, and a project with no `issues` list has no
+  slots. The map is read-only, and empty when the document is not wired:
+  there nothing under `projects[].issues` is looked at. `report` holds the
+  entries the reader consumes ([Report sources](#report-sources)), in
+  document order, in every document. No page uses the part yet (#25).
 
 The document is never changed. The build calls `read_portfolio`, the test
 builder `map_document`.
@@ -270,11 +281,22 @@ not use is ignored. The reader first checks shapes, in document order: the
 schema id, the version, the time (RFC 3339, UTC), each project's name,
 status and reason, each node's id, parent, text, glyph, state, source line,
 issue and `meta`, and each report entry. In a wired document (one with a
-top-level `actuals` key, #213) it then checks that key's value: `null`, or
-an object whose `generated_at` is a real `YYYY-MM-DDTHH:MM:SSZ` time. A
-missing key is refused as a
+top-level `actuals` key, #213) it also checks the actuals it keeps: each
+project's `issues`, when the key is there (a list of objects); each issue's
+`actuals` (`null` or an object); and, for a slot that is not null, its
+`issue` (a non-empty string, once per project among those slots), its
+`sessions` (a list of objects, each with a string `host`), its `time` and
+`tokens` (`null` or an object, with the numbers `operator_s` and
+`agent_wall_s`, and `total`) and its `milestones` (`null`, or a list of
+objects, each with a string `at` and `event`). A number the reader keeps is
+an integer or a float, never a boolean, from 0 to 1e18: `1e999` and an
+integer hundreds of digits long are refused like any other, as a `schema`
+error. Last comes the top-level `actuals`: `null`, or an object whose
+`generated_at` is a real `YYYY-MM-DDTHH:MM:SSZ` time. A missing key is
+refused as a
 wrong type, even where `null` is allowed (a node's parent and issue, a read
-project's reason, an entry's line). A key used twice in one JSON
+project's reason, an entry's line; a slot's `time`, `tokens` and
+`milestones`). A key used twice in one JSON
 object, a project name or node id used twice, and a source line used twice
 in one project are refused. Then it checks parent links: a parent is a node
 of the same project on an earlier line, and no node nests deeper than 64

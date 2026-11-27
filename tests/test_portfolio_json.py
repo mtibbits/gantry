@@ -25,8 +25,8 @@ from gantry.deps import refs
 from gantry.est_rules import classify_est
 from gantry.model import (REPORT_KINDS, STATE_GLYPHS, Leaf, Models, ParsedValue, ReportEntry, Row, SiteData,
                           meta_scalar, meta_values, report_order)
-from gantry.portfolio_json import (ActualsInput, DevagentEntry, PortfolioInput, PortfolioLoadError, ProjectInput,
-                                   map_document, read_portfolio)
+from gantry.portfolio_json import (ActualsInput, DevagentEntry, EventRow, IssueActuals, PortfolioInput,
+                                   PortfolioLoadError, ProjectInput, map_document, read_portfolio)
 from gantry.priority import rank
 from gantry.roots import directory_roots
 from gantry.sites import SiteEntry
@@ -599,7 +599,8 @@ def test_deepest_allowed_chain_is_read(tmp_path):
 
 
 SWEEP_VALUES = (None, 1, "x", [], {}, True)
-# Every field the reader uses, and each container on the way to it.
+# Every field the reader uses outside the actuals, and each container on the way to it
+# (test_actuals_shape_refusals has the actuals' own fields, #213).
 SWEEP_TARGETS = (
     ("schema",), ("schema_version",), ("generated_at",), ("projects",), ("parse_report",),
     ("projects", IDS), ("projects", IDS, "project"), ("projects", IDS, "status"),
@@ -646,8 +647,8 @@ def test_each_key_removed_raises_only_load_errors():
             else:
                 assert isinstance(got, PortfolioInput), (level, key)
                 read += 1
-    # The 16 read lack a field the reader does not use: a project's wbs_title, issues or rollup, a node's
-    # typed and derived fields, or its models.
+    # The 16 read lack a field the reader does not use (a project's wbs_title or rollup, a node's typed and
+    # derived fields), a project's issues, which reads as no slots (#213), or a node's models.
     assert (read, refused) == (16, 25)
 
 
@@ -1401,6 +1402,11 @@ def test_actuals_generated_at(tmp_path):
     # Null (no usable file): wired, with no time.
     null = map_document(hp.with_actuals(hp.written_doc(), {}, generated_at=None))
     assert (null.actuals.wired, null.actuals.generated_at) == (True, None)
+    # A null top-level object beside a filled slot still reads the slot.
+    beside = map_document(hp.with_actuals(hp.written_doc(), {("ids", "Issue-3"): hp.slot()}, generated_at=None))
+    assert (beside.actuals.wired, beside.actuals.generated_at) == (True, None)
+    assert list(beside.actuals.issues) == [("ids", "Issue-3")]
+    assert beside.actuals.issues[("ids", "Issue-3")].hosts == ("h1",)
     # No key: not wired.
     doc = hp.written_doc()
     doc.pop("actuals", None)
@@ -1418,3 +1424,258 @@ def test_actuals_generated_at(tmp_path):
             map_document(doc)
         assert (info.value.kind, str(info.value)) == (
             "schema", schema_text("the portfolio document", where, problem)), value
+
+
+# --- actuals: the per-issue slots (#213) -----------------------------------------------------
+
+# The slot the shape cases break: written.json's project `ids`, issue Issue-3.
+SLOT_ISSUE = ("projects", IDS, "issues", 3)
+SLOT = SLOT_ISSUE + ("actuals",)
+SLOT_AT = "$.projects[3].issues[3].actuals"
+NOT_AMOUNT = "not a number from 0 to 1e18"
+
+
+def wired_doc():
+    """written.json wired, with a filled slot at SLOT (ids, Issue-3) and one after it (ids, Issue-4)."""
+    doc = hp.written_doc()
+    doc.pop("actuals", None)
+    doc = hp.with_actuals(doc, {("ids", "Issue-3"): hp.slot(), ("ids", "Issue-4"): hp.slot()})
+    assert _parent(doc, SLOT + (None,))["sessions"] and doc["projects"][IDS]["issues"][3]["issue"] == "Issue-3"
+    return doc
+
+
+def test_actuals_slots_read(tmp_path):
+    filled = hp.slot(
+        sessions=(("h1", "-planted-cwd-one", "planted-session-one"), ("h2", "-planted-cwd-two", "planted-session-two"),
+                  ("h1", "-planted-cwd-three", "planted-session-three")),
+        time=(610.0, 4980.5), tokens=2029120.0,
+        events=(("2026-11-01T14:02:11Z", "opened", "planted-source-one"),
+                ("2026-11-02 09:15", "step_done", "planted-source-two")))
+    filled["tokens"]["raw"][0]["model"] = "planted-model"
+    # The bounds are kept: 0 and 1e18, an int as an int. An empty event list is not null.
+    edges = hp.slot(sessions=(), time=(0, 1e18), tokens=10**18, events=())
+    doc = hp.written_doc()
+    doc.pop("actuals", None)
+    doc = hp.with_actuals(doc, {("ids", "Issue-3"): filled, ("ids", "Issue-4"): hp.EMPTY_SLOT,
+                                ("rows", "Issue-2"): edges})
+    ids = doc["projects"][IDS]
+    assert [item["issue"] for item in ids["issues"]] == ["Issue-Fork-1", "Issue-Fork-2", "1.3", "Issue-3", "Issue-4"]
+    # Issue-Fork-1 has no `actuals` key, Issue-Fork-2 and 1.3 a null slot.
+    del ids["issues"][0]["actuals"]
+    assert [item.get("actuals", "no key") for item in ids["issues"][:3]] == ["no key", None, None]
+    # What the reader never keeps, planted: a project's overhead and the unassigned rows.
+    ids["actuals"] = {"overhead": {"rules": {"cwd": 1, "hint": 0}, "tokens": None, "sessions": [
+        {"cwd_slug": "-planted-overhead-cwd", "host": "planted-overhead-host", "session": "planted-overhead-session"}]}}
+    doc["actuals"]["unassigned"] = [{"cwd": "planted-unassigned-cwd", "sessions": [], "tokens": None}]
+    for got in (map_document(doc), hp.read_doc(tmp_path, doc)):
+        assert got.actuals.wired is True
+        # Exactly the slots that are not null, in document order; one host per distinct host, first seen first.
+        assert list(got.actuals.issues.items()) == [
+            (("ids", "Issue-3"), IssueActuals(("h1", "h2"), 610.0, 4980.5, 2029120.0, (
+                EventRow("2026-11-01T14:02:11Z", "opened"), EventRow("2026-11-02 09:15", "step_done")))),
+            (("ids", "Issue-4"), IssueActuals((), None, None, None, None)),
+            (("rows", "Issue-2"), IssueActuals((), 0, 1e18, 10**18, ())),
+        ]
+        kept = got.actuals.issues[("rows", "Issue-2")]
+        assert (type(kept.operator_s), type(kept.agent_wall_s), type(kept.tokens)) == (int, float, int)
+        assert kept.events == () and got.actuals.issues[("ids", "Issue-4")].events is None
+        # No session's cwd_slug or id, no event's source, no raw token row, no overhead and no unassigned row.
+        assert "planted" not in repr(got)
+        with pytest.raises(TypeError):
+            got.actuals.issues[("ids", "Issue-9")] = kept
+    names = lambda cls: [f.name for f in dataclasses.fields(cls)]  # noqa: E731
+    assert names(IssueActuals) == ["hosts", "operator_s", "agent_wall_s", "tokens", "events"]
+    assert names(EventRow) == ["at", "event"]
+    assert IssueActuals.__dataclass_params__.frozen and EventRow.__dataclass_params__.frozen
+    # Reading the slots changes nothing else: the same document with every slot null.
+    for project in doc["projects"]:
+        for item in project["issues"]:
+            item["actuals"] = None
+    bare = map_document(doc)
+    assert dict(bare.actuals.issues) == {} and dataclasses.replace(got, actuals=bare.actuals) == bare
+
+
+def test_absent_issues_is_no_slots():
+    # A wired document whose project has no `issues` key reads as no slots there, not as a refusal.
+    doc = wired_doc()
+    del doc["projects"][IDS]["issues"]
+    got = map_document(doc)
+    assert got.actuals.wired is True and dict(got.actuals.issues) == {}
+    # And an empty list likewise.
+    doc["projects"][IDS]["issues"] = []
+    assert dict(map_document(doc).actuals.issues) == {}
+    # A slot of a project that was not read is kept: the key is the project and the issue as written.
+    doc = wired_doc()
+    doc["projects"][NOT_UTF8]["issues"] = [{"issue": "Issue-1", "actuals": hp.EMPTY_SLOT}]
+    assert list(map_document(doc).actuals.issues) == [("ids", "Issue-3"), ("ids", "Issue-4"), ("not_utf8", "Issue-1")]
+    # An issue id is checked only where its slot is kept: beside a null slot it is not looked at.
+    doc = wired_doc()
+    doc["projects"][IDS]["issues"][0].update(issue=7)
+    doc["projects"][IDS]["issues"][1].update(issue="Issue-3")
+    assert list(map_document(doc).actuals.issues) == [("ids", "Issue-3"), ("ids", "Issue-4")]
+
+
+def test_unwired_documents_read_as_today(tmp_path):
+    for minor in ("1.0", "1.1", "1.2", "1.3"):
+        doc = hp.written_doc()
+        doc.pop("actuals", None)
+        doc["schema_version"] = minor
+        got = hp.read_doc(tmp_path, doc)
+        assert (got.actuals.wired, got.actuals.generated_at, dict(got.actuals.issues)) == (False, None, {}), minor
+        assert got.schema_version == minor
+        # Everything else is as the same document reads with the key and null slots.
+        wired = map_document(hp.with_actuals(doc, {}))
+        assert wired.actuals.wired is True
+        assert (got.projects, got.devagent_report, got.generated_at) == (
+            wired.projects, wired.devagent_report, wired.generated_at), minor
+        assert dataclasses.replace(wired, actuals=got.actuals) == got
+        # In an unwired document nothing under projects[].issues is looked at: garbage there reads the same.
+        for spoil in ("garbage", [hp.slot()], None):
+            spoiled = copy.deepcopy(doc)
+            for project in spoiled["projects"]:
+                for item in project["issues"]:
+                    item["actuals"] = spoil
+            assert map_document(spoiled) == got, (minor, spoil)
+        spoiled = copy.deepcopy(doc)
+        for project in spoiled["projects"]:
+            project["issues"] = "garbage"
+        assert map_document(spoiled) == got, minor
+    # The older minors differ from the reader's own only in the model tiers (#14).
+    assert got.schema_version == "1.3" and got.projects == mapped().projects
+
+
+def _twice(doc):
+    doc["projects"][IDS]["issues"][4]["issue"] = "Issue-3"
+
+
+# (what breaks, the mutation, where, the problem, the number as JSON text or None): one row per place the
+# reader checks in a wired document, and each kind of bad number at least once.
+ACTUALS_CASES = (
+    ("top level is a string", _set(("actuals",), "2026-01-10T23:59:07Z"), "$.actuals", "not an object or null", None),
+    ("top level is a list", _set(("actuals",), []), "$.actuals", "not an object or null", None),
+    ("no generation time", _drop(("actuals", "generated_at")), "$.actuals.generated_at", "not YYYY-MM-DDTHH:MM:SSZ",
+     None),
+    ("generation time with a space", _set(("actuals", "generated_at"), "2026-01-10 23:59:07Z"),
+     "$.actuals.generated_at", "not YYYY-MM-DDTHH:MM:SSZ", None),
+    ("generation time with an offset", _set(("actuals", "generated_at"), "2026-01-10T23:59:07+00:00"),
+     "$.actuals.generated_at", "not YYYY-MM-DDTHH:MM:SSZ", None),
+    ("generation time on no real day", _set(("actuals", "generated_at"), "2026-02-30T00:00:00Z"),
+     "$.actuals.generated_at", "not YYYY-MM-DDTHH:MM:SSZ", None),
+    ("generation time is a number", _set(("actuals", "generated_at"), 1768089547), "$.actuals.generated_at",
+     "not YYYY-MM-DDTHH:MM:SSZ", None),
+    ("issues is an object", _set(("projects", IDS, "issues"), {}), "$.projects[3].issues", "not a list", None),
+    ("issues is null", _set(("projects", IDS, "issues"), None), "$.projects[3].issues", "not a list", None),
+    ("an issue entry is a string", _set(SLOT_ISSUE, "Issue-3"), "$.projects[3].issues[3]", "not an object", None),
+    ("a slot is a string", _set(SLOT, "garbage"), SLOT_AT, "not an object or null", None),
+    ("a slot is a list", _set(SLOT, [hp.slot()]), SLOT_AT, "not an object or null", None),
+    ("a kept slot's issue is empty", _set(SLOT_ISSUE + ("issue",), ""), "$.projects[3].issues[3].issue",
+     "not a non-empty string", None),
+    ("a kept slot's issue is a number", _set(SLOT_ISSUE + ("issue",), 3), "$.projects[3].issues[3].issue",
+     "not a non-empty string", None),
+    ("a kept slot has no issue", _drop(SLOT_ISSUE + ("issue",)), "$.projects[3].issues[3].issue",
+     "not a non-empty string", None),
+    ("two kept slots share an issue", _twice, "$.projects[3].issues[4].issue", "used twice in this project", None),
+    ("sessions is null", _set(SLOT + ("sessions",), None), f"{SLOT_AT}.sessions", "not a list", None),
+    ("no sessions", _drop(SLOT + ("sessions",)), f"{SLOT_AT}.sessions", "not a list", None),
+    ("a session is a string", _set(SLOT + ("sessions", 0), "h1"), f"{SLOT_AT}.sessions[0]", "not an object", None),
+    ("a host is a number", _set(SLOT + ("sessions", 0, "host"), 7), f"{SLOT_AT}.sessions[0].host", "not a string",
+     None),
+    ("a session has no host", _drop(SLOT + ("sessions", 0, "host")), f"{SLOT_AT}.sessions[0].host", "not a string",
+     None),
+    ("time is a list", _set(SLOT + ("time",), []), f"{SLOT_AT}.time", "not an object or null", None),
+    ("no time", _drop(SLOT + ("time",)), f"{SLOT_AT}.time", "not an object or null", None),
+    ("tokens is a number", _set(SLOT + ("tokens",), 7), f"{SLOT_AT}.tokens", "not an object or null", None),
+    ("no tokens", _drop(SLOT + ("tokens",)), f"{SLOT_AT}.tokens", "not an object or null", None),
+    ("operator time is true", _set(SLOT + ("time", "operator_s"), True), f"{SLOT_AT}.time.operator_s", NOT_AMOUNT,
+     None),
+    ("operator time is negative", _set(SLOT + ("time", "operator_s"), -1), f"{SLOT_AT}.time.operator_s", NOT_AMOUNT,
+     None),
+    ("operator time is 1e999", _set(SLOT + ("time", "operator_s"), float("inf")), f"{SLOT_AT}.time.operator_s",
+     NOT_AMOUNT, "1e999"),
+    ("operator time is over 1e18", _set(SLOT + ("time", "operator_s"), 1.0000001e18), f"{SLOT_AT}.time.operator_s",
+     NOT_AMOUNT, None),
+    ("operator time is 400 digits long", _set(SLOT + ("time", "operator_s"), int("9" * 400)),
+     f"{SLOT_AT}.time.operator_s", NOT_AMOUNT, "9" * 400),
+    ("operator time is a string", _set(SLOT + ("time", "operator_s"), "610"), f"{SLOT_AT}.time.operator_s", NOT_AMOUNT,
+     None),
+    ("no operator time", _drop(SLOT + ("time", "operator_s")), f"{SLOT_AT}.time.operator_s", NOT_AMOUNT, None),
+    ("agent time is false", _set(SLOT + ("time", "agent_wall_s"), False), f"{SLOT_AT}.time.agent_wall_s", NOT_AMOUNT,
+     None),
+    ("agent time is below zero", _set(SLOT + ("time", "agent_wall_s"), -0.5), f"{SLOT_AT}.time.agent_wall_s",
+     NOT_AMOUNT, None),
+    ("agent time is -1e999", _set(SLOT + ("time", "agent_wall_s"), float("-inf")), f"{SLOT_AT}.time.agent_wall_s",
+     NOT_AMOUNT, "-1e999"),
+    ("agent time is null", _set(SLOT + ("time", "agent_wall_s"), None), f"{SLOT_AT}.time.agent_wall_s", NOT_AMOUNT,
+     None),
+    ("tokens are 1e999", _set(SLOT + ("tokens", "total"), float("inf")), f"{SLOT_AT}.tokens.total", NOT_AMOUNT,
+     "1e999"),
+    ("tokens are one over 10**18", _set(SLOT + ("tokens", "total"), 10**18 + 1), f"{SLOT_AT}.tokens.total", NOT_AMOUNT,
+     None),
+    ("tokens are 400 digits long", _set(SLOT + ("tokens", "total"), int("1" + "0" * 399)), f"{SLOT_AT}.tokens.total",
+     NOT_AMOUNT, "1" + "0" * 399),
+    ("tokens are a list", _set(SLOT + ("tokens", "total"), [7]), f"{SLOT_AT}.tokens.total", NOT_AMOUNT, None),
+    ("no token total", _drop(SLOT + ("tokens", "total")), f"{SLOT_AT}.tokens.total", NOT_AMOUNT, None),
+    ("milestones is an object", _set(SLOT + ("milestones",), {}), f"{SLOT_AT}.milestones", "not a list or null", None),
+    ("no milestones", _drop(SLOT + ("milestones",)), f"{SLOT_AT}.milestones", "not a list or null", None),
+    ("an event is a string", _set(SLOT + ("milestones", 1), "opened"), f"{SLOT_AT}.milestones[1]", "not an object",
+     None),
+    ("an event's time is null", _set(SLOT + ("milestones", 0, "at"), None), f"{SLOT_AT}.milestones[0].at",
+     "not a string", None),
+    ("an event has no time", _drop(SLOT + ("milestones", 0, "at")), f"{SLOT_AT}.milestones[0].at", "not a string",
+     None),
+    ("an event's word is a number", _set(SLOT + ("milestones", 2, "event"), 3), f"{SLOT_AT}.milestones[2].event",
+     "not a string", None),
+    ("an event has no word", _drop(SLOT + ("milestones", 2, "event")), f"{SLOT_AT}.milestones[2].event", "not a string",
+     None),
+)
+NUMBER_MARK = "the-number-goes-here"
+
+
+def test_actuals_shape_cases_are_counted():
+    assert len(ACTUALS_CASES) == 48
+    # Each (place, problem) of the reader's actuals checks at least once, array indexes aside: the top level
+    # and its time, issues, an entry, a slot, the two issue problems, sessions, a session, its host, time,
+    # tokens, the three numbers, milestones, an event, its time and its word.
+    places = {(re.sub(r"\[[0-9]+\]", "[]", where), problem) for _, _, where, problem, _ in ACTUALS_CASES}
+    assert len(places) == 19
+    # Each kept number, and each kind of bad number: a bool, a negative, 1e999, over 1e18, 400 digits, a string.
+    assert {where.rsplit(".", 1)[1] for _, _, where, problem, _ in ACTUALS_CASES if problem == NOT_AMOUNT} == {
+        "operator_s", "agent_wall_s", "total"}
+    assert {text for *_, text in ACTUALS_CASES if text is not None} == {"1e999", "-1e999", "9" * 400, "1" + "0" * 399}
+
+
+@pytest.mark.parametrize("case", ACTUALS_CASES, ids=[case[0] for case in ACTUALS_CASES])
+def test_actuals_shape_refusals(tmp_path, case):
+    what, change, where, problem, text = case
+    doc = wired_doc()
+    assert isinstance(map_document(doc), PortfolioInput)
+    changed = change(doc)
+    assert changed is None
+    # Through map_document, on the parsed document.
+    with pytest.raises(PortfolioLoadError) as info:
+        map_document(doc)
+    assert (info.value.kind, str(info.value)) == ("schema", schema_text("the portfolio document", where, problem))
+    # Through read_portfolio, on the file's bytes: a number JSON cannot hold as Python wrote it goes in as text.
+    if text is None:
+        data = hp.sp.dumps(doc)
+    else:
+        marked = wired_doc()
+        _set(tuple(SLOT + tuple(where.removeprefix(SLOT_AT + ".").split("."))), NUMBER_MARK)(marked)
+        data = hp.sp.dumps(marked)
+        assert data.count(f'"{NUMBER_MARK}"'.encode()) == 1
+        data = data.replace(f'"{NUMBER_MARK}"'.encode(), text.encode())
+    error = load_error(tmp_path, data)
+    assert (error.kind, str(error)) == ("schema", schema_text(doc_path(tmp_path), where, problem))
+
+
+def test_no_number_raises_anything_but_a_load_error():
+    # Whatever the number: not a number at all, the infinities, a float past every bound and a long integer.
+    for field in (("time", "operator_s"), ("time", "agent_wall_s"), ("tokens", "total")):
+        for value in (float("nan"), float("inf"), float("-inf"), 1.7976931348623157e308, -1e-300, 10**4000,
+                      -(10**4000), True, False, None, "1", [1], {"n": 1}):
+            doc = wired_doc()
+            _set(SLOT + field, value)(doc)
+            with pytest.raises(PortfolioLoadError) as info:
+                map_document(doc)
+            assert info.value.kind == "schema", (field, value)
+            assert str(info.value).endswith(f".{field[1]}: {NOT_AMOUNT}"), (field, value)

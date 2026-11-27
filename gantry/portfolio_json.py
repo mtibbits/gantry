@@ -75,6 +75,8 @@ TIME_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T(?:[01][0-9]|2[0-3]):[0-9]{2}:
 # The actuals file's own time, as devagent writes it: YYYY-MM-DDTHH:MM:SSZ (used with fullmatch).
 ACTUALS_TIME_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z")
 ACTUALS_TIME_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+# The largest number the reader keeps from a slot (seconds, tokens), so no sum of them overflows.
+MAX_AMOUNT = 1e18
 
 ROOTS_KEY = "portfolio_json"
 DEFAULT_SOURCE = "the portfolio document"
@@ -159,6 +161,24 @@ class ProjectInput:
     status: str  # one of STATUSES, as written
     reason: str | None  # devagent's status_reason; None when read
     data: SiteData  # empty unless read; its report holds Gantry's kinds only
+
+
+@dataclass(frozen=True)
+class EventRow:
+    """One dated event of an issue, as devagent wrote it; its `source` is not kept."""
+    at: str  # the event's time as its source wrote it: no one format
+    event: str  # devagent's milestones word (opened, step_done, mr_merged ...); the vocabulary is open
+
+
+@dataclass(frozen=True)
+class IssueActuals:
+    """What the reader keeps of one issue's actuals slot. A session's cwd_slug
+    and id, an event's source and the raw token counts are never kept."""
+    hosts: tuple[str, ...]  # the distinct sessions[].host, first seen first
+    operator_s: int | float | None  # time.operator_s; None when `time` is null
+    agent_wall_s: int | float | None  # time.agent_wall_s; None when `time` is null
+    tokens: int | float | None  # tokens.total; None when `tokens` is null
+    events: tuple[EventRow, ...] | None  # None: `milestones` is null, the events were not read (not the same as ())
 
 
 @dataclass(frozen=True)
@@ -371,6 +391,57 @@ def _check_node(node, where, ids, lines, models_ok):
         _check_models(node["models"], f"{where}.models")
 
 
+def _is_amount(value):
+    """A number the reader keeps: an int or float, not a bool, from 0 to
+    MAX_AMOUNT. The comparison is False, and raises nothing, for an infinity,
+    for NaN and for an integer of any length."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and 0 <= value <= MAX_AMOUNT
+
+
+def _check_slot(slot, where):
+    """An actuals slot that is not null: every field the reader keeps, in devagent's shapes."""
+    sessions = slot.get("sessions")
+    _need(isinstance(sessions, list), f"{where}.sessions", "not a list")
+    for k, session in enumerate(sessions):
+        _need(isinstance(session, dict), f"{where}.sessions[{k}]", "not an object")
+        _need(isinstance(session.get("host"), str), f"{where}.sessions[{k}].host", "not a string")
+    for name, keys in (("time", ("operator_s", "agent_wall_s")), ("tokens", ("total",))):
+        part = slot.get(name, _ABSENT)
+        _need(part is None or isinstance(part, dict), f"{where}.{name}", "not an object or null")
+        for key in keys if part is not None else ():
+            _need(_is_amount(part.get(key)), f"{where}.{name}.{key}", "not a number from 0 to 1e18")
+    milestones = slot.get("milestones", _ABSENT)
+    _need(milestones is None or isinstance(milestones, list), f"{where}.milestones", "not a list or null")
+    for k, row in enumerate(milestones or ()):
+        _need(isinstance(row, dict), f"{where}.milestones[{k}]", "not an object")
+        for key in ("at", "event"):
+            _need(isinstance(row.get(key), str), f"{where}.milestones[{k}].{key}", "not a string")
+
+
+def _check_issues(project, where):
+    """A wired document's project: its `issues`, when it has the key, and each
+    actuals slot. An entry with no `actuals` key, or a null one, has no slot,
+    and nothing else of it is looked at: its `issue` is checked only where the
+    slot is kept."""
+    if "issues" not in project:
+        return
+    issues = project["issues"]
+    _need(isinstance(issues, list), f"{where}.issues", "not a list")
+    kept = set()
+    for j, entry in enumerate(issues):
+        at = f"{where}.issues[{j}]"
+        _need(isinstance(entry, dict), at, "not an object")
+        slot = entry.get("actuals")
+        _need(slot is None or isinstance(slot, dict), f"{at}.actuals", "not an object or null")
+        if slot is None:
+            continue
+        issue = entry.get("issue")
+        _need(_is_filled(issue), f"{at}.issue", "not a non-empty string")
+        _need(issue not in kept, f"{at}.issue", "used twice in this project")
+        kept.add(issue)
+        _check_slot(slot, f"{at}.actuals")
+
+
 def _check_shapes(doc, source):
     """Pass 1: every field the reader uses has its shape, in document order.
     (generated_at, whether the minor carries leaf `models`, whether the
@@ -392,6 +463,7 @@ def _check_shapes(doc, source):
         raise _Problem("$.generated_at", problem) from None
     projects = doc.get("projects")
     _need(isinstance(projects, list), "$.projects", "missing or not a list")
+    wired = "actuals" in doc
     names, ids = set(), set()
     for i, project in enumerate(projects):
         where = f"$.projects[{i}]"
@@ -414,6 +486,8 @@ def _check_shapes(doc, source):
         lines = set()
         for j, node in enumerate(nodes):
             _check_node(node, f"{where}.nodes[{j}]", ids, lines, models_ok)
+        if wired:  # in a document that is not wired, nothing under `issues` is looked at
+            _check_issues(project, where)
     report = doc.get("parse_report")
     _need(isinstance(report, list), "$.parse_report", "not a list")
     for k, entry in enumerate(report):
@@ -424,7 +498,6 @@ def _check_shapes(doc, source):
         _need(line is None or _is_line(line), f"{where}.source_line", "not an integer from 1 to 999999999 or null")
         _need(_is_filled(entry.get("kind")), f"{where}.kind", "not a non-empty string")
         _need(isinstance(entry.get("message"), str), f"{where}.message", "not a string")
-    wired = "actuals" in doc
     return generated, models_ok, wired, _check_actuals_time(doc["actuals"]) if wired else None
 
 
@@ -616,6 +689,27 @@ def _site_data(site):
     return SiteData(site.leaves, site.rows, site.links, site.held_out, tuple(report), site.models_ok)
 
 
+# --- actuals ----------------------------------------------------------------------------------
+
+
+def _issue_actuals(slot):
+    """A checked slot as an IssueActuals."""
+    time, tokens, milestones = slot["time"], slot["tokens"], slot["milestones"]
+    return IssueActuals(
+        tuple(dict.fromkeys(session["host"] for session in slot["sessions"])),
+        None if time is None else time["operator_s"],
+        None if time is None else time["agent_wall_s"],
+        None if tokens is None else tokens["total"],
+        None if milestones is None else tuple(EventRow(row["at"], row["event"]) for row in milestones))
+
+
+def _slots(doc):
+    """{(project, issue): IssueActuals} for every slot of a checked, wired document that is not null."""
+    return {(project["project"], entry["issue"]): _issue_actuals(entry["actuals"])
+            for project in doc["projects"] for entry in project.get("issues", ())
+            if entry.get("actuals") is not None}
+
+
 # --- devagent's report entries ----------------------------------------------------------------
 
 
@@ -762,5 +856,5 @@ def map_document(doc, *, source=DEFAULT_SOURCE) -> PortfolioInput:
             report = (ReportEntry(name, None, "site_unreadable", reason),) if status == "unreadable" else ()
             data = SiteData((), (), (), (), report, models_ok)
         projects.append(ProjectInput(name, status, reason, data))
-    actuals = ActualsInput(wired, actuals_at, MappingProxyType({}), tuple(consumed))
+    actuals = ActualsInput(wired, actuals_at, MappingProxyType(_slots(doc) if wired else {}), tuple(consumed))
     return PortfolioInput(tuple(projects), tuple(shown), generated, doc["schema_version"], actuals)
