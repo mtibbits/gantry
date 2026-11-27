@@ -227,7 +227,7 @@
   <section>
     <div class="prose">
       <h2><span class="anchor" id="leaf-2.6"></span><span class="anchor" id="leaf-Issue-15"></span><span class="anchor" id="leaf-Issue-20"></span>Schedule across agent lanes</h2>
-      <p>All open leaves, linked or not, spread across parallel agent lanes. Each lane is one agent session working 6 agent-hours a day, and each leaf takes the midpoint of its estimate, or the default unit when it has none. When a lane comes free it takes the most urgent leaf that is ready; a leaf takes the priority of anything it unblocks, and WBS order breaks ties. This is one plausible plan, not a forecast.</p>
+      <p>All open leaves, linked or not, spread across parallel agent lanes. Each lane is one agent session working 6 agent-hours a day, and each leaf takes the midpoint of its estimate, or the default unit when it has none. When a lane comes free it takes the most urgent leaf that is ready; a leaf takes the priority of anything it unblocks, and WBS order breaks ties. This is one plausible plan, not a forecast. The index page gives this plan&#x27;s finish as the working day it ends in at the default 4 lanes, counted up; the summary below rounds to the nearest day, so at 4 lanes the index can read one day later.</p>
       <p class="label">agent capacity only; ignores operator attention; the week view is the plan</p>
       
     </div>

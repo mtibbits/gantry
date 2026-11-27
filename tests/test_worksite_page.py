@@ -1505,6 +1505,33 @@ def test_hours_note_same_means_same_leaves():
     assert "picks the same chain" not in visible_text(page)
 
 
+TWO = (hp.node("A", issue="Issue-1"), hp.node("B", issue="Issue-2", depends_on=["Issue-1"]))
+TWO_SUMMARY = ("With 4 lanes, all open work ends around working day 1 and the critical chain around day 1. "
+               "The chain alone needs 1 days; the work spread evenly across the lanes needs 0. The lanes are busy "
+               "25% of the time. The plan includes 2 unestimated leaves (2 on the critical chain).")
+
+
+def test_schedule_prose_names_the_index_day():
+    t = tree(page_for(data=hp.site(*TWO), unit=4))
+    (section,) = [i for i in find(t, "section") if "Schedule across agent lanes" in text_of(t, i)]
+    assert worksite.INDEX_DAY.format(lanes="4 lanes") in " ".join(text_of(t, section).split())
+
+
+def test_two_leaf_summary_unchanged():
+    m = model(data=hp.site(*TWO), unit=4)
+    assert m["finish_day"] == 2
+    assert m["summary"] == TWO_SUMMARY
+    t = tree(page_for(data=hp.site(*TWO), unit=4))
+    (gsum,) = [i for i in find(t, "p") if t.elements[i]["attrs"].get("id") == "g-sum"]
+    assert " ".join(text_of(t, gsum).split()) == m["summary"]
+
+
+def test_two_leaf_summary_after_script(node, tmp_path):
+    m = model(data=hp.site(*TWO), unit=4)
+    with open_page(write(tmp_path, page_for(data=hp.site(*TWO), unit=4))) as page:
+        assert " ".join(page.query("#g-sum")[0].text.split()) == m["summary"]
+
+
 def test_four_leaf_split_reaches_the_rule():
     net = model(data=hp.site(*FOUR))["network"]
     assert net["critical"] == ["Issue-1", "Issue-2", "Issue-3", "Issue-4"]

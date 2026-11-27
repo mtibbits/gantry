@@ -60,6 +60,8 @@ NO_CHAIN = "none: no open leaf waits on another"
 CHAIN_OTHERS = "(one of the chains with slack 0; also critical: {keys})"
 CRIT_ON_PATH = "critical (slack 0), on the critical path"
 CRIT_OFF_PATH = "critical (slack 0), off the named critical path"
+INDEX_DAY = ("The index page gives this plan's finish as the working day it ends in at the default {lanes}, "
+             "counted up; the summary below rounds to the nearest day, so at {lanes} the index can read one day later.")
 NO_LEAVES = "This site has no leaves."
 NO_OPEN = "This site has no open leaves."
 # devagent's own report entries on the panel (#12): its kind, as written, then its line and message.
@@ -1270,6 +1272,7 @@ def render_model(m, *, stamp="") -> str:
         SITE_UNEST=unest["site"],
         PATH_UNEST=unest["path"],
         SUMMARY=m["summary"],
+        INDEX_DAY=INDEX_DAY.format(lanes=_lanes_text(LANES_DEFAULT)),
         LIMITS_SVG=limits_svg,
         LIMITS_CAPTION=limits_caption,
         DATES=_count_line(unest["site"], DATES, DATES_ONE) if unest["site"] else "",
