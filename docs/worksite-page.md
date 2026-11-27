@@ -192,7 +192,7 @@ in this table's order.
 | `skipped_line` | a line devagent's near-miss rule reports (its `near_miss_line`): at the release `tests/devagent.pin` names, a list marker `-`, `*` or `+` after any spaces or tabs, optional spaces or tabs, then an opening bracket, unless it opens an inline link whose text is neither empty nor one state glyph. So `- [X] text`, `- [] text`, `- [ ]text`, `- [xx] text`, `-[x] text`, `* [ ] text` and `+ [ ] text` are reported, and a link item whose text is neither empty nor one state glyph (`- [1](url)` included) and a line indented with no-break spaces are not. The message is `WBS.md line N: ` and devagent's own text ([Reading devagent's portfolio JSON](#reading-devagents-portfolio-json), #12) | lists the line |
 | `no_nodes` | the file has no node lines | shows an empty site |
 | `site_unreadable` | devagent's portfolio JSON gives the project status `unreadable` (its `WBS.md` could not be read or decoded as UTF-8, or is not a file) | not built: the index shows `WBS.md unreadable: ` and devagent's reason |
-| `no_estimates_file` | the site has no estimates file, or its `estimates` key is `false` | reads hours and tiers from `est:` and the default unit only |
+| `no_estimates_file` | the site has no estimates file, or its `estimates` key is `false` | reads hours from `est:` and the default unit only, and model tiers from the portfolio JSON only |
 | `estimates_ignored` | a discovered `estimates-*.md` file is not the one read: an earlier date, the same date and an earlier name, no date, or a date that is not a valid date | lists the file and why |
 | `estimates_unreadable` | the configured file does not exist, or the file cannot be opened, is not valid UTF-8, or leads outside the configured roots | continues as if the site had no estimates file |
 | `estimates_no_table` | no line of the file read starts a table whose first header cell is `#` (prose only, other tables only, empty, or a `#` table that is indented or quoted) | reads no rows and continues as if the site had no estimates file; the header names no file |
@@ -203,7 +203,8 @@ in this table's order.
 | `est_unparseable` | an open leaf's `est:` is in none of the other classes | lists it; the leaf may still get hours from its estimates-file row |
 | `unestimated` | a scheduled leaf has no time `est:` and no estimates-file hours | schedules it at the default unit and labels every figure that counts it |
 | `no_priority` | open leaves have no `priority:` (one entry for the file) | counts them as P3 |
-| `no_model_tiers` | no scheduled leaf has a model tier | shows "no per-leaf model tiers recorded" |
+| `no_model_tiers` | no scheduled leaf has a model tier | shows "no per-leaf model tiers recorded"; when the portfolio document's schema carries no model tiers (a minor below 1.2), the report line reads `no per-leaf model tiers recorded; the portfolio document's schema version carries no model tiers (they arrive in 1.2)`, and the page's note stays the short form |
+| `models_from_estimates_file` | at least one open leaf with no model tier in the portfolio JSON takes its tiers from its estimates-file row (one entry for the file, #14) | lists `model tiers from the estimates file: {n} leaves`, or `model tiers from the estimates file: 1 leaf`; `{n}` counts the open leaves whose tiers came from a row, held-out leaves included. The line informs and warns of nothing: the panel's `Nothing is missing or unreadable.` still shows beside it ([Missing or unreadable](#missing-or-unreadable)), though the index still counts it among the site's report lines |
 | `bad_h` | a node's `h:` is not one digit from 0 to 4 written as a scalar, or is on a row with children; any state, finished leaves included | lists the value; the leaf's attention need comes from its next source ([week-plan.md](week-plan.md#attention-need)) |
 
 ## Reading devagent's portfolio JSON
@@ -282,8 +283,23 @@ every other node by its outline position, with `~<line>` and
 
 The reader takes each node's `meta` from the document. It does not read the
 typed `satisfies`, `h`, `depends_on` and `est` fields that schema 1.2 also
-carries, nor its `models` field (#14): Gantry keeps its own reading of `priority:` (P0 included),
+carries: Gantry keeps its own reading of `priority:` (P0 included),
 `depends_on`, `est:`, `h:`, `satisfies:` and `objective:`.
+
+It does read a leaf's `models` (#14), at schema minor 2 and later; at a
+lower minor the field is unknown and ignored unchecked. Each of its two
+classes, `thinking` and `checking`, is `null` or `{value, source}`, with a
+non-empty string `value` and a string `source`; any other shape is a schema
+error. A leaf with at least one class whose `source` is `wbs` (its own
+`WBS.md` key) gets `Leaf.models` with source `wbs`: each `wbs` class gives
+its value, and so does each `project` class beside it (devagent's
+project-level `step_models`). A class with any other source, and `null`,
+gives no tier. A leaf with no `wbs` class gets no tiers from the document:
+a `project` class alone is not a tier. Values are kept as written, never
+checked against devagent's model tokens, so `inherit` and an unknown name
+reach the page as text. `Models.classes` records each class's source, for
+the tests and the snapshots only. `SiteData.schema_models` records whether
+the document's minor carries `models`.
 
 devagent has already parsed each `meta` value into a string or a list of
 strings. The reader stores each string as a `ParsedValue`, a `str` subclass
@@ -314,7 +330,8 @@ devagent wrote it in `devagent_report`. Nothing is dropped.
 | `est_unparseable` | Suppressed on an open leaf whose `est:` Gantry cannot classify either: Gantry's `est_unparseable` lists it. Shown on a row or a finished leaf, which Gantry's pass skips. |
 | `h_malformed` | Suppressed on a node that holds `h:`: Gantry's `bad_h` reports every one. |
 | `dep_cycle` | Suppressed when its members' lines are the lines of one cycle Gantry finds among the project's open leaves, and no member belongs to another project: Gantry's `cycle` reports it. |
-| `parser_warning` | Suppressed when its message is about `priority` or `h` on a node holding that key, `depends_on` on an open leaf holding it, or `satisfies` or `objective` on a leaf holding it. |
+| `parser_warning` | Suppressed when its message is about `priority` or `h` on a node holding that key, `depends_on` on an open leaf holding it, or `satisfies`, `objective`, `thinking` or `checking` on a leaf holding it. |
+| `bad_model` | Shown as written: a leaf's malformed `thinking:` or `checking:` key, at its line, or a bad project `step_models` value, with no line (#14). Gantry has no check of its own for either. |
 | any other kind | Shown as written. So is a kind added by a later devagent release. |
 
 An entry above whose condition does not hold is shown as written. So is an
@@ -326,7 +343,14 @@ names, devagent emits no warning about `priority`, `satisfies:` or
 `objective:`, and reports a bad `h:` only as `h_malformed`; its one parser
 warning is about a code fence that never closes. The rule keeps a later
 release from showing, as devagent's, a problem with one of these keys that
-Gantry's own checks already report.
+Gantry's own checks already report. For `thinking:` and `checking:` on a
+leaf, devagent's own `bad_model` entry is the report, and it is shown.
+
+A model key on a row is a gap at the pin: devagent words no model-key
+warning, and reports a parent row's malformed `thinking:` or `checking:`
+nowhere, so neither Gantry nor its page can show it. The gap is reported as
+mtibbits/devagent#1236; Gantry's rule shows a row's model-key warning as
+written if a later release emits one.
 
 Gantry's own entries about the reader's nodes are unchanged: `key_collision`,
 `bad_priority`, `no_nodes`, `malformed_ref`, `cycle` and `waits_on_cycle`
@@ -385,22 +409,26 @@ with no page in the build is listed among the index's warnings as
 An expected-leaves snapshot records what the reader returns for one site and
 what each consumer reads from it: every node's key, issue, outline position,
 title, state, priority, epic or parent, its `meta` through the accessors,
-its classified `depends_on`, rank, `est:` class, `h:` score and
-`satisfies:` and `objective:` IDs, then the site's links, held-out keys,
+its classified `depends_on`, rank, `est:` class, `h:` score,
+`satisfies:` and `objective:` IDs and its `models` (a leaf's
+`[thinking, checking, source, classes]` as the reader maps them, or null;
+#14), then the site's links, held-out keys,
 report and shown devagent entries. `tests/fixtures/expected_leaves/` holds
 two sets:
 
 - `<site>.json` for each of the six sample sites, read from the document
   the pinned devagent release writes over `samples/`;
-- `fixture/<project>.json` for each of the 15 projects of
+- `fixture/<project>.json` for each of the 17 projects of
   `tests/fixtures/portfolio/written.json`. That file is the same release's
   document over the `WBS.md` texts the parser tests read: the 13 Gantry's
   own reader was tested with until #12 deleted it, `edges` (shapes where
-  the two readers differed) and `fires` (the fires tests' lines).
+  the two readers differed), `fires` (the fires tests' lines), and
+  `models` and `models_project` (#14: one node per model-key role, the
+  second beside a `[project.<name>.step_models]` table).
 
 Two tests in `tests/test_portfolio_equivalence.py` stand on them:
 
-1. The reader against the 15 fixture snapshots, byte for byte. It needs no
+1. The reader against the 17 fixture snapshots, byte for byte. It needs no
    devagent checkout, so it runs on every CI leg.
 2. The reader against the six sample snapshots, on a document made during
    the test. It needs a devagent checkout (below).
@@ -477,8 +505,17 @@ a build, and each is a report entry.
    at most the first 20 of its class.
 
 A placeholder, non-time or unparseable `est:` does not stop the row from
-applying. Model tiers, the effort bucket and flags come from the leaf's row
-whenever it has one. Each leaf's details name the source of its hours.
+applying. The effort bucket and flags come from the leaf's row whenever it
+has one. Each leaf's details name the source of its hours.
+
+Model tiers come from one source per leaf (#14). A leaf with tiers in the
+portfolio JSON (a `wbs` class, [Names and metadata](#names-and-metadata))
+keeps them, and its row's `thinking` and `checking` cells are not read for
+it: a class the JSON leaves out is never filled from the row. Any other open
+leaf takes both tiers from its row when a tier cell is filled, and is
+counted in `models_from_estimates_file`. Every row is still read and
+checked for every leaf, so a leaf with JSON tiers keeps its row's hours,
+effort and flags, and its row's bad cells and duplicates are still reported.
 
 ### The `est:` classes
 
@@ -642,15 +679,23 @@ as a box" shows them all as boxes; "Rolling wave" returns.
 
 ### The model band and table
 
-Where a site records a leaf's model tiers (its estimates file's `thinking`
-and `checking` columns, #10), the bottom band
-of its box names its thinking tier (left) and checking tier (right), each
-shaded by a class from a fixed set (`m-haiku`, `m-sonnet`, `m-opus`,
-`m-fable`, and `m-other`, a lavender tint, for any other value, such as
-`inherit`, which is shown as text). Each lane's label carries a
-table of how many of its open leaves use each tier, linked or not. When no
-leaf records a tier, there is no band and no table, and one line says
-`no per-leaf model tiers recorded`.
+A leaf's model tiers come from its `WBS.md` `thinking:` and `checking:`
+keys through the portfolio JSON, with a project-level `step_models` class
+shown only beside such a key on the same leaf; a leaf with none takes them
+from its estimates file's `thinking` and `checking` columns (#10, #14;
+[Which estimate a leaf uses](#which-estimate-a-leaf-uses) gives the per-leaf
+rule). A class with an unknown source is not shown. The bottom band of the
+box names its thinking tier (left) and checking tier (right), `none` for a
+class with no tier, each shaded by a class from a fixed set (`m-haiku`,
+`m-sonnet`, `m-opus`, `m-fable`, and `m-other`, a lavender tint, for any
+other value, such as `inherit` or a name devagent does not know, which is
+shown as text). Each lane's label carries a table of how many of its open
+leaves use each of haiku, sonnet, opus and fable, linked or not, from any
+source; `inherit` and other values get no row, and a lane with none of the
+four draws no table. When no leaf records a tier, there is no band and no
+table, and one line says `no per-leaf model tiers recorded`. Finished
+leaves carry tiers from the JSON too, so the week view's box for a finished
+leaf it names may show a band.
 
 ### The phase row
 
@@ -852,6 +897,9 @@ so the index's count for that site rises by one (#173); a single
 unreadable checklist is named only in its box's tooltip.
 
 With nothing to list, the panel says `Nothing is missing or unreadable.`
+It says so too when its only lines are informational: the
+`models_from_estimates_file` count line (#14) is listed and the all-clear
+follows it.
 A site whose `WBS.md` has no nodes shows `This site has no leaves.`, one
 with leaves but none open shows `This site has no open leaves.`, and one
 whose open leaves all wait on a cycle shows

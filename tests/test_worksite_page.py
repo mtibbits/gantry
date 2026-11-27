@@ -1378,6 +1378,20 @@ PAGE_TEXTS = [getattr(worksite, name) for name in (
     *phases.WHY_PROBLEM.values(), *phases.LOOK_WORDS.values(), *phases.PHASE_NAMES]
 
 
+def test_inputs_messages_in_docs():
+    # The texts #14 adds to the report (gantry/inputs.py), each as written, backticked.
+    doc = (ROOT / "docs" / "worksite-page.md").read_bytes().decode("utf-8")
+    texts = [INPUT_MESSAGES["models_from_estimates_file"], INPUT_MESSAGES["models_from_estimates_file_one"],
+             NO_TIERS_SCHEMA]
+    assert "{n}" in texts[0]
+    assert [text for text in texts if f"`{text}`" not in doc] == []
+    # The count line does not take the all-clear away, and the parent-row gap names its devagent issue.
+    flat = " ".join(doc.split())
+    for phrase in ("`models_from_estimates_file`", "`bad_model`", "mtibbits/devagent#1236", "`m-other`",
+                   "haiku, sonnet, opus and fable"):
+        assert phrase in flat, phrase
+
+
 def test_doc_states_page_texts():
     doc = (ROOT / "docs" / "worksite-page.md").read_bytes().decode("utf-8")
     missing = [text for text in PAGE_TEXTS if f"`{text}`" not in doc]

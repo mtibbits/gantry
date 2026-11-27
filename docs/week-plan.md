@@ -89,9 +89,11 @@ The heuristic never gives 0: Gantry does not assume a leaf runs without the
 operator unless the operator scores it so.
 
 Model tiers come from the leaf's recorded tiers, wherever they were read:
-the estimates file today, and whatever source #14 gives them. Flags come
-only from the estimates file, and only while #14 keeps it as their source: a leaf with no
-estimates-file row has no flags.
+its `WBS.md` `thinking:` and `checking:` keys through the portfolio JSON
+(with a project class beside them), or, for a leaf with none, its
+estimates-file row (#14; [the per-leaf rule](worksite-page.md#which-estimate-a-leaf-uses)).
+Flags come only from the estimates file, which #14 keeps as their source: a
+leaf with no estimates-file row has no flags.
 
 ### The mapping
 
