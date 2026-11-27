@@ -1,0 +1,8 @@
+- [ ] Epic {issue: Issue-1, thinking: gpt}
+  - [ ] Both {issue: Issue-2, thinking: fable, checking: sonnet}
+  - [ ] Think only {issue: Issue-3, thinking: sonnet}
+  - [ ] Bad alone {issue: Issue-4, thinking: gpt}
+  - [ ] Bad beside legal {issue: Issue-5, thinking: gpt, checking: fable}
+  - [ ] Inherit {issue: Issue-6, thinking: inherit}
+  - [x] Done keyed {issue: Issue-7, checking: opus}
+  - [ ] No keys {issue: Issue-8}

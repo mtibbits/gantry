@@ -35,11 +35,12 @@ from test_samples import ROOT, SAMPLES, git_work_tree, needs_git
 # U1: what devagent says of the sample site whose WBS.md is not UTF-8.
 MARSH_REASON = "WBS.md could not be read: UnicodeDecodeError: invalid continuation byte at byte 88"
 # The fixture's totals, as the pinned aggregator wrote them.
-FIXTURE_NODES = 138
-FIXTURE_ENTRIES = 71
-# The 13 sources the stopgap's tests read before #12 deleted it; `edges` is #83's own, `fires` #12's.
+FIXTURE_NODES = 154
+FIXTURE_ENTRIES = 75
+# The 13 sources the stopgap's tests read before #12 deleted it; `edges` is #83's own, `fires` #12's,
+# `models` and `models_project` #14's.
 EARLIER_SOURCES = 13
-LATER_SOURCES = ("edges", "fires")
+LATER_SOURCES = ("edges", "fires", "models", "models_project")
 
 
 def resolved(path):
@@ -254,7 +255,7 @@ def test_fixtures_mode_writes_or_checks(tmp_path, monkeypatch, capsys):
     assert sp.WRITTEN.read_bytes() == document
     assert sp.SAMPLES_WRITTEN.read_bytes() == document
     made = json.loads(sp.PROVENANCE.read_bytes().decode("utf-8"))
-    assert list(made) == ["pin", "devagent_version", "schema_version", "generated_at", "sources"]
+    assert list(made) == ["pin", "devagent_version", "schema_version", "generated_at", "sources", "step_models"]
     made = json.loads(sp.SAMPLES_PROVENANCE.read_bytes().decode("utf-8"))
     assert list(made) == ["pin", "devagent_version", "schema_version", "generated_at", "inputs"]
     capsys.readouterr()
@@ -270,7 +271,8 @@ def test_fixtures_mode_writes_or_checks(tmp_path, monkeypatch, capsys):
 
 def test_fixture_sources_are_listed(tmp_path):
     assert list(sp.FIXTURE_SOURCES) == ["cycle", "empty", "fences", "ids", "nesting", "not_utf8", "page", "priority",
-                                        "refs", "rows", "states", "est", "h_values", "edges", "fires"]
+                                        "refs", "rows", "states", "est", "h_values", "edges", "fires", "models",
+                                        "models_project"]
     assert sp.FIXTURE_SOURCES["fires"] == "tests/fixtures/portfolio/fires.md"
     for name, source in sp.FIXTURE_SOURCES.items():
         assert (ROOT / source).is_file(), name
@@ -287,7 +289,7 @@ def test_written_fixture_shape():
     doc = hp.written_doc()
     assert hp.written_doc() is not doc
     assert [p["project"] for p in doc["projects"]] == list(sp.FIXTURE_SOURCES)
-    assert len(doc["projects"]) == 15
+    assert len(doc["projects"]) == 17
     assert sum(len(p["nodes"]) for p in doc["projects"]) == FIXTURE_NODES
     assert len(doc["parse_report"]) == FIXTURE_ENTRIES
     # The 13 earlier sources give 122 nodes and 46 entries; `fires` adds 8 nodes and 15 entries (#12).
@@ -295,16 +297,21 @@ def test_written_fixture_shape():
     assert sum(e["project"] not in LATER_SOURCES for e in doc["parse_report"]) == 46
     assert sum(len(p["nodes"]) for p in doc["projects"] if p["project"] == "fires") == 8
     assert sum(e["project"] == "fires" for e in doc["parse_report"]) == 15
+    # `models` and `models_project` (#14): 8 nodes and 2 bad_model entries each.
+    for name in ("models", "models_project"):
+        assert sum(len(p["nodes"]) for p in doc["projects"] if p["project"] == name) == 8
+        assert sum(e["project"] == name for e in doc["parse_report"]) == 2
     assert doc["generated_at"] == sp.FIXED_TIME == "2026-01-12T09:30:00Z"
     by_name = {p["project"]: p for p in doc["projects"]}
     assert by_name["not_utf8"]["status"] == "unreadable"
     assert by_name["not_utf8"]["status_reason"].startswith("WBS.md could not be read: UnicodeDecodeError")
     assert {p["status"] for p in doc["projects"] if p["project"] != "not_utf8"} == {"read"}
     made = json.loads(sp.PROVENANCE.read_bytes().decode("utf-8"))
-    assert list(made) == ["pin", "devagent_version", "schema_version", "generated_at", "sources"]
+    assert list(made) == ["pin", "devagent_version", "schema_version", "generated_at", "sources", "step_models"]
     assert (made["pin"], made["devagent_version"]) == (tag, version)
     assert (made["schema_version"], made["generated_at"]) == (doc["schema_version"], sp.FIXED_TIME)
     assert made["sources"] == dict(sp.FIXTURE_SOURCES)
+    assert made["step_models"] == sp.FIXTURE_STEP_MODELS == {"models_project": {"checking": "opus"}}
     earlier = [s for s in made["sources"].values() if not s.startswith("tests/fixtures/portfolio/")]
     assert len(earlier) == EARLIER_SOURCES and all((ROOT / s).is_file() for s in made["sources"].values())
     for path in (sp.WRITTEN, sp.PROVENANCE):
@@ -383,7 +390,7 @@ def test_snapshot_set_is_the_sample_config():
         [f"{site}.json" for site in sample_projects()] + ["fixture"])
     assert len(sample_projects()) == 6
     assert sorted(p.name for p in ue.FIXTURE_OUT.iterdir()) == sorted(f"{name}.json" for name in sp.FIXTURE_SOURCES)
-    assert len(sp.FIXTURE_SOURCES) == 15
+    assert len(sp.FIXTURE_SOURCES) == 17
     for name, fixture in [(s, False) for s in sample_projects()] + [(n, True) for n in sp.FIXTURE_SOURCES]:
         snapshot = committed(name, fixture)
         assert list(snapshot) == SNAPSHOT_KEYS, name
@@ -459,7 +466,7 @@ def test_snapshot_tool_checks_and_writes(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(ue, "expected", lambda devagent: dict(samples))
     argv = ["--devagent", str(checkout)]
     assert ue.main(argv + ["--check"]) == 0
-    assert capsys.readouterr().out == "update_expected_leaves: 21 snapshots match\n"
+    assert capsys.readouterr().out == "update_expected_leaves: 23 snapshots match\n"
     # A copy of the folder with one file changed, one missing and one extra in each set.
     out = tmp_path / "expected_leaves"
     shutil.copytree(ue.OUT, out)
@@ -483,7 +490,7 @@ def test_snapshot_tool_checks_and_writes(tmp_path, monkeypatch, capsys):
     # Writing restores every expected file and leaves the list and the extra files alone.
     assert ue.main(argv) == 1
     assert capsys.readouterr().out.splitlines() == [
-        "update_expected_leaves: wrote 21 snapshots",
+        "update_expected_leaves: wrote 23 snapshots",
         "update_expected_leaves: ferry.json: extra",
         "update_expected_leaves: fixture/old.json: extra",
     ]

@@ -168,7 +168,7 @@ def test_models_field_is_not_read():
     doc = hp.written_doc()
     plain = map_document(doc)
     leaves = [n for p in doc["projects"] for n in p["nodes"] if n["leaf"]]
-    assert len(leaves) == 121 and all(list(n["models"]) == ["thinking", "checking"] for n in leaves)
+    assert len(leaves) == 135 and all(list(n["models"]) == ["thinking", "checking"] for n in leaves)
     assert not any("models" in n for p in doc["projects"] for n in p["nodes"] if not n["leaf"])
     for node in leaves:
         node["models"] = {"thinking": "<script>", "checking": ["x"]}
@@ -177,6 +177,41 @@ def test_models_field_is_not_read():
         del node["models"]
     doc["schema_version"] = "1.1"
     assert dataclasses.replace(map_document(doc), schema_version="1.2") == plain
+
+
+# The models fixture (#14): tests/fixtures/portfolio/models.md, read as two projects.
+MODELS_LINES = {"Epic": 1, "Both": 2, "Think only": 3, "Bad alone": 4, "Bad beside legal": 5, "Inherit": 6,
+                "Done keyed": 7, "No keys": 8}
+# The leaf keys the fixture gives each leaf, legal ones only.
+MODELS_KEYS = {"Both": {"thinking": "fable", "checking": "sonnet"}, "Think only": {"thinking": "sonnet"},
+               "Bad alone": {}, "Bad beside legal": {"checking": "fable"}, "Inherit": {"thinking": "inherit"},
+               "Done keyed": {"checking": "opus"}, "No keys": {}}
+LEAF_BAD = 'thinking "gpt" is not one of: sonnet opus haiku fable inherit; the key counts as absent'
+
+
+def test_pinned_aggregator_models_contract():
+    # What the pinned aggregator writes for model keys (#14): a legal leaf key is a `wbs` class, the
+    # project's step_models fill the other classes as `project`, a malformed leaf key is one bad_model
+    # entry at its line, and a parent row's key (legal or not) reaches no entry at all: the gap
+    # mtibbits/devagent#1236 reports. A later pin that closes it fails here first.
+    doc = hp.written_doc()
+    by_name = {p["project"]: p for p in doc["projects"]}
+    for name, project_checking in (("models", None), ("models_project", {"value": "opus", "source": "project"})):
+        nodes = {n["text"]: n for n in by_name[name]["nodes"]}
+        assert sorted(nodes) == sorted(MODELS_LINES), name
+        assert {t: n["source_line"] for t, n in nodes.items()} == MODELS_LINES, name
+        assert "models" not in nodes["Epic"] and not nodes["Epic"]["leaf"], name
+        for text, keys in MODELS_KEYS.items():
+            want = {cls: {"value": keys[cls], "source": "wbs"} if cls in keys else None
+                    for cls in ("thinking", "checking")}
+            if "checking" not in keys:
+                want["checking"] = project_checking
+            assert nodes[text]["models"] == want, (name, text)
+        entries = [e for e in doc["parse_report"] if e["project"] == name]
+        assert [(e["kind"], e["source_line"], e["message"]) for e in entries if e["kind"] == "bad_model"] == [
+            ("bad_model", MODELS_LINES["Bad alone"], LEAF_BAD), ("bad_model", MODELS_LINES["Bad beside legal"], LEAF_BAD)]
+        assert not [e for e in entries if e["kind"] == "parser_warning"], name
+        assert not [e for e in entries if e["source_line"] == MODELS_LINES["Epic"]], name
 
 
 def test_older_minor_is_read(tmp_path):
@@ -420,7 +455,7 @@ SCHEMA_ROWS = (
      "nests deeper than 64 levels"),
     ("a chain 5,000 deep", _set(("projects", EMPTY, "nodes"), chain(5000)), "$.projects[1].nodes[64].parent",
      "nests deeper than 64 levels"),
-    ("shapes are checked before parent links", _both_passes, "$.parse_report[70].message", "not a string"),
+    ("shapes are checked before parent links", _both_passes, "$.parse_report[74].message", "not a string"),
 )
 
 
@@ -428,7 +463,7 @@ def test_schema_breaking_documents(tmp_path):
     assert len(SCHEMA_ROWS) == 66
     doc = hp.written_doc()
     assert (doc["projects"][IDS]["nodes"][1]["id"], doc["projects"][IDS]["nodes"][0]["id"]) == ("n13", "n12")
-    assert doc["projects"][CYCLE]["nodes"][0]["id"] == "n1" and len(doc["parse_report"]) == 71
+    assert doc["projects"][CYCLE]["nodes"][0]["id"] == "n1" and len(doc["parse_report"]) == 75
     assert ", ".join(repr(g) for g in STATE_GLYPHS) == GLYPHS
     seen = set()
     for what, change, where, problem in SCHEMA_ROWS:
@@ -658,7 +693,7 @@ def test_meta_holds_parsed_values_in_document_order():
     assert type(lights.deps[0].raw) is ParsedValue
 
 
-META_COUNTS = (138, 187, 45, 25)  # nodes, scalar values, list values, leaf priorities
+META_COUNTS = (154, 221, 45, 25)  # nodes, scalar values, list values, leaf priorities
 
 
 def shape(data):
@@ -750,7 +785,7 @@ def test_map_document_equals_read_portfolio(tmp_path):
     read = hp.read_doc(tmp_path, hp.written_doc())
     again = mapped()
     assert read == again
-    assert len(read.projects) == 15 and sum(len(p.data.leaves) + len(p.data.rows) for p in read.projects) == 138
+    assert len(read.projects) == 17 and sum(len(p.data.leaves) + len(p.data.rows) for p in read.projects) == 154
 
 
 def test_reader_imports_no_parser_of_its_own():
@@ -810,7 +845,7 @@ def test_every_entry_has_one_disposition():
     doc = hp.written_doc()
     got = map_document(doc)
     names = [p["project"] for p in doc["projects"]]
-    later = ("edges", "fires")  # #83's own source, and #12's
+    later = ("edges", "fires", "models", "models_project")  # #83's own source, #12's, and #14's two
     earlier = [n for n in names if n not in later]
     # devagent_report is a sub-sequence of parse_report, unchanged and in document order.
     written = [as_shown(raw) for raw in doc["parse_report"]]
@@ -830,13 +865,17 @@ def test_every_entry_has_one_disposition():
         ("rows", 9, "dep_cycle"), ("rows", 13, "parent_done_leaf_pending")]
     # With `edges`: four near misses and two unresolved refs mapped; two est_unparseable, an
     # issue_malformed and a meta_unreadable shown.
-    assert partition(names) == (71, 31, 28, 12)
+    assert partition(names) == (75, 31, 28, 16)
     assert partition(["edges"]) == (10, 6, 0, 4)
     # With `fires` (#12): five issue-less leaves and seven near misses mapped; two meta_unreadable and an
     # unknown_meta_key shown (the kinds the fires do not read yet).
     assert partition(["fires"]) == (15, 12, 0, 3)
     assert [(e.line, e.kind) for e in got.devagent_report if e.project == "fires"] == [
         (12, "meta_unreadable"), (13, "unknown_meta_key"), (16, "meta_unreadable")]
+    # With `models` and `models_project` (#14): two bad_model entries each, shown.
+    for name in ("models", "models_project"):
+        assert partition([name]) == (2, 0, 0, 2)
+        assert [(e.line, e.kind) for e in got.devagent_report if e.project == name] == [(4, "bad_model"), (5, "bad_model")]
     # What is suppressed, by devagent's kind: each is an entry Gantry's own passes report.
     gone = {}
     kept = set(got.devagent_report)
